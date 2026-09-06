@@ -38,7 +38,9 @@ impl Api {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ContentBlock {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Thinking {
         thinking: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -55,7 +57,9 @@ pub enum ContentBlock {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ToolResultContent {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Image {
         data: String,
         #[serde(rename = "mimeType")]
@@ -94,7 +98,11 @@ pub enum StopReason {
 
 /// 三种 LLM 消息：用户 / 助手 / 工具结果。对应 pi 的 `Message`。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "role", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "role",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Message {
     User {
         content: String,
@@ -149,9 +157,7 @@ impl Message {
 
     pub fn assistant_text(text: impl Into<String>, model: &str) -> Message {
         Message::Assistant {
-            content: vec![ContentBlock::Text {
-                text: text.into(),
-            }],
+            content: vec![ContentBlock::Text { text: text.into() }],
             api: String::new(),
             provider: String::new(),
             model: model.to_string(),

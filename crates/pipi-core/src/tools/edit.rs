@@ -20,7 +20,9 @@ pub struct Edit {
 /// 每个 oldText 必须在原文中恰好出现一次；edits 之间不得重叠。
 pub fn apply_edits(content: &str, edits: &[Edit], path: &str) -> Result<String, String> {
     if edits.is_empty() {
-        return Err("Edit tool input is invalid. edits must contain at least one replacement.".into());
+        return Err(
+            "Edit tool input is invalid. edits must contain at least one replacement.".into(),
+        );
     }
     let mut ranges: Vec<(usize, usize, &Edit)> = Vec::new();
     for edit in edits {
@@ -101,7 +103,8 @@ pub fn diff_summary(base: &str, new: &str) -> (String, Option<usize>) {
         prefix += 1;
     }
     let mut suffix = 0usize;
-    while suffix < a.len() - prefix && suffix < b.len() - prefix
+    while suffix < a.len() - prefix
+        && suffix < b.len() - prefix
         && a[a.len() - 1 - suffix] == b[b.len() - 1 - suffix]
     {
         suffix += 1;
@@ -130,9 +133,7 @@ pub fn diff_summary(base: &str, new: &str) -> (String, Option<usize>) {
 }
 
 fn parse_edits(value: &Value) -> Result<Vec<Edit>, String> {
-    let arr = value["edits"]
-        .as_array()
-        .ok_or("缺少 edits 数组")?;
+    let arr = value["edits"].as_array().ok_or("缺少 edits 数组")?;
     arr.iter()
         .map(|e| {
             Ok(Edit {
@@ -253,9 +254,11 @@ mod tests {
 
     #[test]
     fn applies_unique_replacement() {
-        let out = apply_edits("fn main() {\n    println!(\"hi\");\n}\n", &[
-            edit("println!(\"hi\")", "println!(\"hello\")")
-        ], "m.rs")
+        let out = apply_edits(
+            "fn main() {\n    println!(\"hi\");\n}\n",
+            &[edit("println!(\"hi\")", "println!(\"hello\")")],
+            "m.rs",
+        )
         .unwrap();
         assert!(out.contains("println!(\"hello\")"));
         assert!(!out.contains("\"hi\""));
@@ -263,8 +266,7 @@ mod tests {
 
     #[test]
     fn applies_multiple_sorted_edits() {
-        let out = apply_edits("aaa bbb ccc", &[edit("bbb", "B"), edit("aaa", "A")], "f")
-            .unwrap();
+        let out = apply_edits("aaa bbb ccc", &[edit("bbb", "B"), edit("aaa", "A")], "f").unwrap();
         assert_eq!(out, "A B ccc");
     }
 

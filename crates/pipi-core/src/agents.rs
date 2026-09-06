@@ -163,7 +163,10 @@ pub fn create_agent(
     }
     for tool in &permissions.tools {
         if !KNOWN_TOOLS.contains(&tool.as_str()) {
-            return Err(format!("未知工具: {tool}（可用：{}）", KNOWN_TOOLS.join(", ")));
+            return Err(format!(
+                "未知工具: {tool}（可用：{}）",
+                KNOWN_TOOLS.join(", ")
+            ));
         }
     }
 
@@ -223,8 +226,12 @@ pub fn create_agent(
 pub fn load_agent(name: &str) -> Result<AgentDefinition, String> {
     let dir = agent_dir(name).ok_or_else(|| "无法定位用户主目录".to_string())?;
     let path = dir.join("agent.json");
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("无法读取 {}: {e}（agent 目录就是数据库，改文件即生效）", path.display()))?;
+    let text = fs::read_to_string(&path).map_err(|e| {
+        format!(
+            "无法读取 {}: {e}（agent 目录就是数据库，改文件即生效）",
+            path.display()
+        )
+    })?;
     serde_json::from_str(&text).map_err(|e| format!("agent.json 格式错误: {e}"))
 }
 

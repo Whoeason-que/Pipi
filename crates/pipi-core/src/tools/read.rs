@@ -171,8 +171,14 @@ mod tests {
 
     #[test]
     fn detects_image_magic_bytes() {
-        assert_eq!(detect_image_mime(&[0x89, b'P', b'N', b'G', 0x0D]), Some("image/png"));
-        assert_eq!(detect_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("image/jpeg"));
+        assert_eq!(
+            detect_image_mime(&[0x89, b'P', b'N', b'G', 0x0D]),
+            Some("image/png")
+        );
+        assert_eq!(
+            detect_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0]),
+            Some("image/jpeg")
+        );
         assert_eq!(detect_image_mime(b"GIF89a...."), Some("image/gif"));
         assert_eq!(detect_image_mime(b"hello"), None);
     }

@@ -18,7 +18,9 @@ fn resolve_in_memory_dir(memory_dir: &Path, path: &str) -> Result<PathBuf, Strin
     if p.is_absolute() {
         return Err("memory path 必须是相对 memory 目录的相对路径".into());
     }
-    if p.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+    if p.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return Err("memory path 不允许包含 ..".into());
     }
     Ok(memory_dir.join(p))

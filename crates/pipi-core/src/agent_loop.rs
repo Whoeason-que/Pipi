@@ -29,15 +29,39 @@ use crate::types::{
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
     AgentStart,
-    AgentEnd { messages: Vec<Message> },
+    AgentEnd {
+        messages: Vec<Message>,
+    },
     TurnStart,
-    TurnEnd { message: Box<Message>, tool_results: Vec<Message> },
-    MessageStart { message: Message },
-    MessageUpdate { message: Message },
-    MessageEnd { message: Message },
-    ToolExecutionStart { tool_call_id: String, tool_name: String, args: Value },
-    ToolExecutionUpdate { tool_call_id: String, tool_name: String, partial: ToolOutput },
-    ToolExecutionEnd { tool_call_id: String, tool_name: String, result: ToolOutput, is_error: bool },
+    TurnEnd {
+        message: Box<Message>,
+        tool_results: Vec<Message>,
+    },
+    MessageStart {
+        message: Message,
+    },
+    MessageUpdate {
+        message: Message,
+    },
+    MessageEnd {
+        message: Message,
+    },
+    ToolExecutionStart {
+        tool_call_id: String,
+        tool_name: String,
+        args: Value,
+    },
+    ToolExecutionUpdate {
+        tool_call_id: String,
+        tool_name: String,
+        partial: ToolOutput,
+    },
+    ToolExecutionEnd {
+        tool_call_id: String,
+        tool_name: String,
+        result: ToolOutput,
+        is_error: bool,
+    },
 }
 
 pub type Emitter = Arc<dyn Fn(AgentEvent) + Send + Sync>;
@@ -127,7 +151,9 @@ pub async fn run_agent_loop(
     emit(AgentEvent::AgentStart);
     emit(AgentEvent::TurnStart);
     for prompt in prompts {
-        emit(AgentEvent::MessageStart { message: prompt.clone() });
+        emit(AgentEvent::MessageStart {
+            message: prompt.clone(),
+        });
         emit(AgentEvent::MessageEnd { message: prompt });
     }
 
@@ -138,8 +164,12 @@ pub async fn run_agent_loop(
         while has_more_tool_calls || !pending.is_empty() {
             // 注入 steering / follow-up 消息
             for message in pending.drain(..) {
-                emit(AgentEvent::MessageStart { message: message.clone() });
-                emit(AgentEvent::MessageEnd { message: message.clone() });
+                emit(AgentEvent::MessageStart {
+                    message: message.clone(),
+                });
+                emit(AgentEvent::MessageEnd {
+                    message: message.clone(),
+                });
                 context.messages.push(message.clone());
                 new_messages.push(message);
             }
@@ -160,8 +190,7 @@ pub async fn run_agent_loop(
                 break 'outer;
             }
 
-            let tool_calls: Vec<ContentBlock> =
-                message.tool_calls().into_iter().cloned().collect();
+            let tool_calls: Vec<ContentBlock> = message.tool_calls().into_iter().cloned().collect();
 
             let mut tool_results: Vec<Message> = Vec::new();
             has_more_tool_calls = false;
@@ -261,18 +290,24 @@ async fn stream_assistant_response(
                     config.model.display_name(),
                     StopReason::Aborted,
                 );
-                emit(AgentEvent::MessageEnd { message: message.clone() });
+                emit(AgentEvent::MessageEnd {
+                    message: message.clone(),
+                });
                 return message;
             }
             Some(StreamEvent::Start) => {
-                emit(AgentEvent::MessageStart { message: partial(&blocks) });
+                emit(AgentEvent::MessageStart {
+                    message: partial(&blocks),
+                });
             }
             Some(StreamEvent::TextDelta { delta, .. }) => {
                 match blocks.last_mut() {
                     Some(ContentBlock::Text { text }) => text.push_str(&delta),
                     _ => blocks.push(ContentBlock::Text { text: delta }),
                 }
-                emit(AgentEvent::MessageUpdate { message: partial(&blocks) });
+                emit(AgentEvent::MessageUpdate {
+                    message: partial(&blocks),
+                });
             }
             Some(StreamEvent::ThinkingDelta { delta, .. }) => {
                 match blocks.last_mut() {
@@ -282,7 +317,9 @@ async fn stream_assistant_response(
                         thinking_signature: None,
                     }),
                 }
-                emit(AgentEvent::MessageUpdate { message: partial(&blocks) });
+                emit(AgentEvent::MessageUpdate {
+                    message: partial(&blocks),
+                });
             }
             Some(StreamEvent::ToolCallStart { id, name, .. }) => {
                 blocks.push(ContentBlock::ToolCall {
@@ -290,7 +327,9 @@ async fn stream_assistant_response(
                     name,
                     arguments: json!({}),
                 });
-                emit(AgentEvent::MessageUpdate { message: partial(&blocks) });
+                emit(AgentEvent::MessageUpdate {
+                    message: partial(&blocks),
+                });
             }
             Some(StreamEvent::ToolCallDelta { delta, .. }) => {
                 if let Some(ContentBlock::ToolCall { arguments, .. }) = blocks.last_mut() {
@@ -307,10 +346,14 @@ async fn stream_assistant_response(
                 } else {
                     blocks.push(call);
                 }
-                emit(AgentEvent::MessageUpdate { message: partial(&blocks) });
+                emit(AgentEvent::MessageUpdate {
+                    message: partial(&blocks),
+                });
             }
             Some(StreamEvent::Done { message, .. }) => {
-                emit(AgentEvent::MessageEnd { message: *message.clone() });
+                emit(AgentEvent::MessageEnd {
+                    message: *message.clone(),
+                });
                 return *message;
             }
             Some(StreamEvent::Error { message }) => {
@@ -333,7 +376,9 @@ struct ExecutedOutcome {
 
 fn error_output(message: impl Into<String>) -> ToolOutput {
     ToolOutput {
-        content: vec![ToolResultContent::Text { text: message.into() }],
+        content: vec![ToolResultContent::Text {
+            text: message.into(),
+        }],
         details: None,
         terminate: false,
     }
@@ -361,8 +406,12 @@ async fn fail_truncated_tool_calls(tool_calls: &[ContentBlock], emit: &Emitter) 
             is_error: true,
         });
         let message = tool_result_message(&call_id, &call_name, &result, true);
-        emit(AgentEvent::MessageStart { message: message.clone() });
-        emit(AgentEvent::MessageEnd { message: message.clone() });
+        emit(AgentEvent::MessageStart {
+            message: message.clone(),
+        });
+        emit(AgentEvent::MessageEnd {
+            message: message.clone(),
+        });
         messages.push(message);
     }
     Batch {
@@ -373,9 +422,11 @@ async fn fail_truncated_tool_calls(tool_calls: &[ContentBlock], emit: &Emitter) 
 
 fn call_parts(call: &ContentBlock) -> Option<(String, String, Value)> {
     match call {
-        ContentBlock::ToolCall { id, name, arguments } => {
-            Some((id.clone(), name.clone(), arguments.clone()))
-        }
+        ContentBlock::ToolCall {
+            id,
+            name,
+            arguments,
+        } => Some((id.clone(), name.clone(), arguments.clone())),
         _ => None,
     }
 }
@@ -461,7 +512,9 @@ fn prepare_call(call: &ContentBlock, config: &AgentLoopConfig, abort: &AbortSign
             if outcome.block {
                 return Prepared::Immediate {
                     result: error_output(
-                        outcome.reason.unwrap_or_else(|| "Tool execution was blocked".into()),
+                        outcome
+                            .reason
+                            .unwrap_or_else(|| "Tool execution was blocked".into()),
                     ),
                     is_error: true,
                 };
@@ -550,8 +603,12 @@ fn emit_finalized(call: &ContentBlock, outcome: &ExecutedOutcome, emit: &Emitter
         is_error: outcome.is_error,
     });
     let message = tool_result_message(&call_id, &call_name, &outcome.result, outcome.is_error);
-    emit(AgentEvent::MessageStart { message: message.clone() });
-    emit(AgentEvent::MessageEnd { message: message.clone() });
+    emit(AgentEvent::MessageStart {
+        message: message.clone(),
+    });
+    emit(AgentEvent::MessageEnd {
+        message: message.clone(),
+    });
     message
 }
 
@@ -628,9 +685,8 @@ async fn execute_parallel(
             let call2 = call.clone();
             let args2 = args.clone();
             let tool2 = tool.clone();
-            futures.push(async move {
-                run_tool(tool2, &ctx, &call2, args2, &emit2, &abort2).await
-            });
+            futures
+                .push(async move { run_tool(tool2, &ctx, &call2, args2, &emit2, &abort2).await });
         }
     }
     let executed = join_all(futures).await;
@@ -644,7 +700,9 @@ async fn execute_parallel(
                 result: result.clone(),
                 is_error: *is_error,
             },
-            Prepared::Ready { call: ready_call, .. } => {
+            Prepared::Ready {
+                call: ready_call, ..
+            } => {
                 let outcome = exec_iter.next().expect("future 数与 Ready 数一致");
                 finalize_outcome(ready_call, outcome, config)
             }
@@ -841,9 +899,13 @@ mod tests {
         assert_eq!(new_messages[1].role(), "assistant");
         assert_eq!(new_messages[2].role(), "toolResult");
         match &new_messages[2] {
-            Message::ToolResult { content, is_error, .. } => {
+            Message::ToolResult {
+                content, is_error, ..
+            } => {
                 assert!(!is_error);
-                assert!(matches!(&content[0], ToolResultContent::Text { text } if text == "count=3"));
+                assert!(
+                    matches!(&content[0], ToolResultContent::Text { text } if text == "count=3")
+                );
             }
             other => panic!("expected toolResult, got {other:?}"),
         }
@@ -854,10 +916,16 @@ mod tests {
         assert!(events
             .iter()
             .any(|e| matches!(e, AgentEvent::ToolExecutionStart { tool_name, .. } if tool_name == "count")));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            AgentEvent::ToolExecutionEnd {
+                is_error: false,
+                ..
+            }
+        )));
         assert!(events
             .iter()
-            .any(|e| matches!(e, AgentEvent::ToolExecutionEnd { is_error: false, .. })));
-        assert!(events.iter().any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
+            .any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
     }
 
     #[tokio::test]
@@ -892,9 +960,13 @@ mod tests {
         .await;
 
         match &new_messages[2] {
-            Message::ToolResult { is_error, content, .. } => {
+            Message::ToolResult {
+                is_error, content, ..
+            } => {
                 assert!(is_error);
-                assert!(matches!(&content[0], ToolResultContent::Text { text } if text == "不允许"));
+                assert!(
+                    matches!(&content[0], ToolResultContent::Text { text } if text == "不允许")
+                );
             }
             other => panic!("expected blocked toolResult, got {other:?}"),
         }
@@ -934,9 +1006,13 @@ mod tests {
         .await;
 
         match &new_messages[2] {
-            Message::ToolResult { is_error, content, .. } => {
+            Message::ToolResult {
+                is_error, content, ..
+            } => {
                 assert!(is_error);
-                assert!(matches!(&content[0], ToolResultContent::Text { text } if text.contains("token limit")));
+                assert!(
+                    matches!(&content[0], ToolResultContent::Text { text } if text.contains("token limit"))
+                );
             }
             other => panic!("expected rejected toolResult, got {other:?}"),
         }

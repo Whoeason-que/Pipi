@@ -95,8 +95,16 @@ pub fn render_skill_index(skills: &[SkillMeta]) -> String {
     let mut out = String::from("\n\n## Skills\n\n以下技能可用。需要时用 read 工具读取对应 SKILL.md 的完整内容再按其行事：\n");
     for skill in skills {
         match &skill.description {
-            Some(desc) => out.push_str(&format!("\n- **{}** — {desc}\n  ({})", skill.name, skill.path.display())),
-            None => out.push_str(&format!("\n- **{}**\n  ({})", skill.name, skill.path.display())),
+            Some(desc) => out.push_str(&format!(
+                "\n- **{}** — {desc}\n  ({})",
+                skill.name,
+                skill.path.display()
+            )),
+            None => out.push_str(&format!(
+                "\n- **{}**\n  ({})",
+                skill.name,
+                skill.path.display()
+            )),
         }
     }
     out
@@ -115,7 +123,9 @@ mod tests {
 
     #[test]
     fn frontmatter_parsing() {
-        let (fm, body) = parse_frontmatter("---\nname: git-safety\ndescription: \"安全用 git\"\n---\n\n# 正文\n");
+        let (fm, body) = parse_frontmatter(
+            "---\nname: git-safety\ndescription: \"安全用 git\"\n---\n\n# 正文\n",
+        );
         assert_eq!(fm.len(), 2);
         assert_eq!(fm[0], ("name".into(), "git-safety".into()));
         assert_eq!(fm[1], ("description".into(), "安全用 git".into()));
@@ -132,7 +142,11 @@ mod tests {
     #[test]
     fn scan_and_index() {
         let dir = std::env::temp_dir().join(format!("pipi-skills-{}", crate::session::new_id()));
-        make_skill(&dir, "git-safety", "---\nname: git-safety\ndescription: 安全用 git\n---\n正文");
+        make_skill(
+            &dir,
+            "git-safety",
+            "---\nname: git-safety\ndescription: 安全用 git\n---\n正文",
+        );
         make_skill(&dir, "deploy", "# 无 frontmatter\n");
         let skills = scan_skills(&dir);
         assert_eq!(skills.len(), 2);

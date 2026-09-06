@@ -35,16 +35,17 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 一个 Agent 的全部定义，就是磁盘上的一组普通文件：
 
 ```
-~/.pipi/agents/my-agent/
-├── agent.json          # Agent 清单：模型、工作目录、MCP 服务器等
-├── AGENTS.md           # 系统级指令，每次运行注入上下文
-├── skills/             # 技能包（SKILL.md + 随附文件）
-│   └── git-safety/
-│       └── SKILL.md
-├── memory/             # 持久记忆（Markdown，人机共写）
-│   └── user-preferences.md
-├── workspace/          # Agent 目录内的默认工作区（也可指向任意本地路径）
-└── sessions/           # 运行记录（JSONL，append-only）
+~/.pipi/
+├── settings.json       # 全局设置：主题、模型提供商（密钥支持环境变量引用）
+└── agents/my-agent/
+    ├── agent.json          # Agent 清单：模型、工作目录、权限、沙箱、MCP 服务器等
+    ├── AGENTS.md           # 系统级指令，每次运行注入上下文
+    ├── skills/             # 技能包（SKILL.md + 随附文件）
+    │   └── git-safety/
+    │       └── SKILL.md
+    ├── memory/             # 持久记忆（Markdown，人机共写）
+    ├── workspace/          # Agent 目录内的默认工作区（也可指向任意本地路径）
+    └── sessions/           # 运行记录（JSONL，append-only）
 ```
 
 - 没有数据库、没有私有格式、没有锁定。

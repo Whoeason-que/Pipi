@@ -255,7 +255,10 @@ mod tests {
     #[test]
     fn unparseable_script_fails_closed() {
         // 引号未闭合 / 控制流粘连接符 —— 无法证明安全，按危险处理
-        for script in ["if test -d /tmp/x; then rm -rf /tmp/x; fi", "echo \"$(rm x)"] {
+        for script in [
+            "if test -d /tmp/x; then rm -rf /tmp/x; fi",
+            "echo \"$(rm x)",
+        ] {
             let command = vec_str(&["bash", "-lc", script]);
             assert_eq!(
                 dangerous_command_match(&command),

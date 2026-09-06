@@ -13,8 +13,8 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::types::{
-    AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent, StreamOptions,
-    ToolResultContent, Usage,
+    AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
+    StreamOptions, ToolResultContent, Usage,
 };
 
 pub type EventStream = mpsc::Receiver<StreamEvent>;
@@ -183,7 +183,8 @@ pub fn anthropic_messages(context: &Context) -> Vec<Value> {
             Message::Assistant { content, .. } => {
                 let blocks: Vec<Value> = content
                     .iter()
-                    .filter_map(|b| match b {
+                    .filter_map(|b| {
+                        match b {
                         ContentBlock::Text { text } => {
                             Some(json!({ "type": "text", "text": text }))
                         }
@@ -203,6 +204,7 @@ pub fn anthropic_messages(context: &Context) -> Vec<Value> {
                             "name": name,
                             "input": arguments,
                         })),
+                    }
                     })
                     .collect();
                 if !blocks.is_empty() {
@@ -303,7 +305,10 @@ impl AnthropicStream {
             .values()
             .map(|acc| match acc {
                 BlockAcc::Text(text) => ContentBlock::Text { text: text.clone() },
-                BlockAcc::Thinking { thinking, signature } => ContentBlock::Thinking {
+                BlockAcc::Thinking {
+                    thinking,
+                    signature,
+                } => ContentBlock::Thinking {
                     thinking: thinking.clone(),
                     thinking_signature: signature.clone(),
                 },
@@ -454,7 +459,9 @@ impl AnthropicStream {
                 (Vec::new(), false)
             }
             "message_delta" => {
-                self.usage.output = v["usage"]["output_tokens"].as_u64().unwrap_or(self.usage.output);
+                self.usage.output = v["usage"]["output_tokens"]
+                    .as_u64()
+                    .unwrap_or(self.usage.output);
                 if let Some(reason) = v["delta"]["stop_reason"].as_str() {
                     self.stop_reason = map_anthropic_stop(reason);
                 }
@@ -905,8 +912,11 @@ mod tests {
                 parameters: json!({"type": "object"}),
             }],
         };
-        let payload =
-            anthropic_payload(&model(Api::AnthropicMessages), &ctx, &StreamOptions::default());
+        let payload = anthropic_payload(
+            &model(Api::AnthropicMessages),
+            &ctx,
+            &StreamOptions::default(),
+        );
         assert_eq!(payload["system"], json!("be brief"));
         assert_eq!(payload["max_tokens"], json!(1024));
         assert_eq!(payload["messages"][0]["role"], json!("user"));
@@ -931,7 +941,9 @@ mod tests {
                 Message::ToolResult {
                     tool_call_id: "t2".into(),
                     tool_name: "read".into(),
-                    content: vec![ToolResultContent::Text { text: "out2".into() }],
+                    content: vec![ToolResultContent::Text {
+                        text: "out2".into(),
+                    }],
                     is_error: false,
                     details: None,
                     timestamp: 0,
@@ -969,7 +981,9 @@ mod tests {
                 Message::ToolResult {
                     tool_call_id: "t1".into(),
                     tool_name: "bash".into(),
-                    content: vec![ToolResultContent::Text { text: "done".into() }],
+                    content: vec![ToolResultContent::Text {
+                        text: "done".into(),
+                    }],
                     is_error: false,
                     details: None,
                     timestamp: 0,
@@ -977,8 +991,11 @@ mod tests {
             ],
             tools: vec![],
         };
-        let payload =
-            openai_payload(&model(Api::OpenAICompletions), &ctx, &StreamOptions::default());
+        let payload = openai_payload(
+            &model(Api::OpenAICompletions),
+            &ctx,
+            &StreamOptions::default(),
+        );
         let msgs = payload["messages"].as_array().unwrap();
         assert_eq!(msgs[0]["role"], json!("system"));
         assert_eq!(msgs[1]["tool_calls"][0]["function"]["name"], json!("bash"));
@@ -1012,7 +1029,14 @@ mod tests {
                 _ => None,
             })
             .expect("done event");
-        let Message::Assistant { content, stop_reason, usage, model, .. } = *done else {
+        let Message::Assistant {
+            content,
+            stop_reason,
+            usage,
+            model,
+            ..
+        } = *done
+        else {
             panic!("expected assistant");
         };
         assert_eq!(stop_reason, StopReason::ToolUse);
@@ -1058,7 +1082,10 @@ mod tests {
             })
             .expect("done event");
         let Message::Assistant {
-            content, usage, stop_reason, ..
+            content,
+            usage,
+            stop_reason,
+            ..
         } = *done
         else {
             panic!("expected assistant");

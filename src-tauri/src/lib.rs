@@ -7,6 +7,8 @@ pub fn run() {
             commands::create_agent,
             commands::load_agent,
             commands::save_agent,
+            commands::get_settings,
+            commands::save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("Pipi 启动失败");

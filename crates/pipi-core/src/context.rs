@@ -30,9 +30,9 @@ pub fn estimate_tokens(message: &Message) -> u64 {
             .map(|block| match block {
                 ContentBlock::Text { text } => text.len(),
                 ContentBlock::Thinking { thinking, .. } => thinking.len(),
-                ContentBlock::ToolCall { name, arguments, .. } => {
-                    name.len() + serde_json::to_string(arguments).unwrap_or_default().len()
-                }
+                ContentBlock::ToolCall {
+                    name, arguments, ..
+                } => name.len() + serde_json::to_string(arguments).unwrap_or_default().len(),
             })
             .sum(),
         Message::ToolResult { content, .. } => content
@@ -62,7 +62,11 @@ pub fn should_compact(context_tokens: u64, context_window: u64, reserve_tokens: 
 /// （provider 会拒绝孤儿 toolResult）。找不到可行切点（尾部本身就超预算）
 /// 时原样返回，交由上层处理（provider 会以 length 停止，loop 已有对应
 /// 处理路径）。返回 (裁剪后消息, 丢弃条数)。
-pub fn prune_oldest(messages: &[Message], context_window: u64, reserve_tokens: u64) -> (Vec<Message>, usize) {
+pub fn prune_oldest(
+    messages: &[Message],
+    context_window: u64,
+    reserve_tokens: u64,
+) -> (Vec<Message>, usize) {
     let budget = context_window.saturating_sub(reserve_tokens);
     let total = estimate_context_tokens(messages);
     if total <= budget || messages.is_empty() {

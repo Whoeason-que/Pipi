@@ -96,7 +96,8 @@ mod tests {
         assert!(out.is_ok());
 
         // 工作目录外：拒绝
-        let outside = std::env::temp_dir().join(format!("pipi-outside-{}.txt", crate::session::new_id()));
+        let outside =
+            std::env::temp_dir().join(format!("pipi-outside-{}.txt", crate::session::new_id()));
         let err = WriteTool
             .execute(
                 &ctx,
@@ -108,7 +109,11 @@ mod tests {
 
         // ../ 逃逸：拒绝
         let err = WriteTool
-            .execute(&ctx, &json!({"path": "../escape.txt", "content": "hi"}), &|_| {})
+            .execute(
+                &ctx,
+                &json!({"path": "../escape.txt", "content": "hi"}),
+                &|_| {},
+            )
             .await;
         assert!(err.is_err());
     }

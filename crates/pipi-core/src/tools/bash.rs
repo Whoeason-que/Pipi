@@ -101,7 +101,10 @@ impl AgentTool for BashTool {
                 match stdout.read(&mut buf).await {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        shared_out.lock().unwrap().push_str(&String::from_utf8_lossy(&buf[..n]));
+                        shared_out
+                            .lock()
+                            .unwrap()
+                            .push_str(&String::from_utf8_lossy(&buf[..n]));
                     }
                 }
             }
@@ -113,7 +116,10 @@ impl AgentTool for BashTool {
                 match stderr.read(&mut buf).await {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        shared_err.lock().unwrap().push_str(&String::from_utf8_lossy(&buf[..n]));
+                        shared_err
+                            .lock()
+                            .unwrap()
+                            .push_str(&String::from_utf8_lossy(&buf[..n]));
                     }
                 }
             }
@@ -168,7 +174,8 @@ impl AgentTool for BashTool {
         let mut full_output_path: Option<String> = None;
         if truncation.truncated {
             // pi 的 spill 行为：完整输出写入临时文件，路径附在提示里
-            let spill = std::env::temp_dir().join(format!("pipi-bash-{}.txt", crate::session::new_id()));
+            let spill =
+                std::env::temp_dir().join(format!("pipi-bash-{}.txt", crate::session::new_id()));
             if tokio::fs::write(&spill, &full).await.is_ok() {
                 full_output_path = Some(spill.to_string_lossy().into_owned());
             }
@@ -221,9 +228,7 @@ impl AgentTool for BashTool {
         let status = status.map_err(|e| format!("等待命令结束失败: {e}"))?;
         if let Some(code) = status.code() {
             if code != 0 {
-                return Err(format!(
-                    "{output_text}\n\nCommand exited with code {code}"
-                ));
+                return Err(format!("{output_text}\n\nCommand exited with code {code}"));
             }
         }
 

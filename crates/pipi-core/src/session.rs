@@ -101,8 +101,7 @@ impl SessionWriter {
     }
 
     fn write_entry(&mut self, entry: &SessionEntry) -> std::io::Result<()> {
-        let mut line = serde_json::to_string(entry)
-            .map_err(std::io::Error::other)?;
+        let mut line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
         line.push('\n');
         self.file.write_all(line.as_bytes())?;
         self.file.flush()?; // 每条即刷，崩溃安全
@@ -122,7 +121,11 @@ pub fn load_session(path: &Path) -> Result<Vec<SessionEntry>, String> {
         }
         match serde_json::from_str::<SessionEntry>(line) {
             Ok(entry) => entries.push(entry),
-            Err(e) => eprintln!("pipi: 会话文件 {} 第 {} 行损坏，已跳过: {e}", path.display(), i + 1),
+            Err(e) => eprintln!(
+                "pipi: 会话文件 {} 第 {} 行损坏，已跳过: {e}",
+                path.display(),
+                i + 1
+            ),
         }
     }
     Ok(entries)
@@ -131,8 +134,7 @@ pub fn load_session(path: &Path) -> Result<Vec<SessionEntry>, String> {
 /// 重建「活跃路径」：从 tip 沿 parentId 回溯到根（pi 的树状回放）。
 pub fn active_path(entries: &[SessionEntry]) -> Vec<&SessionEntry> {
     use std::collections::HashMap;
-    let by_id: HashMap<&str, &SessionEntry> =
-        entries.iter().map(|e| (e.id.as_str(), e)).collect();
+    let by_id: HashMap<&str, &SessionEntry> = entries.iter().map(|e| (e.id.as_str(), e)).collect();
     let mut path = Vec::new();
     let mut cursor = entries.last().map(|e| e.id.as_str());
     while let Some(id) = cursor {
@@ -181,8 +183,14 @@ mod tests {
         let entries = load_session(&writer.path()).unwrap();
         assert_eq!(entries.len(), 3);
         assert!(entries[0].parent_id.is_none());
-        assert_eq!(entries[1].parent_id.as_deref(), Some(entries[0].id.as_str()));
-        assert_eq!(entries[2].parent_id.as_deref(), Some(entries[1].id.as_str()));
+        assert_eq!(
+            entries[1].parent_id.as_deref(),
+            Some(entries[0].id.as_str())
+        );
+        assert_eq!(
+            entries[2].parent_id.as_deref(),
+            Some(entries[1].id.as_str())
+        );
         assert_eq!(entries[0].seq, 0);
         assert_eq!(entries[2].seq, 2);
         match &entries[0].kind {
@@ -203,7 +211,10 @@ mod tests {
         let path = writer.path().to_path_buf();
         // 模拟崩溃留下的半行
         use std::io::Write;
-        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         writeln!(f, r#"{{"id":"broken""#).unwrap();
         drop(f);
 

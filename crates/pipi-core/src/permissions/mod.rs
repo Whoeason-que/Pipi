@@ -130,10 +130,7 @@ fn split_raw_on_connectors(s: &str) -> Result<Vec<String>, String> {
                 if chars.peek() == Some(&'&') {
                     chars.next();
                     push_segment(&mut cur, &mut segments);
-                } else if chars
-                    .peek()
-                    .is_none_or(|next| next.is_whitespace())
-                {
+                } else if chars.peek().is_none_or(|next| next.is_whitespace()) {
                     // 后台运行符 `sleep 5 & cmd`
                     push_segment(&mut cur, &mut segments);
                 } else {
@@ -181,7 +178,11 @@ impl BashPermissions {
         match self.mode {
             BashMode::AllowAll => Ok(()),
             BashMode::Allowlist => {
-                if self.commands.iter().any(|c| matches_entry(c, &segment.text)) {
+                if self
+                    .commands
+                    .iter()
+                    .any(|c| matches_entry(c, &segment.text))
+                {
                     Ok(())
                 } else {
                     Err(format!(
@@ -192,7 +193,11 @@ impl BashPermissions {
                 }
             }
             BashMode::Denylist => {
-                if self.commands.iter().any(|c| matches_entry(c, &segment.text)) {
+                if self
+                    .commands
+                    .iter()
+                    .any(|c| matches_entry(c, &segment.text))
+                {
                     Err(format!("命令「{}」被黑名单禁止", segment.text))
                 } else {
                     Ok(())
@@ -257,8 +262,7 @@ impl PermissionsConfig {
     pub fn assess_bash(&self, command: &str, workspace: &std::path::Path) -> Result<(), String> {
         if self.sandbox == SandboxMode::ReadOnly {
             return Err(
-                "沙箱策略为 read-only：不允许执行命令（需要执行请调整 Agent 的沙箱设置）"
-                    .into(),
+                "沙箱策略为 read-only：不允许执行命令（需要执行请调整 Agent 的沙箱设置）".into(),
             );
         }
         let segments = split_segments(command)?;
@@ -319,7 +323,11 @@ fn redirect_kind(token: &str) -> (usize, bool) {
     }
     match bytes.get(idx) {
         Some(b'>') => {
-            let op_len = if bytes.get(idx + 1) == Some(&b'>') { idx + 2 } else { idx + 1 };
+            let op_len = if bytes.get(idx + 1) == Some(&b'>') {
+                idx + 2
+            } else {
+                idx + 1
+            };
             (op_len, token.len() > op_len)
         }
         _ => (0, false),
@@ -427,9 +435,15 @@ mod tests {
             },
             sandbox: SandboxMode::DangerFullAccess,
         };
-        assert!(p.assess_bash("git add . && git commit", Path::new("/tmp")).is_ok());
-        assert!(p.assess_bash("git add . && rm -rf /tmp/x", Path::new("/tmp")).is_err());
-        assert!(p.assess_bash("echo hi; git status", Path::new("/tmp")).is_err());
+        assert!(p
+            .assess_bash("git add . && git commit", Path::new("/tmp"))
+            .is_ok());
+        assert!(p
+            .assess_bash("git add . && rm -rf /tmp/x", Path::new("/tmp"))
+            .is_err());
+        assert!(p
+            .assess_bash("echo hi; git status", Path::new("/tmp"))
+            .is_err());
     }
 
     #[test]
@@ -442,9 +456,15 @@ mod tests {
             },
             sandbox: SandboxMode::DangerFullAccess,
         };
-        assert!(p.assess_bash("ls -la && rm -rf /tmp/x", Path::new("/tmp")).is_err());
-        assert!(p.assess_bash("sudo apt install x", Path::new("/tmp")).is_err());
-        assert!(p.assess_bash("ls -la && git status", Path::new("/tmp")).is_ok());
+        assert!(p
+            .assess_bash("ls -la && rm -rf /tmp/x", Path::new("/tmp"))
+            .is_err());
+        assert!(p
+            .assess_bash("sudo apt install x", Path::new("/tmp"))
+            .is_err());
+        assert!(p
+            .assess_bash("ls -la && git status", Path::new("/tmp"))
+            .is_ok());
     }
 
     #[test]
@@ -458,7 +478,9 @@ mod tests {
             sandbox: SandboxMode::DangerFullAccess,
         };
         // 引号里的 "分号" 不拆段：整段是一条 echo，不命中 rm
-        assert!(p.assess_bash(r#"echo "a; rm -rf /""#, Path::new("/tmp")).is_ok());
+        assert!(p
+            .assess_bash(r#"echo "a; rm -rf /""#, Path::new("/tmp"))
+            .is_ok());
         assert!(p.assess_bash("rm x", Path::new("/tmp")).is_err());
     }
 
