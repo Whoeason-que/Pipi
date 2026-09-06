@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import ChatView from "./Chat";
 import {
   API_LABELS,
   SANDBOX_LABELS,
   type AgentDefinition,
+  type SessionInfoView,
+  type SessionSummaryView,
   type Theme,
   type ApiKind,
   type BashMode,
@@ -40,7 +43,23 @@ export default function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatKey, setChatKey] = useState(0);
+  const [sessionsByAgent, setSessionsByAgent] = useState<Record<string, SessionSummaryView[]>>({});
+  const [activeSession, setActiveSession] = useState<SessionInfoView | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const refreshSessions = useCallback(async (names: string[]) => {
+    const entries = await Promise.all(
+      names.map(async (name) => {
+        try {
+          return [name, await invoke<SessionSummaryView[]>("list_sessions", { agentName: name })] as const;
+        } catch {
+          return [name, []] as const;
+        }
+      }),
+    );
+    setSessionsByAgent(Object.fromEntries(entries));
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -60,6 +79,53 @@ export default function App() {
       })
       .catch((e) => setError(String(e)));
   }, [refresh]);
+
+  // agents 变化后拉取各 Agent 的会话列表
+  useEffect(() => {
+    if (agents.length > 0) refreshSessions(agents.map((a) => a.name));
+  }, [agents, refreshSessions]);
+
+  // 会话结束后刷新活动会话信息与会话列表（新建的会话文件要上树）
+  useEffect(() => {
+    const un = listen("agent-event", (event) => {
+      const ev = event.payload as { type?: string };
+      if (ev.type === "agent_end") {
+        invoke<SessionInfoView | null>("session_info")
+          .then(setActiveSession)
+          .catch(() => {});
+        refreshSessions(agents.map((a) => a.name));
+      }
+    });
+    return () => {
+      un.then((fn) => fn());
+    };
+  }, [agents, refreshSessions]);
+
+  const openSession = async (agentName: string, sessionId: string) => {
+    try {
+      await invoke("open_session", { agentName, sessionId });
+      setSelected(agentName);
+      setCreating(false);
+      setChatOpen(true);
+      setChatKey((k) => k + 1);
+      invoke<SessionInfoView | null>("session_info").then(setActiveSession).catch(() => {});
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const startNewSession = async (agentName: string) => {
+    try {
+      await invoke("new_session");
+      setSelected(agentName);
+      setCreating(false);
+      setChatOpen(true);
+      setChatKey((k) => k + 1);
+      setActiveSession(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   const updateSettings = async (next: Settings) => {
     setSettings(next);
@@ -90,19 +156,56 @@ export default function App() {
         </div>
         <div className="sidebar-section">Agents</div>
         <nav className="agent-list">
-          {agents.map((a) => (
-            <div
-              key={a.name}
-              className={`agent-item ${selected === a.name && !creating ? "active" : ""}`}
-              onClick={() => {
-                setSelected(a.name);
-                setCreating(false);
-              }}
-            >
-              <div className="name">{a.name}</div>
-              {a.description && <div className="desc">{a.description}</div>}
-            </div>
-          ))}
+          {agents.map((a) => {
+            const isActiveAgent = selected === a.name && !creating;
+            const sessions = sessionsByAgent[a.name] ?? [];
+            return (
+              <div key={a.name} className="agent-group">
+                <div
+                  className={`agent-item ${isActiveAgent && !chatOpen ? "active" : ""}`}
+                  onClick={() => {
+                    setSelected(a.name);
+                    setCreating(false);
+                    setChatOpen(false);
+                  }}
+                >
+                  <div className="agent-row">
+                    <div className="name">{a.name}</div>
+                    <button
+                      className="icon-btn small"
+                      title="新建会话"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startNewSession(a.name);
+                      }}
+                    >
+                      ＋
+                    </button>
+                  </div>
+                  {a.description && <div className="desc">{a.description}</div>}
+                </div>
+                <div className="session-list">
+                  {sessions.map((sess) => (
+                    <div
+                      key={sess.id}
+                      className={`session-item ${
+                        activeSession?.agentName === a.name && activeSession?.sessionId === sess.id
+                          ? "active"
+                          : ""
+                      }`}
+                      title={`${sess.title}（${sess.messageCount} 条消息）`}
+                      onClick={() => openSession(a.name, sess.id)}
+                    >
+                      <span className="session-title">{sess.title}</span>
+                    </div>
+                  ))}
+                  {isActiveAgent && chatOpen && !activeSession && (
+                    <div className="session-item new">（新会话）</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </nav>
         <div className="sidebar-footer">
           <button className="primary wide" onClick={() => setCreating(true)}>
@@ -127,7 +230,7 @@ export default function App() {
           settings &&
           (chatOpen ? (
             <ChatView
-              key={current.name}
+              key={`${current.name}-${chatKey}`}
               agent={current}
               onBack={() => setChatOpen(false)}
               onError={setError}

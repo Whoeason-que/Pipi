@@ -61,6 +61,22 @@ impl SessionWriter {
         })
     }
 
+    /// 打开已有会话文件继续追加（seq/tip 从已有条目恢复）。
+    pub fn open(path: &Path) -> std::io::Result<SessionWriter> {
+        let entries = load_session(path).map_err(std::io::Error::other)?;
+        let (tip_id, seq) = match entries.last() {
+            Some(last) => (Some(last.id.clone()), last.seq + 1),
+            None => (None, 0),
+        };
+        let file = std::fs::OpenOptions::new().append(true).open(path)?;
+        Ok(SessionWriter {
+            path: path.to_path_buf(),
+            file,
+            tip_id,
+            seq,
+        })
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -129,6 +145,83 @@ pub fn load_session(path: &Path) -> Result<Vec<SessionEntry>, String> {
         }
     }
     Ok(entries)
+}
+
+/// 会话列表条目（侧栏展示用）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSummary {
+    /// 文件名 stem：`{millis}-{uuid}`，open_session 用它定位文件
+    pub id: String,
+    /// 标题：首条用户消息截断；空会话给占位文案
+    pub title: String,
+    pub message_count: usize,
+    /// 会话开始时间（文件名里的 millis）
+    pub started_at: u64,
+    /// 最后一条消息的时间戳
+    pub last_active: u64,
+}
+
+/// 扫描会话目录，按最后活跃时间倒序返回摘要。
+/// 坏行在 load_session 里跳过，不拖垮列表。
+pub fn list_session_summaries(sessions_dir: &Path) -> Vec<SessionSummary> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(sessions_dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let id = stem.to_string();
+        let started_at = stem
+            .split('-')
+            .next()
+            .and_then(|m| m.parse::<u64>().ok())
+            .unwrap_or(0);
+        let Ok(file_entries) = load_session(&path) else {
+            continue;
+        };
+        let title = file_entries
+            .iter()
+            .find_map(|e| match &e.kind {
+                EntryKind::Message {
+                    message: Message::User { content, .. },
+                } => Some(content.clone()),
+                _ => None,
+            })
+            .map(|text| {
+                let first_line = text.lines().next().unwrap_or("").trim().to_string();
+                let mut cut = first_line.chars().take(48).collect::<String>();
+                if first_line.chars().count() > 48 {
+                    cut.push('…');
+                }
+                if cut.is_empty() {
+                    "(空会话)".to_string()
+                } else {
+                    cut
+                }
+            })
+            .unwrap_or_else(|| "(空会话)".to_string());
+        let message_count = file_entries
+            .iter()
+            .filter(|e| matches!(e.kind, EntryKind::Message { .. }))
+            .count();
+        let last_active = file_entries.last().map(|e| e.timestamp).unwrap_or(0);
+        out.push(SessionSummary {
+            id,
+            title,
+            message_count,
+            started_at,
+            last_active,
+        });
+    }
+    out.sort_by_key(|summary| std::cmp::Reverse(summary.last_active));
+    out
 }
 
 /// 重建「活跃路径」：从 tip 沿 parentId 回溯到根（pi 的树状回放）。
@@ -221,6 +314,45 @@ mod tests {
 
         let entries = load_session(&path).unwrap();
         assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn open_resumes_append_position() {
+        let dir = temp_dir();
+        let mut writer = SessionWriter::create(&dir).unwrap();
+        writer.append_message(&Message::user_text("first")).unwrap();
+        let path = writer.path().to_path_buf();
+        drop(writer);
+
+        // 重新打开：tip/seq 恢复，新条目接在后面
+        let mut resumed = SessionWriter::open(&path).unwrap();
+        assert_eq!(resumed.tip_id().is_some(), true);
+        resumed.append_message(&Message::user_text("second")).unwrap();
+
+        let entries = load_session(&path).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].seq, 1);
+        assert_eq!(entries[1].parent_id.as_deref(), Some(entries[0].id.as_str()));
+    }
+
+    #[test]
+    fn summaries_list_titles_and_order() {
+        let dir = temp_dir();
+        let mut w1 = SessionWriter::create(&dir).unwrap();
+        w1.append_message(&Message::user_text("第一条会话的标题"))
+            .unwrap();
+        w1.append_message(&Message::user_text("second")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let mut w2 = SessionWriter::create(&dir).unwrap();
+        w2.append_message(&Message::user_text("更新会话")).unwrap();
+
+        let summaries = list_session_summaries(&dir);
+        assert_eq!(summaries.len(), 2);
+        // 按最后活跃倒序：w2 在前
+        assert_eq!(summaries[0].title, "更新会话");
+        assert_eq!(summaries[1].title, "第一条会话的标题");
+        assert_eq!(summaries[1].message_count, 2);
+        assert!(summaries[1].started_at > 0);
     }
 
     #[test]

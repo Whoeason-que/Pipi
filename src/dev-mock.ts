@@ -112,6 +112,31 @@ export function installDevMock(): void {
           return Promise.resolve([demoAgent]);
         case "load_agent":
           return Promise.resolve(demoAgent);
+        case "list_sessions":
+          return Promise.resolve([
+            {
+              id: "1730000000000-abc123",
+              title: "帮我看看这个项目的结构",
+              messageCount: 4,
+              startedAt: 1730000000000,
+              lastActive: 1730000300000,
+            },
+            {
+              id: "1729990000000-def456",
+              title: "把 README 翻译成英文",
+              messageCount: 6,
+              startedAt: 1729990000000,
+              lastActive: 1729992000000,
+            },
+          ]);
+        case "open_session":
+          return Promise.resolve(null);
+        case "session_info":
+          return Promise.resolve({
+            agentName: "demo-assistant",
+            sessionId: "1730000000000-abc123",
+            running: false,
+          });
         case "session_messages":
           return Promise.resolve(demoMessages);
         case "session_stats":

@@ -16,7 +16,7 @@ use pipi_core::agent_loop::{
 use pipi_core::agent_loop::Emitter as LoopEmitter;
 use pipi_core::agents::{self, AgentDefinition};
 use pipi_core::provider::provider_for;
-use pipi_core::session::SessionWriter;
+use pipi_core::session::{list_session_summaries, load_session, SessionSummary, SessionWriter};
 use pipi_core::settings::load_settings;
 use pipi_core::stats::SessionStatsTracker;
 use pipi_core::tools::ToolRegistry;
@@ -78,6 +78,97 @@ fn make_emitter(
                 }
             }
         }
+    })
+}
+
+#[tauri::command]
+pub fn list_sessions(agent_name: String) -> Result<Vec<SessionSummary>, String> {
+    let def = agents::load_agent(&agent_name)?;
+    let dir = def.sessions_dir().ok_or("无法解析会话目录")?;
+    Ok(list_session_summaries(&dir))
+}
+
+/// 打开（续写）一个已有会话：消息载入内存，后续 send_prompt 追加到同一文件。
+#[tauri::command]
+pub fn open_session(
+    state: State<ChatState>,
+    agent_name: String,
+    session_id: String,
+) -> Result<(), String> {
+    // id 是文件名 stem，只允许安全字符（防路径穿越）
+    if session_id.is_empty()
+        || !session_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err("非法会话 ID".into());
+    }
+    let def = agents::load_agent(&agent_name)?;
+    let dir = def.sessions_dir().ok_or("无法解析会话目录")?;
+    let path = dir.join(format!("{session_id}.jsonl"));
+    if !path.is_file() {
+        return Err("会话不存在".into());
+    }
+
+    let mut slot = state.session.lock().map_err(|e| e.to_string())?;
+    if let Some(s) = slot.as_ref() {
+        if s.running.load(Ordering::Relaxed) {
+            return Err("当前会话仍在运行，请先停止".into());
+        }
+    }
+
+    let entries = load_session(&path).map_err(|e| e.to_string())?;
+    let messages: Vec<Message> = entries
+        .iter()
+        .filter_map(|e| match &e.kind {
+            pipi_core::session::EntryKind::Message { message } => Some(message.clone()),
+            _ => None,
+        })
+        .collect();
+    let context_max = def.provider.as_ref().map(|p| p.context_window).filter(|w| *w > 0);
+    let mut tracker = SessionStatsTracker::new(context_max);
+    for m in &messages {
+        tracker.record(m);
+    }
+
+    *slot = Some(Session {
+        agent: def,
+        messages: Arc::new(tokio::sync::Mutex::new(messages)),
+        writer: Arc::new(Mutex::new(
+            SessionWriter::open(&path).map_err(|e| e.to_string())?,
+        )),
+        stats: Arc::new(Mutex::new(tracker)),
+        abort: AbortSignal::new(),
+        running: Arc::new(AtomicBool::new(false)),
+    });
+    Ok(())
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInfo {
+    pub agent_name: String,
+    pub session_id: String,
+    pub running: bool,
+}
+
+/// 当前活会话信息（侧栏高亮用）；无会话返回 None。
+#[tauri::command]
+pub fn session_info(state: State<ChatState>) -> Option<SessionInfo> {
+    let session = state.session.lock().ok()?;
+    let s = session.as_ref()?;
+    let session_id = s
+        .writer
+        .lock()
+        .ok()?
+        .path()
+        .file_stem()
+        .and_then(|x| x.to_str())
+        .map(str::to_string)?;
+    Some(SessionInfo {
+        agent_name: s.agent.name.clone(),
+        session_id,
+        running: s.running.load(Ordering::Relaxed),
     })
 }
 

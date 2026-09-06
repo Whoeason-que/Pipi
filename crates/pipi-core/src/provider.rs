@@ -82,27 +82,27 @@ pub fn to_rig_messages(context: &Context) -> Vec<RigMessage> {
             Message::Assistant { content, .. } => {
                 let blocks: Vec<AssistantContent> = content
                     .iter()
-                    .filter_map(|b| match b {
-                        ContentBlock::Text { text } => Some(AssistantContent::Text(
-                            rig::message::Text::new(text.clone()),
-                        )),
+                    .map(|b| match b {
+                        ContentBlock::Text { text } => {
+                            AssistantContent::Text(rig::message::Text::new(text.clone()))
+                        }
                         ContentBlock::Thinking {
                             thinking,
                             thinking_signature,
-                        } => Some(AssistantContent::Reasoning(rig::message::Reasoning {
+                        } => AssistantContent::Reasoning(rig::message::Reasoning {
                             id: None,
                             content: vec![ReasoningContent::Text {
                                 text: thinking.clone(),
                                 signature: thinking_signature.clone(),
                             }],
-                        })),
+                        }),
                         ContentBlock::ToolCall {
                             id,
                             name,
                             arguments,
                         } => {
                             let _ = content;
-                            Some(AssistantContent::ToolCall(rig::message::ToolCall {
+                            AssistantContent::ToolCall(rig::message::ToolCall {
                                 id: make_call_id(id),
                                 function: rig::message::ToolFunction {
                                     name: name.clone(),
@@ -111,7 +111,7 @@ pub fn to_rig_messages(context: &Context) -> Vec<RigMessage> {
                                 provider: None,
                                 signature: None,
                                 additional_params: None,
-                            }))
+                            })
                         }
                     })
                     .collect();

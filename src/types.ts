@@ -86,3 +86,17 @@ export interface SessionStatsView {
   contextMax?: number;
   contextPercent?: number;
 }
+
+export interface SessionSummaryView {
+  id: string;
+  title: string;
+  messageCount: number;
+  startedAt: number;
+  lastActive: number;
+}
+
+export interface SessionInfoView {
+  agentName: string;
+  sessionId: string;
+  running: boolean;
+}

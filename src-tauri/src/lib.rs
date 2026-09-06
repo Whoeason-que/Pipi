@@ -17,6 +17,9 @@ pub fn run() {
             chat::session_messages,
             chat::session_running,
             chat::session_stats,
+            chat::list_sessions,
+            chat::open_session,
+            chat::session_info,
         ])
         .run(tauri::generate_context!())
         .expect("Pipi 启动失败");

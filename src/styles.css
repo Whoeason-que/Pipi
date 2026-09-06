@@ -1109,3 +1109,72 @@ textarea,
 .md .hljs-deletion {
   color: var(--danger-text);
 }
+
+/* ============ 侧栏会话树 ============ */
+
+.agent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.icon-btn.small {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  border-radius: 6px;
+  opacity: 0;
+}
+
+.agent-item:hover .icon-btn.small,
+.icon-btn.small:focus {
+  opacity: 1;
+}
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 6px 14px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.session-item {
+  padding: 4px 8px;
+  margin: 1px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.session-item::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--faint);
+}
+
+.session-item:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.session-item.active {
+  background: var(--accent-softer);
+  color: var(--accent-text);
+}
+
+.session-item.active::before {
+  color: var(--accent);
+}
+
+.session-item.new {
+  color: var(--faint);
+  font-style: italic;
+  cursor: default;
+}
