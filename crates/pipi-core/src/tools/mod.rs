@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::permissions::PermissionsConfig;
+use crate::permissions::{PermissionsConfig, SandboxMode};
 use crate::types::{AbortSignal, Tool, ToolResultContent};
 
 /// 工具执行结果。对应 pi 的 `AgentToolResult`。
@@ -39,13 +39,38 @@ impl ToolOutput {
     }
 }
 
-/// 工具执行上下文：工作目录、memory 目录、权限、中止信号。
+/// 工具执行上下文：工作目录、memory 目录、权限、沙箱、中止信号。
 #[derive(Clone)]
 pub struct ToolContext {
     pub workspace: PathBuf,
     pub memory_dir: Option<PathBuf>,
     pub permissions: Arc<PermissionsConfig>,
+    pub sandbox: SandboxMode,
     pub abort: AbortSignal,
+}
+
+impl ToolContext {
+    /// 沙箱下的写入约束（移植自 codex 的 SandboxMode 语义）：
+    /// - `danger-full-access`：不限制
+    /// - `workspace-write`：只能写工作目录内
+    /// - `read-only`：禁止写文件（memory 除外 —— 那是 Agent 自己的脑子）
+    pub fn ensure_writable(&self, path: &Path) -> Result<(), String> {
+        match self.sandbox {
+            SandboxMode::DangerFullAccess => Ok(()),
+            SandboxMode::ReadOnly => Err("沙箱策略为 read-only：禁止写入文件".into()),
+            SandboxMode::WorkspaceWrite => {
+                if crate::permissions::is_within(&self.workspace, path) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "沙箱策略为 workspace-write：{} 在工作目录 {} 之外",
+                        path.display(),
+                        self.workspace.display()
+                    ))
+                }
+            }
+        }
+    }
 }
 
 /// 工具 trait。对应 pi 的 `AgentTool`（typebox schema 换成 JSON Schema）。

@@ -72,7 +72,8 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 系统指令 | `AGENTS.md` | 人直接读写的 Markdown，每次运行注入为系统提示 |
 | 技能 | `skills/<name>/SKILL.md` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3） |
 | 记忆 | `memory/*.md` | 由 `memory` 工具读写的持久记忆，跨会话生效 |
-| 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单，复合命令逐段检查 |
+| 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查 |
+| 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、越出工作目录的写入与重定向在非完全访问下被拒绝 |
 | 工具开关 | `agent.json` → `permissions.tools` | 内置工具（read/write/edit/bash/memory）按需启用 |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 会话 | `sessions/*.jsonl` | Append-only 的运行记录，一文件一会话，树状条目（id/parentId）支持分叉 |
@@ -112,9 +113,24 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | `packages/agent` harness/utils/truncate | `truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq） |
 
-有意推迟移植（需要时再从上游搬）：compaction、hooks 全集、transformContext、
-其余 provider、图片工具。Pipi 自己新增：`permissions`（命令权限）、
-`agents`（Agent 注册表）、memory 工具。
+有意推迟移植（需要时再从上游搬）：compaction、hooks 全集、transformContext/
+prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`permissions`
+（命令权限）、`agents`（Agent 注册表）、memory 工具。
+
+### 与 codex 的关系
+
+命令安全与沙箱概念移植自 [openai/codex](https://github.com/openai/codex)
+（Apache-2.0，见 `pipi-core/src/permissions/safety.rs` 的 attribution）：
+
+- `SandboxMode`（read-only / workspace-write / danger-full-access）→
+  `permissions::SandboxMode`，语义一致（kebab-case 序列化兼容）。
+- `is_dangerous_command`（rm -f 家族 + sudo/env/trap/bash-c 包装器解包 +
+  深度上限 fail-closed）→ `permissions::safety`。上游用 tree-sitter 解析
+  `bash -c` 脚本，我们不引入该依赖：脚本含语法关键字/命令替换时按危险
+  处理（fail-closed）。
+- 尚未移植：OS 级沙箱（Landlock/Seatbelt）—— Pipi 当前是用户态粗粒度
+  闸门（白/黑名单 + 危险启发式 + 重定向/写入路径约束），真正的强隔离
+  列入 M3 后的路线。
 
 ## 开发
 
@@ -149,7 +165,8 @@ cargo check --workspace
 ## 致谢
 
 - [pi](https://github.com/earendil-works/pi) —— 本项目大量设计灵感来自它：一切皆文件、小核心、渐进式上下文、会话即树。如果 Pipi 的方向让你兴奋，请先给它一个 star。
+- [openai/codex](https://github.com/openai/codex) —— 命令安全评估与沙箱模式移植自它（Apache-2.0）。
 
 ## License
 
-MIT
+MIT（`pipi-core/src/permissions/safety.rs` 移植自 Apache-2.0 项目 openai/codex，保留其许可声明）。

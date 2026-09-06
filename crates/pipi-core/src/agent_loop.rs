@@ -783,6 +783,7 @@ mod tests {
                 workspace: std::env::temp_dir(),
                 memory_dir: None,
                 permissions: Arc::new(Default::default()),
+                sandbox: crate::permissions::SandboxMode::DangerFullAccess,
                 abort: AbortSignal::new(),
             },
             options: StreamOptions::default(),

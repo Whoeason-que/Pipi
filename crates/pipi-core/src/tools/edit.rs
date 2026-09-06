@@ -196,6 +196,7 @@ impl AgentTool for EditTool {
         let edits = parse_edits(args)?;
 
         let abs = resolve_path(&ctx.workspace, path)?;
+        ctx.ensure_writable(&abs)?;
         let meta = tokio::fs::metadata(&abs)
             .await
             .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;

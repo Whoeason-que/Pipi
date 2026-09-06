@@ -12,5 +12,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "ti
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 async-trait = "0.1"
 dirs = "6"
+shlex = "1"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"

@@ -25,6 +25,8 @@ src/                React + TypeScript 前端
 
 核心从 [pi](https://github.com/earendil-works/pi) 移植而来，模块映射与「有意
 不移植清单」见 README「与 pi 的关系」一节。改核心逻辑前先看上游对应实现。
+命令安全（`permissions/safety.rs`）与沙箱模式移植自 openai/codex，
+映射见 README「与 codex 的关系」。
 
 ## 常用命令
 
@@ -48,4 +50,5 @@ src/                React + TypeScript 前端
 - 前端保持零 UI 框架依赖，手写样式；新增依赖需要充分理由。
 - 目录骨架必须与 README「Agent 的组成」表格一致；改动时两边同步更新。
 - 权限是安全边界：bash 命令检查在 `pipi-core/src/tools/bash.rs` 执行前发生，
-  改权限逻辑（`permissions.rs`）必须带测试，且宁可拒绝不可放行。
+  改权限逻辑（`permissions/`）必须带测试，且宁可拒绝不可放行 —— 无法静态
+  分析的命令一律视为危险。

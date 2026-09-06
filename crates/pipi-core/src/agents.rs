@@ -245,10 +245,13 @@ pub fn build_tool_context(
 ) -> Result<crate::tools::ToolContext, String> {
     let workspace = def.resolve_workspace().ok_or("无法解析工作目录")?;
     fs::create_dir_all(&workspace).map_err(|e| format!("工作目录不可用: {e}"))?;
+    // 规范化，供沙箱路径约束做前缀比较
+    let workspace = fs::canonicalize(&workspace).unwrap_or(workspace);
     Ok(crate::tools::ToolContext {
         workspace,
         memory_dir: def.memory_dir(),
         permissions: std::sync::Arc::new(def.permissions.clone()),
+        sandbox: def.permissions.sandbox,
         abort,
     })
 }
@@ -324,6 +327,7 @@ mod tests {
             Some(PermissionsConfig {
                 tools: vec!["nuclear".into()],
                 bash: Default::default(),
+                sandbox: Default::default(),
             })
         )
         .is_err());
@@ -334,6 +338,7 @@ mod tests {
             Some(PermissionsConfig {
                 tools: vec![],
                 bash: Default::default(),
+                sandbox: Default::default(),
             })
         )
         .is_err());
@@ -359,6 +364,7 @@ mod tests {
                     mode: crate::permissions::BashMode::Allowlist,
                     commands: vec!["git".into()],
                 },
+                sandbox: Default::default(),
             }),
         );
         // HOME 尚未恢复：此时解析 workspace 才指向临时 HOME

@@ -5,6 +5,14 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type BashMode = "allowAll" | "allowlist" | "denylist";
 
+export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+
+export const SANDBOX_LABELS: Record<SandboxMode, string> = {
+  "read-only": "只读",
+  "workspace-write": "工作目录内可写",
+  "danger-full-access": "完全访问",
+};
+
 export interface BashPermissions {
   mode: BashMode;
   commands: string[];
@@ -13,6 +21,7 @@ export interface BashPermissions {
 export interface PermissionsConfig {
   tools: string[];
   bash: BashPermissions;
+  sandbox: SandboxMode;
 }
 
 export interface McpServer {
@@ -168,6 +177,14 @@ function AgentDetail({ agent }: { agent: AgentDefinition }) {
       </div>
 
       <div className="field">
+        <div className="label">沙箱</div>
+        <div className="value">
+          <span className="mono">{agent.permissions.sandbox}</span>
+          （{SANDBOX_LABELS[agent.permissions.sandbox]}）
+        </div>
+      </div>
+
+      <div className="field">
         <div className="label">MCP 服务器</div>
         <div className={`value ${agent.mcpServers.length ? "" : "dim"}`}>
           {agent.mcpServers.length
@@ -200,6 +217,7 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
   const [tools, setTools] = useState<string[]>([...KNOWN_TOOLS]);
   const [bashMode, setBashMode] = useState<BashMode>("allowAll");
   const [commands, setCommands] = useState("");
+  const [sandbox, setSandbox] = useState<SandboxMode>("workspace-write");
   const [submitting, setSubmitting] = useState(false);
 
   const toggleTool = (tool: string) => {
@@ -225,6 +243,7 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
                   .map((c) => c.trim())
                   .filter(Boolean),
         },
+        sandbox,
       };
       await invoke("create_agent", {
         name,
@@ -298,6 +317,27 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
                 <span className="mono">{tool}</span>
               </label>
             ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="label">沙箱</div>
+          <div className="tool-row">
+            {(Object.keys(SANDBOX_LABELS) as SandboxMode[]).map((mode) => (
+              <label key={mode} className="tool-check">
+                <input
+                  type="radio"
+                  name="sandbox"
+                  checked={sandbox === mode}
+                  onChange={() => setSandbox(mode)}
+                />
+                <span>{SANDBOX_LABELS[mode]}</span>
+              </label>
+            ))}
+          </div>
+          <div className="hint">
+            只读：不执行命令、不写文件；工作目录内可写：强制删除类命令与越出
+            工作目录的写入被拒绝；完全访问：不设限
           </div>
         </div>
 

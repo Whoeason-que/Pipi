@@ -72,8 +72,8 @@ impl AgentTool for BashTool {
         let command = args["command"].as_str().ok_or("缺少 command")?;
         let timeout = validate_timeout(args["timeout"].as_f64())?;
 
-        // Pipi：命令权限检查（白名单 / 黑名单，按复合命令逐段检查）
-        ctx.permissions.bash.check(command)?;
+        // Pipi：命令权限检查（切分 → 白/黑名单 → 危险命令 → 沙箱重定向）
+        ctx.permissions.assess_bash(command, &ctx.workspace)?;
 
         tokio::fs::create_dir_all(&ctx.workspace)
             .await

@@ -43,6 +43,7 @@ impl AgentTool for WriteTool {
         let content = args["content"].as_str().ok_or("缺少 content")?;
 
         let abs = resolve_path(&ctx.workspace, path)?;
+        ctx.ensure_writable(&abs)?;
         if let Some(parent) = abs.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -62,5 +63,71 @@ impl AgentTool for WriteTool {
             details: None,
             terminate: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::permissions::{PermissionsConfig, SandboxMode};
+    use crate::types::AbortSignal;
+    use std::sync::Arc;
+
+    fn ctx(workspace: std::path::PathBuf, sandbox: SandboxMode) -> ToolContext {
+        ToolContext {
+            workspace,
+            memory_dir: None,
+            permissions: Arc::new(PermissionsConfig::default()),
+            sandbox,
+            abort: AbortSignal::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_write_blocks_outside_paths() {
+        let ws = std::env::temp_dir().join(format!("pipi-ws-{}", crate::session::new_id()));
+        tokio::fs::create_dir_all(&ws).await.unwrap();
+        let ctx = ctx(ws.clone(), SandboxMode::WorkspaceWrite);
+
+        // 工作目录内：放行
+        let out = WriteTool
+            .execute(&ctx, &json!({"path": "a.txt", "content": "hi"}), &|_| {})
+            .await;
+        assert!(out.is_ok());
+
+        // 工作目录外：拒绝
+        let outside = std::env::temp_dir().join(format!("pipi-outside-{}.txt", crate::session::new_id()));
+        let err = WriteTool
+            .execute(
+                &ctx,
+                &json!({"path": outside.to_string_lossy(), "content": "hi"}),
+                &|_| {},
+            )
+            .await;
+        assert!(err.is_err());
+
+        // ../ 逃逸：拒绝
+        let err = WriteTool
+            .execute(&ctx, &json!({"path": "../escape.txt", "content": "hi"}), &|_| {})
+            .await;
+        assert!(err.is_err());
+    }
+
+    #[tokio::test]
+    async fn read_only_blocks_writes_but_full_access_allows() {
+        let ws = std::env::temp_dir().join(format!("pipi-ws-{}", crate::session::new_id()));
+        tokio::fs::create_dir_all(&ws).await.unwrap();
+
+        let ro = ctx(ws.clone(), SandboxMode::ReadOnly);
+        let err = WriteTool
+            .execute(&ro, &json!({"path": "a.txt", "content": "hi"}), &|_| {})
+            .await;
+        assert!(err.is_err());
+
+        let full = ctx(ws, SandboxMode::DangerFullAccess);
+        let out = WriteTool
+            .execute(&full, &json!({"path": "a.txt", "content": "hi"}), &|_| {})
+            .await;
+        assert!(out.is_ok());
     }
 }
