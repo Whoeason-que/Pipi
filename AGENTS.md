@@ -48,7 +48,9 @@ src/                React + TypeScript 前端
 - 业务逻辑只进 `pipi-core`；`src-tauri` 是薄壳，不写逻辑。
 - Agent 数据根目录是 `~/.pipi/agents/<name>/`，结构见 README；不要把 Agent 状态存到别处。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息用用户可读的中文。
-- 前端保持零 UI 框架依赖，手写样式；新增依赖需要充分理由。
+- 前端保持零 UI 框架依赖，手写样式；新增依赖需要充分理由。已批准的例外：
+  react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，
+  见 src/Markdown.tsx；不启用 rehype-raw，模型输出不可信）。
 - 目录骨架必须与 README「Agent 的组成」表格一致；改动时两边同步更新。
 - provider 协议层用 rig（`rig` crate，依赖重命名自 rig-core）：新增 provider
   能力优先看 rig 是否已支持，不要回退到手写 SSE；映射偏差记录在 provider.rs。

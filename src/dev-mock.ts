@@ -29,7 +29,30 @@ const demoMessages = [
   { role: "toolResult", toolCallId: "t1", toolName: "bash", content: [{ type: "toolResultText", text: "src/ README.md" }], isError: false, timestamp: 0 },
   {
     role: "assistant",
-    content: [{ type: "text", text: "项目结构很简洁：src/ 放前端，src-tauri/ 放 Rust 核心，crates/pipi-core 是从 pi 移植的 Agent 内核。" }],
+    content: [{ type: "text", text: `项目结构很简洁，核心三块：
+
+- **src/** — React + TS 前端（零 UI 框架）
+- **src-tauri/** — Tauri 薄壳，命令只做 IPC 转发
+- **crates/pipi-core/** — 从 pi 移植的 Agent 内核
+
+主循环的调用方式：
+
+\`\`\`rust
+let messages = run_agent_loop(
+    vec![Message::user_text("hi")],
+    context,
+    config,
+    emitter,
+    abort,
+).await;
+\`\`\`
+
+| 模块 | 职责 |
+| --- | --- |
+| agent_loop | 工具调用循环 |
+| provider | rig 适配层 |
+
+> 一切皆文件，配置即代码。详见 README。` }],
     usage: { input: 410, output: 96, cacheRead: 380, cacheWrite: 0, totalTokens: 886 },
     stopReason: "stop",
     timestamp: 0,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { Markdown } from "./Markdown";
 import type { AgentDefinition, SessionStatsView } from "./types";
 
 // ---- 事件负载类型（与 Rust AgentEvent 的 serde 序列化对齐）----
@@ -288,7 +289,11 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
               {e.role === "user" ? "你" : e.role === "assistant" ? agent.name : "工具"}
             </div>
             <div className={`chat-bubble ${e.isError ? "is-error" : ""}`}>
-              <pre className="chat-text">{e.text || (e.streaming ? "…" : "")}</pre>
+              {e.role === "assistant" ? (
+                <Markdown text={e.text || (e.streaming ? "…" : "")} />
+              ) : (
+                <pre className="chat-text">{e.text || (e.streaming ? "…" : "")}</pre>
+              )}
               {e.role === "assistant" && !e.streaming && (
                 <div className="chat-foot">{assistantFooter({
                   role: "assistant",
