@@ -112,6 +112,8 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | `packages/agent` harness/tools | `tools` | read/write/edit/bash + 新增 memory |
 | `packages/agent` harness/utils/truncate | `truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq） |
+| `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_oldest` 保底裁剪、`transformContext` 钩子；LLM 摘要式 compaction 仍未移植 |
+| `packages/agent` skills（frontmatter） | `skills` | 渐进式披露：索引常驻上下文，全文模型按需 read |
 
 有意推迟移植（需要时再从上游搬）：compaction、hooks 全集、transformContext/
 prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`permissions`
@@ -128,6 +130,12 @@ prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`permissi
   深度上限 fail-closed）→ `permissions::safety`。上游用 tree-sitter 解析
   `bash -c` 脚本，我们不引入该依赖：脚本含语法关键字/命令替换时按危险
   处理（fail-closed）。
+- AGENTS.md 项目文档发现（`core/src/agents_md.rs`：项目根定位 + 根→近
+  逐层收集 + 字节预算）→ `project_doc`。
+- 环境上下文注入（`environment_context`：cwd/沙箱/平台/日期）→
+  `context::environment_context`。
+- bash 输出截断时的 spill 文件来自 pi 的 output-capture：完整输出落盘、
+  路径附在提示里。
 - 尚未移植：OS 级沙箱（Landlock/Seatbelt）—— Pipi 当前是用户态粗粒度
   闸门（白/黑名单 + 危险启发式 + 重定向/写入路径约束），真正的强隔离
   列入 M3 后的路线。

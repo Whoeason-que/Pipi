@@ -2,7 +2,7 @@
 //! `~/.pipi/agents/<name>/memory/` 下的 Markdown 文件 —— 人机共写。
 //! 工具严格限制在 memory 目录内活动。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -13,7 +13,7 @@ pub struct MemoryTool {
     pub memory_dir: PathBuf,
 }
 
-fn resolve_in_memory_dir(memory_dir: &PathBuf, path: &str) -> Result<PathBuf, String> {
+fn resolve_in_memory_dir(memory_dir: &Path, path: &str) -> Result<PathBuf, String> {
     let p = std::path::Path::new(path);
     if p.is_absolute() {
         return Err("memory path 必须是相对 memory 目录的相对路径".into());
@@ -93,7 +93,7 @@ impl AgentTool for MemoryTool {
 
 /// 递归收集 memory 目录下的 .md 文件（相对路径）。同步实现：memory 目录
 /// 很小，不值得为它引入 Box::pin 的递归 future。
-fn collect_markdown(dir: &PathBuf, depth: usize, out: &mut Vec<String>) {
+fn collect_markdown(dir: &Path, depth: usize, out: &mut Vec<String>) {
     if depth > 3 {
         return;
     }

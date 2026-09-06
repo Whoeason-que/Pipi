@@ -611,9 +611,9 @@ pub fn openai_messages(context: &Context) -> Vec<Value> {
             } => {
                 let text: String = content
                     .iter()
-                    .filter_map(|b| match b {
-                        ToolResultContent::Text { text } => Some(text.as_str()),
-                        ToolResultContent::Image { .. } => Some("[image]"),
+                    .map(|b| match b {
+                        ToolResultContent::Text { text } => text.as_str(),
+                        ToolResultContent::Image { .. } => "[image]",
                     })
                     .collect::<Vec<_>>()
                     .join("");

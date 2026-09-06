@@ -165,29 +165,42 @@ impl AgentTool for BashTool {
         let full = shared.lock().unwrap().clone();
         let truncation = truncate_tail(&full, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
         let mut output_text = truncation.content.clone();
+        let mut full_output_path: Option<String> = None;
         if truncation.truncated {
+            // pi 的 spill 行为：完整输出写入临时文件，路径附在提示里
+            let spill = std::env::temp_dir().join(format!("pipi-bash-{}.txt", crate::session::new_id()));
+            if tokio::fs::write(&spill, &full).await.is_ok() {
+                full_output_path = Some(spill.to_string_lossy().into_owned());
+            }
             let total = truncation.total_lines;
             let start_line = total - truncation.output_lines + 1;
             let end_line = total;
+            let spill_note = full_output_path
+                .as_deref()
+                .map(|p| format!(" Full output: {p}."))
+                .unwrap_or_default();
             if truncation.last_line_partial {
                 output_text.push_str(&format!(
-                    "\n\n[Showing last {} of line {end_line} (line is {}).]",
+                    "\n\n[Showing last {} of line {end_line} (line is {}).{spill_note}]",
                     format_size(truncation.output_bytes),
                     format_size(truncation.total_bytes)
                 ));
             } else if truncation.truncated_by == Some("lines") {
                 output_text.push_str(&format!(
-                    "\n\n[Showing lines {start_line}-{end_line} of {total}.]"
+                    "\n\n[Showing lines {start_line}-{end_line} of {total}.{spill_note}]"
                 ));
             } else {
                 output_text.push_str(&format!(
-                    "\n\n[Showing lines {start_line}-{end_line} of {total} ({} limit).]",
+                    "\n\n[Showing lines {start_line}-{end_line} of {total} ({} limit).{spill_note}]",
                     format_size(DEFAULT_MAX_BYTES)
                 ));
             }
         }
         let details = if truncation.truncated {
-            Some(json!({ "truncation": { "truncated": true, "truncatedBy": truncation.truncated_by } }))
+            Some(json!({
+                "truncation": { "truncated": true, "truncatedBy": truncation.truncated_by },
+                "fullOutputPath": full_output_path,
+            }))
         } else {
             None
         };

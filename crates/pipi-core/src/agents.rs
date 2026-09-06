@@ -256,39 +256,52 @@ pub fn build_tool_context(
     })
 }
 
-/// 默认系统提示：AGENTS.md 内容 + 各技能的 frontmatter 描述。
-/// （技能的渐进式加载在 M3；这里先注入 AGENTS.md。）
+/// 组装系统提示（M1 上下文四件套，来源均为 pi / codex 的实践）：
+/// 1. Agent 自己的 AGENTS.md（pi：系统级指令）
+/// 2. 工作目录的项目文档 AGENTS.md，根→近（codex：project_doc）
+/// 3. 技能索引：名称 + 描述 + 路径，全文由模型按需 read（pi：渐进式披露）
+/// 4. 环境上下文：工作目录、沙箱、平台、日期（codex：environment_context）
 pub fn build_system_prompt(def: &AgentDefinition) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(dir) = def.dir() {
+    let dir = def.dir();
+
+    if let Some(dir) = &dir {
         if let Ok(text) = fs::read_to_string(dir.join("AGENTS.md")) {
             if !text.trim().is_empty() {
                 parts.push(text.trim().to_string());
             }
         }
     }
-    parts.join("\n\n")
-}
 
-/// 扫描 Agent 的 skills/ 目录，返回 (技能名, SKILL.md 原文)。
-/// frontmatter 描述的提取与渐进注入在 M3 实现。
-pub fn list_skills(def: &AgentDefinition) -> Vec<(String, PathBuf)> {
-    let Some(dir) = def.dir() else {
-        return Vec::new();
-    };
-    let mut skills = Vec::new();
-    if let Ok(entries) = fs::read_dir(dir.join("skills")) {
-        for entry in entries.flatten() {
-            let skill_file = entry.path().join("SKILL.md");
-            if skill_file.is_file() {
-                if let Some(name) = entry.file_name().to_str() {
-                    skills.push((name.to_string(), skill_file));
-                }
-            }
+    if let Some(workspace) = def.resolve_workspace() {
+        let docs = crate::project_doc::collect_project_docs(
+            &workspace,
+            crate::project_doc::DEFAULT_PROJECT_DOC_MAX_BYTES,
+        );
+        for (path, text) in docs {
+            parts.push(format!(
+                "# 项目文档（{}）\n\n{}",
+                path.display(),
+                text.trim()
+            ));
         }
+
+        let skills = dir
+            .as_ref()
+            .map(|d| crate::skills::scan_skills(&d.join("skills")))
+            .unwrap_or_default();
+        let index = crate::skills::render_skill_index(&skills);
+        if !index.is_empty() {
+            parts.push(index.trim_start().to_string());
+        }
+
+        parts.push(crate::context::environment_context(
+            &workspace,
+            &def.permissions.sandbox,
+        ));
     }
-    skills.sort();
-    skills
+
+    parts.join("\n\n")
 }
 
 /// 确保路径里的 agent 目录存在（从文件系统恢复定义时用）。

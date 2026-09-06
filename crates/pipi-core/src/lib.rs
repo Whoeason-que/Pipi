@@ -10,18 +10,27 @@
 //! | `packages/agent` harness/tools | [`tools`] | read / write / edit / bash / memory |
 //! | `packages/agent` harness/utils/truncate | [`truncate`] | 2000 行 / 50KB 截断规则 |
 //! | `packages/agent` harness/session | [`session`] | 树状 JSONL 条目（append-only） |
+//! | `packages/agent` compaction（启发式部分） | [`context`] | token 估算 / 裁剪 / 环境上下文 |
+//! | `packages/agent` skills（frontmatter + 索引） | [`skills`] | 渐进式披露：索引常驻、全文按需 read |
 //! | （Pipi 新增） | [`permissions`] | bash 命令权限：白名单 / 黑名单 |
 //! | （Pipi 新增） | [`agents`] | Agent 定义与注册表（一切皆文件） |
 //!
+//! 另有 codex 移植：[`permissions::safety`]（危险命令）、[`permissions`]
+//! 的 SandboxMode、[`project_doc`]（AGENTS.md 发现），见 README「与 codex
+//! 的关系」。
+//!
 //! 尚未移植（有意推迟，需要时再从上游搬运）：
-//! compaction（上下文压缩）、hooks 全集、transformContext/prepareNextTurn、
-//! 多 provider 目录、会话分叉 UI、图片工具等。
+//! compaction 的 LLM 摘要替换（现用 [`context::prune_oldest`] 保底）、
+//! hooks 全集、prepareNextTurn、多 provider 目录、图片工具等。
 
 pub mod agent_loop;
 pub mod agents;
+pub mod context;
 pub mod permissions;
+pub mod project_doc;
 pub mod provider;
 pub mod session;
+pub mod skills;
 pub mod tools;
 pub mod truncate;
 pub mod types;

@@ -97,7 +97,7 @@ fn split_raw_on_connectors(s: &str) -> Result<Vec<String>, String> {
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
-    let mut push_segment = |cur: &mut String, segments: &mut Vec<String>| {
+    let push_segment = |cur: &mut String, segments: &mut Vec<String>| {
         if !cur.trim().is_empty() {
             segments.push(std::mem::take(cur));
         } else {
@@ -300,7 +300,7 @@ fn check_redirect_targets(argv: &[String], workspace: &std::path::Path) -> Resul
                 i += 1;
                 argv.get(i)
                     .cloned()
-                    .ok_or_else(|| format!("重定向「{}」缺少目标路径", &argv[i - 1]))?
+                    .ok_or_else(|| format!("重定向「{}」缺少目标路径", argv[i - 1]))?
             };
             check_one_redirect(&target, workspace)?;
         }

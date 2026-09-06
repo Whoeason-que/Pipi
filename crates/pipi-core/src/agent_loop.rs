@@ -82,6 +82,10 @@ pub type BeforeToolCallHook =
     Arc<dyn Fn(&ContentBlock, &Value) -> Option<BeforeToolCallOutcome> + Send + Sync>;
 pub type AfterToolCallHook = Arc<dyn Fn(&ContentBlock, &mut ToolOutput, &mut bool) + Send + Sync>;
 
+/// 上下文变换（pi 的 transformContext 钩子）：每次 LLM 调用前对消息历史
+/// 做变换（裁剪、注入等）。默认恒等；见 [`crate::context::prune_transform`]。
+pub type TransformContextHook = Arc<dyn Fn(Vec<Message>) -> Vec<Message> + Send + Sync>;
+
 pub struct AgentLoopConfig {
     pub model: Model,
     pub provider: Arc<dyn Provider>,
@@ -93,6 +97,7 @@ pub struct AgentLoopConfig {
     pub follow_up: MessageQueue,
     pub before_tool_call: Option<BeforeToolCallHook>,
     pub after_tool_call: Option<AfterToolCallHook>,
+    pub transform_context: Option<TransformContextHook>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -216,9 +221,15 @@ async fn stream_assistant_response(
     emit: &Emitter,
     abort: &AbortSignal,
 ) -> Message {
+    // transformContext 钩子（pi）：LLM 边界前对历史做变换（裁剪等）。
+    // 会话内的 messages 不动 —— 只影响本次请求。
+    let effective_messages = match &config.transform_context {
+        Some(hook) => hook(context.messages.clone()),
+        None => context.messages.clone(),
+    };
     let wire = Context {
         system_prompt: (!context.system_prompt.is_empty()).then(|| context.system_prompt.clone()),
-        messages: context.messages.clone(),
+        messages: effective_messages,
         tools: config.tools.wire_tools(),
     };
     let mut rx = config
@@ -792,6 +803,7 @@ mod tests {
             follow_up: MessageQueue::new(),
             before_tool_call: before,
             after_tool_call: None,
+            transform_context: None,
         }
     }
 
@@ -928,6 +940,70 @@ mod tests {
             }
             other => panic!("expected rejected toolResult, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn transform_context_prunes_before_llm_call() {
+        use crate::context::prune_transform;
+        use std::sync::atomic::AtomicUsize;
+
+        // 记录 provider 每次看到的请求长度；第一轮结束后推 follow-up
+        // 强制出现第二次 LLM 调用
+        struct RecordingProvider {
+            inner: ScriptedProvider,
+            seen: Arc<Mutex<Vec<usize>>>,
+            follow_up: MessageQueue,
+        }
+        #[async_trait::async_trait]
+        impl Provider for RecordingProvider {
+            async fn stream(
+                &self,
+                model: &Model,
+                context: &Context,
+                options: &StreamOptions,
+                abort: AbortSignal,
+            ) -> crate::provider::EventStream {
+                if self.inner.call.load(Ordering::SeqCst) == 0 {
+                    self.follow_up.push(Message::user_text("follow-up"));
+                }
+                self.seen.lock().unwrap().push(context.messages.len());
+                self.inner.stream(model, context, options, abort).await
+            }
+        }
+
+        let registry = Arc::new(ToolRegistry::new(vec![]));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let follow_up = MessageQueue::new();
+        let provider = Arc::new(RecordingProvider {
+            inner: ScriptedProvider {
+                turns: vec![stop_turn("first"), stop_turn("second")],
+                call: AtomicUsize::new(0),
+            },
+            seen: seen.clone(),
+            follow_up: follow_up.clone(),
+        });
+
+        let mut config = test_config(provider, registry, None);
+        config.follow_up = follow_up;
+        // 预算很小：第二次调用时历史超限，transform 应裁掉旧轮次
+        config.transform_context = Some(Arc::new(prune_transform(80, 0)));
+        let emit: Emitter = Arc::new(|_| {});
+
+        run_agent_loop(
+            vec![Message::user_text("x".repeat(500))],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[0], 1);
+        // 第二次请求被裁剪：完整历史是 3 条（user/assistant/follow-up），
+        // 超预算后只应看到 follow-up 这一条
+        assert_eq!(*seen.last().unwrap(), 1);
     }
 
     #[tokio::test]

@@ -18,7 +18,8 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 
 ```
 crates/pipi-core/   Rust 核心（不依赖 Tauri）：agent_loop / tools / provider /
-                    session / permissions / agents / truncate / types
+                    session / permissions / context / skills / project_doc /
+                    agents / truncate / types
 src-tauri/          Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务逻辑
 src/                React + TypeScript 前端
 ```
