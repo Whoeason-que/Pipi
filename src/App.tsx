@@ -1,83 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-
-// ---- 与 Rust 侧类型对齐（serde camelCase）----
-
-export type Theme = "dark" | "light";
-
-export type ApiKind = "anthropic-messages" | "openai-completions";
-
-export type BashMode = "allowAll" | "allowlist" | "denylist";
-
-export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
-
-export const SANDBOX_LABELS: Record<SandboxMode, string> = {
-  "read-only": "只读",
-  "workspace-write": "工作目录内可写",
-  "danger-full-access": "完全访问",
-};
+import ChatView from "./Chat";
+import {
+  API_LABELS,
+  SANDBOX_LABELS,
+  type AgentDefinition,
+  type Theme,
+  type ApiKind,
+  type BashMode,
+  type PermissionsConfig,
+  type ProviderConfig,
+  type SandboxMode,
+  type Settings,
+} from "./types";
 
 const BASH_MODE_LABELS: Record<BashMode, string> = {
   allowAll: "全部允许",
   allowlist: "白名单",
   denylist: "黑名单",
 };
-
-const API_LABELS: Record<ApiKind, string> = {
-  "anthropic-messages": "Anthropic",
-  "openai-completions": "OpenAI 兼容",
-};
-
-export interface BashPermissions {
-  mode: BashMode;
-  commands: string[];
-}
-
-export interface PermissionsConfig {
-  tools: string[];
-  bash: BashPermissions;
-  sandbox: SandboxMode;
-}
-
-export interface McpServer {
-  name: string;
-  command: string;
-  args: string[];
-  enabled: boolean;
-}
-
-export interface ModelConfig {
-  id: string;
-  name: string;
-  api: ApiKind;
-  baseUrl: string;
-  maxTokens: number;
-}
-
-export interface AgentDefinition {
-  name: string;
-  description: string;
-  model: string;
-  provider: ModelConfig | null;
-  workspace: string | null;
-  permissions: PermissionsConfig;
-  mcpServers: McpServer[];
-}
-
-export interface ProviderConfig {
-  id: string;
-  name: string;
-  api: ApiKind;
-  baseUrl: string;
-  envKey: string | null;
-  apiKey: string | null;
-}
-
-export interface Settings {
-  theme: Theme;
-  providers: ProviderConfig[];
-  defaultProviderId: string | null;
-}
 
 const KNOWN_TOOLS = ["read", "write", "edit", "bash", "memory"] as const;
 
@@ -98,6 +39,7 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -182,15 +124,24 @@ export default function App() {
             onError={setError}
           />
         ) : current ? (
-          settings && (
+          settings &&
+          (chatOpen ? (
+            <ChatView
+              key={current.name}
+              agent={current}
+              onBack={() => setChatOpen(false)}
+              onError={setError}
+            />
+          ) : (
             <AgentDetail
               key={current.name}
               agent={current}
               providers={settings.providers}
               onSaved={refresh}
+              onChat={() => setChatOpen(true)}
               onError={setError}
             />
-          )
+          ))
         ) : (
           <EmptyState hasAgents={agents.length > 0} />
         )}
@@ -226,10 +177,11 @@ interface AgentDetailProps {
   agent: AgentDefinition;
   providers: ProviderConfig[];
   onSaved: () => void | Promise<void>;
+  onChat: () => void;
   onError: (msg: string) => void;
 }
 
-function AgentDetail({ agent, providers, onSaved, onError }: AgentDetailProps) {
+function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetailProps) {
   const { bash } = agent.permissions;
   const [providerId, setProviderId] = useState<string>(() => {
     const bound = providers.find(
@@ -255,6 +207,7 @@ function AgentDetail({ agent, providers, onSaved, onError }: AgentDetailProps) {
               api: p.api,
               baseUrl: p.baseUrl,
               maxTokens: agent.provider?.maxTokens ?? 8192,
+              contextWindow: agent.provider?.contextWindow ?? 0,
             }
           : null,
       };
@@ -270,11 +223,18 @@ function AgentDetail({ agent, providers, onSaved, onError }: AgentDetailProps) {
   return (
     <div className="detail">
       <div className="detail-inner">
-        <h2>
-          {agent.name}
-          {agent.provider && <span className="badge">{agent.provider.id}</span>}
-        </h2>
-        <div className="sub">{agent.description || "（暂无描述）"}</div>
+        <div className="detail-head">
+          <div>
+            <h2>
+              {agent.name}
+              {agent.provider && <span className="badge">{agent.provider.id}</span>}
+            </h2>
+            <div className="sub">{agent.description || "（暂无描述）"}</div>
+          </div>
+          <button className="primary" onClick={onChat}>
+            ▶ 开始对话
+          </button>
+        </div>
 
         <div className="field-grid">
           <div className="field">

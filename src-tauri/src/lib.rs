@@ -1,7 +1,9 @@
+mod chat;
 mod commands;
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(chat::ChatState::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_agents,
             commands::create_agent,
@@ -9,6 +11,12 @@ pub fn run() {
             commands::save_agent,
             commands::get_settings,
             commands::save_settings,
+            chat::send_prompt,
+            chat::stop_run,
+            chat::new_session,
+            chat::session_messages,
+            chat::session_running,
+            chat::session_stats,
         ])
         .run(tauri::generate_context!())
         .expect("Pipi 启动失败");

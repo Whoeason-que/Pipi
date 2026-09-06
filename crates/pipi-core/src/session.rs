@@ -175,6 +175,7 @@ mod tests {
             stop_reason: crate::types::StopReason::Stop,
             error_message: None,
             timestamp: now_millis(),
+            duration_ms: None,
         };
         writer.append_message(&m1).unwrap();
         writer.append_message(&m2).unwrap();

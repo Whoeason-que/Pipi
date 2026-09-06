@@ -148,6 +148,7 @@ mod tests {
             stop_reason: StopReason::Stop,
             error_message: None,
             timestamp: 0,
+            duration_ms: None,
         }
     }
 

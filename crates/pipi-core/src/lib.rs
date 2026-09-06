@@ -30,8 +30,11 @@ pub mod permissions;
 pub mod project_doc;
 pub mod provider;
 pub mod session;
+
+
 pub mod settings;
 pub mod skills;
+pub mod stats;
 pub mod tools;
 pub mod truncate;
 pub mod types;

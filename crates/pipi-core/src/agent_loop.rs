@@ -279,6 +279,7 @@ async fn stream_assistant_response(
             stop_reason: StopReason::Pending,
             error_message: None,
             timestamp: crate::types::now_millis(),
+            duration_ms: None,
         }
     };
 
@@ -789,6 +790,7 @@ mod tests {
             api: Api::OpenAICompletions,
             base_url: "http://localhost".into(),
             max_tokens: 1024,
+            context_window: 0,
         }
     }
 
@@ -802,6 +804,7 @@ mod tests {
             stop_reason: reason,
             error_message: None,
             timestamp: 0,
+            duration_ms: None,
         }
     }
 

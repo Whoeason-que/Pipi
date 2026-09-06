@@ -108,7 +108,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | pi | pipi-core | 备注 |
 | --- | --- | --- |
 | `packages/ai` types | `types` | 消息/内容块/事件协议，JSON 字段名与上游一致 |
-| `packages/ai` api adapters | `provider` | 只移植 anthropic-messages、openai-completions 两个 |
+| `packages/ai` api adapters | `provider` | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
 | `packages/agent` agent-loop | `agent_loop` | 事件流 + steering/follow-up + 工具批次执行 |
 | `packages/agent` harness/tools | `tools` | read/write/edit/bash + 新增 memory |
 | `packages/agent` harness/utils/truncate | `truncate` | 2000 行 / 50KB，同一套提示文案 |
@@ -119,6 +119,16 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 有意推迟移植（需要时再从上游搬）：compaction、hooks 全集、transformContext/
 prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`permissions`
 （命令权限）、`agents`（Agent 注册表）、memory 工具。
+
+### 与 opencode / hermes 的关系
+
+- **opencode**（sst/opencode）：「provider 层用第三方库」的架构决策来自它
+  （它用 Vercel AI SDK，我们用 rig）；`session.ts` 里 usage 的归一化口径
+  （cache read/write 从输入中拆分）与我们的 Usage 字段一致。
+- **hermes**（NousResearch/hermes-agent）：会话统计面板整套语义来自它 ——
+  滚动 N 次调用的平均 tok/s（sum(output)/sum(latency)）、缓存命中率
+  （cache_read / prompt 总量）、上下文占用用最近一次请求的实际值而非累计值，
+  以及「数据不足时省略而不是编造 0」的原则。见 `stats.rs`。
 
 ### 与 codex 的关系
 
@@ -166,7 +176,6 @@ cargo check --workspace
 
 - [x] **M0 — 项目骨架**：Tauri 2.0 跑通，设计文档定稿
 - [x] **M1½ — 核心移植**：pi 的 agent loop / 工具 / provider / session 移植为 Rust（`crates/pipi-core`），命令权限与工作目录进 `agent.json`，38 个核心测试
-- [ ] **M1 — 最小闭环**：会话 UI + 流式对话（接通 agent_loop 与前端事件）+ provider 配置 UI
 - [ ] **M2 — Agent 管理**：UI 编辑 `agent.json` / `AGENTS.md` 双向同步，memory 渐进召回
 - [ ] **M3 — Skills 与 MCP**：加载技能包（渐进式注入）、接入 stdio MCP 服务器
 - [ ] **M4 — 打磨**：会话树状分叉、Agent 模板市场（本地文件分发）、多语言

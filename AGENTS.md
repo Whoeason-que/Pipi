@@ -17,9 +17,9 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 ## 代码结构
 
 ```
-crates/pipi-core/   Rust 核心（不依赖 Tauri）：agent_loop / tools / provider /
-                    session / permissions / context / skills / project_doc /
-                    agents / truncate / types
+crates/pipi-core/   Rust 核心（不依赖 Tauri）：agent_loop / tools / provider（rig 适配层）/
+                    session / permissions / context / skills / stats / project_doc /
+                    settings / agents / truncate / types
 src-tauri/          Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务逻辑
 src/                React + TypeScript 前端
 ```
@@ -50,6 +50,10 @@ src/                React + TypeScript 前端
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息用用户可读的中文。
 - 前端保持零 UI 框架依赖，手写样式；新增依赖需要充分理由。
 - 目录骨架必须与 README「Agent 的组成」表格一致；改动时两边同步更新。
+- provider 协议层用 rig（`rig` crate，依赖重命名自 rig-core）：新增 provider
+  能力优先看 rig 是否已支持，不要回退到手写 SSE；映射偏差记录在 provider.rs。
+- 统计口径（stats.rs，移植自 hermes）：滚动窗口 N=10、命中率 = cache_read/prompt、
+  数据不足时省略而非显示 0 —— 改统计先对齐这三个语义。
 - 权限是安全边界：bash 命令检查在 `pipi-core/src/tools/bash.rs` 执行前发生，
   改权限逻辑（`permissions/`）必须带测试，且宁可拒绝不可放行 —— 无法静态
   分析的命令一律视为危险。

@@ -118,6 +118,9 @@ pub enum Message {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error_message: Option<String>,
         timestamp: u64,
+        /// 本次生成耗时（毫秒）；provider 在 Done 时上报，用于 tok/s 统计
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
     },
     ToolResult {
         tool_call_id: String,
@@ -165,6 +168,7 @@ impl Message {
             stop_reason: StopReason::Stop,
             error_message: None,
             timestamp: now_millis(),
+            duration_ms: None,
         }
     }
 
@@ -179,6 +183,7 @@ impl Message {
             stop_reason: reason,
             error_message: Some(message.into()),
             timestamp: now_millis(),
+            duration_ms: None,
         }
     }
 
@@ -215,6 +220,9 @@ pub struct Model {
     pub base_url: String,
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
+    /// 上下文窗口（token）；0 表示未知（统计里的 context 占比将省略）
+    #[serde(default)]
+    pub context_window: u64,
 }
 
 fn default_max_tokens() -> u32 {
