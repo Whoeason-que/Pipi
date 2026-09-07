@@ -5,7 +5,7 @@
 //! 每轮助手消息后发 `session-stats`（hermes 设计的统计快照）。
 //! 业务逻辑仍在 pipi-core，这里只做桥接。
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, State};
@@ -22,6 +22,74 @@ use pipi_core::stats::SessionStatsTracker;
 use pipi_core::tools::ToolRegistry;
 use pipi_core::types::{AbortSignal, Message, Model, StreamOptions};
 
+/// 一个（可能跨多轮的）会话的运行状态。
+///
+/// 低位是 running 标志，其余位是代际；结束操作只允许清除自己开始的代际。
+pub struct RunState {
+    value: AtomicUsize,
+}
+
+impl RunState {
+    const RUNNING_BIT: usize = 1;
+
+    fn new() -> Self {
+        Self {
+            value: AtomicUsize::new(0),
+        }
+    }
+
+    fn begin(&self) -> usize {
+        let mut current = self.value.load(Ordering::Acquire);
+        loop {
+            let generation = current >> 1;
+            let next_generation = generation.wrapping_add(1);
+            let next = (next_generation << 1) | Self::RUNNING_BIT;
+            match self.value.compare_exchange(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return next,
+                Err(actual) => current = actual,
+            }
+        }
+    }
+
+    fn finish(&self, token: usize) {
+        let idle = token & !Self::RUNNING_BIT;
+        let _ = self.value.compare_exchange(
+            token,
+            idle,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
+    fn is_running(&self) -> bool {
+        self.value.load(Ordering::Acquire) & Self::RUNNING_BIT != 0
+    }
+}
+
+/// 一个运行代际的守卫；无论正常返回、取消还是 panic 都会清理状态。
+struct RunningGuard {
+    state: Arc<RunState>,
+    token: usize,
+}
+
+impl RunningGuard {
+    fn new(state: Arc<RunState>) -> Self {
+        let token = state.begin();
+        Self { state, token }
+    }
+}
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        self.state.finish(self.token);
+    }
+}
+
 /// 一个（可能跨多轮的）会话的活状态。
 pub struct Session {
     pub agent: AgentDefinition,
@@ -29,12 +97,51 @@ pub struct Session {
     pub writer: Arc<Mutex<SessionWriter>>,
     pub stats: Arc<Mutex<SessionStatsTracker>>,
     pub abort: AbortSignal,
-    pub running: Arc<AtomicBool>,
+    pub running: Arc<RunState>,
 }
 
 #[derive(Default)]
 pub struct ChatState {
     pub session: Mutex<Option<Session>>,
+}
+
+/// 暂存 slot 原值，前置步骤失败时自动恢复，成功后才提交新值。
+struct SlotTransaction<'a, T> {
+    slot: &'a mut Option<T>,
+    staged: Option<T>,
+    committed: bool,
+}
+
+impl<'a, T> SlotTransaction<'a, T> {
+    fn new(slot: &'a mut Option<T>) -> Self {
+        Self {
+            staged: slot.take(),
+            slot,
+            committed: false,
+        }
+    }
+
+    fn current(&self) -> Option<&T> {
+        self.staged.as_ref()
+    }
+
+    fn commit(mut self, value: T) {
+        *self.slot = Some(value);
+        self.committed = true;
+    }
+
+    fn commit_current(mut self) {
+        *self.slot = self.staged.take();
+        self.committed = true;
+    }
+}
+
+impl<T> Drop for SlotTransaction<'_, T> {
+    fn drop(&mut self) {
+        if !self.committed {
+            *self.slot = self.staged.take();
+        }
+    }
 }
 
 fn resolve_model(def: &AgentDefinition) -> Result<Model, String> {
@@ -112,7 +219,7 @@ pub fn open_session(
 
     let mut slot = state.session.lock().map_err(|e| e.to_string())?;
     if let Some(s) = slot.as_ref() {
-        if s.running.load(Ordering::Relaxed) {
+        if s.running.is_running() {
             return Err("当前会话仍在运行，请先停止".into());
         }
     }
@@ -139,7 +246,7 @@ pub fn open_session(
         )),
         stats: Arc::new(Mutex::new(tracker)),
         abort: AbortSignal::new(),
-        running: Arc::new(AtomicBool::new(false)),
+        running: Arc::new(RunState::new()),
     });
     Ok(())
 }
@@ -168,7 +275,7 @@ pub fn session_info(state: State<ChatState>) -> Option<SessionInfo> {
     Some(SessionInfo {
         agent_name: s.agent.name.clone(),
         session_id,
-        running: s.running.load(Ordering::Relaxed),
+        running: s.running.is_running(),
     })
 }
 
@@ -179,7 +286,7 @@ pub fn session_running(state: State<ChatState>) -> bool {
         .lock()
         .map(|s| {
             s.as_ref()
-                .map(|x| x.running.load(Ordering::Relaxed))
+                .map(|x| x.running.is_running())
                 .unwrap_or(false)
         })
         .unwrap_or(false)
@@ -198,7 +305,7 @@ pub fn stop_run(state: State<ChatState>) -> Result<(), String> {
 pub fn new_session(state: State<ChatState>) -> Result<(), String> {
     let mut slot = state.session.lock().map_err(|e| e.to_string())?;
     if let Some(s) = slot.as_ref() {
-        if s.running.load(Ordering::Relaxed) {
+        if s.running.is_running() {
             return Err("当前会话仍在运行，请先停止".into());
         }
     }
@@ -216,7 +323,7 @@ pub fn send_prompt(
 ) -> Result<(), String> {
     let mut slot = state.session.lock().map_err(|e| e.to_string())?;
     if let Some(s) = slot.as_ref() {
-        if s.running.load(Ordering::Relaxed) {
+        if s.running.is_running() {
             return Err("会话正在运行，请等待完成或先停止".into());
         }
     }
@@ -227,24 +334,33 @@ pub fn send_prompt(
     }
 
     // 会话复用（同 Agent 续接）或新建
-    let session = match slot.take() {
-        Some(s) if s.agent.name == agent_name => s,
-        _ => {
-            let def = agents::load_agent(&agent_name)?;
-            let sessions_dir = def.sessions_dir().ok_or("无法解析会话目录")?;
-            let writer = SessionWriter::create(&sessions_dir).map_err(|e| e.to_string())?;
-            let context_max = def.provider.as_ref().map(|p| p.context_window).filter(|w| *w > 0);
-            Session {
-                agent: def,
-                messages: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-                writer: Arc::new(Mutex::new(writer)),
-                stats: Arc::new(Mutex::new(SessionStatsTracker::new(context_max))),
-                abort: AbortSignal::new(),
-                running: Arc::new(AtomicBool::new(false)),
-            }
-        }
+    let transaction = SlotTransaction::new(&mut slot);
+    let reuse_session = transaction
+        .current()
+        .map(|session| session.agent.name == agent_name)
+        .unwrap_or(false);
+    let replacement = if reuse_session {
+        None
+    } else {
+        let def = agents::load_agent(&agent_name)?;
+        let sessions_dir = def.sessions_dir().ok_or("无法解析会话目录")?;
+        let writer = SessionWriter::create(&sessions_dir).map_err(|e| e.to_string())?;
+        let context_max = def.provider.as_ref().map(|p| p.context_window).filter(|w| *w > 0);
+        Some(Session {
+            agent: def,
+            messages: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            writer: Arc::new(Mutex::new(writer)),
+            stats: Arc::new(Mutex::new(SessionStatsTracker::new(context_max))),
+            abort: AbortSignal::new(),
+            running: Arc::new(RunState::new()),
+        })
     };
-    let mut model = resolve_model(&session.agent)?;
+    let session = replacement
+        .as_ref()
+        .or_else(|| transaction.current())
+        .ok_or("无法创建会话")?;
+    let def = session.agent.clone();
+    let mut model = resolve_model(&def)?;
 
     let user_message = Message::user_text(prompt);
     let messages = session.messages.clone();
@@ -252,13 +368,6 @@ pub fn send_prompt(
     let stats = session.stats.clone();
     let running = session.running.clone();
     let abort = session.abort.clone();
-    let def = session.agent.clone();
-
-    running.store(true, Ordering::Relaxed);
-    // 首条消息先落盘（崩溃也会留下用户输入）
-    if let Ok(mut w) = writer.lock() {
-        let _ = w.append_message(&user_message);
-    }
 
     // loop 配置：provider 密钥从 settings 解析后进 StreamOptions
     let settings = load_settings();
@@ -303,10 +412,25 @@ pub fn send_prompt(
         after_tool_call: None,
         transform_context: None,
     };
+
+    // 首条消息先落盘（崩溃也会留下用户输入）；写入失败必须阻止启动本轮。
+    {
+        let mut w = writer
+            .lock()
+            .map_err(|e| format!("无法锁定会话写入器: {e}"))?;
+        w.append_message(&user_message)
+            .map_err(|e| format!("无法写入用户消息: {e}"))?;
+    }
+
+    // stop_run 只中止上一轮；新的轮次复用会话时必须清除旧状态。
+    abort.reset();
+    let running_guard = RunningGuard::new(running);
+
     let system_prompt = agents::build_system_prompt(&def);
     let emitter: LoopEmitter = make_emitter(app, writer, stats);
 
     tauri::async_runtime::spawn(async move {
+        let _running_guard = running_guard;
         // 会话历史 + 本轮 prompt
         let mut context = AgentContext {
             system_prompt,
@@ -330,10 +454,13 @@ pub fn send_prompt(
         // 回写会话历史（供下一轮续接）
         messages.lock().await.extend(new_messages);
         let _ = &mut context;
-        running.store(false, Ordering::Relaxed);
     });
 
-    *slot = Some(session);
+    if let Some(session) = replacement {
+        transaction.commit(session);
+    } else {
+        transaction.commit_current();
+    }
     Ok(())
 }
 
@@ -358,5 +485,123 @@ pub fn session_stats(state: State<ChatState>) -> Result<pipi_core::stats::Sessio
     match session.as_ref() {
         Some(s) => Ok(s.stats.lock().unwrap().snapshot()),
         None => Ok(Default::default()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::future::pending;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    use super::{RunState, RunningGuard, SlotTransaction};
+
+    #[test]
+    fn overlapping_generations_keep_new_run_visible() {
+        let state = Arc::new(RunState::new());
+        let old_guard = RunningGuard::new(state.clone());
+        let new_guard = RunningGuard::new(state.clone());
+
+        drop(old_guard);
+        assert!(state.is_running());
+
+        drop(new_guard);
+        assert!(!state.is_running());
+    }
+
+    #[test]
+    fn tokio_abort_drops_running_guard() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let state = Arc::new(RunState::new());
+        let task_state = state.clone();
+
+        runtime.block_on(async move {
+            let handle = tokio::spawn(async move {
+                let _guard = RunningGuard::new(task_state);
+                pending::<()>().await;
+            });
+            tokio::task::yield_now().await;
+            assert!(state.is_running());
+
+            handle.abort();
+            assert!(handle.await.is_err());
+            assert!(!state.is_running());
+        });
+    }
+
+    #[test]
+    fn tokio_panic_drops_running_guard() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let state = Arc::new(RunState::new());
+        let task_state = state.clone();
+
+        runtime.block_on(async move {
+            let handle = tokio::spawn(async move {
+                let _guard = RunningGuard::new(task_state);
+                panic!("test panic");
+            });
+
+            assert!(handle.await.is_err());
+            assert!(!state.is_running());
+        });
+    }
+
+    #[test]
+    fn running_state_is_visible_across_threads() {
+        let state = Arc::new(RunState::new());
+        let started = Arc::new(Barrier::new(2));
+        let observed = Arc::new(Barrier::new(2));
+        let finished = Arc::new(Barrier::new(2));
+        let observer_state = state.clone();
+        let observer_started = started.clone();
+        let observer_observed = observed.clone();
+        let observer_finished = finished.clone();
+
+        let observer = thread::spawn(move || {
+            observer_started.wait();
+            assert!(observer_state.is_running());
+            observer_observed.wait();
+            observer_finished.wait();
+            assert!(!observer_state.is_running());
+        });
+
+        let guard = RunningGuard::new(state.clone());
+        started.wait();
+        observed.wait();
+        drop(guard);
+        finished.wait();
+        observer.join().unwrap();
+    }
+
+    #[test]
+    fn slot_transaction_restores_staged_value_after_failed_preflight() {
+        let mut slot = Some("old");
+
+        let result: Result<(), &str> = {
+            let transaction = SlotTransaction::new(&mut slot);
+            assert_eq!(transaction.current(), Some(&"old"));
+            Err("preflight failed")
+        };
+
+        assert_eq!(result, Err("preflight failed"));
+        assert_eq!(slot, Some("old"));
+    }
+
+    #[test]
+    fn slot_transaction_commits_replacement() {
+        let mut slot = Some("old");
+
+        {
+            let transaction = SlotTransaction::new(&mut slot);
+            transaction.commit("new");
+        }
+
+        assert_eq!(slot, Some("new"));
     }
 }

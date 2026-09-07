@@ -316,6 +316,11 @@ impl AbortSignal {
         self.0.store(true, Ordering::Relaxed);
     }
 
+    /// 为下一轮复用同一会话时清除上一轮的中止状态。
+    pub fn reset(&self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+
     pub fn is_aborted(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
@@ -328,5 +333,21 @@ impl AbortSignal {
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AbortSignal;
+
+    #[test]
+    fn abort_signal_can_be_reset_for_next_turn() {
+        let signal = AbortSignal::new();
+        signal.abort();
+        assert!(signal.is_aborted());
+
+        signal.reset();
+
+        assert!(!signal.is_aborted());
     }
 }

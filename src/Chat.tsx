@@ -14,13 +14,16 @@ interface UsageView {
   totalTokens: number;
 }
 
+type MessageContentView =
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string; thinkingSignature?: string | null }
+  | { type: "toolCall"; id: string; name: string; arguments?: unknown }
+  | { type: "image"; data: string; mimeType: string }
+  | { type: "toolResultText"; text: string };
+
 export interface MessageView {
   role: "user" | "assistant" | "toolResult";
-  content:
-    | string
-    | { type: "text"; text: string }[]
-    | { type: "toolCall"; id: string; name: string }[]
-    | { type: "toolResultText"; text: string }[];
+  content: string | MessageContentView[];
   usage?: UsageView;
   stopReason?: string;
   errorMessage?: string | null;
@@ -28,6 +31,16 @@ export interface MessageView {
   toolName?: string;
   toolCallId?: string;
   isError?: boolean;
+}
+
+type ToolResultContentView =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
+interface ToolOutputView {
+  content: ToolResultContentView[];
+  details?: unknown;
+  terminate?: boolean;
 }
 
 type AgentEvent =
@@ -38,24 +51,48 @@ type AgentEvent =
   | { type: "message_start"; message: MessageView }
   | { type: "message_update"; message: MessageView }
   | { type: "message_end"; message: MessageView }
-  | { type: "tool_execution_start"; toolCallId: string; toolName: string }
-  | { type: "tool_execution_end"; toolCallId: string; toolName: string; isError: boolean };
+  | { type: "tool_execution_start"; toolCallId: string; toolName: string; args?: unknown }
+  | { type: "tool_execution_update"; toolCallId: string; toolName: string; partial: ToolOutputView }
+  | {
+      type: "tool_execution_end";
+      toolCallId: string;
+      toolName: string;
+      result: ToolOutputView;
+      isError: boolean;
+    };
+
+type EntryStatus = "error" | "aborted" | "tool-error";
 
 interface Entry {
   key: string;
   role: MessageView["role"];
   text: string;
   toolName?: string;
+  toolCallId?: string;
   isError?: boolean;
+  status?: EntryStatus;
+  errorMessage?: string;
+  stopReason?: string;
   usage?: UsageView;
   durationMs?: number;
   streaming?: boolean;
+  toolRunning?: boolean;
+}
+
+function messageStatus(m: MessageView): EntryStatus | undefined {
+  if (m.role === "toolResult" && m.isError) return "tool-error";
+  if (m.role !== "assistant") return undefined;
+  if (m.stopReason === "aborted") return "aborted";
+  if (m.errorMessage || m.stopReason === "error") return "error";
+  return undefined;
 }
 
 function messageText(m: MessageView): string {
-  if (typeof m.content === "string") return m.content;
-  if (Array.isArray(m.content)) {
-    return m.content
+  let text = "";
+  if (typeof m.content === "string") {
+    text = m.content;
+  } else if (Array.isArray(m.content)) {
+    text = m.content
       .map((c) => {
         if ("text" in c) return c.text;
         if (c.type === "toolCall") return `[工具调用 ${c.name}]`;
@@ -63,7 +100,36 @@ function messageText(m: MessageView): string {
       })
       .join("");
   }
+  if (text) return text;
+  if (m.errorMessage) return `⚠ ${m.errorMessage}`;
+  if (m.stopReason === "aborted") return "■ 已中止";
+  if (m.stopReason === "error") return "⚠ Agent 返回错误";
   return "";
+}
+
+function toolOutputText(result: ToolOutputView | undefined, fallback: string): string {
+  const text = result?.content
+    .map((content) => (content.type === "text" ? content.text : ""))
+    .filter(Boolean)
+    .join("\n");
+  return text || fallback;
+}
+
+function entryFromMessage(m: MessageView, key: string): Entry {
+  const status = messageStatus(m);
+  return {
+    key,
+    role: m.role,
+    text: messageText(m),
+    toolName: m.toolName,
+    toolCallId: m.toolCallId,
+    isError: m.isError || status !== undefined,
+    status,
+    errorMessage: m.errorMessage ?? undefined,
+    stopReason: m.stopReason,
+    usage: m.usage,
+    durationMs: m.durationMs ?? undefined,
+  };
 }
 
 function assistantFooter(m: MessageView): string | null {
@@ -103,17 +169,7 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
     // 恢复已有会话
     invoke<MessageView[]>("session_messages")
       .then((msgs) => {
-        setEntries(
-          msgs.map((m, i) => ({
-            key: `restored-${i}`,
-            role: m.role,
-            text: messageText(m),
-            toolName: m.toolName,
-            isError: m.isError,
-            usage: m.usage,
-            durationMs: m.durationMs ?? undefined,
-          })),
-        );
+        setEntries(msgs.map((m, i) => entryFromMessage(m, `restored-${i}`)));
       })
       .catch(() => {});
     invoke<SessionStatsView>("session_stats").then(setStats).catch(() => {});
@@ -128,7 +184,7 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
             streamKey.current = key;
             setEntries((prev) => [
               ...prev,
-              { key, role: "assistant", text: "", streaming: true },
+              { ...entryFromMessage(ev.message, key), text: "", streaming: true },
             ]);
           }
           break;
@@ -136,9 +192,19 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
         case "message_update": {
           if (ev.message.role === "assistant" && streamKey.current) {
             const key = streamKey.current;
+            const status = messageStatus(ev.message);
             setEntries((prev) =>
               prev.map((e) =>
-                e.key === key ? { ...e, text: messageText(ev.message) } : e,
+                e.key === key
+                  ? {
+                      ...e,
+                      text: messageText(ev.message),
+                      errorMessage: ev.message.errorMessage ?? undefined,
+                      stopReason: ev.message.stopReason,
+                      status,
+                      isError: ev.message.isError || status !== undefined,
+                    }
+                  : e,
               ),
             );
           }
@@ -148,6 +214,7 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
           const m = ev.message;
           if (m.role === "assistant" && streamKey.current) {
             const key = streamKey.current;
+            const status = messageStatus(m);
             streamKey.current = null;
             setEntries((prev) =>
               prev.map((e) =>
@@ -155,6 +222,10 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
                   ? {
                       ...e,
                       text: messageText(m),
+                      errorMessage: m.errorMessage ?? undefined,
+                      stopReason: m.stopReason,
+                      status,
+                      isError: m.isError || status !== undefined,
                       usage: m.usage,
                       durationMs: m.durationMs ?? undefined,
                       streaming: false,
@@ -163,13 +234,7 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
               ),
             );
           } else {
-            pushEntry({
-              key: `msg-${Date.now()}-${Math.random()}`,
-              role: m.role,
-              text: messageText(m),
-              toolName: m.toolName,
-              isError: m.isError,
-            });
+            pushEntry(entryFromMessage(m, `msg-${Date.now()}-${Math.random()}`));
           }
           break;
         }
@@ -179,20 +244,72 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
             role: "toolResult",
             text: `⚙ ${ev.toolName} 运行中…`,
             toolName: ev.toolName,
+            toolCallId: ev.toolCallId,
+            toolRunning: true,
           });
+          break;
+        }
+        case "tool_execution_update": {
+          const partialText = toolOutputText(ev.partial, "");
+          if (partialText) {
+            setEntries((prev) =>
+              prev.map((e) =>
+                e.key === `tool-${ev.toolCallId}`
+                  ? { ...e, text: `⚙ ${ev.toolName}\n${partialText}`, toolRunning: true }
+                  : e,
+              ),
+            );
+          }
           break;
         }
         case "tool_execution_end": {
           setEntries((prev) =>
             prev.map((e) =>
               e.key === `tool-${ev.toolCallId}`
-                ? { ...e, text: `⚙ ${ev.toolName}`, isError: ev.isError }
+                ? {
+                    ...e,
+                    text: ev.isError
+                      ? `✕ ${toolOutputText(ev.result, "工具执行失败")}`
+                      : `⚙ ${ev.toolName}`,
+                    isError: ev.isError,
+                    status: ev.isError ? "tool-error" : undefined,
+                    toolRunning: false,
+                  }
                 : e,
             ),
           );
           break;
         }
         case "agent_end": {
+          streamKey.current = null;
+          setEntries((prev) =>
+            prev.flatMap((e) => {
+              if (e.role === "assistant" && e.streaming) {
+                if (!e.text) return [];
+                return [
+                  {
+                    ...e,
+                    text: `${e.text}\n■ 已中止`,
+                    isError: true,
+                    status: e.status ?? "aborted",
+                    streaming: false,
+                  },
+                ];
+              }
+              if (e.toolRunning) {
+                return [
+                  {
+                    ...e,
+                    text: `✕ ${e.toolName ?? "工具"} 已中止`,
+                    isError: true,
+                    status: "aborted",
+                    toolRunning: false,
+                  },
+                ];
+              }
+              return [e];
+            }),
+          );
           setRunning(false);
           break;
         }
@@ -216,12 +333,14 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
   const send = async () => {
     const text = input.trim();
     if (!text || running) return;
+    const userKey = `user-${Date.now()}`;
     setInput("");
     setRunning(true);
-    pushEntry({ key: `user-${Date.now()}`, role: "user", text });
+    pushEntry({ key: userKey, role: "user", text });
     try {
       await invoke("send_prompt", { agentName: agent.name, prompt: text });
     } catch (e) {
+      setEntries((prev) => prev.filter((entry) => entry.key !== userKey));
       onError(String(e));
       setRunning(false);
     }
@@ -294,7 +413,7 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
               ) : (
                 <pre className="chat-text">{e.text || (e.streaming ? "…" : "")}</pre>
               )}
-              {e.role === "assistant" && !e.streaming && (
+              {e.role === "assistant" && !e.streaming && !e.status && (
                 <div className="chat-foot">{assistantFooter({
                   role: "assistant",
                   content: e.text,
