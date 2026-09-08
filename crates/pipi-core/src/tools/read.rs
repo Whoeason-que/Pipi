@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use base64::Engine;
 use serde_json::{json, Value};
 
-use super::{resolve_path, AgentTool, ToolContext, ToolOutput};
+use super::{resolve_read_path, AgentTool, ToolContext, ToolOutput};
 use crate::truncate::{
     count_lines, format_size, truncate_head, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES,
 };
@@ -64,7 +64,7 @@ impl AgentTool for ReadTool {
         let offset = args["offset"].as_u64().map(|v| v as usize);
         let limit = args["limit"].as_u64().map(|v| v as usize);
 
-        let abs = resolve_path(&ctx.workspace, path)?;
+        let abs = resolve_read_path(&ctx.workspace, &ctx.read_roots, path)?;
         let bytes = tokio::fs::read(&abs)
             .await
             .map_err(|e| format!("Could not read file: {path}. {e}"))?;
@@ -181,5 +181,90 @@ mod tests {
         );
         assert_eq!(detect_image_mime(b"GIF89a...."), Some("image/gif"));
         assert_eq!(detect_image_mime(b"hello"), None);
+    }
+
+    async fn read_fixture() -> (
+        std::path::PathBuf,
+        ToolContext,
+        std::path::PathBuf,
+        std::path::PathBuf,
+    ) {
+        use crate::permissions::PermissionsConfig;
+        use crate::types::AbortSignal;
+        use std::sync::Arc;
+
+        let base = std::env::temp_dir().join(format!(
+            "pipi-read-containment-{}",
+            crate::session::new_id()
+        ));
+        let workspace = base.join("workspace");
+        let skill_root = base.join("skills");
+        let outside = base.join("outside.txt");
+        tokio::fs::create_dir_all(&skill_root).await.unwrap();
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::write(workspace.join("inside.txt"), "inside")
+            .await
+            .unwrap();
+        let skill_file = skill_root.join("trusted.md");
+        tokio::fs::write(&skill_file, "trusted skill")
+            .await
+            .unwrap();
+        tokio::fs::write(&outside, "outside").await.unwrap();
+
+        let ctx = ToolContext {
+            workspace,
+            memory_dir: None,
+            read_roots: vec![skill_root],
+            permissions: Arc::new(PermissionsConfig::default()),
+            sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            abort: AbortSignal::new(),
+        };
+        (base, ctx, skill_file, outside)
+    }
+
+    async fn read(ctx: &ToolContext, path: String) -> Result<ToolOutput, String> {
+        ReadTool
+            .execute(ctx, &json!({ "path": path }), &|_| {})
+            .await
+    }
+
+    #[tokio::test]
+    async fn read_is_contained_by_workspace_and_resolves_canonical_target() {
+        let (base, ctx, skill_file, outside) = read_fixture().await;
+
+        let inside = read(&ctx, "inside.txt".into()).await.unwrap();
+        assert!(matches!(
+            &inside.content[0],
+            ToolResultContent::Text { text } if text == "inside"
+        ));
+        let skill = read(&ctx, skill_file.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        assert!(matches!(
+            &skill.content[0],
+            ToolResultContent::Text { text } if text == "trusted skill"
+        ));
+        assert!(read(&ctx, outside.to_string_lossy().into_owned())
+            .await
+            .is_err());
+        assert!(read(&ctx, "../outside.txt".into()).await.is_err());
+
+        tokio::fs::remove_dir_all(base).await.unwrap();
+    }
+
+    #[cfg(any(unix, windows))]
+    #[tokio::test]
+    async fn read_rejects_symlink_to_outside_workspace() {
+        let (base, ctx, _skill_file, outside) = read_fixture().await;
+        let link = ctx.workspace.join("outside-link.txt");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside, &link).unwrap();
+
+        assert!(read(&ctx, "outside-link.txt".into()).await.is_err());
+
+        tokio::fs::remove_dir_all(base).await.unwrap();
     }
 }

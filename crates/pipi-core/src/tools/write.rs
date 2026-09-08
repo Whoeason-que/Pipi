@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::{resolve_path, AgentTool, ToolContext, ToolOutput};
+use super::{resolve_path, resolve_write_path, AgentTool, ToolContext, ToolOutput};
 use crate::types::ToolResultContent;
 
 pub struct WriteTool;
@@ -42,8 +42,13 @@ impl AgentTool for WriteTool {
         let path = args["path"].as_str().ok_or("缺少 path")?;
         let content = args["content"].as_str().ok_or("缺少 content")?;
 
-        let abs = resolve_path(&ctx.workspace, path)?;
-        ctx.ensure_writable(&abs)?;
+        let abs = if matches!(ctx.sandbox, crate::permissions::SandboxMode::WorkspaceWrite) {
+            resolve_write_path(&ctx.workspace, path)?
+        } else {
+            let abs = resolve_path(&ctx.workspace, path)?;
+            ctx.ensure_writable(&abs)?;
+            abs
+        };
         if let Some(parent) = abs.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -77,6 +82,7 @@ mod tests {
         ToolContext {
             workspace,
             memory_dir: None,
+            read_roots: Vec::new(),
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox,
             abort: AbortSignal::new(),
@@ -116,6 +122,58 @@ mod tests {
             )
             .await;
         assert!(err.is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_write_blocks_symlinked_parent_outside_workspace() {
+        let root =
+            std::env::temp_dir().join(format!("pipi-write-link-{}", crate::session::new_id()));
+        let workspace = root.join("workspace");
+        let outside = root.join("outside");
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::create_dir_all(&outside).await.unwrap();
+        std::os::unix::fs::symlink(&outside, workspace.join("link")).unwrap();
+
+        let ctx = ctx(workspace.clone(), SandboxMode::WorkspaceWrite);
+        let result = WriteTool
+            .execute(
+                &ctx,
+                &json!({"path": "link/created.txt", "content": "blocked"}),
+                &|_| {},
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(!outside.join("created.txt").exists());
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_write_blocks_dangling_symlink_to_outside() {
+        let root =
+            std::env::temp_dir().join(format!("pipi-write-dangling-{}", crate::session::new_id()));
+        let workspace = root.join("workspace");
+        let outside = root.join("outside");
+        let outside_target = outside.join("created.txt");
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::create_dir_all(&outside).await.unwrap();
+        std::os::unix::fs::symlink(&outside_target, workspace.join("link.txt")).unwrap();
+
+        let ctx = ctx(workspace, SandboxMode::WorkspaceWrite);
+        let result = WriteTool
+            .execute(
+                &ctx,
+                &json!({"path": "link.txt", "content": "blocked"}),
+                &|_| {},
+            )
+            .await;
+        let outside_exists = outside_target.exists();
+        let _ = tokio::fs::remove_dir_all(root).await;
+
+        assert!(result.is_err());
+        assert!(!outside_exists);
     }
 
     #[tokio::test]

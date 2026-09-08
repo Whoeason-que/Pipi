@@ -394,6 +394,7 @@ pub fn send_prompt(
 
     let tool_context = agents::build_tool_context(&def, abort.clone())?;
     let registry = Arc::new(ToolRegistry::for_context(&tool_context));
+    let wire_tools = registry.wire_tools();
     let config = AgentLoopConfig {
         model: model.clone(),
         provider: provider_for(model.api),
@@ -426,7 +427,7 @@ pub fn send_prompt(
     abort.reset();
     let running_guard = RunningGuard::new(running);
 
-    let system_prompt = agents::build_system_prompt(&def);
+    let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools);
     let emitter: LoopEmitter = make_emitter(app, writer, stats);
 
     tauri::async_runtime::spawn(async move {

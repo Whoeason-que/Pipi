@@ -101,11 +101,36 @@ pub fn prune_transform(
     move |messages| prune_oldest(&messages, context_window, reserve_tokens).0
 }
 
+/// 将文件系统路径安全地渲染进 prompt：规范化分隔符、可见化控制字符并
+/// 转义 XML 特殊字符，避免路径破坏上下文标签或注入额外行。
+pub(crate) fn escape_path_for_prompt(value: &str) -> String {
+    let normalized = value.replace('\\', "/");
+    let mut sanitized = String::with_capacity(normalized.len());
+    for character in normalized.chars() {
+        match character {
+            '\n' => sanitized.push_str("\\n"),
+            '\r' => sanitized.push_str("\\r"),
+            '\t' => sanitized.push_str("\\t"),
+            character if character.is_control() => {
+                use std::fmt::Write;
+                write!(sanitized, "\\u{{{:x}}}", character as u32).unwrap();
+            }
+            character => sanitized.push(character),
+        }
+    }
+    sanitized
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 /// 运行环境上下文块（codex 思路，简化渲染）。
 pub fn environment_context(workspace: &Path, sandbox: &SandboxMode) -> String {
+    let cwd = escape_path_for_prompt(&workspace.display().to_string());
     format!(
-        "<environment_context>\n<cwd>{}</cwd>\n<sandbox>{}</sandbox>\n<platform>{}</platform>\n<date>{}</date>\n</environment_context>",
-        workspace.display(),
+        "<environment_context>\n<cwd>{cwd}</cwd>\n<sandbox>{}</sandbox>\n<platform>{}</platform>\n<date>{}</date>\n</environment_context>",
         sandbox.as_str(),
         std::env::consts::OS,
         today(),
@@ -227,5 +252,15 @@ mod tests {
         assert!(ctx.contains("<cwd>/home/u/proj</cwd>"));
         assert!(ctx.contains("<sandbox>workspace-write</sandbox>"));
         assert!(ctx.contains("<date>20"));
+    }
+
+    #[test]
+    fn env_context_escapes_hostile_workspace_path() {
+        let ctx = environment_context(
+            Path::new("/tmp/a<&>\"'\nnext"),
+            &SandboxMode::WorkspaceWrite,
+        );
+        assert!(ctx.contains("<cwd>/tmp/a&lt;&amp;&gt;&quot;&apos;\\nnext</cwd>"));
+        assert!(!ctx.contains("<cwd>/tmp/a<&>\"'"));
     }
 }

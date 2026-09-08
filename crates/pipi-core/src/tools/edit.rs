@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::{resolve_path, AgentTool, ToolContext, ToolOutput};
+use super::{resolve_path, resolve_write_path, AgentTool, ToolContext, ToolOutput};
 use crate::types::ToolResultContent;
 
 pub struct EditTool;
@@ -196,8 +196,13 @@ impl AgentTool for EditTool {
         let path = args["path"].as_str().ok_or("缺少 path")?;
         let edits = parse_edits(args)?;
 
-        let abs = resolve_path(&ctx.workspace, path)?;
-        ctx.ensure_writable(&abs)?;
+        let abs = if matches!(ctx.sandbox, crate::permissions::SandboxMode::WorkspaceWrite) {
+            resolve_write_path(&ctx.workspace, path)?
+        } else {
+            let abs = resolve_path(&ctx.workspace, path)?;
+            ctx.ensure_writable(&abs)?;
+            abs
+        };
         let meta = tokio::fs::metadata(&abs)
             .await
             .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
@@ -250,6 +255,41 @@ mod tests {
             old_text: old.into(),
             new_text: new.into(),
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_edit_blocks_symlink_to_outside_file() {
+        let root =
+            std::env::temp_dir().join(format!("pipi-edit-link-{}", crate::session::new_id()));
+        let workspace = root.join("workspace");
+        let outside = root.join("outside.txt");
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::write(&outside, "old").await.unwrap();
+        std::os::unix::fs::symlink(&outside, workspace.join("link.txt")).unwrap();
+
+        let ctx = ToolContext {
+            workspace,
+            memory_dir: None,
+            read_roots: Vec::new(),
+            permissions: std::sync::Arc::new(crate::permissions::PermissionsConfig::default()),
+            sandbox: crate::permissions::SandboxMode::WorkspaceWrite,
+            abort: crate::types::AbortSignal::new(),
+        };
+        let result = EditTool
+            .execute(
+                &ctx,
+                &json!({
+                    "path": "link.txt",
+                    "edits": [{"oldText": "old", "newText": "changed"}]
+                }),
+                &|_| {},
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert_eq!(tokio::fs::read_to_string(&outside).await.unwrap(), "old");
+        let _ = tokio::fs::remove_dir_all(root).await;
     }
 
     #[test]

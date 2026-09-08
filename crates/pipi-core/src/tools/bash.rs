@@ -43,7 +43,7 @@ impl AgentTool for BashTool {
 
     fn description(&self) -> String {
         format!(
-            "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). Optionally provide a timeout in seconds.",
+            "Execute a bash command in the current working directory. Returns combined stdout and stderr. In workspace-write mode, shell redirection is rejected; use write or edit for file writes. Output is truncated to last {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). Optionally provide a timeout in seconds.",
             DEFAULT_MAX_BYTES / 1024
         )
     }

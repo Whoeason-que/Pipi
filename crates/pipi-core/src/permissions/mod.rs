@@ -8,12 +8,14 @@
 //! 2. **白/黑名单**：`denylist` 命中即拒；`allowlist` 必须逐段命中。
 //! 3. **危险命令**（移植自 codex，见 [`safety`]）：`rm -f` 家族、
 //!    sudo/env/trap/bash-c 包装器 —— 非 `danger-full-access` 下拒绝。
-//! 4. **沙箱**：`workspace-write` 下重定向目标不得越出工作目录。
+//! 4. **沙箱**：`workspace-write` 下拒绝 shell 重定向；文件写入请使用
+//!    具备 canonical containment 的 `write` / `edit` 工具。
 //!
 //! 局限（诚实声明）：这是用户态的粗粒度闸门，拦不住所有逃逸路径（如
-//! `tee`、工具进程自身写文件）。codex 的做法是 OS 级沙箱
-//! （Landlock/Seatbelt），那是 Pipi 的后续工作；在此之前本模块提供
-//! 「配置 + 启发式」两层防护。
+//! `tee`、工具进程自身写文件）。bash 在 `workspace-write` 下拒绝 shell 重定向，
+//! 是因为仅做执行前路径检查无法消除「命令先创建 symlink、再重定向写入」的
+//! TOCTOU 窗口；codex 的做法是 OS 级沙箱（Landlock/Seatbelt），那是 Pipi
+//! 的后续工作。
 //!
 //! 沙箱模式移植自 codex `protocol/src/config_types.rs` 的 `SandboxMode`：
 //! `read-only` / `workspace-write` / `danger-full-access`（kebab-case）。
@@ -21,6 +23,9 @@
 pub mod safety;
 
 pub use safety::{dangerous_command_match, DangerousCommandMatch};
+
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -258,13 +263,20 @@ impl PermissionsConfig {
         self.tools.iter().any(|t| t == name)
     }
 
-    /// bash 命令总闸：切分 → 白/黑名单 → 危险命令 → 沙箱重定向检查。
-    pub fn assess_bash(&self, command: &str, workspace: &std::path::Path) -> Result<(), String> {
+    /// bash 命令总闸：切分 → 白/黑名单 → 危险命令 → 沙箱策略。
+    pub fn assess_bash(&self, command: &str, _workspace: &std::path::Path) -> Result<(), String> {
         if self.sandbox == SandboxMode::ReadOnly {
             return Err(
                 "沙箱策略为 read-only：不允许执行命令（需要执行请调整 Agent 的沙箱设置）".into(),
             );
         }
+        if self.sandbox == SandboxMode::WorkspaceWrite && has_unquoted_shell_redirection(command) {
+            return Err(
+                "沙箱策略为 workspace-write：拒绝 shell 重定向；请使用 write 或 edit 工具写入文件"
+                    .into(),
+            );
+        }
+
         let segments = split_segments(command)?;
         for seg in &segments {
             self.bash.check(seg)?;
@@ -284,70 +296,95 @@ impl PermissionsConfig {
                     });
                 }
             }
-            if self.sandbox == SandboxMode::WorkspaceWrite {
-                check_redirect_targets(&seg.argv, workspace)?;
-            }
         }
         Ok(())
     }
 }
 
-/// workspace-write 沙箱下：重定向目标（`>` `>>` `2>` 后面的路径）不得越出工作目录。
-fn check_redirect_targets(argv: &[String], workspace: &std::path::Path) -> Result<(), String> {
-    let mut i = 0;
-    while i < argv.len() {
-        let (op_len, has_inline_target) = redirect_kind(&argv[i]);
-        if op_len > 0 {
-            let target = if has_inline_target {
-                argv[i][op_len..].to_string()
-            } else {
-                i += 1;
-                argv.get(i)
-                    .cloned()
-                    .ok_or_else(|| format!("重定向「{}」缺少目标路径", argv[i - 1]))?
-            };
-            check_one_redirect(&target, workspace)?;
+/// 判断命令中是否存在未被引号或反斜杠保护的 shell 重定向字符。
+///
+/// 这里故意只做 fail-closed 检测，不尝试重写或执行原始 shell 命令：
+/// 执行前检查目标路径无法阻止命令先创建 symlink 再重定向写入。
+fn has_unquoted_shell_redirection(command: &str) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    for c in command.chars() {
+        if escaped {
+            escaped = false;
+            continue;
         }
-        i += 1;
+        if c == '\\' && !in_single {
+            escaped = true;
+            continue;
+        }
+        match c {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '<' | '>' if !in_single && !in_double => return true,
+            _ => {}
+        }
     }
-    Ok(())
+    false
 }
 
-/// 识别重定向操作符：返回 (操作符占用的字符数, 目标是否粘连在同一 token)。
-/// 支持 `>` `>>` `1>` `2>` 及其粘连形式（`>file`、`2>>log`）。
-fn redirect_kind(token: &str) -> (usize, bool) {
-    let bytes = token.as_bytes();
-    let mut idx = 0;
-    if bytes.first().is_some_and(|c| c.is_ascii_digit()) {
-        idx = 1;
-    }
-    match bytes.get(idx) {
-        Some(b'>') => {
-            let op_len = if bytes.get(idx + 1) == Some(&b'>') {
-                idx + 2
-            } else {
-                idx + 1
-            };
-            (op_len, token.len() > op_len)
-        }
-        _ => (0, false),
-    }
-}
-
-fn check_one_redirect(target: &str, workspace: &std::path::Path) -> Result<(), String> {
-    let path = std::path::Path::new(target);
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
+/// 解析 workspace-write 的目标，先 canonicalize 工作目录与最近的现有祖先，
+/// 再拼回不存在的尾部；悬空 symlink 和指向外部的 symlink 都 fail-closed。
+pub fn resolve_write_path(workspace: &Path, path: &str) -> Result<PathBuf, String> {
+    let requested_path = Path::new(path);
+    let requested = if requested_path.is_absolute() {
+        requested_path.to_path_buf()
     } else {
-        workspace.join(path)
+        workspace.join(requested_path)
     };
-    if is_within(workspace, &absolute) {
-        Ok(())
+    resolve_write_target(workspace, &requested)
+}
+
+/// `resolve_write_path` 的 Path 版本，供工具在已解析路径上复用。
+pub(crate) fn resolve_write_target(workspace: &Path, requested: &Path) -> Result<PathBuf, String> {
+    let canonical_workspace = fs::canonicalize(workspace)
+        .map_err(|e| format!("无法验证工作目录 {}：{e}", workspace.display()))?;
+    let canonical_target = canonicalize_existing_ancestor(requested)?;
+    if canonical_target == canonical_workspace || canonical_target.starts_with(&canonical_workspace)
+    {
+        Ok(canonical_target)
     } else {
         Err(format!(
-            "重定向目标 {target} 越出工作目录（沙箱策略 workspace-write）"
+            "目标 {} 不在工作目录 {} 内",
+            canonical_target.display(),
+            canonical_workspace.display()
         ))
     }
+}
+
+fn canonicalize_existing_ancestor(path: &Path) -> Result<PathBuf, String> {
+    let mut missing = Vec::new();
+    let mut existing = path;
+    loop {
+        match fs::symlink_metadata(existing) {
+            Ok(_) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name = existing
+                    .file_name()
+                    .ok_or_else(|| format!("无法解析写入路径 {}", path.display()))?;
+                missing.push(name.to_os_string());
+                existing = existing
+                    .parent()
+                    .ok_or_else(|| format!("无法解析写入路径 {}", path.display()))?;
+            }
+            Err(error) => {
+                return Err(format!("无法解析写入路径 {}：{error}", path.display()));
+            }
+        }
+    }
+
+    let mut canonical = fs::canonicalize(existing)
+        .map_err(|e| format!("无法解析写入路径 {}：{e}", path.display()))?;
+    for name in missing.iter().rev() {
+        canonical.push(name);
+    }
+    Ok(canonical)
 }
 
 /// 词法路径包含检查：解析 `.` / `..` 后判断前缀（不访问文件系统，
@@ -507,22 +544,35 @@ mod tests {
     }
 
     #[test]
-    fn workspace_write_blocks_outside_redirects() {
-        let ws = Path::new("/home/u/project");
+    fn workspace_write_rejects_shell_redirects_before_execution() {
+        let root =
+            std::env::temp_dir().join(format!("pipi-redirect-policy-{}", crate::session::new_id()));
+        let ws = root.join("workspace");
+        std::fs::create_dir_all(&ws).unwrap();
         let p = PermissionsConfig {
             tools: default_tools(),
             bash: BashPermissions::default(),
             sandbox: SandboxMode::WorkspaceWrite,
         };
-        assert!(p.assess_bash("ls > out.txt", ws).is_ok());
-        assert!(p.assess_bash("ls > build/out.txt", ws).is_ok());
-        assert!(p.assess_bash("ls > ../outside.txt", ws).is_err());
-        assert!(p.assess_bash("ls > /etc/passwd", ws).is_err());
-        assert!(p.assess_bash("cat a >> /tmp/x", ws).is_err());
-        assert!(p.assess_bash("ls > ../project/ok.txt", ws).is_ok());
-        assert!(p.assess_bash("cargo build 2> build/log.txt", ws).is_ok());
-        assert!(p.assess_bash("cargo build 2> /tmp/log.txt", ws).is_err());
-        assert!(p.assess_bash("ls >out.txt", ws).is_ok());
+
+        for command in [
+            "ls > out.txt",
+            "ls >| out.txt",
+            "ls &> out.txt",
+            "ls foo>out.txt",
+            "cat < /etc/passwd",
+            "ln -s /outside link && printf x > link",
+        ] {
+            assert!(
+                p.assess_bash(command, &ws).is_err(),
+                "redirect must be rejected: {command}"
+            );
+        }
+        assert!(p.assess_bash("printf '>'", &ws).is_ok());
+        assert!(p.assess_bash(r#"printf ">""#, &ws).is_ok());
+        assert!(p.assess_bash(r"printf \>", &ws).is_ok());
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

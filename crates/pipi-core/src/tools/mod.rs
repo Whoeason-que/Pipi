@@ -39,11 +39,13 @@ impl ToolOutput {
     }
 }
 
-/// 工具执行上下文：工作目录、memory 目录、权限、沙箱、中止信号。
+/// 工具执行上下文：工作目录、memory 目录、受信任读取根、权限、沙箱、中止信号。
 #[derive(Clone)]
 pub struct ToolContext {
     pub workspace: PathBuf,
     pub memory_dir: Option<PathBuf>,
+    /// 除工作目录外允许 `read` 访问的受信任目录（例如 Agent 的 skills/）。
+    pub read_roots: Vec<PathBuf>,
     pub permissions: Arc<PermissionsConfig>,
     pub sandbox: SandboxMode,
     pub abort: AbortSignal,
@@ -59,15 +61,15 @@ impl ToolContext {
             SandboxMode::DangerFullAccess => Ok(()),
             SandboxMode::ReadOnly => Err("沙箱策略为 read-only：禁止写入文件".into()),
             SandboxMode::WorkspaceWrite => {
-                if crate::permissions::is_within(&self.workspace, path) {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "沙箱策略为 workspace-write：{} 在工作目录 {} 之外",
-                        path.display(),
-                        self.workspace.display()
-                    ))
-                }
+                crate::permissions::resolve_write_target(&self.workspace, path)
+                    .map(|_| ())
+                    .map_err(|_| {
+                        format!(
+                            "沙箱策略为 workspace-write：{} 在工作目录 {} 之外",
+                            path.display(),
+                            self.workspace.display()
+                        )
+                    })
             }
         }
     }
@@ -99,6 +101,59 @@ pub fn resolve_path(workspace: &Path, path: &str) -> Result<PathBuf, String> {
     } else {
         Ok(workspace.join(p))
     }
+}
+
+/// 解析 workspace-write 的目标，委托给权限模块的 canonical resolver。
+/// 保留该入口兼容已有 tools 调用方。
+pub fn resolve_write_path(workspace: &Path, path: &str) -> Result<PathBuf, String> {
+    crate::permissions::resolve_write_path(workspace, path)
+}
+
+/// 解析并校验 `read` 的目标，只允许工作目录或受信任读取根内的现有文件。
+///
+/// 目标和每个根都会先 canonicalize；因此 `..` 与指向外部的符号链接都按
+/// 真实路径判断。返回 canonical 目标，供调用方直接读取，避免再次跟随原始链接。
+pub fn resolve_read_path(
+    workspace: &Path,
+    read_roots: &[PathBuf],
+    path: &str,
+) -> Result<PathBuf, String> {
+    let requested = resolve_path(workspace, path)?;
+    let target = std::fs::canonicalize(&requested)
+        .map_err(|e| format!("无法读取文件 {path}：无法解析路径（文件不存在或链接无效）：{e}"))?;
+    std::fs::metadata(&target)
+        .map_err(|e| format!("无法读取文件 {path}：无法确认目标文件状态：{e}"))?;
+
+    let mut roots = Vec::with_capacity(read_roots.len() + 1);
+    roots.push(workspace.to_path_buf());
+    roots.extend(read_roots.iter().cloned());
+    for root in roots {
+        let canonical_root = std::fs::canonicalize(&root).map_err(|e| {
+            format!(
+                "无法读取文件 {path}：无法验证受信任读取目录 {}：{e}",
+                root.display()
+            )
+        })?;
+        let metadata = std::fs::metadata(&canonical_root).map_err(|e| {
+            format!(
+                "无法读取文件 {path}：无法确认受信任读取目录 {}：{e}",
+                canonical_root.display()
+            )
+        })?;
+        if !metadata.is_dir() {
+            return Err(format!(
+                "无法读取文件 {path}：读取根 {} 不是目录",
+                canonical_root.display()
+            ));
+        }
+        if target == canonical_root || target.starts_with(&canonical_root) {
+            return Ok(target);
+        }
+    }
+
+    Err(format!(
+        "拒绝读取 {path}：路径不在工作目录或受信任 skill 目录内"
+    ))
 }
 
 /// 按工具名查 schema 里的 required 字段做轻量校验（完整 JSON Schema 校验

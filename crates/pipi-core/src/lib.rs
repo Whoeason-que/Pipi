@@ -26,6 +26,7 @@
 pub mod agent_loop;
 pub mod agents;
 pub mod context;
+pub mod harness;
 pub mod permissions;
 pub mod project_doc;
 pub mod provider;

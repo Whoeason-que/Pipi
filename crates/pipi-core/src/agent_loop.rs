@@ -854,6 +854,7 @@ mod tests {
             tool_context: ToolContext {
                 workspace: std::env::temp_dir(),
                 memory_dir: None,
+                read_roots: Vec::new(),
                 permissions: Arc::new(Default::default()),
                 sandbox: crate::permissions::SandboxMode::DangerFullAccess,
                 abort: AbortSignal::new(),
