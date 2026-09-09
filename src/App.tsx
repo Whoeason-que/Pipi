@@ -51,6 +51,7 @@ export default function App() {
   const [sessionsByAgent, setSessionsByAgent] = useState<Record<string, SessionSummaryView[]>>({});
   const [activeSession, setActiveSession] = useState<SessionInfoView | null>(null);
   const [chatRunning, setChatRunning] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const agentsRef = useRef<AgentDefinition[]>([]);
   const sessionListRequestRef = useRef(0);
@@ -213,6 +214,7 @@ export default function App() {
         setSelected(agentName);
         setCreating(false);
         setChatOpen(true);
+        setSidebarOpen(false);
         setActiveSession(null);
         setChatKey((key) => key + 1);
         infoRequestId = ++sessionInfoRequestRef.current;
@@ -257,6 +259,7 @@ export default function App() {
         setSelected(agentName);
         setCreating(false);
         setChatOpen(true);
+        setSidebarOpen(false);
         setActiveSession(null);
         setChatKey((key) => key + 1);
       } catch (errorValue) {
@@ -325,10 +328,11 @@ export default function App() {
     setSelected(agentName);
     setCreating(false);
     setChatOpen(false);
+    setSidebarOpen(false);
   };
 
   return (
-    <div className="app">
+    <div className={sidebarOpen ? "app sidebar-open" : "app"}>
       <aside className="sidebar">
         <div className="sidebar-header">
           <span className="logo">
@@ -434,7 +438,28 @@ export default function App() {
         </div>
       </aside>
 
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          aria-label="关闭导航"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       <main className="main">
+        <div className="mobile-toolbar">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="打开导航"
+            title="打开导航"
+            onClick={() => setSidebarOpen(true)}
+          >
+            ☰
+          </button>
+          <span>{current?.name ?? (creating ? "新建 Agent" : "Pipi")}</span>
+        </div>
         {error && (
           <div className="error" role="alert">
             <span>{error}</span>
@@ -467,6 +492,7 @@ export default function App() {
                 }
                 invalidateNavigation();
                 setChatOpen(false);
+                setSidebarOpen(false);
               }}
               onError={setError}
               onNewSession={createSessionFromChat}

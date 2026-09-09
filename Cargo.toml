@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/pipi-core", "src-tauri"]
+members = ["crates/pipi-core", "crates/pipi-server", "src-tauri"]
 
 [profile.release]
 codegen-units = 1
@@ -8,4 +8,3 @@ lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
-

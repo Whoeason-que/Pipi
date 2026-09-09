@@ -30,8 +30,8 @@ pub mod harness;
 pub mod permissions;
 pub mod project_doc;
 pub mod provider;
+pub mod runtime;
 pub mod session;
-
 
 pub mod settings;
 pub mod skills;

@@ -172,6 +172,31 @@ cargo test -p pipi-core
 cargo check --workspace
 ```
 
+## Web/远程模式
+
+Pipi 也可以把 React 前端和 pipi-core 运行时以浏览器服务方式启动。服务默认
+只监听 127.0.0.1:1421，适合由 Tailscale Serve 转发到 Tailnet 内的手机；
+运行时仍然在电脑上执行，手机只负责显示界面和发送操作。
+
+先构建前端，再启动 Web 服务：
+
+    npm run build
+    cargo run -p pipi-server
+
+另一个终端将本地服务提供给 Tailnet：
+
+    tailscale serve 1421
+
+手机安装并登录 Tailscale 后，打开命令输出的 HTTPS 地址即可。需要认证时，
+启动服务时设置 PIPI_AUTH_TOKEN，并首次使用带 token 查询参数打开地址；服务
+会写入 HttpOnly cookie，后续 API 与 WebSocket 请求会自动携带认证信息：
+
+    PIPI_AUTH_TOKEN=替换为随机长字符串 cargo run -p pipi-server
+
+默认服务只允许本机访问；如果修改 PIPI_SERVER_ADDR 监听局域网或 Tailnet
+地址，必须启用 PIPI_AUTH_TOKEN，并同时配置 Tailscale ACL。不要使用 Funnel
+将具备文件写入和 bash 能力的 Agent 暴露到公网。
+
 ## 路线图
 
 - [x] **M0 — 项目骨架**：Tauri 2.0 跑通，设计文档定稿

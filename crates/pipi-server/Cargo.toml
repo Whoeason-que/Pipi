@@ -1,0 +1,21 @@
+[package]
+name = "pipi-server"
+version = "0.1.0"
+description = "Pipi 的 Web/远程运行时服务"
+edition = "2021"
+
+[[bin]]
+name = "pipi-server"
+path = "src/main.rs"
+
+[dependencies]
+bytes = "1"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["server", "tokio"] }
+pipi-core = { path = "../pipi-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }

@@ -1209,3 +1209,102 @@ textarea,
   font-style: italic;
   cursor: default;
 }
+
+.mobile-toolbar,
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  #root {
+    height: 100dvh;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    width: min(82vw, 300px);
+    min-width: 0;
+    transform: translateX(-105%);
+    box-shadow: 12px 0 32px rgb(0 0 0 / 24%);
+    transition: transform 0.18s ease, background-color 0.15s ease;
+  }
+
+  .sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0;
+    background: rgb(0 0 0 / 38%);
+    cursor: pointer;
+  }
+
+  .main {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .mobile-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 48px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--fg);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .mobile-toolbar .icon-btn {
+    flex: 0 0 auto;
+  }
+
+  .error {
+    margin: 10px 12px 0;
+  }
+
+  .detail {
+    padding: 22px 16px;
+  }
+
+  .field-grid {
+    grid-template-columns: 1fr;
+    row-gap: 7px;
+  }
+
+  .field-grid .field + .field {
+    margin-top: 12px;
+  }
+
+  .chat-header {
+    padding: 10px 12px;
+  }
+
+  .chat-list {
+    padding: 16px 12px;
+  }
+
+  .chat-entry {
+    max-width: none;
+  }
+
+  .chat-input {
+    padding: 10px 12px;
+  }
+
+  .modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+}
