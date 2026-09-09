@@ -16,7 +16,7 @@ const demoAgent: AgentDefinition = {
   mcpServers: [],
 };
 
-const demoMessages = [
+const initialDemoMessages: Array<Record<string, unknown>> = [
   { role: "user", content: "帮我看看这个项目的结构", timestamp: 0 },
   {
     role: "assistant",
@@ -26,7 +26,7 @@ const demoMessages = [
     timestamp: 0,
     durationMs: 1900,
   },
-  { role: "toolResult", toolCallId: "t1", toolName: "bash", content: [{ type: "toolResultText", text: "src/ README.md" }], isError: false, timestamp: 0 },
+  { role: "toolResult", toolCallId: "t1", toolName: "bash", content: [{ type: "text", text: "src/ README.md" }], isError: false, timestamp: 0 },
   {
     role: "assistant",
     content: [{ type: "text", text: `项目结构很简洁，核心三块：
@@ -59,6 +59,111 @@ let messages = run_agent_loop(
     durationMs: 2600,
   },
 ];
+
+const initialDemoSessionId = "1730000000000-abc123";
+let demoSessionId = initialDemoSessionId;
+let demoMessages: Array<Record<string, unknown>> = initialDemoMessages;
+const demoSessionHistories = new Map<string, Array<Record<string, unknown>>>([
+  [initialDemoSessionId, demoMessages],
+]);
+const legacyDemoSessionId = "1729990000000-def456";
+demoSessionHistories.set(legacyDemoSessionId, [
+  { role: "user", content: "把 README 翻译成英文", timestamp: 0 },
+  { role: "assistant", content: [{ type: "text", text: "好的，我会先读取 README。" }], timestamp: 0 },
+]);
+const demoSessionTitles = new Map<string, string>([
+  [initialDemoSessionId, "帮我看看这个项目的结构"],
+  [legacyDemoSessionId, "把 README 翻译成英文"],
+]);
+
+interface DevEvent {
+  payload: unknown;
+}
+
+type DevEventListener = (event: DevEvent) => void;
+
+const devListeners = new Map<string, Set<DevEventListener>>();
+let demoRunTimer: ReturnType<typeof setTimeout> | null = null;
+let demoRunning = false;
+let demoHasSession = true;
+let demoRunId = 0;
+let demoSessionCounter = 0;
+
+function emitDevEvent(name: string, payload: unknown): void {
+  devListeners.get(name)?.forEach((listener) => listener({ payload }));
+}
+
+function emitDemoAgentEvent(event: unknown): void {
+  emitDevEvent("agent-event", {
+    agentName: "demo-assistant",
+    sessionId: demoSessionId,
+    runId: demoRunId,
+    event,
+  });
+}
+
+function listenDevEvent(name: string, listener: DevEventListener): () => void {
+  const listeners = devListeners.get(name) ?? new Set<DevEventListener>();
+  listeners.add(listener);
+  devListeners.set(name, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) devListeners.delete(name);
+  };
+}
+
+function startDemoRun(prompt: string): void {
+  if (demoRunTimer) clearTimeout(demoRunTimer);
+  demoRunId += 1;
+  demoRunning = true;
+  demoHasSession = true;
+  demoSessionTitles.set(demoSessionId, demoSessionTitles.get(demoSessionId) ?? prompt);
+  demoMessages.push({ role: "user", content: prompt, timestamp: 0 });
+  const response = {
+    role: "assistant",
+    content: [{ type: "text", text: `我已收到：${prompt}\n\n这是浏览器演示模式的流式响应。` }],
+    usage: { input: 120, output: 32, cacheRead: 80, cacheWrite: 0, totalTokens: 232 },
+    stopReason: "stop",
+    durationMs: 320,
+  };
+  demoRunTimer = setTimeout(() => {
+    emitDemoAgentEvent({ type: "agent_start" });
+    emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [] } });
+    emitDemoAgentEvent({
+      type: "message_update",
+      message: { ...response, content: [{ type: "text", text: "我已收到：" }] },
+    });
+    emitDemoAgentEvent({ type: "message_update", message: response });
+    emitDemoAgentEvent({ type: "message_end", message: response });
+    demoMessages.push(response);
+    emitDevEvent("session-stats", {
+      agentName: "demo-assistant",
+      sessionId: demoSessionId,
+      runId: demoRunId,
+      stats: {
+        input: 850,
+        output: 176,
+        cacheRead: 740,
+        cacheWrite: 0,
+        calls: 3,
+        avgTps: 51.2,
+        avgLatencyS: 1.8,
+        cacheHitPct: 87.1,
+        contextUsed: 990,
+        contextMax: 200000,
+        contextPercent: 0,
+      },
+    });
+    emitDemoAgentEvent({ type: "agent_end", messages: [response] });
+    demoRunTimer = null;
+    demoRunning = false;
+  }, 120);
+}
+
+interface DevPlatform {
+  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+  listen(event: string, listener: DevEventListener): Promise<() => void>;
+}
 
 interface TauriInternals {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -96,12 +201,26 @@ const settings: Settings = {
   defaultProviderId: "anthropic",
 };
 
+function listDemoSessions(): Array<Record<string, unknown>> {
+  return [...demoSessionHistories.entries()]
+    .filter(([, messages]) => messages.length > 0)
+    .map(([id, messages]) => ({
+      id,
+      title: demoSessionTitles.get(id) ?? "未命名会话",
+      messageCount: messages.length,
+      startedAt: Number(id.split("-")[0]) || 0,
+      lastActive: Number(id.split("-")[0]) || 0,
+    }));
+}
+
 export function installDevMock(): void {
   if (!import.meta.env.DEV) return;
-  const w = window as unknown as { __TAURI_INTERNALS__?: TauriInternals };
+  const w = window as unknown as {
+    __TAURI_INTERNALS__?: TauriInternals;
+    __PIPI_DEV_PLATFORM__?: DevPlatform;
+  };
   if (w.__TAURI_INTERNALS__) return;
-  w.__TAURI_INTERNALS__ = {
-    invoke: (cmd, args = {}) => {
+  const invoke = (cmd: string, args: Record<string, unknown> = {}) => {
       switch (cmd) {
         case "get_settings":
           return Promise.resolve(structuredClone(settings));
@@ -113,30 +232,21 @@ export function installDevMock(): void {
         case "load_agent":
           return Promise.resolve(demoAgent);
         case "list_sessions":
-          return Promise.resolve([
-            {
-              id: "1730000000000-abc123",
-              title: "帮我看看这个项目的结构",
-              messageCount: 4,
-              startedAt: 1730000000000,
-              lastActive: 1730000300000,
-            },
-            {
-              id: "1729990000000-def456",
-              title: "把 README 翻译成英文",
-              messageCount: 6,
-              startedAt: 1729990000000,
-              lastActive: 1729992000000,
-            },
-          ]);
+          return Promise.resolve(listDemoSessions());
         case "open_session":
+          demoSessionId = String(args.sessionId ?? demoSessionId);
+          demoRunId = 0;
+          demoMessages = demoSessionHistories.get(demoSessionId) ?? [];
+          demoSessionHistories.set(demoSessionId, demoMessages);
+          demoHasSession = demoMessages.length > 0;
           return Promise.resolve(null);
         case "session_info":
-          return Promise.resolve({
+          return Promise.resolve(demoHasSession ? {
             agentName: "demo-assistant",
-            sessionId: "1730000000000-abc123",
-            running: false,
-          });
+            sessionId: demoSessionId,
+            running: demoRunning,
+            runId: demoRunId,
+          } : null);
         case "session_messages":
           return Promise.resolve(demoMessages);
         case "session_stats":
@@ -153,24 +263,39 @@ export function installDevMock(): void {
             contextMax: 200000,
             contextPercent: 0,
           });
-        case "session_messages":
-          return Promise.resolve([]);
-        case "session_stats":
-          return Promise.resolve({
-            input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0,
-          });
         case "session_running":
-          return Promise.resolve(false);
+          return Promise.resolve(demoRunning);
         case "send_prompt":
-          return Promise.reject("浏览器演示模式不支持发送（需要桌面端的 Tauri 后端）");
+          startDemoRun(String(args.prompt ?? ""));
+          return Promise.resolve(null);
         case "stop_run":
+          if (demoRunTimer) clearTimeout(demoRunTimer);
+          demoRunTimer = null;
+          if (demoRunning) emitDemoAgentEvent({ type: "agent_end" });
+          demoRunning = false;
+          return Promise.resolve(null);
         case "new_session":
+          if (demoRunTimer) clearTimeout(demoRunTimer);
+          demoRunTimer = null;
+          demoRunning = false;
+          demoHasSession = false;
+          demoSessionCounter += 1;
+          demoSessionId = `demo-session-${demoSessionCounter}`;
+          demoRunId = 0;
+          demoMessages = [];
+          demoSessionHistories.set(demoSessionId, demoMessages);
           return Promise.resolve(null);
         default:
           return Promise.resolve(null);
       }
-    },
-    transformCallback: (cb) => cb,
+  };
+  w.__PIPI_DEV_PLATFORM__ = {
+    invoke: <T>(command: string, args?: Record<string, unknown>) => invoke(command, args) as Promise<T>,
+    listen: async (event, listener) => listenDevEvent(event, listener),
+  };
+  w.__TAURI_INTERNALS__ = {
+    invoke,
+    transformCallback: (cb: unknown) => cb,
   };
   console.info("[pipi] dev mock installed（浏览器模式，无 Tauri 后端）");
 }

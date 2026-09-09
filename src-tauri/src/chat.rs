@@ -10,10 +10,10 @@ use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, State};
 
-use pipi_core::agent_loop::{
-    run_agent_loop, AgentContext, AgentLoopConfig, AgentEvent, MessageQueue, ToolExecutionMode,
-};
 use pipi_core::agent_loop::Emitter as LoopEmitter;
+use pipi_core::agent_loop::{
+    run_agent_loop, AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode,
+};
 use pipi_core::agents::{self, AgentDefinition};
 use pipi_core::provider::provider_for;
 use pipi_core::session::{list_session_summaries, load_session, SessionSummary, SessionWriter};
@@ -22,11 +22,14 @@ use pipi_core::stats::SessionStatsTracker;
 use pipi_core::tools::ToolRegistry;
 use pipi_core::types::{AbortSignal, Message, Model, StreamOptions};
 
+static NEXT_RUN_ID: AtomicUsize = AtomicUsize::new(1);
+
 /// 一个（可能跨多轮的）会话的运行状态。
 ///
 /// 低位是 running 标志，其余位是代际；结束操作只允许清除自己开始的代际。
 pub struct RunState {
     value: AtomicUsize,
+    run_id: AtomicUsize,
 }
 
 impl RunState {
@@ -35,6 +38,7 @@ impl RunState {
     fn new() -> Self {
         Self {
             value: AtomicUsize::new(0),
+            run_id: AtomicUsize::new(NEXT_RUN_ID.load(Ordering::Acquire).saturating_sub(1)),
         }
     }
 
@@ -44,13 +48,15 @@ impl RunState {
             let generation = current >> 1;
             let next_generation = generation.wrapping_add(1);
             let next = (next_generation << 1) | Self::RUNNING_BIT;
-            match self.value.compare_exchange(
-                current,
-                next,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return next,
+            match self
+                .value
+                .compare_exchange(current, next, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => {
+                    let run_id = NEXT_RUN_ID.fetch_add(1, Ordering::AcqRel);
+                    self.run_id.store(run_id, Ordering::Release);
+                    return next;
+                }
                 Err(actual) => current = actual,
             }
         }
@@ -58,16 +64,17 @@ impl RunState {
 
     fn finish(&self, token: usize) {
         let idle = token & !Self::RUNNING_BIT;
-        let _ = self.value.compare_exchange(
-            token,
-            idle,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
+        let _ = self
+            .value
+            .compare_exchange(token, idle, Ordering::AcqRel, Ordering::Acquire);
     }
 
     fn is_running(&self) -> bool {
         self.value.load(Ordering::Acquire) & Self::RUNNING_BIT != 0
+    }
+
+    fn current_run_id(&self) -> usize {
+        self.run_id.load(Ordering::Acquire)
     }
 }
 
@@ -154,7 +161,12 @@ fn resolve_model(def: &AgentDefinition) -> Result<Model, String> {
         .iter()
         .find(|p| p.api == provider.api && p.base_url == provider.base_url)
         .and_then(|p| p.resolve_api_key())
-        .ok_or_else(|| format!("提供商 {} 未配置 API 密钥（设置 → 模型提供商）", provider.base_url))?;
+        .ok_or_else(|| {
+            format!(
+                "提供商 {} 未配置 API 密钥（设置 → 模型提供商）",
+                provider.base_url
+            )
+        })?;
     let _ = api_key; // StreamOptions 在 loop 配置里传
     Ok(Model {
         id: provider.id.clone(),
@@ -166,22 +178,117 @@ fn resolve_model(def: &AgentDefinition) -> Result<Model, String> {
     })
 }
 
+fn writer_session_id(writer: &Arc<Mutex<SessionWriter>>) -> Result<String, String> {
+    writer
+        .lock()
+        .map_err(|error| format!("无法锁定会话写入器: {error}"))?
+        .path()
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(str::to_owned)
+        .ok_or_else(|| "无法解析会话 ID".to_string())
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FrontendAgentEvent {
+    agent_name: String,
+    session_id: String,
+    run_id: usize,
+    event: AgentEvent,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FrontendStatsEvent {
+    agent_name: String,
+    session_id: String,
+    run_id: usize,
+    stats: pipi_core::stats::SessionStats,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FrontendSessionError {
+    agent_name: String,
+    session_id: String,
+    run_id: usize,
+    message: String,
+}
+
 /// AgentEvent 转发为前端事件；MessageEnd 时落盘 + 更新统计。
 fn make_emitter(
     app: AppHandle,
     writer: Arc<Mutex<SessionWriter>>,
     stats: Arc<Mutex<SessionStatsTracker>>,
+    agent_name: String,
+    session_id: String,
+    run_id: usize,
 ) -> LoopEmitter {
     Arc::new(move |event: AgentEvent| {
-        let _ = app.emit("agent-event", &event);
+        // AgentEnd 延迟到 run loop 回写完整历史后统一发送。
+        if matches!(&event, AgentEvent::AgentEnd { .. }) {
+            return;
+        }
+        let envelope = FrontendAgentEvent {
+            agent_name: agent_name.clone(),
+            session_id: session_id.clone(),
+            run_id,
+            event: event.clone(),
+        };
+        let _ = app.emit("agent-event", &envelope);
         if let AgentEvent::MessageEnd { message } = &event {
-            if let Ok(mut w) = writer.lock() {
-                let _ = w.append_message(message);
+            match writer.lock() {
+                Ok(mut writer) => {
+                    if let Err(error) = writer.append_message(message) {
+                        let _ = app.emit(
+                            "session-error",
+                            FrontendSessionError {
+                                agent_name: agent_name.clone(),
+                                session_id: session_id.clone(),
+                                run_id,
+                                message: format!("会话消息落盘失败: {error}"),
+                            },
+                        );
+                    }
+                }
+                Err(error) => {
+                    let _ = app.emit(
+                        "session-error",
+                        FrontendSessionError {
+                            agent_name: agent_name.clone(),
+                            session_id: session_id.clone(),
+                            run_id,
+                            message: format!("无法锁定会话写入器: {error}"),
+                        },
+                    );
+                }
             }
             if message.role() == "assistant" {
-                if let Ok(mut s) = stats.lock() {
-                    s.record(message);
-                    let _ = app.emit("session-stats", s.snapshot());
+                match stats.lock() {
+                    Ok(mut tracker) => {
+                        tracker.record(message);
+                        let _ = app.emit(
+                            "session-stats",
+                            FrontendStatsEvent {
+                                agent_name: agent_name.clone(),
+                                session_id: session_id.clone(),
+                                run_id,
+                                stats: tracker.snapshot(),
+                            },
+                        );
+                    }
+                    Err(error) => {
+                        let _ = app.emit(
+                            "session-error",
+                            FrontendSessionError {
+                                agent_name: agent_name.clone(),
+                                session_id: session_id.clone(),
+                                run_id,
+                                message: format!("无法更新会话统计: {error}"),
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -232,7 +339,11 @@ pub fn open_session(
             _ => None,
         })
         .collect();
-    let context_max = def.provider.as_ref().map(|p| p.context_window).filter(|w| *w > 0);
+    let context_max = def
+        .provider
+        .as_ref()
+        .map(|p| p.context_window)
+        .filter(|w| *w > 0);
     let mut tracker = SessionStatsTracker::new(context_max);
     for m in &messages {
         tracker.record(m);
@@ -257,26 +368,35 @@ pub struct SessionInfo {
     pub agent_name: String,
     pub session_id: String,
     pub running: bool,
+    pub run_id: usize,
 }
 
 /// 当前活会话信息（侧栏高亮用）；无会话返回 None。
 #[tauri::command]
-pub fn session_info(state: State<ChatState>) -> Option<SessionInfo> {
-    let session = state.session.lock().ok()?;
-    let s = session.as_ref()?;
-    let session_id = s
+pub fn session_info(state: State<ChatState>) -> Result<Option<SessionInfo>, String> {
+    let session = state
+        .session
+        .lock()
+        .map_err(|error| format!("无法读取当前会话: {error}"))?;
+    let Some(s) = session.as_ref() else {
+        return Ok(None);
+    };
+    let writer = s
         .writer
         .lock()
-        .ok()?
+        .map_err(|error| format!("无法读取会话路径: {error}"))?;
+    let session_id = writer
         .path()
         .file_stem()
         .and_then(|x| x.to_str())
-        .map(str::to_string)?;
-    Some(SessionInfo {
+        .map(str::to_string)
+        .ok_or_else(|| "当前会话路径无有效 ID".to_string())?;
+    Ok(Some(SessionInfo {
         agent_name: s.agent.name.clone(),
         session_id,
         running: s.running.is_running(),
-    })
+        run_id: s.running.current_run_id(),
+    }))
 }
 
 #[tauri::command]
@@ -284,11 +404,7 @@ pub fn session_running(state: State<ChatState>) -> bool {
     state
         .session
         .lock()
-        .map(|s| {
-            s.as_ref()
-                .map(|x| x.running.is_running())
-                .unwrap_or(false)
-        })
+        .map(|s| s.as_ref().map(|x| x.running.is_running()).unwrap_or(false))
         .unwrap_or(false)
 }
 
@@ -345,7 +461,11 @@ pub fn send_prompt(
         let def = agents::load_agent(&agent_name)?;
         let sessions_dir = def.sessions_dir().ok_or("无法解析会话目录")?;
         let writer = SessionWriter::create(&sessions_dir).map_err(|e| e.to_string())?;
-        let context_max = def.provider.as_ref().map(|p| p.context_window).filter(|w| *w > 0);
+        let context_max = def
+            .provider
+            .as_ref()
+            .map(|p| p.context_window)
+            .filter(|w| *w > 0);
         Some(Session {
             agent: def,
             messages: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -425,10 +545,17 @@ pub fn send_prompt(
 
     // stop_run 只中止上一轮；新的轮次复用会话时必须清除旧状态。
     abort.reset();
-    let running_guard = RunningGuard::new(running);
+    let running_guard = RunningGuard::new(running.clone());
+    let run_token = running_guard.token;
+    let run_id = running.current_run_id();
+    let session_id = writer_session_id(&writer)?;
 
     let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools);
-    let emitter: LoopEmitter = make_emitter(app, writer, stats);
+    let completion_app = app.clone();
+    let completion_agent_name = def.name.clone();
+    let completion_session_id = session_id.clone();
+    let emitter: LoopEmitter =
+        make_emitter(app, writer, stats, def.name.clone(), session_id, run_id);
 
     tauri::async_runtime::spawn(async move {
         let _running_guard = running_guard;
@@ -452,8 +579,21 @@ pub fn send_prompt(
         )
         .await;
 
-        // 回写会话历史（供下一轮续接）
+        // 回写会话历史后才允许 UI / 下一轮看到完成状态。
+        let completion_messages = new_messages.clone();
         messages.lock().await.extend(new_messages);
+        running.finish(run_token);
+        let _ = completion_app.emit(
+            "agent-event",
+            &FrontendAgentEvent {
+                agent_name: completion_agent_name,
+                session_id: completion_session_id,
+                run_id,
+                event: AgentEvent::AgentEnd {
+                    messages: completion_messages,
+                },
+            },
+        );
         let _ = &mut context;
     });
 

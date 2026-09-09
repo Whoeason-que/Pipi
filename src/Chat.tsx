@@ -1,367 +1,522 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { Markdown } from "./Markdown";
-import type { AgentDefinition, SessionStatsView } from "./types";
+import { invoke, listen } from "./platform";
+import {
+  assistantFooter,
+  chatReducer,
+  createEntryKey,
+  eventMatchesRun,
+  formatRuntimeError,
+  INITIAL_CHAT_STATE,
+  normalizeAgentEvent,
+  normalizeStatsPayload,
+  type AgentEvent,
+  type AgentEventPayload,
+  type MessageView,
+  type SessionErrorPayload,
+  type SessionEventMeta,
+  type SessionStatsPayload,
+} from "./chat-runtime";
+import type { AgentDefinition, SessionInfoView, SessionStatsView } from "./types";
 
-// ---- 事件负载类型（与 Rust AgentEvent 的 serde 序列化对齐）----
-
-interface UsageView {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  totalTokens: number;
-}
-
-type MessageContentView =
-  | { type: "text"; text: string }
-  | { type: "thinking"; thinking: string; thinkingSignature?: string | null }
-  | { type: "toolCall"; id: string; name: string; arguments?: unknown }
-  | { type: "image"; data: string; mimeType: string }
-  | { type: "toolResultText"; text: string };
-
-export interface MessageView {
-  role: "user" | "assistant" | "toolResult";
-  content: string | MessageContentView[];
-  usage?: UsageView;
-  stopReason?: string;
-  errorMessage?: string | null;
-  durationMs?: number | null;
-  toolName?: string;
-  toolCallId?: string;
-  isError?: boolean;
-}
-
-type ToolResultContentView =
-  | { type: "text"; text: string }
-  | { type: "image"; data: string; mimeType: string };
-
-interface ToolOutputView {
-  content: ToolResultContentView[];
-  details?: unknown;
-  terminate?: boolean;
-}
-
-type AgentEvent =
-  | { type: "agent_start" }
-  | { type: "agent_end" }
-  | { type: "turn_start" }
-  | { type: "turn_end" }
-  | { type: "message_start"; message: MessageView }
-  | { type: "message_update"; message: MessageView }
-  | { type: "message_end"; message: MessageView }
-  | { type: "tool_execution_start"; toolCallId: string; toolName: string; args?: unknown }
-  | { type: "tool_execution_update"; toolCallId: string; toolName: string; partial: ToolOutputView }
-  | {
-      type: "tool_execution_end";
-      toolCallId: string;
-      toolName: string;
-      result: ToolOutputView;
-      isError: boolean;
-    };
-
-type EntryStatus = "error" | "aborted" | "tool-error";
-
-interface Entry {
-  key: string;
-  role: MessageView["role"];
-  text: string;
-  toolName?: string;
-  toolCallId?: string;
-  isError?: boolean;
-  status?: EntryStatus;
-  errorMessage?: string;
-  stopReason?: string;
-  usage?: UsageView;
-  durationMs?: number;
-  streaming?: boolean;
-  toolRunning?: boolean;
-}
-
-function messageStatus(m: MessageView): EntryStatus | undefined {
-  if (m.role === "toolResult" && m.isError) return "tool-error";
-  if (m.role !== "assistant") return undefined;
-  if (m.stopReason === "aborted") return "aborted";
-  if (m.errorMessage || m.stopReason === "error") return "error";
-  return undefined;
-}
-
-function messageText(m: MessageView): string {
-  let text = "";
-  if (typeof m.content === "string") {
-    text = m.content;
-  } else if (Array.isArray(m.content)) {
-    text = m.content
-      .map((c) => {
-        if ("text" in c) return c.text;
-        if (c.type === "toolCall") return `[工具调用 ${c.name}]`;
-        return "";
-      })
-      .join("");
-  }
-  if (text) return text;
-  if (m.errorMessage) return `⚠ ${m.errorMessage}`;
-  if (m.stopReason === "aborted") return "■ 已中止";
-  if (m.stopReason === "error") return "⚠ Agent 返回错误";
-  return "";
-}
-
-function toolOutputText(result: ToolOutputView | undefined, fallback: string): string {
-  const text = result?.content
-    .map((content) => (content.type === "text" ? content.text : ""))
-    .filter(Boolean)
-    .join("\n");
-  return text || fallback;
-}
-
-function entryFromMessage(m: MessageView, key: string): Entry {
-  const status = messageStatus(m);
-  return {
-    key,
-    role: m.role,
-    text: messageText(m),
-    toolName: m.toolName,
-    toolCallId: m.toolCallId,
-    isError: m.isError || status !== undefined,
-    status,
-    errorMessage: m.errorMessage ?? undefined,
-    stopReason: m.stopReason,
-    usage: m.usage,
-    durationMs: m.durationMs ?? undefined,
-  };
-}
-
-function assistantFooter(m: MessageView): string | null {
-  if (m.role !== "assistant" || !m.usage) return null;
-  const parts: string[] = [];
-  if (m.durationMs && m.durationMs > 0 && m.usage.output > 0) {
-    const tps = m.usage.output / (m.durationMs / 1000);
-    parts.push(`${tps.toFixed(1)} tok/s`);
-  }
-  const promptTotal = m.usage.input + m.usage.cacheRead + m.usage.cacheWrite;
-  if (promptTotal > 0 && m.usage.cacheRead > 0) {
-    parts.push(`缓存命中 ${((m.usage.cacheRead / promptTotal) * 100).toFixed(0)}%`);
-  }
-  parts.push(`${m.usage.output} tok`);
-  return parts.length ? parts.join(" · ") : null;
-}
+export type { MessageView } from "./chat-runtime";
 
 interface ChatViewProps {
   agent: AgentDefinition;
+  blockedSessionIds: string[];
   onBack: () => void;
   onError: (msg: string) => void;
+  onNewSession: (previousSessionId?: string) => Promise<boolean>;
+  onRunningChange: (running: boolean) => void;
+  onSessionReset: () => void;
 }
 
-export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [stats, setStats] = useState<SessionStatsView | null>(null);
+export default function ChatView({ agent, blockedSessionIds, onBack, onError, onNewSession, onRunningChange, onSessionReset }: ChatViewProps) {
+  const [state, dispatch] = useReducer(chatReducer, INITIAL_CHAT_STATE);
+  const { entries, stats, running } = state;
+  const runningRef = useRef(running);
+  runningRef.current = running;
+  const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
-  const [running, setRunning] = useState(false);
-  const streamKey = useRef<string | null>(null);
+  const [stopping, setStopping] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef(true);
+  const sessionIdentityRef = useRef<{ sessionId: string; runId?: number } | null>(null);
+  const blockedSessionIdsRef = useRef(new Set(blockedSessionIds));
+  const awaitingSessionIdentityRef = useRef(true);
+  const sessionInfoResolvedRef = useRef(false);
+  const sessionInfoFailedRef = useRef(false);
+  const runEpochRef = useRef(0);
+  const awaitingRunIdRef = useRef<number | null>(null);
+  const settledRunIdRef = useRef<number | null>(null);
+  const ignoreEventsUntilNextRunRef = useRef(false);
+  const hydrationCompleteRef = useRef(false);
+  const pendingIdentityEventsRef = useRef<AgentEventPayload[]>([]);
+  const pendingIdentityStatsRef = useRef<SessionStatsPayload[]>([]);
+  const pendingEventsRef = useRef<Array<{ type: "event"; event: AgentEvent; key: string }>>([]);
+  const pendingStatsRef = useRef<SessionStatsView[]>([]);
+  const stopPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const followTailRef = useRef(true);
+  const sendInFlightRef = useRef(false);
+  const composingRef = useRef(false);
+  const compositionEndedAtRef = useRef(0);
 
-  const pushEntry = useCallback((entry: Entry) => {
-    setEntries((prev) => [...prev, entry]);
-  }, []);
+  const acceptMeta = (meta: SessionEventMeta | null): boolean => {
+    if (meta && blockedSessionIdsRef.current.has(meta.sessionId)) return false;
+    if (!meta && (
+      awaitingSessionIdentityRef.current
+      || settledRunIdRef.current !== null
+      || awaitingRunIdRef.current !== null
+    )) return false;
+    if (!eventMatchesRun(
+      meta,
+      agent.name,
+      sessionIdentityRef.current,
+      settledRunIdRef.current,
+      ignoreEventsUntilNextRunRef.current,
+    )) return false;
+    if (meta && awaitingRunIdRef.current !== null) {
+      if (meta.runId <= awaitingRunIdRef.current) return false;
+      awaitingRunIdRef.current = null;
+      settledRunIdRef.current = null;
+    }
+    if (!meta) return true;
+
+    const identity = sessionIdentityRef.current;
+    if (identity && meta.runId < (identity.runId ?? 0)) return false;
+    if (identity && meta.runId > (identity.runId ?? 0)) {
+      settledRunIdRef.current = null;
+    }
+    if (settledRunIdRef.current === meta.runId) return false;
+
+    sessionIdentityRef.current = identity
+      ? { ...identity, runId: Math.max(identity.runId ?? 0, meta.runId) }
+      : { sessionId: meta.sessionId, runId: meta.runId };
+    awaitingSessionIdentityRef.current = false;
+    return true;
+  };
+
+  const processAgentPayload = (payload: AgentEventPayload) => {
+    const normalized = normalizeAgentEvent(payload);
+    if (!acceptMeta(normalized.meta)) return;
+    if (normalized.event.type === "agent_end") {
+      settledRunIdRef.current = normalized.meta?.runId ?? sessionIdentityRef.current?.runId ?? null;
+    }
+    const action = { type: "event" as const, event: normalized.event, key: createEntryKey("event") };
+    if (hydrationCompleteRef.current) dispatch(action);
+    else pendingEventsRef.current.push(action);
+  };
+  const processStatsPayload = (payload: SessionStatsPayload) => {
+    const normalized = normalizeStatsPayload(payload);
+    if (!acceptMeta(normalized.meta)) return;
+    if (hydrationCompleteRef.current) dispatch({ type: "stats", stats: normalized.stats });
+    else pendingStatsRef.current.push(normalized.stats);
+  };
 
   useEffect(() => {
-    // 恢复已有会话
-    invoke<MessageView[]>("session_messages")
-      .then((msgs) => {
-        setEntries(msgs.map((m, i) => entryFromMessage(m, `restored-${i}`)));
-      })
-      .catch(() => {});
-    invoke<SessionStatsView>("session_stats").then(setStats).catch(() => {});
-    invoke<boolean>("session_running").then(setRunning).catch(() => {});
+    let mounted = true;
+    mountedRef.current = true;
+    hydrationCompleteRef.current = false;
+    sessionInfoResolvedRef.current = false;
+    sessionInfoFailedRef.current = false;
+    pendingIdentityEventsRef.current = [];
+    pendingIdentityStatsRef.current = [];
+    pendingEventsRef.current = [];
+    pendingStatsRef.current = [];
+    const unlisteners: Array<() => void> = [];
 
-    const unlisten = listen<AgentEvent>("agent-event", (event) => {
-      const ev = event.payload;
-      switch (ev.type) {
-        case "message_start": {
-          if (ev.message.role === "assistant") {
-            const key = `stream-${Date.now()}`;
-            streamKey.current = key;
-            setEntries((prev) => [
-              ...prev,
-              { ...entryFromMessage(ev.message, key), text: "", streaming: true },
-            ]);
-          }
-          break;
-        }
-        case "message_update": {
-          if (ev.message.role === "assistant" && streamKey.current) {
-            const key = streamKey.current;
-            const status = messageStatus(ev.message);
-            setEntries((prev) =>
-              prev.map((e) =>
-                e.key === key
-                  ? {
-                      ...e,
-                      text: messageText(ev.message),
-                      errorMessage: ev.message.errorMessage ?? undefined,
-                      stopReason: ev.message.stopReason,
-                      status,
-                      isError: ev.message.isError || status !== undefined,
-                    }
-                  : e,
-              ),
-            );
-          }
-          break;
-        }
-        case "message_end": {
-          const m = ev.message;
-          if (m.role === "assistant" && streamKey.current) {
-            const key = streamKey.current;
-            const status = messageStatus(m);
-            streamKey.current = null;
-            setEntries((prev) =>
-              prev.map((e) =>
-                e.key === key
-                  ? {
-                      ...e,
-                      text: messageText(m),
-                      errorMessage: m.errorMessage ?? undefined,
-                      stopReason: m.stopReason,
-                      status,
-                      isError: m.isError || status !== undefined,
-                      usage: m.usage,
-                      durationMs: m.durationMs ?? undefined,
-                      streaming: false,
-                    }
-                  : e,
-              ),
-            );
-          } else {
-            pushEntry(entryFromMessage(m, `msg-${Date.now()}-${Math.random()}`));
-          }
-          break;
-        }
-        case "tool_execution_start": {
-          pushEntry({
-            key: `tool-${ev.toolCallId}`,
-            role: "toolResult",
-            text: `⚙ ${ev.toolName} 运行中…`,
-            toolName: ev.toolName,
-            toolCallId: ev.toolCallId,
-            toolRunning: true,
-          });
-          break;
-        }
-        case "tool_execution_update": {
-          const partialText = toolOutputText(ev.partial, "");
-          if (partialText) {
-            setEntries((prev) =>
-              prev.map((e) =>
-                e.key === `tool-${ev.toolCallId}`
-                  ? { ...e, text: `⚙ ${ev.toolName}\n${partialText}`, toolRunning: true }
-                  : e,
-              ),
-            );
-          }
-          break;
-        }
-        case "tool_execution_end": {
-          setEntries((prev) =>
-            prev.map((e) =>
-              e.key === `tool-${ev.toolCallId}`
-                ? {
-                    ...e,
-                    text: ev.isError
-                      ? `✕ ${toolOutputText(ev.result, "工具执行失败")}`
-                      : `⚙ ${ev.toolName}`,
-                    isError: ev.isError,
-                    status: ev.isError ? "tool-error" : undefined,
-                    toolRunning: false,
-                  }
-                : e,
-            ),
-          );
-          break;
-        }
-        case "agent_end": {
-          streamKey.current = null;
-          setEntries((prev) =>
-            prev.flatMap((e) => {
-              if (e.role === "assistant" && e.streaming) {
-                if (!e.text) return [];
-                return [
-                  {
-                    ...e,
-                    text: `${e.text}\n■ 已中止`,
-                    isError: true,
-                    status: e.status ?? "aborted",
-                    streaming: false,
-                  },
-                ];
-              }
-              if (e.toolRunning) {
-                return [
-                  {
-                    ...e,
-                    text: `✕ ${e.toolName ?? "工具"} 已中止`,
-                    isError: true,
-                    status: "aborted",
-                    toolRunning: false,
-                  },
-                ];
-              }
-              return [e];
-            }),
-          );
-          setRunning(false);
-          break;
+    const handleAgentEvent = (event: { payload: AgentEventPayload }) => {
+      if (!mounted || sessionInfoFailedRef.current) return;
+      if (!sessionInfoResolvedRef.current) {
+        pendingIdentityEventsRef.current.push(event.payload);
+        return;
+      }
+      processAgentPayload(event.payload);
+    };
+    const handleStatsEvent = (event: { payload: SessionStatsPayload }) => {
+      if (!mounted || sessionInfoFailedRef.current) return;
+      if (!sessionInfoResolvedRef.current) {
+        pendingIdentityStatsRef.current.push(event.payload);
+        return;
+      }
+      processStatsPayload(event.payload);
+    };
+    const handleErrorEvent = (event: { payload: SessionErrorPayload }) => {
+      if (!mounted || sessionInfoFailedRef.current || !acceptMeta(event.payload)) return;
+      onError(event.payload.message);
+    };
+
+    const initialize = async () => {
+      const listenerResults = await Promise.allSettled([
+        listen<AgentEventPayload>("agent-event", handleAgentEvent),
+        listen<SessionStatsPayload>("session-stats", handleStatsEvent),
+        listen<SessionErrorPayload>("session-error", handleErrorEvent),
+      ]);
+      const listenerErrors: unknown[] = [];
+      for (const result of listenerResults) {
+        if (result.status === "fulfilled") unlisteners.push(result.value);
+        else listenerErrors.push(result.reason);
+      }
+      if (!mounted) {
+        for (const unlisten of unlisteners) unlisten();
+        return;
+      }
+      if (listenerErrors.length > 0) {
+        onError(formatRuntimeError(listenerErrors[0]));
+        return;
+      }
+
+      const snapshotResults = await Promise.allSettled([
+        invoke<MessageView[]>("session_messages"),
+        invoke<SessionStatsView>("session_stats"),
+        invoke<boolean>("session_running"),
+        invoke<SessionInfoView | null>("session_info"),
+      ]);
+      if (!mounted) return;
+
+      const [messagesResult, statsResult, runningResult, infoResult] = snapshotResults;
+      sessionInfoResolvedRef.current = infoResult.status === "fulfilled"
+        && (infoResult.value === null || infoResult.value.agentName === agent.name);
+      sessionInfoFailedRef.current = !sessionInfoResolvedRef.current;
+      if (infoResult.status === "fulfilled" && infoResult.value?.agentName === agent.name) {
+        const info = infoResult.value;
+        const current = sessionIdentityRef.current;
+        if (!current || current.sessionId === info.sessionId) {
+          sessionIdentityRef.current = {
+            sessionId: info.sessionId,
+            runId: Math.max(current?.runId ?? 0, info.runId ?? 0),
+          };
+          settledRunIdRef.current = info.running ? null : (info.runId ?? null);
+          awaitingSessionIdentityRef.current = false;
         }
       }
-    });
-    const unlistenStats = listen<SessionStatsView>("session-stats", (event) => {
-      setStats(event.payload);
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-      unlistenStats.then((fn) => fn());
+      const identityEvents = pendingIdentityEventsRef.current;
+      const identityStats = pendingIdentityStatsRef.current;
+      pendingIdentityEventsRef.current = [];
+      pendingIdentityStatsRef.current = [];
+      if (sessionInfoResolvedRef.current) {
+        identityEvents.forEach(processAgentPayload);
+        identityStats.forEach(processStatsPayload);
+      }
+      const messages = messagesResult.status === "fulfilled" ? messagesResult.value : [];
+      const loadedStats = statsResult.status === "fulfilled" ? statsResult.value : null;
+      const loadedRunning = runningResult.status === "fulfilled" && runningResult.value;
+      dispatch({ type: "hydrate", messages, stats: loadedStats, running: loadedRunning });
+      hydrationCompleteRef.current = true;
+      const pendingEvents = pendingEventsRef.current;
+      const pendingStats = pendingStatsRef.current;
+      pendingEventsRef.current = [];
+      pendingStatsRef.current = [];
+      pendingEvents.forEach((action) => dispatch(action));
+      pendingStats.forEach((stats) => dispatch({ type: "stats", stats }));
+      const snapshotReady = sessionInfoResolvedRef.current
+        && messagesResult.status === "fulfilled"
+        && statsResult.status === "fulfilled"
+        && runningResult.status === "fulfilled";
+      setReady(snapshotReady);
+      const failed = snapshotResults.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") onError(formatRuntimeError(failed.reason));
+      else if (!sessionInfoResolvedRef.current) onError("无法确认当前会话身份，请返回后重试");
     };
-  }, [pushEntry]);
 
-  // 自动滚到底
+    void initialize();
+    return () => {
+      mounted = false;
+      mountedRef.current = false;
+      hydrationCompleteRef.current = false;
+      sessionInfoResolvedRef.current = false;
+      pendingIdentityEventsRef.current = [];
+      pendingIdentityStatsRef.current = [];
+      pendingEventsRef.current = [];
+      pendingStatsRef.current = [];
+      setReady(false);
+      if (stopPollTimerRef.current) {
+        clearTimeout(stopPollTimerRef.current);
+        stopPollTimerRef.current = null;
+      }
+      for (const unlisten of unlisteners) unlisten();
+    };
+  }, [agent.name, onError]);
+
+  // 只有用户仍停留在底部时才跟随流式输出，阅读历史时不抢滚动位置。
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    if (!followTailRef.current) return;
+    const list = listRef.current;
+    if (!list) return;
+    const frame = requestAnimationFrame(() => {
+      list.scrollTo({ top: list.scrollHeight, behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [entries]);
+
+  useLayoutEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+  }, [input]);
+
+  useEffect(() => {
+    if (!running) {
+      setStopping(false);
+      if (stopPollTimerRef.current) {
+        clearTimeout(stopPollTimerRef.current);
+        stopPollTimerRef.current = null;
+      }
+    }
+    onRunningChange(running);
+  }, [onRunningChange, running]);
+
+  useEffect(() => {
+    return () => {
+      if (!runningRef.current) return;
+      void invoke("stop_run").catch(() => {});
+      onRunningChange(false);
+    };
+  }, [onRunningChange]);
+
+  const handleScroll = () => {
+    const list = listRef.current;
+    if (!list) return;
+    followTailRef.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 48;
+  };
 
   const send = async () => {
     const text = input.trim();
-    if (!text || running) return;
-    const userKey = `user-${Date.now()}`;
+    if (!ready) return;
+    if (!sessionInfoResolvedRef.current) {
+      onError("尚未确认当前会话身份，请稍后重试");
+      return;
+    }
+    if (!text || running || sendInFlightRef.current) return;
+    const userKey = createEntryKey("user");
+    runEpochRef.current += 1;
+    awaitingRunIdRef.current = sessionIdentityRef.current?.runId ?? null;
+    sendInFlightRef.current = true;
+    settledRunIdRef.current = null;
+    ignoreEventsUntilNextRunRef.current = false;
     setInput("");
-    setRunning(true);
-    pushEntry({ key: userKey, role: "user", text });
+    followTailRef.current = true;
+    dispatch({ type: "submit_user", key: userKey, text });
     try {
       await invoke("send_prompt", { agentName: agent.name, prompt: text });
-    } catch (e) {
-      setEntries((prev) => prev.filter((entry) => entry.key !== userKey));
-      onError(String(e));
-      setRunning(false);
+    } catch (error) {
+      dispatch({ type: "reject_user", key: userKey });
+      onError(formatRuntimeError(error));
+    } finally {
+      sendInFlightRef.current = false;
+    }
+  };
+
+  const isStopTarget = (
+    epoch: number,
+    sessionId: string | undefined,
+  ): boolean => {
+    if (runEpochRef.current !== epoch) return false;
+    const identity = sessionIdentityRef.current;
+    if (sessionId !== undefined && identity?.sessionId !== sessionId) return false;
+    return true;
+  };
+
+  const reconcileStoppedRun = async (
+    attempt: number,
+    epoch: number,
+    sessionId: string | undefined,
+  ): Promise<void> => {
+    if (!mountedRef.current || !isStopTarget(epoch, sessionId)) return;
+    try {
+      const stillRunning = await invoke<boolean>("session_running");
+      if (!mountedRef.current || !isStopTarget(epoch, sessionId)) return;
+      if (stillRunning) {
+        if (attempt >= 50) {
+          setStopping(false);
+          onError("停止请求已发送，但后端仍在运行；请稍后重试");
+          return;
+        }
+        stopPollTimerRef.current = setTimeout(() => {
+          void reconcileStoppedRun(attempt + 1, epoch, sessionId);
+        }, 100);
+        return;
+      }
+
+      ignoreEventsUntilNextRunRef.current = true;
+      const [messagesResult, statsResult, infoResult] = await Promise.allSettled([
+        invoke<MessageView[]>("session_messages"),
+        invoke<SessionStatsView>("session_stats"),
+        invoke<SessionInfoView | null>("session_info"),
+      ]);
+      if (!mountedRef.current || !isStopTarget(epoch, sessionId)) return;
+
+      const infoValid = infoResult.status === "fulfilled"
+        && infoResult.value !== null
+        && infoResult.value.agentName === agent.name;
+      if (
+        infoResult.status === "fulfilled"
+        && infoResult.value !== null
+        && infoResult.value.agentName === agent.name
+      ) {
+        const info = infoResult.value;
+        sessionIdentityRef.current = { sessionId: info.sessionId, runId: info.runId };
+        awaitingSessionIdentityRef.current = false;
+        sessionInfoResolvedRef.current = true;
+        sessionInfoFailedRef.current = false;
+        settledRunIdRef.current = info.running ? null : (info.runId ?? null);
+      } else {
+        sessionInfoResolvedRef.current = false;
+        sessionInfoFailedRef.current = true;
+      }
+
+      if (messagesResult.status === "fulfilled") {
+        dispatch({
+          type: "hydrate",
+          messages: messagesResult.value,
+          stats: statsResult.status === "fulfilled" ? statsResult.value : null,
+          running: false,
+        });
+      }
+      const snapshotReady = infoValid
+        && messagesResult.status === "fulfilled"
+        && statsResult.status === "fulfilled";
+      setReady(snapshotReady);
+      if (!snapshotReady) {
+        const failed = [messagesResult, statsResult, infoResult]
+          .find((result) => result.status === "rejected");
+        onError(
+          failed?.status === "rejected"
+            ? formatRuntimeError(failed.reason)
+            : "停止后无法确认当前会话状态，请返回后重试",
+        );
+      }
+      settledRunIdRef.current = sessionIdentityRef.current?.runId ?? settledRunIdRef.current;
+      dispatch({ type: "event", event: { type: "agent_end" }, key: createEntryKey("stop") });
+      setStopping(false);
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setStopping(false);
+      onError(formatRuntimeError(error));
     }
   };
 
   const stop = async () => {
+    if (!running || stopping) return;
+    const epoch = runEpochRef.current;
+    const sessionId = sessionIdentityRef.current?.sessionId;
+    setStopping(true);
     try {
       await invoke("stop_run");
-    } catch (e) {
-      onError(String(e));
+      void reconcileStoppedRun(0, epoch, sessionId);
+    } catch (error) {
+      setStopping(false);
+      onError(formatRuntimeError(error));
     }
   };
 
   const newSession = async () => {
+    if (!ready || running) return;
+    if (!sessionInfoResolvedRef.current) {
+      onError("尚未确认当前会话身份，请稍后重试");
+      return;
+    }
+    const previousIdentity = sessionIdentityRef.current;
+    const previousAwaiting = awaitingSessionIdentityRef.current;
+    const previousSettled = settledRunIdRef.current;
+    const previousIgnore = ignoreEventsUntilNextRunRef.current;
+    const previousReady = ready;
+    const previousInfoResolved = sessionInfoResolvedRef.current;
+    const previousInfoFailed = sessionInfoFailedRef.current;
+    const previousEpoch = runEpochRef.current;
+    const previousAwaitingRunId = awaitingRunIdRef.current;
+    if (previousIdentity) blockedSessionIdsRef.current.add(previousIdentity.sessionId);
+    sessionIdentityRef.current = null;
+    awaitingSessionIdentityRef.current = true;
+    sessionInfoResolvedRef.current = false;
+    sessionInfoFailedRef.current = false;
+    awaitingRunIdRef.current = null;
+    settledRunIdRef.current = null;
+    ignoreEventsUntilNextRunRef.current = false;
+    runEpochRef.current += 1;
+    setReady(false);
+    const restorePrevious = () => {
+      if (previousIdentity) blockedSessionIdsRef.current.delete(previousIdentity.sessionId);
+      sessionIdentityRef.current = previousIdentity;
+      awaitingSessionIdentityRef.current = previousAwaiting;
+      awaitingRunIdRef.current = previousAwaitingRunId;
+      settledRunIdRef.current = previousSettled;
+      ignoreEventsUntilNextRunRef.current = previousIgnore;
+      sessionInfoResolvedRef.current = previousInfoResolved;
+      sessionInfoFailedRef.current = previousInfoFailed;
+      runEpochRef.current = previousEpoch;
+      setReady(previousReady);
+    };
     try {
-      await invoke("new_session");
-      setEntries([]);
-      setStats(null);
-      streamKey.current = null;
-    } catch (e) {
-      onError(String(e));
+      const accepted = await onNewSession(previousIdentity?.sessionId);
+      if (!accepted) {
+        restorePrevious();
+        return;
+      }
+      if (!mountedRef.current) return;
+      hydrationCompleteRef.current = false;
+      pendingIdentityEventsRef.current = [];
+      pendingIdentityStatsRef.current = [];
+      pendingEventsRef.current = [];
+      pendingStatsRef.current = [];
+      dispatch({ type: "reset" });
+      onSessionReset();
+      setInput("");
+      followTailRef.current = true;
+      const [messagesResult, statsResult, runningResult, infoResult] = await Promise.allSettled([
+        invoke<MessageView[]>("session_messages"),
+        invoke<SessionStatsView>("session_stats"),
+        invoke<boolean>("session_running"),
+        invoke<SessionInfoView | null>("session_info"),
+      ]);
+      if (!mountedRef.current) return;
+      sessionInfoResolvedRef.current = infoResult.status === "fulfilled"
+        && (infoResult.value === null || infoResult.value.agentName === agent.name);
+      sessionInfoFailedRef.current = !sessionInfoResolvedRef.current;
+      if (infoResult.status === "fulfilled" && infoResult.value?.agentName === agent.name) {
+        sessionIdentityRef.current = {
+          sessionId: infoResult.value.sessionId,
+          runId: infoResult.value.runId,
+        };
+        settledRunIdRef.current = infoResult.value.running ? null : (infoResult.value.runId ?? null);
+        awaitingSessionIdentityRef.current = false;
+      }
+      const identityEvents = pendingIdentityEventsRef.current;
+      const identityStats = pendingIdentityStatsRef.current;
+      pendingIdentityEventsRef.current = [];
+      pendingIdentityStatsRef.current = [];
+      if (sessionInfoResolvedRef.current) {
+        identityEvents.forEach(processAgentPayload);
+        identityStats.forEach(processStatsPayload);
+      }
+      dispatch({
+        type: "hydrate",
+        messages: messagesResult.status === "fulfilled" ? messagesResult.value : [],
+        stats: statsResult.status === "fulfilled" ? statsResult.value : null,
+        running: runningResult.status === "fulfilled" && runningResult.value,
+      });
+      hydrationCompleteRef.current = true;
+      const pendingEvents = pendingEventsRef.current;
+      const pendingStats = pendingStatsRef.current;
+      pendingEventsRef.current = [];
+      pendingStatsRef.current = [];
+      pendingEvents.forEach((action) => dispatch(action));
+      pendingStats.forEach((stats) => dispatch({ type: "stats", stats }));
+      const snapshotReady = sessionInfoResolvedRef.current
+        && messagesResult.status === "fulfilled"
+        && statsResult.status === "fulfilled"
+        && runningResult.status === "fulfilled";
+      setReady(snapshotReady);
+      const failed = [messagesResult, statsResult, runningResult, infoResult]
+        .find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") onError(formatRuntimeError(failed.reason));
+      else if (!sessionInfoResolvedRef.current) onError("无法确认新会话身份，请返回后重试");
+      inputRef.current?.focus();
+    } catch (error) {
+      restorePrevious();
+      onError(formatRuntimeError(error));
     }
   };
 
@@ -369,15 +524,16 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
   if (stats) {
     if (stats.avgTps != null) statsBits.push(`${stats.avgTps.toFixed(1)} tok/s`);
     if (stats.cacheHitPct != null) statsBits.push(`缓存命中 ${stats.cacheHitPct.toFixed(0)}%`);
-    if (stats.contextPercent != null)
+    if (stats.contextPercent != null) {
       statsBits.push(`上下文 ${stats.contextUsed}/${stats.contextMax}（${stats.contextPercent}%）`);
+    }
     statsBits.push(`${stats.calls} 次调用`);
   }
 
   return (
     <div className="chat">
       <header className="chat-header">
-        <button className="ghost" onClick={onBack}>
+        <button type="button" className="ghost" onClick={onBack}>
           ← 返回
         </button>
         <div className="chat-title">
@@ -388,12 +544,17 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
             </span>
           )}
         </div>
-        <button className="ghost" onClick={newSession} disabled={running}>
+        <button type="button" className="ghost" onClick={newSession} disabled={!ready || running}>
           新会话
         </button>
       </header>
 
-      <div className="chat-list" ref={listRef}>
+      <div
+        className="chat-list"
+        ref={listRef}
+        onScroll={handleScroll}
+        aria-live={running ? "polite" : undefined}
+      >
         {entries.length === 0 && (
           <div className="chat-welcome">
             <p>
@@ -402,26 +563,28 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
             </p>
           </div>
         )}
-        {entries.map((e) => (
-          <div key={e.key} className={`chat-entry role-${e.role}`}>
+        {entries.map((entry) => (
+          <div key={entry.key} className={`chat-entry role-${entry.role}`}>
             <div className="chat-role">
-              {e.role === "user" ? "你" : e.role === "assistant" ? agent.name : "工具"}
+              {entry.role === "user" ? "你" : entry.role === "assistant" ? agent.name : "工具"}
             </div>
-            <div className={`chat-bubble ${e.isError ? "is-error" : ""}`}>
-              {e.role === "assistant" ? (
-                <Markdown text={e.text || (e.streaming ? "…" : "")} />
+            <div className={`chat-bubble ${entry.isError ? "is-error" : ""}`}>
+              {entry.role === "assistant" ? (
+                <Markdown text={entry.text || (entry.streaming ? "…" : "")} />
               ) : (
-                <pre className="chat-text">{e.text || (e.streaming ? "…" : "")}</pre>
+                <pre className="chat-text">{entry.text || (entry.streaming ? "…" : "")}</pre>
               )}
-              {e.role === "assistant" && !e.streaming && !e.status && (
-                <div className="chat-foot">{assistantFooter({
-                  role: "assistant",
-                  content: e.text,
-                  usage: e.usage,
-                  durationMs: e.durationMs,
-                })}</div>
+              {entry.role === "assistant" && !entry.streaming && !entry.status && (
+                <div className="chat-foot">
+                  {assistantFooter({
+                    role: "assistant",
+                    content: entry.text,
+                    usage: entry.usage,
+                    durationMs: entry.durationMs,
+                  })}
+                </div>
               )}
-              {e.streaming && <div className="chat-cursor">▍</div>}
+              {entry.streaming && <div className="chat-cursor">▍</div>}
             </div>
           </div>
         ))}
@@ -429,23 +592,36 @@ export default function ChatView({ agent, onBack, onError }: ChatViewProps) {
 
       <footer className="chat-input">
         <textarea
+          ref={inputRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={running ? "Agent 正在运行…" : "输入消息，Enter 发送（Shift+Enter 换行）"}
-          disabled={running}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
+          onChange={(event) => setInput(event.target.value)}
+          placeholder={ready ? (running ? "Agent 正在运行…" : "输入消息，Enter 发送（Shift+Enter 换行）") : "正在连接 Agent…"}
+          disabled={!ready || running}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+            compositionEndedAtRef.current = Date.now();
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.shiftKey) return;
+            const native = event.nativeEvent;
+            const composing = composingRef.current
+              || native.isComposing
+              || native.keyCode === 229
+              || Date.now() - compositionEndedAtRef.current < 100;
+            if (composing) return;
+            event.preventDefault();
+            void send();
           }}
         />
         {running ? (
-          <button className="ghost stop" onClick={stop}>
-            ■ 停止
+          <button type="button" className="ghost stop" onClick={stop} disabled={stopping}>
+            {stopping ? "■ 停止中…" : "■ 停止"}
           </button>
         ) : (
-          <button className="primary" disabled={!input.trim()} onClick={send}>
+          <button type="button" className="primary" disabled={!ready || !sessionInfoResolvedRef.current || !input.trim()} onClick={() => void send()}>
             发送
           </button>
         )}

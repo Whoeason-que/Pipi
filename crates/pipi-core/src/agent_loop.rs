@@ -26,7 +26,11 @@ use crate::types::{
 
 /// 对外事件。与 pi 的 AgentEvent 同名同层；`Serialize` 后可直接发给前端。
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum AgentEvent {
     AgentStart,
     AgentEnd {

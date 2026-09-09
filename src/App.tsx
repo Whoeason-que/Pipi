@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke, listen } from "./platform";
 import ChatView from "./Chat";
+import {
+  formatRuntimeError,
+  normalizeAgentEvent,
+  type AgentEventPayload,
+} from "./chat-runtime";
 import {
   API_LABELS,
   SANDBOX_LABELS,
@@ -46,98 +50,282 @@ export default function App() {
   const [chatKey, setChatKey] = useState(0);
   const [sessionsByAgent, setSessionsByAgent] = useState<Record<string, SessionSummaryView[]>>({});
   const [activeSession, setActiveSession] = useState<SessionInfoView | null>(null);
+  const [chatRunning, setChatRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const agentsRef = useRef<AgentDefinition[]>([]);
+  const sessionListRequestRef = useRef(0);
+  const agentRequestRef = useRef(0);
+  const navigationRequestRef = useRef(0);
+  const sessionInfoRequestRef = useRef(0);
+  const settingsSaveRequestRef = useRef(0);
+  const settingsRef = useRef<Settings | null>(null);
+  const settingsSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const selectedRef = useRef<string | null>(null);
+  const activeSessionRef = useRef<SessionInfoView | null>(null);
+  const blockedSessionIdsRef = useRef(new Set<string>());
+  const navigationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  agentsRef.current = agents;
+  settingsRef.current = settings;
+  selectedRef.current = selected;
+  activeSessionRef.current = activeSession;
+
+  const invalidateNavigation = () => {
+    navigationRequestRef.current += 1;
+    sessionInfoRequestRef.current += 1;
+  };
+
+  const enqueueNavigation = async (
+    requestId: number,
+    operation: () => Promise<void>,
+  ): Promise<void> => {
+    const previous = navigationQueueRef.current;
+    let release!: () => void;
+    navigationQueueRef.current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      if (requestId === navigationRequestRef.current) await operation();
+    } finally {
+      release();
+    }
+  };
 
   const refreshSessions = useCallback(async (names: string[]) => {
-    const entries = await Promise.all(
+    const requestId = ++sessionListRequestRef.current;
+    const results = await Promise.all(
       names.map(async (name) => {
         try {
-          return [name, await invoke<SessionSummaryView[]>("list_sessions", { agentName: name })] as const;
+          return {
+            name,
+            sessions: await invoke<SessionSummaryView[]>("list_sessions", { agentName: name }),
+            failed: false,
+          } as const;
         } catch {
-          return [name, []] as const;
+          return { name, sessions: null, failed: true } as const;
         }
       }),
     );
-    setSessionsByAgent(Object.fromEntries(entries));
+    if (requestId !== sessionListRequestRef.current) return;
+    setSessionsByAgent((previous) => {
+      const next: Record<string, SessionSummaryView[]> = {};
+      for (const result of results) {
+        if (!result.failed && result.sessions) next[result.name] = result.sessions;
+        else if (previous[result.name]) next[result.name] = previous[result.name];
+      }
+      return next;
+    });
+    const failedNames = results.filter((result) => result.failed).map((result) => result.name);
+    if (failedNames.length > 0) {
+      setError(`会话列表加载失败：${failedNames.join("、")}（保留旧数据）`);
+    }
   }, []);
 
   const refresh = useCallback(async () => {
+    const requestId = ++agentRequestRef.current;
     try {
-      setAgents(await invoke<AgentDefinition[]>("list_agents"));
+      const nextAgents = await invoke<AgentDefinition[]>("list_agents");
+      if (requestId !== agentRequestRef.current) return;
+      agentsRef.current = nextAgents;
+      setAgents(nextAgents);
       setError(null);
-    } catch (e) {
-      setError(String(e));
+    } catch (errorValue) {
+      if (requestId === agentRequestRef.current) setError(formatRuntimeError(errorValue));
     }
   }, []);
 
   useEffect(() => {
-    refresh();
+    void refresh();
+    let active = true;
     invoke<Settings>("get_settings")
-      .then((s) => {
-        setSettings(s);
-        applyTheme(s.theme);
+      .then((nextSettings) => {
+        if (!active) return;
+        setSettings(nextSettings);
+        applyTheme(nextSettings.theme);
       })
-      .catch((e) => setError(String(e)));
+      .catch((errorValue) => {
+        if (active) setError(formatRuntimeError(errorValue));
+      });
+    return () => {
+      active = false;
+    };
   }, [refresh]);
 
-  // agents 变化后拉取各 Agent 的会话列表
+  // agents 变化后拉取各 Agent 的会话列表；空列表也要清理旧数据。
   useEffect(() => {
-    if (agents.length > 0) refreshSessions(agents.map((a) => a.name));
+    if (agents.length === 0) {
+      setSessionsByAgent({});
+      return;
+    }
+    void refreshSessions(agents.map((agent) => agent.name));
   }, [agents, refreshSessions]);
 
-  // 会话结束后刷新活动会话信息与会话列表（新建的会话文件要上树）
+  // 只订阅一次全局完成事件，读取 ref 避免因 Agent 列表更新反复注册监听器。
   useEffect(() => {
-    const un = listen("agent-event", (event) => {
-      const ev = event.payload as { type?: string };
-      if (ev.type === "agent_end") {
-        invoke<SessionInfoView | null>("session_info")
-          .then(setActiveSession)
-          .catch(() => {});
-        refreshSessions(agents.map((a) => a.name));
-      }
+    let active = true;
+    const unlisten = listen<AgentEventPayload>("agent-event", (event) => {
+      if (!active) return;
+      const normalized = normalizeAgentEvent(event.payload);
+      if (normalized.event.type !== "agent_end") return;
+      if (
+        normalized.meta
+        && (blockedSessionIdsRef.current.has(normalized.meta.sessionId)
+          || normalized.meta.agentName !== selectedRef.current
+          || (activeSessionRef.current?.sessionId
+            && normalized.meta.sessionId !== activeSessionRef.current.sessionId))
+      ) return;
+      const infoRequestId = ++sessionInfoRequestRef.current;
+      void invoke<SessionInfoView | null>("session_info")
+        .then((info) => {
+          if (active && infoRequestId === sessionInfoRequestRef.current) setActiveSession(info);
+        })
+        .catch((errorValue) => {
+          if (active) setError(formatRuntimeError(errorValue));
+        });
+      void refreshSessions(agentsRef.current.map((agent) => agent.name));
     });
     return () => {
-      un.then((fn) => fn());
+      active = false;
+      unlisten.then((fn) => fn()).catch(() => {});
     };
-  }, [agents, refreshSessions]);
+  }, [refreshSessions]);
 
   const openSession = async (agentName: string, sessionId: string) => {
-    try {
-      await invoke("open_session", { agentName, sessionId });
-      setSelected(agentName);
-      setCreating(false);
-      setChatOpen(true);
-      setChatKey((k) => k + 1);
-      invoke<SessionInfoView | null>("session_info").then(setActiveSession).catch(() => {});
-    } catch (e) {
-      setError(String(e));
+    if (chatRunning) {
+      setError("Agent 正在运行，请先停止后再切换会话");
+      return;
     }
+    const requestId = ++navigationRequestRef.current;
+    sessionInfoRequestRef.current += 1;
+    const previousSessionId = activeSessionRef.current?.sessionId;
+    if (previousSessionId && previousSessionId !== sessionId) {
+      blockedSessionIdsRef.current.add(previousSessionId);
+    }
+    blockedSessionIdsRef.current.delete(sessionId);
+    await enqueueNavigation(requestId, async () => {
+      let infoRequestId = 0;
+      try {
+        await invoke("open_session", { agentName, sessionId });
+        if (requestId !== navigationRequestRef.current) {
+          await invoke("new_session").catch(() => {});
+          return;
+        }
+        setSelected(agentName);
+        setCreating(false);
+        setChatOpen(true);
+        setActiveSession(null);
+        setChatKey((key) => key + 1);
+        infoRequestId = ++sessionInfoRequestRef.current;
+        const info = await invoke<SessionInfoView | null>("session_info");
+        if (
+          requestId === navigationRequestRef.current
+          && infoRequestId === sessionInfoRequestRef.current
+        ) {
+          setActiveSession(info);
+        } else {
+          await invoke("new_session").catch(() => {});
+        }
+      } catch (errorValue) {
+        if (
+          requestId === navigationRequestRef.current
+          && (infoRequestId === 0 || infoRequestId === sessionInfoRequestRef.current)
+        ) {
+          if (previousSessionId && previousSessionId !== sessionId) {
+            blockedSessionIdsRef.current.delete(previousSessionId);
+          }
+          setError(formatRuntimeError(errorValue));
+        } else {
+          await invoke("new_session").catch(() => {});
+        }
+      }
+    });
   };
 
   const startNewSession = async (agentName: string) => {
-    try {
-      await invoke("new_session");
-      setSelected(agentName);
-      setCreating(false);
-      setChatOpen(true);
-      setChatKey((k) => k + 1);
-      setActiveSession(null);
-    } catch (e) {
-      setError(String(e));
+    if (chatRunning) {
+      setError("Agent 正在运行，请先停止后再新建会话");
+      return;
     }
+    const requestId = ++navigationRequestRef.current;
+    sessionInfoRequestRef.current += 1;
+    const previousSessionId = activeSessionRef.current?.sessionId;
+    if (previousSessionId) blockedSessionIdsRef.current.add(previousSessionId);
+    await enqueueNavigation(requestId, async () => {
+      try {
+        await invoke("new_session");
+        if (requestId !== navigationRequestRef.current) return;
+        setSelected(agentName);
+        setCreating(false);
+        setChatOpen(true);
+        setActiveSession(null);
+        setChatKey((key) => key + 1);
+      } catch (errorValue) {
+        if (requestId === navigationRequestRef.current) {
+          if (previousSessionId) blockedSessionIdsRef.current.delete(previousSessionId);
+          setError(formatRuntimeError(errorValue));
+        }
+      }
+    });
   };
 
-  const updateSettings = async (next: Settings) => {
+  const createSessionFromChat = async (previousSessionId?: string): Promise<boolean> => {
+    if (chatRunning) {
+      setError("Agent 正在运行，请先停止后再新建会话");
+      return false;
+    }
+    const requestId = ++navigationRequestRef.current;
+    sessionInfoRequestRef.current += 1;
+    if (previousSessionId) blockedSessionIdsRef.current.add(previousSessionId);
+    let accepted = false;
+    await enqueueNavigation(requestId, async () => {
+      try {
+        await invoke("new_session");
+        accepted = requestId === navigationRequestRef.current;
+      } catch (errorValue) {
+        if (requestId === navigationRequestRef.current) {
+          if (previousSessionId) blockedSessionIdsRef.current.delete(previousSessionId);
+          setError(formatRuntimeError(errorValue));
+        }
+      }
+    });
+    return accepted && requestId === navigationRequestRef.current;
+  };
+
+  const updateSettings = (next: Settings): Promise<void> => {
+    const previous = settingsRef.current;
+    const requestId = ++settingsSaveRequestRef.current;
+    settingsRef.current = next;
     setSettings(next);
     applyTheme(next.theme);
-    try {
-      await invoke("save_settings", { settings: next });
-    } catch (e) {
-      setError(String(e));
-    }
+
+    const save = settingsSaveQueueRef.current.then(async () => {
+      try {
+        await invoke("save_settings", { settings: next });
+      } catch (errorValue) {
+        if (requestId === settingsSaveRequestRef.current) {
+          settingsRef.current = previous;
+          setSettings(previous);
+          if (previous) applyTheme(previous.theme);
+          setError(formatRuntimeError(errorValue));
+        }
+      }
+    });
+    settingsSaveQueueRef.current = save.catch(() => {});
+    return save;
   };
 
   const current = agents.find((a) => a.name === selected) ?? null;
+
+  const selectAgent = (agentName: string) => {
+    if (chatRunning) {
+      setError("Agent 正在运行，请先停止后再切换");
+      return;
+    }
+    invalidateNavigation();
+    setSelected(agentName);
+    setCreating(false);
+    setChatOpen(false);
+  };
 
   return (
     <div className="app">
@@ -147,8 +335,10 @@ export default function App() {
             <span className="pi">π</span> pipi
           </span>
           <button
+            type="button"
             className="icon-btn"
             title="设置"
+            aria-label="打开设置"
             onClick={() => setSettingsOpen(true)}
           >
             ⚙
@@ -163,21 +353,28 @@ export default function App() {
               <div key={a.name} className="agent-group">
                 <div
                   className={`agent-item ${isActiveAgent && !chatOpen ? "active" : ""}`}
-                  onClick={() => {
-                    setSelected(a.name);
-                    setCreating(false);
-                    setChatOpen(false);
+                  role="button"
+                  tabIndex={0}
+                  aria-current={isActiveAgent && !chatOpen ? "true" : undefined}
+                  onClick={() => selectAgent(a.name)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    selectAgent(a.name);
                   }}
                 >
                   <div className="agent-row">
                     <div className="name">{a.name}</div>
                     <button
+                      type="button"
                       className="icon-btn small"
                       title="新建会话"
+                      aria-label={`为 ${a.name} 新建会话`}
                       onClick={(e) => {
                         e.stopPropagation();
                         startNewSession(a.name);
                       }}
+                      onKeyDown={(e) => e.stopPropagation()}
                     >
                       ＋
                     </button>
@@ -193,8 +390,20 @@ export default function App() {
                           ? "active"
                           : ""
                       }`}
+                      role="button"
+                      tabIndex={0}
+                      aria-current={
+                        activeSession?.agentName === a.name && activeSession?.sessionId === sess.id
+                          ? "true"
+                          : undefined
+                      }
                       title={`${sess.title}（${sess.messageCount} 条消息）`}
                       onClick={() => openSession(a.name, sess.id)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        openSession(a.name, sess.id);
+                      }}
                     >
                       <span className="session-title">{sess.title}</span>
                     </div>
@@ -208,14 +417,32 @@ export default function App() {
           })}
         </nav>
         <div className="sidebar-footer">
-          <button className="primary wide" onClick={() => setCreating(true)}>
+          <button
+            type="button"
+            className="primary wide"
+            onClick={() => {
+              if (chatRunning) {
+                setError("Agent 正在运行，请先停止后再新建 Agent");
+                return;
+              }
+              invalidateNavigation();
+              setCreating(true);
+            }}
+          >
             ＋ 新建 Agent
           </button>
         </div>
       </aside>
 
       <main className="main">
-        {error && <div className="error">{error}</div>}
+        {error && (
+          <div className="error" role="alert">
+            <span>{error}</span>
+            <button type="button" className="error-dismiss" onClick={() => setError(null)} aria-label="关闭错误提示">
+              ✕
+            </button>
+          </div>
+        )}
         {creating ? (
           <CreateForm
             onCreated={async (name) => {
@@ -232,8 +459,22 @@ export default function App() {
             <ChatView
               key={`${current.name}-${chatKey}`}
               agent={current}
-              onBack={() => setChatOpen(false)}
+              blockedSessionIds={[...blockedSessionIdsRef.current]}
+              onBack={() => {
+                if (chatRunning) {
+                  setError("Agent 正在运行，请先停止后再返回");
+                  return;
+                }
+                invalidateNavigation();
+                setChatOpen(false);
+              }}
               onError={setError}
+              onNewSession={createSessionFromChat}
+              onRunningChange={setChatRunning}
+              onSessionReset={() => {
+                setActiveSession(null);
+                void refreshSessions([current.name]);
+              }}
             />
           ) : (
             <AgentDetail
@@ -241,7 +482,7 @@ export default function App() {
               agent={current}
               providers={settings.providers}
               onSaved={refresh}
-              onChat={() => setChatOpen(true)}
+              onChat={() => void startNewSession(current.name)}
               onError={setError}
             />
           ))
@@ -316,8 +557,8 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
       };
       await invoke("save_agent", { def: next });
       await onSaved();
-    } catch (e) {
-      onError(String(e));
+    } catch (errorValue) {
+      onError(formatRuntimeError(errorValue));
     } finally {
       setSaving(false);
     }
@@ -454,7 +695,7 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
 interface CreateFormProps {
   onCreated: (name: string) => void | Promise<void>;
   onCancel: () => void;
-  onError: (msg: string) => void;
+  onError: (msg: string | null) => void;
 }
 
 function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
@@ -476,7 +717,7 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
   const submit = async () => {
     if (!name.trim() || submitting) return;
     setSubmitting(true);
-    onError(null as unknown as string);
+    onError(null);
     try {
       const permissions: PermissionsConfig = {
         tools,
@@ -499,8 +740,8 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
         permissions,
       });
       await onCreated(name.trim());
-    } catch (e) {
-      onError(String(e));
+    } catch (errorValue) {
+      onError(formatRuntimeError(errorValue));
     } finally {
       setSubmitting(false);
     }
@@ -648,32 +889,61 @@ interface SettingsModalProps {
 
 function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
   const [editing, setEditing] = useState<ProviderConfig | "new" | null>(null);
+  const [draft, setDraft] = useState(settings);
+  const draftRef = useRef(settings);
 
-  const saveProvider = (p: ProviderConfig) => {
-    const providers = [...settings.providers];
-    const idx = providers.findIndex((x) => x.id === p.id);
-    if (idx >= 0) providers[idx] = p;
-    else providers.push(p);
-    onChange({ ...settings, providers });
+  useEffect(() => {
+    draftRef.current = settings;
+    setDraft(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const commit = (update: (previous: Settings) => Settings) => {
+    const next = update(draftRef.current);
+    draftRef.current = next;
+    setDraft(next);
+    void onChange(next);
+  };
+
+  const saveProvider = (provider: ProviderConfig) => {
+    commit((previous) => {
+      const providers = [...previous.providers];
+      const index = providers.findIndex((item) => item.id === provider.id);
+      if (index >= 0) providers[index] = provider;
+      else providers.push(provider);
+      return { ...previous, providers };
+    });
     setEditing(null);
   };
 
   const deleteProvider = (id: string) => {
     if (!confirm(`删除提供商「${id}」？（已绑定它的 Agent 不受影响，但需重新配置）`)) return;
-    onChange({
-      ...settings,
-      providers: settings.providers.filter((p) => p.id !== id),
-      defaultProviderId:
-        settings.defaultProviderId === id ? null : settings.defaultProviderId,
-    });
+    commit((previous) => ({
+      ...previous,
+      providers: previous.providers.filter((provider) => provider.id !== id),
+      defaultProviderId: previous.defaultProviderId === id ? null : previous.defaultProviderId,
+    }));
   };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
-          <h2>设置</h2>
-          <button className="icon-btn" onClick={onClose} title="关闭">
+          <h2 id="settings-title">设置</h2>
+          <button type="button" className="icon-btn" onClick={onClose} title="关闭">
             ✕
           </button>
         </div>
@@ -682,54 +952,53 @@ function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
           <span className="label">主题</span>
           <div className="theme-row">
             <ThemeOption
-              active={settings.theme === "dark"}
+              active={draft.theme === "dark"}
               name="深色"
               swatch={["#111111", "#181818", "#0169CC", "#FCFCFC"]}
-              onClick={() => onChange({ ...settings, theme: "dark" })}
+              onClick={() => commit((previous) => ({ ...previous, theme: "dark" }))}
             />
             <ThemeOption
-              active={settings.theme === "light"}
+              active={draft.theme === "light"}
               name="浅色"
               swatch={["#FCFCFC", "#FFFFFF", "#0169CC", "#111111"]}
-              onClick={() => onChange({ ...settings, theme: "light" })}
+              onClick={() => commit((previous) => ({ ...previous, theme: "light" }))}
             />
           </div>
         </div>
 
         <div className="modal-section">
           <span className="label">模型提供商</span>
-          {settings.providers.map((p) => {
-            const status = keyStatus(p);
+          {draft.providers.map((provider) => {
+            const status = keyStatus(provider);
             return (
-              <div className="provider-row" key={p.id}>
+              <div className="provider-row" key={provider.id}>
                 <div className="info">
                   <div className="p-name">
-                    {p.name}
-                    <span className="badge">{API_LABELS[p.api]}</span>
+                    {provider.name}
+                    <span className="badge">{API_LABELS[provider.api]}</span>
                     <span className={`badge ${status.warn ? "warn" : "neutral"}`}>
                       {status.label}
                     </span>
-                    {settings.defaultProviderId === p.id && (
+                    {draft.defaultProviderId === provider.id && (
                       <span className="badge">默认</span>
                     )}
                   </div>
-                  <div className="p-url mono">{p.baseUrl}</div>
+                  <div className="p-url mono">{provider.baseUrl}</div>
                 </div>
                 <div className="p-actions">
-                  <button className="link" onClick={() => setEditing(p)}>
+                  <button type="button" className="link" onClick={() => setEditing(provider)}>
                     编辑
                   </button>
-                  {settings.defaultProviderId !== p.id && (
+                  {draft.defaultProviderId !== provider.id && (
                     <button
+                      type="button"
                       className="link"
-                      onClick={() =>
-                        onChange({ ...settings, defaultProviderId: p.id })
-                      }
+                      onClick={() => commit((previous) => ({ ...previous, defaultProviderId: provider.id }))}
                     >
                       设为默认
                     </button>
                   )}
-                  <button className="link danger" onClick={() => deleteProvider(p.id)}>
+                  <button type="button" className="link danger" onClick={() => deleteProvider(provider.id)}>
                     删除
                   </button>
                 </div>
@@ -738,7 +1007,7 @@ function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
           })}
 
           {editing === null && (
-            <button className="ghost" onClick={() => setEditing("new")}>
+            <button type="button" className="ghost" onClick={() => setEditing("new")}>
               ＋ 添加提供商
             </button>
           )}
@@ -746,7 +1015,7 @@ function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
           {editing !== null && (
             <ProviderForm
               initial={editing === "new" ? null : editing}
-              existingIds={settings.providers.map((p) => p.id)}
+              existingIds={draft.providers.map((provider) => provider.id)}
               onSave={saveProvider}
               onCancel={() => setEditing(null)}
             />
@@ -769,17 +1038,22 @@ function ThemeOption({
   onClick: () => void;
 }) {
   return (
-    <div className={`theme-option ${active ? "active" : ""}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`theme-option ${active ? "active" : ""}`}
+      aria-pressed={active}
+      onClick={onClick}
+    >
       <div className="swatch">
-        {swatch.map((c) => (
-          <span key={c} style={{ background: c }} />
+        {swatch.map((color) => (
+          <span key={color} style={{ background: color }} />
         ))}
       </div>
       <div className="name">
         {name}
         {active && <span style={{ color: "var(--accent-text)" }}> ✓</span>}
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -885,5 +1159,5 @@ function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return slug || `provider-${Date.now()}`;
+  return slug || "provider-new";
 }

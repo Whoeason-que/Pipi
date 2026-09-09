@@ -99,4 +99,5 @@ export interface SessionInfoView {
   agentName: string;
   sessionId: string;
   running: boolean;
+  runId?: number;
 }

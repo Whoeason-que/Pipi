@@ -313,6 +313,10 @@ button.link.danger:hover {
 }
 
 .error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   background: var(--danger-soft);
   border: 1px solid var(--danger);
   color: var(--danger-text);
@@ -320,6 +324,20 @@ button.link.danger:hover {
   padding: 10px 12px;
   font-size: 12.5px;
   margin: 14px 20px 0;
+}
+
+.error-dismiss {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  line-height: 1;
+  padding: 1px 3px;
+}
+
+.error-dismiss:hover {
+  color: var(--fg);
 }
 
 .empty {
@@ -618,6 +636,9 @@ button.link.danger:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px 14px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
   cursor: pointer;
   transition: border-color 0.12s ease, background-color 0.12s ease;
 }
@@ -786,6 +807,7 @@ textarea,
 .chat-list {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
@@ -1171,6 +1193,15 @@ textarea,
 
 .session-item.active::before {
   color: var(--accent);
+}
+
+.agent-item:focus-visible,
+.session-item:focus-visible,
+.icon-btn:focus-visible,
+.theme-option:focus-visible,
+.error-dismiss:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 
 .session-item.new {
