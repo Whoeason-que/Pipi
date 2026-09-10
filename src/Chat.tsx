@@ -520,6 +520,30 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
     }
   };
 
+  const forkSession = async () => {
+    if (!ready || running) return;
+    const currentId = sessionIdentityRef.current?.sessionId;
+    if (!currentId) return;
+
+    try {
+      const info = await invoke<SessionInfoView>("fork_session", {
+        agentName: agent.name,
+        sessionId: currentId,
+      });
+      sessionIdentityRef.current = {
+        sessionId: info.sessionId,
+        runId: info.runId,
+      };
+      settledRunIdRef.current = null;
+      onSessionReset();
+      const messages = await invoke<MessageView[]>("session_messages");
+      const loadedStats = await invoke<SessionStatsView>("session_stats").catch(() => null);
+      dispatch({ type: "hydrate", messages, stats: loadedStats, running: false });
+    } catch (err) {
+      onError(formatRuntimeError(err));
+    }
+  };
+
   const statsBits: string[] = [];
   if (stats) {
     if (stats.avgTps != null) statsBits.push(`${stats.avgTps.toFixed(1)} tok/s`);
@@ -544,9 +568,20 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
             </span>
           )}
         </div>
-        <button type="button" className="ghost" onClick={newSession} disabled={!ready || running}>
-          新会话
-        </button>
+        <div className="chat-actions">
+          <button
+            type="button"
+            className="ghost"
+            onClick={forkSession}
+            disabled={!ready || running || !sessionIdentityRef.current?.sessionId}
+            title="从当前对话节点分叉出新会话"
+          >
+            分叉
+          </button>
+          <button type="button" className="ghost" onClick={newSession} disabled={!ready || running}>
+            新会话
+          </button>
+        </div>
       </header>
 
       <div
@@ -570,7 +605,24 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
             </div>
             <div className={`chat-bubble ${entry.isError ? "is-error" : ""}`}>
               {entry.role === "assistant" ? (
-                <Markdown text={entry.text || (entry.streaming ? "…" : "")} />
+                <>
+                  {entry.thinking && (
+                    <details className="chat-thinking" open={entry.streaming && !entry.text}>
+                      <summary className="thinking-summary">
+                        <span className="thinking-icon">💭</span>
+                        <span className="thinking-label">
+                          {entry.streaming && !entry.text
+                            ? "思考中…"
+                            : `深度思考（${entry.thinking.length} 字）`}
+                        </span>
+                      </summary>
+                      <pre className="thinking-body mono">{entry.thinking}</pre>
+                    </details>
+                  )}
+                  <Markdown text={entry.text || (entry.streaming ? "…" : "")} />
+                </>
+              ) : entry.role === "toolResult" ? (
+                <ToolResultCard entry={entry} />
               ) : (
                 <pre className="chat-text">{entry.text || (entry.streaming ? "…" : "")}</pre>
               )}
@@ -629,3 +681,79 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
     </div>
   );
 }
+
+function ToolResultCard({ entry }: { entry: import("./chat-runtime").ChatEntry }) {
+  const [open, setOpen] = useState(!entry.text.includes("\n") || entry.isError || entry.toolRunning);
+  const toolName = entry.toolName ?? "tool";
+  const statusLabel = entry.toolRunning
+    ? "运行中"
+    : entry.isError
+      ? "失败"
+      : "完成";
+  const statusClass = entry.toolRunning ? "running" : entry.isError ? "error" : "success";
+
+  let commandStr: string | null = null;
+  let pathStr: string | null = null;
+  if (entry.toolArgs && typeof entry.toolArgs === "object") {
+    const args = entry.toolArgs as Record<string, unknown>;
+    if (typeof args.command === "string") commandStr = args.command;
+    if (typeof args.path === "string") pathStr = args.path;
+  }
+
+  const details = entry.toolDetails as { diff?: string } | undefined;
+  const hasDiff = typeof details?.diff === "string" && details.diff.trim().length > 0;
+
+  return (
+    <div className={`tool-card ${statusClass}`}>
+      <div className="tool-card-head" onClick={() => setOpen(!open)}>
+        <span className="tool-card-name mono">
+          <span className="tool-icon">⚙</span> {toolName}
+        </span>
+        {commandStr && <span className="tool-summary-cmd mono" title={commandStr}>$ {commandStr}</span>}
+        {!commandStr && pathStr && <span className="tool-summary-cmd mono" title={pathStr}>{pathStr}</span>}
+        <span className={`badge tool-status ${statusClass}`}>{statusLabel}</span>
+        <span className="tool-toggle-btn">
+          {open ? "收起 ▲" : "详情 ▼"}
+        </span>
+      </div>
+
+      {open && (
+        <div className="tool-card-body">
+          {entry.toolArgs != null && (
+            <div className="tool-section">
+              <div className="tool-section-label">参数</div>
+              <pre className="tool-code mono">
+                {JSON.stringify(entry.toolArgs, null, 2)}
+              </pre>
+            </div>
+          )}
+
+
+          <div className="tool-section">
+            <div className="tool-section-label">输出</div>
+            {hasDiff ? (
+              <pre className="tool-diff mono">
+                {details!.diff!.split("\n").map((line, idx) => {
+                  let lineClass = "";
+                  if (line.startsWith("+")) lineClass = "diff-add";
+                  else if (line.startsWith("-")) lineClass = "diff-del";
+                  else if (line.startsWith("@@")) lineClass = "diff-hunk";
+                  return (
+                    <div key={idx} className={lineClass}>
+                      {line}
+                    </div>
+                  );
+                })}
+              </pre>
+            ) : (
+              <pre className="tool-output-text mono">
+                {entry.text || (entry.toolRunning ? "执行中…" : "（无输出）")}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+

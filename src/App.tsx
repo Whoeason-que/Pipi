@@ -161,6 +161,15 @@ export default function App() {
     void refreshSessions(agents.map((agent) => agent.name));
   }, [agents, refreshSessions]);
 
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sidebarOpen]);
+
   // 只订阅一次全局完成事件，读取 ref 避免因 Agent 列表更新反复注册监听器。
   useEffect(() => {
     let active = true;
@@ -333,7 +342,7 @@ export default function App() {
 
   return (
     <div className={sidebarOpen ? "app sidebar-open" : "app"}>
-      <aside className="sidebar">
+      <aside className="sidebar" id="primary-navigation" aria-label="主导航">
         <div className="sidebar-header">
           <span className="logo">
             <span className="pi">π</span> pipi
@@ -343,7 +352,10 @@ export default function App() {
             className="icon-btn"
             title="设置"
             aria-label="打开设置"
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => {
+              setSidebarOpen(false);
+              setSettingsOpen(true);
+            }}
           >
             ⚙
           </button>
@@ -431,6 +443,7 @@ export default function App() {
               }
               invalidateNavigation();
               setCreating(true);
+              setSidebarOpen(false);
             }}
           >
             ＋ 新建 Agent
@@ -454,11 +467,15 @@ export default function App() {
             className="icon-btn"
             aria-label="打开导航"
             title="打开导航"
+            aria-expanded={sidebarOpen}
+            aria-controls="primary-navigation"
             onClick={() => setSidebarOpen(true)}
           >
             ☰
           </button>
-          <span>{current?.name ?? (creating ? "新建 Agent" : "Pipi")}</span>
+          <span className="mobile-toolbar-title">
+            {current?.name ?? (creating ? "新建 Agent" : "Pipi")}
+          </span>
         </div>
         {error && (
           <div className="error" role="alert">

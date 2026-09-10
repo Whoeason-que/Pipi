@@ -93,44 +93,31 @@ pub fn restore_line_endings(s: String, ending: &str) -> String {
     }
 }
 
-/// 简单 unified diff（公共前缀/后缀之间的变更块）。
+/// 基于 similar 生成的 unified diff。
 /// 返回 (diff 文本, 首个变更行号 1-indexed)。
 pub fn diff_summary(base: &str, new: &str) -> (String, Option<usize>) {
-    let a: Vec<&str> = base.split('\n').collect();
-    let b: Vec<&str> = new.split('\n').collect();
-    let mut prefix = 0usize;
-    while prefix < a.len() && prefix < b.len() && a[prefix] == b[prefix] {
-        prefix += 1;
-    }
-    let mut suffix = 0usize;
-    while suffix < a.len() - prefix
-        && suffix < b.len() - prefix
-        && a[a.len() - 1 - suffix] == b[b.len() - 1 - suffix]
-    {
-        suffix += 1;
-    }
-    let removed = &a[prefix..a.len() - suffix];
-    let added = &b[prefix..b.len() - suffix];
-    if removed.is_empty() && added.is_empty() {
+    if base == new {
         return (String::new(), None);
     }
-    let mut out = format!(
-        "@@ -{},{} +{},{} @@",
-        prefix + 1,
-        removed.len(),
-        prefix + 1,
-        added.len()
-    );
-    for line in removed {
-        out.push_str("\n-");
-        out.push_str(line);
+    let diff = similar::TextDiff::from_lines(base, new);
+    let mut first_changed = None;
+    for change in diff.iter_all_changes() {
+        if change.tag() == similar::ChangeTag::Delete {
+            if let Some(idx) = change.old_index() {
+                first_changed = Some(idx + 1);
+                break;
+            }
+        } else if change.tag() == similar::ChangeTag::Insert {
+            if let Some(idx) = change.new_index() {
+                first_changed = Some(idx + 1);
+                break;
+            }
+        }
     }
-    for line in added {
-        out.push_str("\n+");
-        out.push_str(line);
-    }
-    (out, Some(prefix + 1))
+    let unified = diff.unified_diff().context_radius(2).to_string();
+    (unified, first_changed)
 }
+
 
 fn parse_edits(value: &Value) -> Result<Vec<Edit>, String> {
     let arr = value["edits"].as_array().ok_or("缺少 edits 数组")?;

@@ -210,3 +210,62 @@ test("runtime errors are normalized without stringifying objects", () => {
   assert.equal(formatRuntimeError("plain"), "plain");
   assert.equal(formatRuntimeError(null), "未知错误");
 });
+
+test("thinking content is extracted and updated during streaming", () => {
+  let state = event(INITIAL_CHAT_STATE, { type: "agent_start" });
+  state = event(state, {
+    type: "message_start",
+    message: {
+      role: "assistant",
+      content: [{ type: "thinking", thinking: "正在思考..." }],
+    },
+  });
+  assert.equal(state.entries.length, 1);
+  assert.equal(state.entries[0]?.thinking, "正在思考...");
+
+  state = event(state, {
+    type: "message_update",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "正在思考...想通了" },
+        { type: "text", text: "你好！" },
+      ],
+    },
+  });
+  assert.equal(state.entries[0]?.thinking, "正在思考...想通了");
+  assert.equal(state.entries[0]?.text, "你好！");
+});
+
+test("tool execution preserves toolArgs and toolDetails across lifecycle", () => {
+  let state = event(INITIAL_CHAT_STATE, {
+    type: "tool_execution_start",
+    toolCallId: "call-edit-1",
+    toolName: "edit",
+    args: { path: "src/main.rs", edits: [{ oldText: "a", newText: "b" }] },
+  });
+  assert.deepEqual(state.entries[0]?.toolArgs, {
+    path: "src/main.rs",
+    edits: [{ oldText: "a", newText: "b" }],
+  });
+
+  state = event(state, {
+    type: "tool_execution_end",
+    toolCallId: "call-edit-1",
+    toolName: "edit",
+    result: {
+      content: [{ type: "text", text: "已修改" }],
+      details: { diff: "@@ -1 +1 @@\n-a\n+b", firstChangedLine: 1 },
+    },
+    isError: false,
+  });
+  assert.deepEqual(state.entries[0]?.toolArgs, {
+    path: "src/main.rs",
+    edits: [{ oldText: "a", newText: "b" }],
+  });
+  assert.deepEqual(state.entries[0]?.toolDetails, {
+    diff: "@@ -1 +1 @@\n-a\n+b",
+    firstChangedLine: 1,
+  });
+});
+

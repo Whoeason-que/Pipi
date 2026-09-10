@@ -76,3 +76,14 @@ pub async fn session_messages(state: State<'_, ChatState>) -> Result<Vec<Message
 pub fn session_stats(state: State<ChatState>) -> Result<pipi_core::stats::SessionStats, String> {
     state.session_stats()
 }
+
+#[tauri::command]
+pub fn fork_session(
+    state: State<ChatState>,
+    agent_name: String,
+    session_id: String,
+    up_to_entry_id: Option<String>,
+) -> Result<SessionInfo, String> {
+    state.fork_session(&agent_name, &session_id, up_to_entry_id.as_deref())
+}
+

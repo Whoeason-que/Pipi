@@ -129,8 +129,11 @@ export interface ChatEntry {
   key: string;
   role: MessageView["role"];
   text: string;
+  thinking?: string;
   toolName?: string;
   toolCallId?: string;
+  toolArgs?: unknown;
+  toolDetails?: unknown;
   isError?: boolean;
   status?: EntryStatus;
   errorMessage?: string;
@@ -142,6 +145,7 @@ export interface ChatEntry {
   /** 尚未被后端历史快照确认的本地/实时条目。 */
   transient?: boolean;
 }
+
 
 export interface ChatState {
   entries: ChatEntry[];
@@ -203,6 +207,16 @@ export function messageText(message: MessageView): string {
   return "";
 }
 
+export function messageThinking(message: MessageView): string | undefined {
+  if (Array.isArray(message.content)) {
+    const thinking = message.content
+      .map((content) => (content.type === "thinking" ? content.thinking : ""))
+      .join("");
+    return thinking || undefined;
+  }
+  return undefined;
+}
+
 export function toolOutputText(result: ToolOutputView | undefined, fallback: string): string {
   const text = result?.content
     .map((content) => (content.type === "text" ? content.text : ""))
@@ -217,6 +231,7 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
     key,
     role: message.role,
     text: messageText(message),
+    thinking: messageThinking(message),
     toolName: message.toolName,
     toolCallId: message.toolCallId,
     isError: message.isError || status !== undefined,
@@ -258,6 +273,7 @@ function sameMessage(left: ChatEntry, message: MessageView): boolean {
   return left.role === message.role
     && left.toolCallId === message.toolCallId
     && left.text === messageText(message)
+    && left.thinking === messageThinking(message)
     && left.stopReason === message.stopReason
     && left.errorMessage === (message.errorMessage ?? undefined);
 }
@@ -267,6 +283,7 @@ function updateAssistantEntry(entry: ChatEntry, message: MessageView, streaming:
   return {
     ...entry,
     text: messageText(message),
+    thinking: messageThinking(message) ?? entry.thinking,
     errorMessage: message.errorMessage ?? undefined,
     stopReason: message.stopReason,
     status,
@@ -285,10 +302,13 @@ function mergeToolMessageEntry(entry: ChatEntry, message: MessageView): ChatEntr
     ...next,
     toolName: next.toolName ?? entry.toolName,
     toolCallId: next.toolCallId ?? entry.toolCallId,
+    toolArgs: entry.toolArgs,
+    toolDetails: entry.toolDetails,
     toolRunning: false,
     transient: true,
   };
 }
+
 
 function mergeHydratedEntries(state: ChatState, messages: MessageView[]): ChatEntry[] {
   const merged = messages.map((message, index) => entryFromMessage(message, `restored-${index}`));
@@ -490,13 +510,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         }
         case "tool_execution_start": {
           const key = `tool-${event.toolCallId}`;
-          const existing = state.entries.some((entry) => entry.key === key);
+          const existing = state.entries.find((entry) => entry.key === key);
           const nextEntry: ChatEntry = {
             key,
             role: "toolResult",
             text: `⚙ ${event.toolName} 运行中…`,
             toolName: event.toolName,
             toolCallId: event.toolCallId,
+            toolArgs: event.args ?? existing?.toolArgs,
             toolRunning: true,
             transient: true,
           };
@@ -512,26 +533,28 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           const key = `tool-${event.toolCallId}`;
           const partialText = toolOutputText(event.partial, "");
           if (!partialText) return state;
-          const exists = state.entries.some((entry) => entry.key === key);
+          const existing = state.entries.find((entry) => entry.key === key);
           const nextEntry: ChatEntry = {
             key,
             role: "toolResult",
             text: `⚙ ${event.toolName}\n${partialText}`,
             toolName: event.toolName,
             toolCallId: event.toolCallId,
+            toolArgs: existing?.toolArgs,
+            toolDetails: event.partial.details ?? existing?.toolDetails,
             toolRunning: true,
             transient: true,
           };
           return {
             ...state,
-            entries: exists
+            entries: existing
               ? state.entries.map((entry) => (entry.key === key ? { ...entry, ...nextEntry } : entry))
               : [...state.entries, nextEntry],
           };
         }
         case "tool_execution_end": {
           const key = `tool-${event.toolCallId}`;
-          const exists = state.entries.some((entry) => entry.key === key);
+          const existing = state.entries.find((entry) => entry.key === key);
           const nextEntry: ChatEntry = {
             key,
             role: "toolResult",
@@ -540,6 +563,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               : `⚙ ${event.toolName}`,
             toolName: event.toolName,
             toolCallId: event.toolCallId,
+            toolArgs: existing?.toolArgs,
+            toolDetails: event.result.details ?? existing?.toolDetails,
             isError: event.isError,
             status: event.isError ? "tool-error" : undefined,
             toolRunning: false,
@@ -547,11 +572,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           };
           return {
             ...state,
-            entries: exists
+            entries: existing
               ? state.entries.map((entry) => (entry.key === key ? { ...entry, ...nextEntry } : entry))
               : [...state.entries, nextEntry],
           };
         }
+
         case "turn_start":
         case "turn_end":
           return state;

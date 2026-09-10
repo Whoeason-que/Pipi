@@ -342,8 +342,9 @@ impl RuntimeState {
         }
 
         let entries = load_session(&path).map_err(|e| e.to_string())?;
-        let messages: Vec<Message> = entries
-            .iter()
+        let active = crate::session::active_path(&entries);
+        let messages: Vec<Message> = active
+            .into_iter()
             .filter_map(|entry| match &entry.kind {
                 crate::session::EntryKind::Message { message } => Some(message.clone()),
                 _ => None,
@@ -371,6 +372,80 @@ impl RuntimeState {
         });
         Ok(())
     }
+
+    /// 分叉一个会话（可指定截断至某个 entry_id，留空则分叉到当前 tip）。
+    pub fn fork_session(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        up_to_entry_id: Option<&str>,
+    ) -> Result<SessionInfo, String> {
+        if session_id.is_empty()
+            || !session_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-')
+        {
+            return Err("非法会话 ID".into());
+        }
+        let def = agents::load_agent(agent_name)?;
+        let dir = def.sessions_dir().ok_or("无法解析会话目录")?;
+        let source_path = dir.join(format!("{session_id}.jsonl"));
+        if !source_path.is_file() {
+            return Err("源会话不存在".into());
+        }
+
+        let mut slot = self.session.lock().map_err(|e| e.to_string())?;
+        if let Some(session) = slot.as_ref() {
+            if session.running.is_running() {
+                return Err("当前会话仍在运行，请先停止".into());
+            }
+        }
+
+        let writer = crate::session::fork_session(&source_path, &dir, up_to_entry_id)?;
+        let new_session_path = writer.path().to_path_buf();
+        let new_session_id = new_session_path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| "无法解析新会话 ID".to_string())?
+            .to_string();
+
+        let entries = load_session(&new_session_path).map_err(|e| e.to_string())?;
+        let active = crate::session::active_path(&entries);
+        let messages: Vec<Message> = active
+            .into_iter()
+            .filter_map(|entry| match &entry.kind {
+                crate::session::EntryKind::Message { message } => Some(message.clone()),
+                _ => None,
+            })
+            .collect();
+        let context_max = def
+            .provider
+            .as_ref()
+            .map(|provider| provider.context_window)
+            .filter(|window| *window > 0);
+        let mut tracker = SessionStatsTracker::new(context_max);
+        for message in &messages {
+            tracker.record(message);
+        }
+
+        let run_state = Arc::new(RunState::new());
+        *slot = Some(Session {
+            agent: def,
+            messages: Arc::new(tokio::sync::Mutex::new(messages)),
+            writer: Arc::new(Mutex::new(writer)),
+            stats: Arc::new(Mutex::new(tracker)),
+            abort: AbortSignal::new(),
+            running: run_state.clone(),
+        });
+
+        Ok(SessionInfo {
+            agent_name: agent_name.to_string(),
+            session_id: new_session_id,
+            running: false,
+            run_id: run_state.current_run_id(),
+        })
+    }
+
 
     /// 当前活会话信息；无会话返回 None。
     pub fn session_info(&self) -> Result<Option<SessionInfo>, String> {

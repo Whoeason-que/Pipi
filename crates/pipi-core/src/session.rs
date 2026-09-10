@@ -116,7 +116,7 @@ impl SessionWriter {
         Ok(id)
     }
 
-    fn write_entry(&mut self, entry: &SessionEntry) -> std::io::Result<()> {
+    pub fn write_entry(&mut self, entry: &SessionEntry) -> std::io::Result<()> {
         let mut line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
         line.push('\n');
         self.file.write_all(line.as_bytes())?;
@@ -125,6 +125,44 @@ impl SessionWriter {
         self.seq += 1;
         Ok(())
     }
+}
+
+/// 从源会话中分叉出一个新会话文件：
+/// 拷贝从根到目标 entry（若为 None 则到当前 tip）的活跃路径条目到新会话文件中。
+/// 返回新建且 tip 指向分支末尾的 SessionWriter。
+pub fn fork_session(
+    source_session_path: &Path,
+    sessions_dir: &Path,
+    up_to_entry_id: Option<&str>,
+) -> Result<SessionWriter, String> {
+    let entries = load_session(source_session_path)?;
+    if entries.is_empty() {
+        return SessionWriter::create(sessions_dir).map_err(|e| e.to_string());
+    }
+    let active = if let Some(target_id) = up_to_entry_id {
+        let by_id: std::collections::HashMap<&str, &SessionEntry> =
+            entries.iter().map(|e| (e.id.as_str(), e)).collect();
+        let mut path = Vec::new();
+        let mut cursor = Some(target_id);
+        while let Some(id) = cursor {
+            if let Some(entry) = by_id.get(id) {
+                path.push((*entry).clone());
+                cursor = entry.parent_id.as_deref();
+            } else {
+                break;
+            }
+        }
+        path.reverse();
+        path
+    } else {
+        active_path(&entries).into_iter().cloned().collect()
+    };
+
+    let mut writer = SessionWriter::create(sessions_dir).map_err(|e| e.to_string())?;
+    for entry in &active {
+        writer.write_entry(entry).map_err(|e| e.to_string())?;
+    }
+    Ok(writer)
 }
 
 /// 读取整个会话文件。坏行跳过（崩溃安全：绝不让半行 JSON 拖垮整个会话）。
@@ -369,4 +407,24 @@ mod tests {
         assert_eq!(path[0].seq, 0);
         assert_eq!(path[2].seq, 2);
     }
+
+    #[test]
+    fn fork_session_copies_active_history() {
+        let dir = temp_dir();
+        let mut writer = SessionWriter::create(&dir).unwrap();
+        let id1 = writer.append_message(&Message::user_text("msg 1")).unwrap();
+        let _id2 = writer.append_message(&Message::user_text("msg 2")).unwrap();
+        let source_path = writer.path().to_path_buf();
+        drop(writer);
+
+        // 分叉到 id1
+        let mut forked = fork_session(&source_path, &dir, Some(&id1)).unwrap();
+        assert_eq!(forked.tip_id(), Some(id1.as_str()));
+        let id3 = forked.append_message(&Message::user_text("msg 3 branch")).unwrap();
+        let forked_entries = load_session(forked.path()).unwrap();
+        assert_eq!(forked_entries.len(), 2);
+        assert_eq!(forked_entries[1].parent_id.as_deref(), Some(id1.as_str()));
+        assert_eq!(forked_entries[1].id, id3);
+    }
 }
+
