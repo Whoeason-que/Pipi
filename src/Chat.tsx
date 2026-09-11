@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Markdown } from "./Markdown";
 import { invoke, listen } from "./platform";
 import { ScreenTabs } from "./ScreenTabs";
+import { findProviderPresetByEndpoint } from "./providers";
 import {
   assistantFooter,
   chatReducer,
@@ -843,6 +844,7 @@ function formatClock(timestamp: number): string {
 
 function formatTokens(value: number | undefined): string {
   if (value == null) return "—";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
   return String(value);
 }
@@ -1424,8 +1426,30 @@ function ModelSelectModal({
   );
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [modelQuery, setModelQuery] = useState("");
+
+  // 当前选中的供应商若命中 models.dev 预设，就列出该供应商可用模型（避免手抄模型 ID）
+  const activeProvider = providers.find((p) => p.id === selectedProviderId);
+  const preset = activeProvider
+    ? findProviderPresetByEndpoint(activeProvider.api, activeProvider.baseUrl)
+    : undefined;
+  const catalogModels = useMemo(() => {
+    if (!preset) return [];
+    const q = modelQuery.trim().toLowerCase();
+    if (!q) return preset.models;
+    return preset.models.filter(
+      (model) => model.id.toLowerCase().includes(q) || model.name.toLowerCase().includes(q),
+    );
+  }, [preset, modelQuery]);
 
   if (!isOpen) return null;
+
+  const applyCatalogModel = (model: (typeof catalogModels)[number]) => {
+    setModelId(model.id);
+    setMaxTokens(model.output && model.output > 0 ? model.output : 8192);
+    setContextWindow(model.context && model.context > 0 ? model.context : 0);
+  };
+  const pickedCatalogModel = preset?.models.find((model) => model.id === modelId);
 
   const handleApplyPreset = (preset: (typeof PRESET_MODELS)[number]) => {
     setModelId(preset.id);
@@ -1551,26 +1575,76 @@ function ModelSelectModal({
                 type="text"
                 value={modelId}
                 onChange={(e) => setModelId(e.target.value)}
-                placeholder="如 claude-3-7-sonnet-20250219、gpt-4o…"
+                placeholder="如 gpt-4o、deepseek-chat、anthropic/claude-sonnet-4.5"
                 className="mono"
               />
             </div>
 
-            <div className="form-row">
-              <span className="label">常用快捷预设</span>
-              <div className="model-preset-chips">
-                {PRESET_MODELS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    className={`preset-chip ${modelId === preset.id ? "active" : ""}`}
-                    onClick={() => handleApplyPreset(preset)}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+            {preset && preset.models.length > 0 ? (
+              <div className="form-row">
+                <span className="label">可用模型 · {preset.name}</span>
+                <input
+                  className="preset-search"
+                  value={modelQuery}
+                  onChange={(event) => setModelQuery(event.target.value)}
+                  placeholder="筛选模型（id / 名称）…"
+                  aria-label="筛选模型"
+                  spellCheck={false}
+                />
+                <div className="model-list">
+                  {catalogModels.map((model) => (
+                    <button
+                      key={model.id}
+                      type="button"
+                      className={`model-row${modelId === model.id ? " active" : ""}`}
+                      aria-pressed={modelId === model.id}
+                      onClick={() => applyCatalogModel(model)}
+                      title={model.name}
+                    >
+                      <span className="m-name">{model.name}</span>
+                      {model.reasoning && <span className="badge neutral">推理</span>}
+                      <span className="m-id mono">{model.id}</span>
+                      {model.context ? (
+                        <span className="m-ctx mono">{formatTokens(model.context)} ctx</span>
+                      ) : null}
+                    </button>
+                  ))}
+                  {catalogModels.length === 0 && <div className="hint">没有匹配的模型。</div>}
+                </div>
+                <div className="hint">
+                  {preset.modelCount && preset.modelCount > preset.models.length
+                    ? `目录共 ${preset.modelCount} 个可用模型，此处列出前 ${preset.models.length} 个（可用筛选框查，也可直接填 ID）。`
+                    : "选中会自动填入上下文窗口与最大输出（仍可手动改）；目录数据来自 models.dev。"}
+                </div>
+                {pickedCatalogModel && (
+                  <div className="hint mono">
+                    已选 {pickedCatalogModel.name} · 上下文 {formatTokens(pickedCatalogModel.context)} · 最大输出{" "}
+                    {formatTokens(pickedCatalogModel.output)}
+                  </div>
+                )}
               </div>
-            </div>
+            ) : (
+              <div className="form-row">
+                <span className="label">常用快捷预设</span>
+                <div className="model-preset-chips">
+                  {PRESET_MODELS.map((presetModel) => (
+                    <button
+                      key={presetModel.id}
+                      type="button"
+                      className={`preset-chip ${modelId === presetModel.id ? "active" : ""}`}
+                      onClick={() => handleApplyPreset(presetModel)}
+                    >
+                      {presetModel.label}
+                    </button>
+                  ))}
+                </div>
+                {!preset && (
+                  <div className="hint">
+                    当前供应商不在 models.dev 目录里（自定义端点），直接填写模型 ID 即可。
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

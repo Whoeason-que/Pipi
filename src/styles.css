@@ -1962,6 +1962,225 @@ pre.code {
   line-height: 1.6;
 }
 
+/* ============ 提供商预设选择器 / 模型列表 ============ */
+
+.preset-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.preset-picker {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--code-bg);
+  overflow: hidden;
+}
+
+.preset-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.preset-search {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  font-size: 12px;
+  padding: 0 9px;
+  outline: 0;
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+
+.preset-search::placeholder {
+  color: var(--faint);
+}
+
+.preset-search:focus {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.preset-groups {
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.preset-group h5 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 4px 5px;
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 650;
+}
+
+.preset-group h5 span {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0;
+}
+
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.preset-row:hover {
+  background: var(--hover);
+  border-color: var(--line);
+  color: var(--fg);
+}
+
+.preset-row.added {
+  opacity: 0.72;
+}
+
+.preset-row .p-name {
+  font-weight: 550;
+  flex-shrink: 0;
+}
+
+.preset-row .p-count {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.preset-row .p-env {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 26ch;
+}
+
+.preset-foot {
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--faint);
+}
+
+.preset-banner {
+  margin-bottom: 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--accent-border-soft);
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+}
+
+.preset-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-banner-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.preset-banner .hint {
+  color: var(--muted);
+}
+
+.preset-banner .hint + .hint,
+.preset-banner > .hint {
+  margin-top: 4px;
+  display: block;
+}
+
+.model-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+}
+
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 9px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.model-row:last-child {
+  border-bottom: 0;
+}
+
+.model-row:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.model-row.active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.model-row .m-name {
+  font-weight: 550;
+  flex-shrink: 0;
+}
+
+.model-row .m-id {
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-row .m-ctx {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--faint);
+  flex-shrink: 0;
+}
+
 /* ============ 登录 ============ */
 
 .login-container {

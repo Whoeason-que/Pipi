@@ -15,6 +15,13 @@ import ChatView from "./Chat";
 import Login from "./Login";
 import { ScreenTabs } from "./ScreenTabs";
 import {
+  PROVIDER_GROUPS,
+  PROVIDER_PRESETS,
+  presetToProviderFields,
+  type ProviderGroup,
+  type ProviderPreset,
+} from "./providers";
+import {
   formatRuntimeError,
   normalizeAgentEvent,
   type AgentEventPayload,
@@ -1193,8 +1200,15 @@ interface SettingsModalProps {
 
 function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModalProps) {
   const [editing, setEditing] = useState<ProviderConfig | "new" | null>(null);
+  const [preset, setPreset] = useState<ProviderPreset | null>(null);
+  const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState(settings);
   const draftRef = useRef(settings);
+
+  const closeEditor = () => {
+    setEditing(null);
+    setPreset(null);
+  };
 
   useEffect(() => {
     draftRef.current = settings;
@@ -1224,7 +1238,7 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
       else providers.push(provider);
       return { ...previous, providers };
     });
-    setEditing(null);
+    closeEditor();
   };
 
   const deleteProvider = (id: string) => {
@@ -1290,7 +1304,7 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
                   <div className="p-url mono">{provider.baseUrl}</div>
                 </div>
                 <div className="p-actions">
-                  <button type="button" className="link" onClick={() => setEditing(provider)}>
+                  <button type="button" className="link" onClick={() => { setPreset(null); setEditing(provider); }}>
                     编辑
                   </button>
                   {draft.defaultProviderId !== provider.id && (
@@ -1310,18 +1324,43 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
             );
           })}
 
-          {editing === null && (
-            <button type="button" className="btn ghost" onClick={() => setEditing("new")}>
-              ＋ 添加提供商
-            </button>
+          {editing === null && !picking && (
+            <div className="preset-actions">
+              <button type="button" className="btn ghost" onClick={() => setPicking(true)}>
+                ＋ 从预设添加
+              </button>
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  setPreset(null);
+                  setEditing("new");
+                }}
+              >
+                手动配置端点
+              </button>
+            </div>
+          )}
+
+          {editing === null && picking && (
+            <PresetPicker
+              existingIds={draft.providers.map((provider) => provider.id)}
+              onPick={(next) => {
+                setPreset(next);
+                setPicking(false);
+                setEditing("new");
+              }}
+              onCancel={() => setPicking(false)}
+            />
           )}
 
           {editing !== null && (
             <ProviderForm
               initial={editing === "new" ? null : editing}
+              preset={editing === "new" ? preset : null}
               existingIds={draft.providers.map((provider) => provider.id)}
               onSave={saveProvider}
-              onCancel={() => setEditing(null)}
+              onCancel={closeEditor}
             />
           )}
         </div>
@@ -1388,26 +1427,123 @@ function ThemeOption({
   );
 }
 
+interface PresetPickerProps {
+  existingIds: string[];
+  onPick: (preset: ProviderPreset) => void;
+  onCancel: () => void;
+}
+
+/** 预设选择器：按分组列出 models.dev 目录里的提供商，选中后进入表单预填。 */
+function PresetPicker({ existingIds, onPick, onCancel }: PresetPickerProps) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+
+  const groups: Array<{ group: ProviderGroup; items: ProviderPreset[] }> = PROVIDER_GROUPS
+    .map((group) => ({
+      group,
+      items: PROVIDER_PRESETS
+        .filter((preset) => preset.group === group)
+        .filter((preset) => !q
+          || preset.name.toLowerCase().includes(q)
+          || preset.id.toLowerCase().includes(q)
+          || preset.baseUrl.toLowerCase().includes(q)
+          || preset.envKey.toLowerCase().includes(q)),
+    }))
+    .filter((entry) => entry.items.length > 0);
+
+  const hitCount = groups.reduce((total, entry) => total + entry.items.length, 0);
+
+  return (
+    <div className="preset-picker">
+      <div className="preset-picker-head">
+        <input
+          className="preset-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索提供商（名称 / id / 端点 / 环境变量）…"
+          aria-label="搜索提供商预设"
+          autoFocus
+          spellCheck={false}
+        />
+        <span className="hint">{hitCount} / {PROVIDER_PRESETS.length}</span>
+        <button type="button" className="link" onClick={onCancel}>
+          取消
+        </button>
+      </div>
+
+      <div className="preset-groups">
+        {groups.map(({ group, items }) => (
+          <div className="preset-group" key={group}>
+            <h5>
+              {group}
+              <span>{items.length}</span>
+            </h5>
+            {items.map((preset) => {
+              const added = existingIds.includes(preset.id);
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`preset-row${added ? " added" : ""}`}
+                  onClick={() => onPick(preset)}
+                  title={preset.note ?? preset.baseUrl}
+                >
+                  <span className="p-name">{preset.name}</span>
+                  <span className="badge neutral">
+                    {preset.api === "anthropic-messages" ? "Anthropic 协议" : "OpenAI 兼容"}
+                  </span>
+                  {preset.models.length > 0 && (
+                    <span className="p-count">
+                      {preset.modelCount && preset.modelCount > preset.models.length
+                        ? `${preset.modelCount} 个可用模型`
+                        : `${preset.models.length} 模型`}
+                    </span>
+                  )}
+                  {added && <span className="badge">已添加</span>}
+                  <span className="p-env mono">{preset.envKey}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        {hitCount === 0 && (
+          <div className="hint">没有匹配的预设；可以返回后用「手动配置端点」。</div>
+        )}
+      </div>
+
+      <div className="preset-foot">
+        目录来自 <span className="mono">models.dev</span>（opencode 使用的模型目录）——
+        预设只填端点、协议与环境变量名，密钥始终由你提供（环境变量优先，其次明文）。
+      </div>
+    </div>
+  );
+}
+
 interface ProviderFormProps {
   initial: ProviderConfig | null;
+  /** 从预设添加时的种子值（不含密钥）；编辑已有提供商时为 null。 */
+  preset: ProviderPreset | null;
   existingIds: string[];
   onSave: (p: ProviderConfig) => void;
   onCancel: () => void;
 }
 
-function ProviderForm({ initial, existingIds, onSave, onCancel }: ProviderFormProps) {
-  const [name, setName] = useState(initial?.name ?? "");
-  const [api, setApi] = useState<ApiKind>(initial?.api ?? "anthropic-messages");
-  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
-  const [envKey, setEnvKey] = useState(initial?.envKey ?? "");
+function ProviderForm({ initial, preset, existingIds, onSave, onCancel }: ProviderFormProps) {
+  const seed = preset ? presetToProviderFields(preset) : null;
+  const [name, setName] = useState(initial?.name ?? seed?.name ?? "");
+  const [api, setApi] = useState<ApiKind>(initial?.api ?? seed?.api ?? "anthropic-messages");
+  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? seed?.baseUrl ?? "");
+  const [envKey, setEnvKey] = useState(initial?.envKey ?? seed?.envKey ?? "");
   const [apiKey, setApiKey] = useState(initial?.apiKey ?? "");
 
-  const id = initial?.id ?? slugify(name);
+  const id = initial?.id ?? seed?.id ?? slugify(name);
 
   const valid =
     name.trim().length > 0 &&
     baseUrl.trim().startsWith("http") &&
     (initial !== null || !existingIds.includes(id));
+
+  const idTaken = initial === null && existingIds.includes(id);
 
   const submit = () => {
     if (!valid) return;
@@ -1423,6 +1559,28 @@ function ProviderForm({ initial, existingIds, onSave, onCancel }: ProviderFormPr
 
   return (
     <div className="provider-form">
+      {preset && (
+        <div className="preset-banner">
+          <div className="preset-banner-head">
+            <span className="badge">预设</span>
+            <span className="preset-banner-name">{preset.name}</span>
+            <span className="badge neutral">{preset.group}</span>
+            {preset.models.length > 0 && (
+              <span className="hint">
+                {preset.modelCount && preset.modelCount > preset.models.length
+                  ? `目录共 ${preset.modelCount} 个可用模型`
+                  : `${preset.models.length} 个可用模型`}
+              </span>
+            )}
+            {preset.doc && (
+              <a className="link" href={preset.doc} target="_blank" rel="noreferrer">
+                文档 ↗
+              </a>
+            )}
+          </div>
+          {preset.note && <div className="hint">{preset.note}</div>}
+        </div>
+      )}
       <div className="grid">
         <div className="form-row">
           <label className="label">名称</label>
@@ -1472,6 +1630,11 @@ function ProviderForm({ initial, existingIds, onSave, onCancel }: ProviderFormPr
           />
         </div>
       </div>
+      {idTaken && (
+        <div className="form-warning">
+          id「{id}」已存在：换个名称可以换 id，或关闭本表单后直接「编辑」已有提供商。
+        </div>
+      )}
       <div className="actions">
         <button className="btn ghost" onClick={onCancel}>
           取消
