@@ -1,6 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, listen } from "./platform";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  invoke,
+  listen,
+  isTauriRuntime,
+  getAuthStatus,
+  getConnectionState,
+  getRuntimeEndpoint,
+  onAuthRequired,
+  logout,
+  subscribeConnection,
+  type ConnectionState,
+} from "./platform";
 import ChatView from "./Chat";
+import Login from "./Login";
+import { ScreenTabs } from "./ScreenTabs";
 import {
   formatRuntimeError,
   normalizeAgentEvent,
@@ -27,7 +40,17 @@ const BASH_MODE_LABELS: Record<BashMode, string> = {
   denylist: "黑名单",
 };
 
+const CONNECTION_LABELS: Record<ConnectionState, string> = {
+  online: "已连接",
+  connecting: "连接中",
+  offline: "已断开",
+  dev: "演示模式",
+};
+
 const KNOWN_TOOLS = ["read", "write", "edit", "bash", "memory"] as const;
+
+/** 构建时注入的版本号（vite define），未注入时留空。 */
+const APP_VERSION = typeof __PIPI_VERSION__ === "string" ? __PIPI_VERSION__ : "";
 
 function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
@@ -40,7 +63,18 @@ function keyStatus(p: ProviderConfig): { label: string; warn: boolean } {
   return { label: "未配置密钥", warn: true };
 }
 
+/** 状态栏的运行位置描述由 platform 统一提供（避免两处各自推导服务地址）。 */
+
 export default function App() {
+  const [authStatus, setAuthStatus] = useState<{
+    authRequired: boolean;
+    authenticated: boolean;
+    checking: boolean;
+  }>({
+    authRequired: false,
+    authenticated: true,
+    checking: !isTauriRuntime(),
+  });
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -52,6 +86,8 @@ export default function App() {
   const [activeSession, setActiveSession] = useState<SessionInfoView | null>(null);
   const [chatRunning, setChatRunning] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [connection, setConnection] = useState<ConnectionState>(getConnectionState());
   const [error, setError] = useState<string | null>(null);
   const agentsRef = useRef<AgentDefinition[]>([]);
   const sessionListRequestRef = useRef(0);
@@ -69,6 +105,38 @@ export default function App() {
   settingsRef.current = settings;
   selectedRef.current = selected;
   activeSessionRef.current = activeSession;
+
+  useEffect(() => subscribeConnection(setConnection), []);
+
+  const safeSetError = useCallback((msg: string | null) => {
+    if (!msg) {
+      setError(null);
+      return;
+    }
+    if (msg.includes("需要 PIPI_AUTH_TOKEN")) return;
+    setError(msg);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!isTauriRuntime()) {
+      void getAuthStatus().then((status) => {
+        if (!active) return;
+        setAuthStatus({
+          authRequired: status.authRequired,
+          authenticated: status.authenticated,
+          checking: false,
+        });
+      });
+    }
+    const unsub = onAuthRequired(() => {
+      setAuthStatus((prev) => ({ ...prev, authenticated: false }));
+    });
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, []);
 
   const invalidateNavigation = () => {
     navigationRequestRef.current += 1;
@@ -118,9 +186,9 @@ export default function App() {
     });
     const failedNames = results.filter((result) => result.failed).map((result) => result.name);
     if (failedNames.length > 0) {
-      setError(`会话列表加载失败：${failedNames.join("、")}（保留旧数据）`);
+      safeSetError(`会话列表加载失败：${failedNames.join("、")}（保留旧数据）`);
     }
-  }, []);
+  }, [safeSetError]);
 
   const refresh = useCallback(async () => {
     const requestId = ++agentRequestRef.current;
@@ -131,11 +199,24 @@ export default function App() {
       setAgents(nextAgents);
       setError(null);
     } catch (errorValue) {
-      if (requestId === agentRequestRef.current) setError(formatRuntimeError(errorValue));
+      if (requestId === agentRequestRef.current) {
+        if (
+          errorValue
+          && typeof errorValue === "object"
+          && (errorValue as { isAuthError?: boolean }).isAuthError
+        ) {
+          return;
+        }
+        const formatted = formatRuntimeError(errorValue);
+        if (formatted !== "需要 PIPI_AUTH_TOKEN") safeSetError(formatted);
+      }
     }
-  }, []);
+  }, [safeSetError]);
 
   useEffect(() => {
+    if (authStatus.checking || (authStatus.authRequired && !authStatus.authenticated)) {
+      return;
+    }
     void refresh();
     let active = true;
     invoke<Settings>("get_settings")
@@ -145,12 +226,21 @@ export default function App() {
         applyTheme(nextSettings.theme);
       })
       .catch((errorValue) => {
-        if (active) setError(formatRuntimeError(errorValue));
+        if (!active) return;
+        if (
+          errorValue
+          && typeof errorValue === "object"
+          && (errorValue as { isAuthError?: boolean }).isAuthError
+        ) {
+          return;
+        }
+        const formatted = formatRuntimeError(errorValue);
+        if (formatted !== "需要 PIPI_AUTH_TOKEN") safeSetError(formatted);
       });
     return () => {
       active = false;
     };
-  }, [refresh]);
+  }, [authStatus.checking, authStatus.authRequired, authStatus.authenticated, refresh, safeSetError]);
 
   // agents 变化后拉取各 Agent 的会话列表；空列表也要清理旧数据。
   useEffect(() => {
@@ -182,7 +272,10 @@ export default function App() {
         && (blockedSessionIdsRef.current.has(normalized.meta.sessionId)
           || normalized.meta.agentName !== selectedRef.current
           || (activeSessionRef.current?.sessionId
-            && normalized.meta.sessionId !== activeSessionRef.current.sessionId))
+            && normalized.meta.sessionId !== activeSessionRef.current.sessionId)
+          // 已结算的旧 run 的迟到结束事件不再触发刷新
+          || (activeSessionRef.current?.runId != null
+            && normalized.meta.runId < activeSessionRef.current.runId))
       ) return;
       const infoRequestId = ++sessionInfoRequestRef.current;
       void invoke<SessionInfoView | null>("session_info")
@@ -340,205 +433,302 @@ export default function App() {
     setSidebarOpen(false);
   };
 
+  const startCreating = () => {
+    if (chatRunning) {
+      setError("Agent 正在运行，请先停止后再新建 Agent");
+      return;
+    }
+    invalidateNavigation();
+    setCreating(true);
+    setSidebarOpen(false);
+  };
+
+  const query = filter.trim().toLowerCase();
+
+  const sessionsFor = useCallback((agent: AgentDefinition): SessionSummaryView[] => {
+    const list = sessionsByAgent[agent.name] ?? [];
+    if (!query) return list;
+    const agentHit = agent.name.toLowerCase().includes(query)
+      || agent.description.toLowerCase().includes(query);
+    return agentHit ? list : list.filter((s) => s.title.toLowerCase().includes(query));
+  }, [query, sessionsByAgent]);
+
+  const visibleAgents = useMemo(() => {
+    if (!query) return agents;
+    return agents.filter((agent) => (
+      agent.name.toLowerCase().includes(query)
+      || agent.description.toLowerCase().includes(query)
+      || (sessionsByAgent[agent.name] ?? []).some((s) => s.title.toLowerCase().includes(query))
+    ));
+  }, [agents, query, sessionsByAgent]);
+
+  const sessionTotal = useMemo(
+    () => Object.values(sessionsByAgent).reduce((total, list) => total + list.length, 0),
+    [sessionsByAgent],
+  );
+
+  if (authStatus.checking) {
+    return <div className="login-container" />;
+  }
+
+  if (authStatus.authRequired && !authStatus.authenticated) {
+    return (
+      <Login
+        onSuccess={() => {
+          setAuthStatus((prev) => ({ ...prev, authenticated: true }));
+          safeSetError(null);
+        }}
+      />
+    );
+  }
+
   return (
-    <div className={sidebarOpen ? "app sidebar-open" : "app"}>
-      <aside className="sidebar" id="primary-navigation" aria-label="主导航">
-        <div className="sidebar-header">
-          <span className="logo">
-            <span className="pi">π</span> pipi
-          </span>
-          <button
-            type="button"
-            className="icon-btn"
-            title="设置"
-            aria-label="打开设置"
-            onClick={() => {
-              setSidebarOpen(false);
-              setSettingsOpen(true);
-            }}
-          >
-            ⚙
-          </button>
-        </div>
-        <div className="sidebar-section">Agents</div>
-        <nav className="agent-list">
-          {agents.map((a) => {
-            const isActiveAgent = selected === a.name && !creating;
-            const sessions = sessionsByAgent[a.name] ?? [];
-            return (
-              <div key={a.name} className="agent-group">
-                <div
-                  className={`agent-item ${isActiveAgent && !chatOpen ? "active" : ""}`}
-                  role="button"
-                  tabIndex={0}
-                  aria-current={isActiveAgent && !chatOpen ? "true" : undefined}
-                  onClick={() => selectAgent(a.name)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    selectAgent(a.name);
-                  }}
-                >
+    <div className={`app${sidebarOpen ? " sidebar-open" : ""}`}>
+      <div className="app-body">
+        <aside className="sidebar" id="primary-navigation" aria-label="主导航">
+          <div className="sb-head">
+            <span className="wordmark">Pipi</span>
+            {APP_VERSION && <span className="ver-chip">v{APP_VERSION}</span>}
+            <span className="spacer" />
+            <button
+              type="button"
+              className="icon-btn"
+              title="设置"
+              aria-label="打开设置"
+              onClick={() => {
+                setSidebarOpen(false);
+                setSettingsOpen(true);
+              }}
+            >
+              ⚙
+            </button>
+          </div>
+
+          <div className="sb-filter">
+            <input
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="筛选 Agents / 会话…"
+              aria-label="筛选 Agents 与会话"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </div>
+
+          <div className="sb-sec">
+            <span>Agents</span>
+            <span className="spacer" />
+            <span className="sb-count">{agents.length}</span>
+            <button
+              type="button"
+              className="icon-btn add"
+              title="新建 Agent"
+              aria-label="新建 Agent"
+              onClick={startCreating}
+            >
+              ＋
+            </button>
+          </div>
+
+          <nav className="agents">
+            {visibleAgents.map((a) => {
+              const isActiveAgent = selected === a.name && !creating;
+              const sessions = sessionsFor(a);
+              const activeHere = activeSession?.agentName === a.name;
+              return (
+                <div key={a.name} className="agent">
                   <div className="agent-row">
-                    <div className="name">{a.name}</div>
                     <button
                       type="button"
-                      className="icon-btn small"
+                      className="agent-name"
+                      aria-current={isActiveAgent && !chatOpen ? "true" : undefined}
+                      title={a.description || a.name}
+                      onClick={() => selectAgent(a.name)}
+                    >
+                      {a.name}
+                    </button>
+                    <span className="agent-count">{sessionsByAgent[a.name]?.length ?? 0}</span>
+                    <button
+                      type="button"
+                      className="icon-btn"
                       title="新建会话"
                       aria-label={`为 ${a.name} 新建会话`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startNewSession(a.name);
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void startNewSession(a.name);
                       }}
-                      onKeyDown={(e) => e.stopPropagation()}
                     >
                       ＋
                     </button>
                   </div>
-                  {a.description && <div className="desc">{a.description}</div>}
+                  <div className="sessions">
+                    {sessions.map((sess) => {
+                      const isCurrent = activeHere && activeSession?.sessionId === sess.id;
+                      return (
+                        <button
+                          key={sess.id}
+                          type="button"
+                          className={`session${isCurrent ? " active" : ""}`}
+                          aria-current={isCurrent ? "true" : undefined}
+                          title={`${sess.title}${sess.model ? ` · ${sess.model}` : ""}（${sess.messageCount} 条消息）`}
+                          onClick={() => void openSession(a.name, sess.id)}
+                        >
+                          <span className="session-title">{sess.title}</span>
+                          {sess.model && <span className="session-model">{sess.model}</span>}
+                        </button>
+                      );
+                    })}
+                    {isActiveAgent && chatOpen && !activeSession && (
+                      <div className="session pending">（新会话）</div>
+                    )}
+                  </div>
                 </div>
-                <div className="session-list">
-                  {sessions.map((sess) => (
-                    <div
-                      key={sess.id}
-                      className={`session-item ${
-                        activeSession?.agentName === a.name && activeSession?.sessionId === sess.id
-                          ? "active"
-                          : ""
-                      }`}
-                      role="button"
-                      tabIndex={0}
-                      aria-current={
-                        activeSession?.agentName === a.name && activeSession?.sessionId === sess.id
-                          ? "true"
-                          : undefined
-                      }
-                      title={`${sess.title}（${sess.messageCount} 条消息）`}
-                      onClick={() => openSession(a.name, sess.id)}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter" && event.key !== " ") return;
-                        event.preventDefault();
-                        openSession(a.name, sess.id);
-                      }}
-                    >
-                      <span className="session-title">{sess.title}</span>
-                    </div>
-                  ))}
-                  {isActiveAgent && chatOpen && !activeSession && (
-                    <div className="session-item new">（新会话）</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </nav>
-        <div className="sidebar-footer">
+              );
+            })}
+            {agents.length > 0 && visibleAgents.length === 0 && (
+              <div className="session pending">没有匹配的 Agent 或会话</div>
+            )}
+          </nav>
+        </aside>
+
+        {sidebarOpen && (
           <button
             type="button"
-            className="primary wide"
-            onClick={() => {
-              if (chatRunning) {
-                setError("Agent 正在运行，请先停止后再新建 Agent");
-                return;
-              }
-              invalidateNavigation();
-              setCreating(true);
-              setSidebarOpen(false);
-            }}
-          >
-            ＋ 新建 Agent
-          </button>
-        </div>
-      </aside>
-
-      {sidebarOpen && (
-        <button
-          type="button"
-          className="sidebar-backdrop"
-          aria-label="关闭导航"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      <main className="main">
-        <div className="mobile-toolbar">
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label="打开导航"
-            title="打开导航"
-            aria-expanded={sidebarOpen}
-            aria-controls="primary-navigation"
-            onClick={() => setSidebarOpen(true)}
-          >
-            ☰
-          </button>
-          <span className="mobile-toolbar-title">
-            {current?.name ?? (creating ? "新建 Agent" : "Pipi")}
-          </span>
-        </div>
-        {error && (
-          <div className="error" role="alert">
-            <span>{error}</span>
-            <button type="button" className="error-dismiss" onClick={() => setError(null)} aria-label="关闭错误提示">
-              ✕
-            </button>
-          </div>
-        )}
-        {creating ? (
-          <CreateForm
-            onCreated={async (name) => {
-              setCreating(false);
-              await refresh();
-              setSelected(name);
-            }}
-            onCancel={() => setCreating(false)}
-            onError={setError}
+            className="sidebar-backdrop"
+            aria-label="关闭导航"
+            onClick={() => setSidebarOpen(false)}
           />
-        ) : current ? (
-          settings &&
-          (chatOpen ? (
-            <ChatView
-              key={`${current.name}-${chatKey}`}
-              agent={current}
-              blockedSessionIds={[...blockedSessionIdsRef.current]}
-              onBack={() => {
-                if (chatRunning) {
-                  setError("Agent 正在运行，请先停止后再返回");
-                  return;
-                }
-                invalidateNavigation();
-                setChatOpen(false);
-                setSidebarOpen(false);
-              }}
-              onError={setError}
-              onNewSession={createSessionFromChat}
-              onRunningChange={setChatRunning}
-              onSessionReset={() => {
-                setActiveSession(null);
-                void refreshSessions([current.name]);
-              }}
-            />
-          ) : (
-            <AgentDetail
-              key={current.name}
-              agent={current}
-              providers={settings.providers}
-              onSaved={refresh}
-              onChat={() => void startNewSession(current.name)}
-              onError={setError}
-            />
-          ))
-        ) : (
-          <EmptyState hasAgents={agents.length > 0} />
         )}
-      </main>
+
+        <main className="main">
+          <div className="mobile-toolbar">
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="打开导航"
+              title="打开导航"
+              aria-expanded={sidebarOpen}
+              aria-controls="primary-navigation"
+              onClick={() => setSidebarOpen(true)}
+            >
+              ☰
+            </button>
+            <span className="mobile-toolbar-title">
+              {current?.name ?? (creating ? "新建 Agent" : "Pipi")}
+            </span>
+          </div>
+
+          {error && (
+            <div className="error" role="alert">
+              <span>{error}</span>
+              <button
+                type="button"
+                className="error-dismiss"
+                onClick={() => setError(null)}
+                aria-label="关闭错误提示"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {creating ? (
+            <CreateForm
+              providers={settings?.providers ?? []}
+              defaultProviderId={settings?.defaultProviderId ?? null}
+              onCreated={async (name) => {
+                setCreating(false);
+                await refresh();
+                setSelected(name);
+              }}
+              onCancel={() => setCreating(false)}
+              onError={safeSetError}
+            />
+          ) : current ? (
+            settings && (
+              chatOpen ? (
+                <ChatView
+                  key={`${current.name}-${chatKey}`}
+                  agent={current}
+                  providers={settings.providers}
+                  blockedSessionIds={[...blockedSessionIdsRef.current]}
+                  onBack={() => {
+                    if (chatRunning) {
+                      safeSetError("Agent 正在运行，请先停止后再返回");
+                      return;
+                    }
+                    invalidateNavigation();
+                    setChatOpen(false);
+                    setSidebarOpen(false);
+                  }}
+                  onShowDetail={() => {
+                    if (chatRunning) {
+                      safeSetError("Agent 正在运行，请先停止后再切换");
+                      return;
+                    }
+                    invalidateNavigation();
+                    setChatOpen(false);
+                  }}
+                  onError={safeSetError}
+                  onNewSession={createSessionFromChat}
+                  onRunningChange={setChatRunning}
+                  onSessionReset={(info) => {
+                    setActiveSession(info ?? null);
+                    void refreshSessions([current.name]);
+                  }}
+                />
+              ) : (
+                <AgentDetail
+                  key={current.name}
+                  agent={current}
+                  providers={settings.providers}
+                  onSaved={refresh}
+                  onChat={() => void startNewSession(current.name)}
+                  onError={safeSetError}
+                />
+              )
+            )
+          ) : (
+            <EmptyState hasAgents={agents.length > 0} />
+          )}
+        </main>
+      </div>
+
+      <footer className="status-bar" aria-label="运行状态">
+        <span className="conn">
+          <i className={`status-dot ${connection}`} aria-hidden="true" />
+          {CONNECTION_LABELS[connection]}
+        </span>
+        <span className="sep">│</span>
+        <span className="opt">{getRuntimeEndpoint()}</span>
+        <span className="sep opt">│</span>
+        <span className="opt">
+          数据根目录 <b>~/.pipi/agents</b>
+        </span>
+        <span className="sep">│</span>
+        <span>
+          <b>{agents.length}</b> 个 Agent · <b>{sessionTotal}</b> 个会话
+        </span>
+        <span className="spacer" />
+        <span>
+          运行中 <b>{chatRunning ? 1 : 0}</b>
+        </span>
+        {APP_VERSION && (
+          <>
+            <span className="sep">│</span>
+            <span>
+              Pipi <b>v{APP_VERSION}</b>
+            </span>
+          </>
+        )}
+      </footer>
 
       {settingsOpen && settings && (
         <SettingsModal
           settings={settings}
           onChange={updateSettings}
           onClose={() => setSettingsOpen(false)}
+          showLogout={!isTauriRuntime() && authStatus.authRequired}
         />
       )}
     </div>
@@ -548,7 +738,7 @@ export default function App() {
 function EmptyState({ hasAgents }: { hasAgents: boolean }) {
   return (
     <div className="empty">
-      <div className="glyph">π</div>
+      <div className="brand">Pipi</div>
       <h1>{hasAgents ? "选择一个 Agent" : "创建你的第一个 Agent"}</h1>
       <p>
         在 Pipi 里，你维护的不是一条条会话，而是一群有名字、有工作目录、
@@ -608,32 +798,38 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
   };
 
   return (
-    <div className="detail">
-      <div className="detail-inner">
+    <div className="screen">
+      <div className="screen-bar">
+        <ScreenTabs
+          active="detail"
+          onSelect={(view) => {
+            if (view === "chat") onChat();
+          }}
+        />
+        <span className="spacer" />
+        <button className="btn primary" onClick={onChat}>
+          ▶ 开始对话
+        </button>
+      </div>
+
+      <div className="detail">
         <div className="detail-head">
           <div>
             <h2>
-              {agent.name}
+              <span className="mono">{agent.name}</span>
               {agent.provider && <span className="badge">{agent.provider.id}</span>}
             </h2>
             <div className="sub">{agent.description || "（暂无描述）"}</div>
           </div>
-          <button className="primary" onClick={onChat}>
-            ▶ 开始对话
-          </button>
         </div>
 
-        <div className="field-grid">
-          <div className="field">
-            <div className="label">模型</div>
-          </div>
-          <div className="field">
-            <div className="value">
+        <section className="dsec">
+          <h4>模型</h4>
+          <div className="drow">
+            <span className="k">default_model</span>
+            <div className="v">
               <div className="bind-row">
-                <select
-                  value={providerId}
-                  onChange={(e) => setProviderId(e.target.value)}
-                >
+                <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
                   <option value="">（未绑定提供商）</option>
                   {providers.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -648,86 +844,85 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
                   placeholder="模型 ID，如 claude-sonnet-4-5"
                 />
                 <button
-                  className="primary"
+                  className="btn primary"
                   disabled={saving || (!!providerId && !modelId.trim())}
                   onClick={bindProvider}
                 >
-                  保存
+                  {saving ? "保存中…" : "保存"}
                 </button>
               </div>
+              <span className="hint">新建会话将默认继承此模型；会话内可随时切换</span>
               {agent.provider && (
-                <div className="hint mono">
+                <span className="hint mono">
                   {agent.provider.api} · {agent.provider.baseUrl}
-                </div>
+                </span>
               )}
             </div>
           </div>
+        </section>
 
-          <div className="field">
-            <div className="label">工作目录</div>
+        <section className="dsec">
+          <h4>权限</h4>
+          <div className="drow">
+            <span className="k">tools</span>
+            <div className="v">
+              {agent.permissions.tools.length
+                ? agent.permissions.tools.map((tool) => (
+                    <span className="tag" key={tool}>
+                      {tool}
+                    </span>
+                  ))
+                : <span className="dim">（无）</span>}
+            </div>
           </div>
-          <div className="field">
-            <div className="value mono">
+          <div className="drow">
+            <span className="k">bash.mode</span>
+            <div className="v">
+              {BASH_MODE_LABELS[bash.mode]}
+              {bash.mode !== "allowAll" && bash.commands.length > 0 && (
+                <span className="mono perm-list">{bash.commands.join("\n")}</span>
+              )}
+            </div>
+          </div>
+          <div className="drow">
+            <span className="k">sandbox</span>
+            <div className="v">
+              <span className="tag ok">{agent.permissions.sandbox}</span>
+              <span className="sub">{SANDBOX_LABELS[agent.permissions.sandbox]}</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="dsec">
+          <h4>文件</h4>
+          <div className="drow">
+            <span className="k">workspace</span>
+            <div className="v mono">
               {agent.workspace ?? `~/.pipi/agents/${agent.name}/workspace（默认）`}
             </div>
           </div>
-
-          <div className="field">
-            <div className="label">工具</div>
-          </div>
-          <div className="field">
-            <div className="value">
-              {agent.permissions.tools.length
-                ? agent.permissions.tools.join(" · ")
-                : "（无）"}
-            </div>
-          </div>
-
-          <div className="field">
-            <div className="label">命令权限</div>
-          </div>
-          <div className="field">
-            <div className="value">
-              {BASH_MODE_LABELS[bash.mode]}
-              {bash.mode !== "allowAll" && bash.commands.length > 0 && (
-                <div className="mono perm-list">{bash.commands.join("\n")}</div>
-              )}
-            </div>
-          </div>
-
-          <div className="field">
-            <div className="label">沙箱</div>
-          </div>
-          <div className="field">
-            <div className="value">
-              <span className="badge neutral">{agent.permissions.sandbox}</span>{" "}
-              <span style={{ color: "var(--muted)" }}>
-                {SANDBOX_LABELS[agent.permissions.sandbox]}
+          <div className="drow">
+            <span className="k">agent_dir</span>
+            <div className="v mono">
+              ~/.pipi/agents/{agent.name}/
+              <span className="sub">
+                agent.json · AGENTS.md · skills/ · memory/ —— 直接编辑即生效
               </span>
             </div>
           </div>
-
-          <div className="field">
-            <div className="label">MCP 服务器</div>
-          </div>
-          <div className="field">
-            <div className={`value ${agent.mcpServers.length ? "" : "dim"}`}>
+          <div className="drow">
+            <span className="k">mcp_servers</span>
+            <div className="v">
               {agent.mcpServers.length
-                ? agent.mcpServers.map((m) => m.name).join("、")
-                : "未配置（M3 支持）"}
+                ? agent.mcpServers.map((m) => (
+                    <span className="tag" key={m.name}>
+                      {m.name}
+                    </span>
+                  ))
+                : <span className="dim">未配置</span>}
             </div>
           </div>
-
-          <div className="field">
-            <div className="label">文件</div>
-          </div>
-          <div className="field">
-            <div className="value dim mono">
-              一切皆文件 —— ~/.pipi/agents/{agent.name}/ 下的 agent.json、
-              AGENTS.md、skills/、memory/ 直接编辑即生效
-            </div>
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   );
@@ -736,15 +931,30 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
 // ============ 新建 Agent ============
 
 interface CreateFormProps {
+  providers: ProviderConfig[];
+  defaultProviderId: string | null;
   onCreated: (name: string) => void | Promise<void>;
   onCancel: () => void;
   onError: (msg: string | null) => void;
 }
 
-function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
+function CreateForm({
+  providers,
+  defaultProviderId,
+  onCreated,
+  onCancel,
+  onError,
+}: CreateFormProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [workspace, setWorkspace] = useState("");
+  const [providerId, setProviderId] = useState<string>(() => {
+    if (defaultProviderId && providers.some((p) => p.id === defaultProviderId)) {
+      return defaultProviderId;
+    }
+    return providers[0]?.id ?? "";
+  });
+  const [modelId, setModelId] = useState("");
   const [tools, setTools] = useState<string[]>([...KNOWN_TOOLS]);
   const [bashMode, setBashMode] = useState<BashMode>("allowAll");
   const [commands, setCommands] = useState("");
@@ -776,11 +986,27 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
         },
         sandbox,
       };
+
+      const selectedProvider = providers.find((p) => p.id === providerId);
+      const trimmedModel = modelId.trim();
+      const provider = selectedProvider && trimmedModel
+        ? {
+            id: trimmedModel,
+            name: trimmedModel,
+            api: selectedProvider.api,
+            baseUrl: selectedProvider.baseUrl,
+            maxTokens: 8192,
+            contextWindow: 0,
+          }
+        : null;
+
       await invoke("create_agent", {
         name,
         description,
         workspace: workspace.trim() || null,
         permissions,
+        model: trimmedModel || null,
+        provider,
       });
       await onCreated(name.trim());
     } catch (errorValue) {
@@ -791,21 +1017,32 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
   };
 
   return (
-    <div className="detail">
-      <div className="detail-inner">
+    <div className="screen">
+      <div className="screen-bar">
+        <button type="button" className="icon-btn" title="返回" onClick={onCancel}>
+          ←
+        </button>
+        <span className="crumb">
+          新建 Agent · <b>~/.pipi/agents/&lt;name&gt;/</b>
+        </span>
+      </div>
+      <div className="detail">
         <div className="form">
-          <h2>新建 Agent</h2>
-          <div className="sub">
-            一切皆文件：将在 <span className="mono">~/.pipi/agents/&lt;name&gt;/</span>{" "}
-            下生成 <span className="mono">agent.json</span>、
-            <span className="mono">AGENTS.md</span>、
-            <span className="mono">skills/</span>、<span className="mono">memory/</span>
-            、<span className="mono">sessions/</span>
+          <div>
+            <h2>新建 Agent</h2>
+            <div className="sub">
+              一切皆文件：将在 <span className="mono">~/.pipi/agents/&lt;name&gt;/</span>{" "}
+              下生成 <span className="mono">agent.json</span>、
+              <span className="mono">AGENTS.md</span>、
+              <span className="mono">skills/</span>、<span className="mono">memory/</span>
+              、<span className="mono">sessions/</span>
+            </div>
           </div>
 
           <div className="field">
-            <label className="label">名称</label>
+            <label className="label" htmlFor="agent-name">名称</label>
             <input
+              id="agent-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="例如：code-reviewer"
@@ -815,8 +1052,9 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
           </div>
 
           <div className="field">
-            <label className="label">描述</label>
+            <label className="label" htmlFor="agent-desc">描述</label>
             <textarea
+              id="agent-desc"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="这个 Agent 是做什么的？"
@@ -824,8 +1062,30 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
           </div>
 
           <div className="field">
-            <label className="label">工作目录</label>
+            <label className="label">默认模型</label>
+            <div className="bind-row">
+              <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+                <option value="">（未绑定提供商）</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="mono"
+                value={modelId}
+                onChange={(e) => setModelId(e.target.value)}
+                placeholder="模型 ID，如 claude-sonnet-4-5 / gpt-4o"
+              />
+            </div>
+            <div className="hint">新建会话时将默认使用此模型；也可留空稍后在详情页配置</div>
+          </div>
+
+          <div className="field">
+            <label className="label" htmlFor="agent-workspace">工作目录</label>
             <input
+              id="agent-workspace"
               className="mono"
               value={workspace}
               onChange={(e) => setWorkspace(e.target.value)}
@@ -837,7 +1097,7 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
           </div>
 
           <div className="field">
-            <label className="label">工具</label>
+            <span className="label">工具</span>
             <div className="tool-row">
               {KNOWN_TOOLS.map((tool) => (
                 <label key={tool} className="tool-check">
@@ -853,7 +1113,7 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
           </div>
 
           <div className="field">
-            <label className="label">沙箱</label>
+            <span className="label">沙箱</span>
             <div className="tool-row">
               {(Object.keys(SANDBOX_LABELS) as SandboxMode[]).map((mode) => (
                 <label key={mode} className="tool-check">
@@ -874,7 +1134,7 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
           </div>
 
           <div className="field">
-            <label className="label">命令权限（bash）</label>
+            <span className="label">命令权限（bash）</span>
             <div className="tool-row">
               {(Object.keys(BASH_MODE_LABELS) as BashMode[]).map((mode) => (
                 <label key={mode} className="tool-check">
@@ -905,15 +1165,15 @@ function CreateForm({ onCreated, onCancel, onError }: CreateFormProps) {
           </div>
 
           <div className="actions">
-            <button className="ghost" onClick={onCancel}>
+            <button className="btn ghost" onClick={onCancel}>
               取消
             </button>
             <button
-              className="primary"
+              className="btn primary"
               disabled={!name.trim() || tools.length === 0 || submitting}
               onClick={submit}
             >
-              创建
+              {submitting ? "创建中…" : "创建"}
             </button>
           </div>
         </div>
@@ -928,9 +1188,10 @@ interface SettingsModalProps {
   settings: Settings;
   onChange: (next: Settings) => void | Promise<void>;
   onClose: () => void;
+  showLogout?: boolean;
 }
 
-function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
+function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModalProps) {
   const [editing, setEditing] = useState<ProviderConfig | "new" | null>(null);
   const [draft, setDraft] = useState(settings);
   const draftRef = useRef(settings);
@@ -986,7 +1247,7 @@ function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
       >
         <div className="modal-header">
           <h2 id="settings-title">设置</h2>
-          <button type="button" className="icon-btn" onClick={onClose} title="关闭">
+          <button type="button" className="icon-btn close-btn" onClick={onClose} title="关闭">
             ✕
           </button>
         </div>
@@ -997,13 +1258,13 @@ function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
             <ThemeOption
               active={draft.theme === "dark"}
               name="深色"
-              swatch={["#111111", "#181818", "#0169CC", "#FCFCFC"]}
+              swatch={["#101214", "#0b0c0d", "#0169CC", "#e6eaee"]}
               onClick={() => commit((previous) => ({ ...previous, theme: "dark" }))}
             />
             <ThemeOption
               active={draft.theme === "light"}
               name="浅色"
-              swatch={["#FCFCFC", "#FFFFFF", "#0169CC", "#111111"]}
+              swatch={["#f6f7f8", "#fbfbfc", "#0169CC", "#15181b"]}
               onClick={() => commit((previous) => ({ ...previous, theme: "light" }))}
             />
           </div>
@@ -1018,7 +1279,7 @@ function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
                 <div className="info">
                   <div className="p-name">
                     {provider.name}
-                    <span className="badge">{API_LABELS[provider.api]}</span>
+                    <span className="badge neutral">{API_LABELS[provider.api]}</span>
                     <span className={`badge ${status.warn ? "warn" : "neutral"}`}>
                       {status.label}
                     </span>
@@ -1050,7 +1311,7 @@ function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
           })}
 
           {editing === null && (
-            <button type="button" className="ghost" onClick={() => setEditing("new")}>
+            <button type="button" className="btn ghost" onClick={() => setEditing("new")}>
               ＋ 添加提供商
             </button>
           )}
@@ -1064,6 +1325,33 @@ function SettingsModal({ settings, onChange, onClose }: SettingsModalProps) {
             />
           )}
         </div>
+
+        {showLogout && (
+          <div className="modal-section">
+            <span className="label">远程访问凭据</span>
+            <div className="provider-row">
+              <div className="info">
+                <div className="p-name">
+                  Web 访问保护
+                  <span className="badge neutral">已认证</span>
+                </div>
+                <div className="p-url mono">PIPI_AUTH_TOKEN 已验证</div>
+              </div>
+              <div className="p-actions">
+                <button
+                  type="button"
+                  className="link danger"
+                  onClick={async () => {
+                    await logout();
+                    onClose();
+                  }}
+                >
+                  退出登录
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1083,7 +1371,7 @@ function ThemeOption({
   return (
     <button
       type="button"
-      className={`theme-option ${active ? "active" : ""}`}
+      className={`theme-option${active ? " active" : ""}`}
       aria-pressed={active}
       onClick={onClick}
     >
@@ -1185,10 +1473,10 @@ function ProviderForm({ initial, existingIds, onSave, onCancel }: ProviderFormPr
         </div>
       </div>
       <div className="actions">
-        <button className="ghost" onClick={onCancel}>
+        <button className="btn ghost" onClick={onCancel}>
           取消
         </button>
-        <button className="primary" disabled={!valid} onClick={submit}>
+        <button className="btn primary" disabled={!valid} onClick={submit}>
           保存
         </button>
       </div>

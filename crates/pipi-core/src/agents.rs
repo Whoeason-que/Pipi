@@ -228,6 +228,8 @@ pub fn create_agent(
     description: &str,
     workspace: Option<&str>,
     permissions: Option<PermissionsConfig>,
+    model: Option<&str>,
+    provider: Option<Model>,
 ) -> Result<AgentDefinition, String> {
     let name = name.trim().to_string();
     validate_agent_name(&name)?;
@@ -277,11 +279,17 @@ pub fn create_agent(
         fs::create_dir_all(dir.join("workspace")).map_err(|e| e.to_string())?;
     }
 
+    let model_label = match (model.map(str::trim).filter(|m| !m.is_empty()), &provider) {
+        (Some(m), _) => m.to_string(),
+        (None, Some(p)) => p.display_name().to_string(),
+        (None, None) => String::new(),
+    };
+
     let def = AgentDefinition {
         name: name.clone(),
         description: description.trim().to_string(),
-        model: String::new(),
-        provider: None,
+        model: model_label,
+        provider,
         workspace,
         permissions,
         mcp_servers: Vec::new(),
@@ -446,7 +454,6 @@ pub fn ensure_agent_dir(name: &str) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permissions::{BashMode, BashPermissions};
     use std::sync::Mutex;
 
     #[test]
@@ -589,7 +596,7 @@ mod tests {
     fn create_defaults_to_workspace_write_sandbox() {
         let _guard = HOME_LOCK.lock().unwrap();
         let name = format!("pipi-default-sandbox-{}", crate::session::new_id());
-        let def = create_agent(&name, "", None, None).unwrap();
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
         assert_eq!(
             def.permissions.sandbox,
             crate::permissions::SandboxMode::WorkspaceWrite
@@ -684,9 +691,9 @@ mod tests {
 
     #[test]
     fn create_rejects_bad_names_and_tools() {
-        assert!(create_agent("", "d", None, None).is_err());
-        assert!(create_agent("bad name", "d", None, None).is_err());
-        assert!(create_agent("../escape", "d", None, None).is_err());
+        assert!(create_agent("", "d", None, None, None, None).is_err());
+        assert!(create_agent("bad name", "d", None, None, None, None).is_err());
+        assert!(create_agent("../escape", "d", None, None, None, None).is_err());
         assert!(create_agent(
             "x",
             "d",
@@ -695,7 +702,9 @@ mod tests {
                 tools: vec!["nuclear".into()],
                 bash: Default::default(),
                 sandbox: Default::default(),
-            })
+            }),
+            None,
+            None,
         )
         .is_err());
         assert!(create_agent(
@@ -706,7 +715,9 @@ mod tests {
                 tools: vec![],
                 bash: Default::default(),
                 sandbox: Default::default(),
-            })
+            }),
+            None,
+            None,
         )
         .is_err());
     }
@@ -733,6 +744,8 @@ mod tests {
                 },
                 sandbox: Default::default(),
             }),
+            None,
+            None,
         );
         // HOME 尚未恢复：此时解析 workspace 才指向临时 HOME
         let def = result.unwrap();
@@ -754,7 +767,7 @@ mod tests {
 
         // 重复创建被拒
         std::env::set_var("HOME", &home);
-        assert!(create_agent("tester", "", None, None).is_err());
+        assert!(create_agent("tester", "", None, None, None, None).is_err());
         std::env::set_var("HOME", &prev);
     }
 
@@ -766,11 +779,46 @@ mod tests {
         let ws = std::env::temp_dir().join(format!("pipi-ws-{}", crate::session::new_id()));
         let prev = std::env::var("HOME").unwrap();
         std::env::set_var("HOME", &home);
-        let result = create_agent("ws-agent", "", Some(ws.to_str().unwrap()), None);
+        let result = create_agent("ws-agent", "", Some(ws.to_str().unwrap()), None, None, None);
         std::env::set_var("HOME", &prev);
         let def = result.unwrap();
         assert_eq!(def.workspace.as_deref(), Some(ws.to_str().unwrap()));
         assert!(!home.join(".pipi/agents/ws-agent/workspace").exists());
         assert_eq!(def.resolve_workspace().unwrap(), ws);
+    }
+
+    #[test]
+    fn create_with_default_model() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!("pipi-home-{}", crate::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", &home);
+        let provider = Model {
+            id: "claude-3-7-sonnet-20250219".into(),
+            name: "Claude 3.7 Sonnet".into(),
+            api: crate::types::Api::AnthropicMessages,
+            base_url: "https://api.anthropic.com".into(),
+            max_tokens: 8192,
+            context_window: 200000,
+        };
+        let result = create_agent(
+            "model-agent",
+            "测试默认模型",
+            None,
+            None,
+            Some("claude-3-7-sonnet-20250219"),
+            Some(provider.clone()),
+        );
+        let def = result.unwrap();
+        assert_eq!(def.model, "claude-3-7-sonnet-20250219");
+        assert_eq!(def.provider, Some(provider));
+
+        let loaded = load_agent("model-agent");
+        std::env::set_var("HOME", &prev);
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.model, "claude-3-7-sonnet-20250219");
+        assert!(loaded.provider.is_some());
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

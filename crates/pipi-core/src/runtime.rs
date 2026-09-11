@@ -149,6 +149,7 @@ struct Session {
     stats: Arc<Mutex<SessionStatsTracker>>,
     abort: AbortSignal,
     running: Arc<RunState>,
+    model: Arc<Mutex<Option<Model>>>,
 }
 
 /// 共享会话状态。Tauri 与 Web 服务各自持有一个实例。
@@ -196,30 +197,40 @@ impl<T> Drop for SlotTransaction<'_, T> {
     }
 }
 
-fn resolve_model(def: &AgentDefinition) -> Result<(Model, String), String> {
-    let provider = def.provider.clone().ok_or_else(|| {
-        "该 Agent 还未绑定模型提供商（在 Agent 详情页绑定，并在设置中配置密钥）".to_string()
-    })?;
+fn resolve_model(
+    def: &AgentDefinition,
+    session_model: Option<&Model>,
+) -> Result<(Model, String), String> {
+    let target = session_model
+        .cloned()
+        .or_else(|| def.provider.clone())
+        .ok_or_else(|| {
+            "该 Agent 还未配置默认模型，且当前会话未选择模型（请在 Agent 详情页绑定，或在会话顶部选择模型）".to_string()
+        })?;
     let settings = load_settings();
     let api_key = settings
         .providers
         .iter()
-        .find(|p| p.api == provider.api && p.base_url == provider.base_url)
+        .find(|p| p.api == target.api && p.base_url == target.base_url)
         .and_then(|p| p.resolve_api_key())
         .ok_or_else(|| {
             format!(
                 "提供商 {} 未配置 API 密钥（设置 → 模型提供商）",
-                provider.base_url
+                target.base_url
             )
         })?;
     Ok((
         Model {
-            id: provider.id.clone(),
-            name: provider.name.clone(),
-            api: provider.api,
-            base_url: provider.base_url.clone(),
-            max_tokens: provider.max_tokens,
-            context_window: provider.context_window,
+            id: target.id.clone(),
+            name: target.name.clone(),
+            api: target.api,
+            base_url: target.base_url.clone(),
+            max_tokens: if target.max_tokens == 0 {
+                8192
+            } else {
+                target.max_tokens
+            },
+            context_window: target.context_window,
         },
         api_key,
     ))
@@ -315,6 +326,8 @@ pub struct SessionInfo {
     pub session_id: String,
     pub running: bool,
     pub run_id: usize,
+    pub model: Option<Model>,
+    pub is_custom_model: bool,
 }
 
 impl RuntimeState {
@@ -350,9 +363,9 @@ impl RuntimeState {
                 _ => None,
             })
             .collect();
-        let context_max = def
-            .provider
-            .as_ref()
+        let active_model = crate::session::active_model_from_entries(&entries);
+        let effective_model = active_model.as_ref().or(def.provider.as_ref());
+        let context_max = effective_model
             .map(|provider| provider.context_window)
             .filter(|window| *window > 0);
         let mut tracker = SessionStatsTracker::new(context_max);
@@ -369,6 +382,7 @@ impl RuntimeState {
             stats: Arc::new(Mutex::new(tracker)),
             abort: AbortSignal::new(),
             running: Arc::new(RunState::new()),
+            model: Arc::new(Mutex::new(active_model)),
         });
         Ok(())
     }
@@ -418,8 +432,9 @@ impl RuntimeState {
                 _ => None,
             })
             .collect();
-        let context_max = def
-            .provider
+        let active_model = crate::session::active_model_from_entries(&entries);
+        let effective_model = active_model.clone().or_else(|| def.provider.clone());
+        let context_max = effective_model
             .as_ref()
             .map(|provider| provider.context_window)
             .filter(|window| *window > 0);
@@ -436,6 +451,7 @@ impl RuntimeState {
             stats: Arc::new(Mutex::new(tracker)),
             abort: AbortSignal::new(),
             running: run_state.clone(),
+            model: Arc::new(Mutex::new(active_model.clone())),
         });
 
         Ok(SessionInfo {
@@ -443,9 +459,10 @@ impl RuntimeState {
             session_id: new_session_id,
             running: false,
             run_id: run_state.current_run_id(),
+            model: effective_model,
+            is_custom_model: active_model.is_some(),
         })
     }
-
 
     /// 当前活会话信息；无会话返回 None。
     pub fn session_info(&self) -> Result<Option<SessionInfo>, String> {
@@ -466,12 +483,59 @@ impl RuntimeState {
             .and_then(|value| value.to_str())
             .map(str::to_string)
             .ok_or_else(|| "当前会话路径无有效 ID".to_string())?;
+        let custom_model = session.model.lock().ok().and_then(|m| m.clone());
+        let effective_model = custom_model.clone().or_else(|| session.agent.provider.clone());
+        let is_custom_model = custom_model.is_some();
         Ok(Some(SessionInfo {
             agent_name: session.agent.name.clone(),
             session_id,
             running: session.running.is_running(),
             run_id: session.running.current_run_id(),
+            model: effective_model,
+            is_custom_model,
         }))
+    }
+
+    /// 为当前会话设置或切换模型配置。
+    /// 传入 None 时恢复为 Agent 默认模型。
+    pub fn set_session_model(&self, model: Option<Model>) -> Result<(), String> {
+        let slot = self.session.lock().map_err(|e| e.to_string())?;
+        let Some(session) = slot.as_ref() else {
+            return Err("当前没有打开的会话".into());
+        };
+        if session.running.is_running() {
+            return Err("会话正在运行，请等待完成或先停止后再切换模型".into());
+        }
+
+        let mut current_model_slot = session.model.lock().map_err(|e| e.to_string())?;
+        let effective_target = model.clone().or_else(|| session.agent.provider.clone());
+
+        // 校验目标模型的 API 密钥是否已配置
+        if let Some(target) = &effective_target {
+            let _ = resolve_model(&session.agent, Some(target))?;
+        }
+
+        let has_changed = *current_model_slot != model;
+        if has_changed {
+            if let Some(target) = &effective_target {
+                let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
+                writer
+                    .append_model_change(target)
+                    .map_err(|e| e.to_string())?;
+            }
+            if let Some(target) = &effective_target {
+                if let Ok(mut tracker) = session.stats.lock() {
+                    let context_max = if target.context_window > 0 {
+                        Some(target.context_window)
+                    } else {
+                        None
+                    };
+                    tracker.set_context_max(context_max);
+                }
+            }
+            *current_model_slot = model;
+        }
+        Ok(())
     }
 
     pub fn session_running(&self) -> bool {
@@ -529,6 +593,7 @@ impl RuntimeState {
         &self,
         agent_name: &str,
         prompt: &str,
+        model: Option<Model>,
         event_sink: EventEmitter,
     ) -> Result<(), String> {
         let mut slot = self.session.lock().map_err(|e| e.to_string())?;
@@ -554,12 +619,19 @@ impl RuntimeState {
         } else {
             let def = agents::load_agent(agent_name)?;
             let sessions_dir = def.sessions_dir().ok_or("无法解析会话目录")?;
-            let writer = SessionWriter::create(&sessions_dir).map_err(|e| e.to_string())?;
-            let context_max = def
-                .provider
-                .as_ref()
+            let mut writer = SessionWriter::create(&sessions_dir).map_err(|e| e.to_string())?;
+            let active_model = model.clone();
+            let effective_model = active_model.as_ref().or(def.provider.as_ref());
+            let context_max = effective_model
                 .map(|provider| provider.context_window)
                 .filter(|window| *window > 0);
+            if let Some(target) = &active_model {
+                if Some(target) != def.provider.as_ref() {
+                    writer
+                        .append_model_change(target)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
             Some(Session {
                 agent: def,
                 messages: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -567,14 +639,39 @@ impl RuntimeState {
                 stats: Arc::new(Mutex::new(SessionStatsTracker::new(context_max))),
                 abort: AbortSignal::new(),
                 running: Arc::new(RunState::new()),
+                model: Arc::new(Mutex::new(active_model)),
             })
         };
         let session = replacement
             .as_ref()
             .or_else(|| transaction.current())
             .ok_or("无法创建会话")?;
+
+        // 若复用已有会话且传入了明确的模型变更请求
+        if reuse_session {
+            if let Some(target) = &model {
+                let mut current_model_slot = session.model.lock().map_err(|e| e.to_string())?;
+                if current_model_slot.as_ref() != Some(target) {
+                    let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
+                    writer
+                        .append_model_change(target)
+                        .map_err(|e| e.to_string())?;
+                    if let Ok(mut tracker) = session.stats.lock() {
+                        let context_max = if target.context_window > 0 {
+                            Some(target.context_window)
+                        } else {
+                            None
+                        };
+                        tracker.set_context_max(context_max);
+                    }
+                    *current_model_slot = Some(target.clone());
+                }
+            }
+        }
+
         let def = session.agent.clone();
-        let (model, api_key) = resolve_model(&def)?;
+        let current_session_model = session.model.lock().ok().and_then(|m| m.clone());
+        let (model, api_key) = resolve_model(&def, current_session_model.as_ref())?;
 
         let user_message = Message::user_text(prompt);
         let messages = session.messages.clone();
@@ -676,11 +773,10 @@ impl RuntimeState {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::future::pending;
     use std::sync::{Arc, Barrier};
     use std::thread;
-
-    use super::{RunState, RunningGuard, SlotTransaction};
 
     #[test]
     fn overlapping_generations_keep_new_run_visible() {
@@ -790,5 +886,54 @@ mod tests {
         }
 
         assert_eq!(slot, Some("new"));
+    }
+
+    #[test]
+    fn resolve_model_prefers_session_model_over_agent_default() {
+        let default_model = Model {
+            id: "gpt-4o".into(),
+            name: "GPT-4o".into(),
+            api: crate::types::Api::OpenAICompletions,
+            base_url: "https://api.openai.com/v1".into(),
+            max_tokens: 4096,
+            context_window: 128000,
+        };
+        let session_model = Model {
+            id: "claude-sonnet-4-5".into(),
+            name: "Claude Sonnet".into(),
+            api: crate::types::Api::AnthropicMessages,
+            base_url: "https://api.anthropic.com".into(),
+            max_tokens: 8192,
+            context_window: 200000,
+        };
+
+        let def = AgentDefinition {
+            name: "test-agent".into(),
+            description: String::new(),
+            model: "gpt-4o".into(),
+            provider: Some(default_model.clone()),
+            workspace: None,
+            permissions: Default::default(),
+            mcp_servers: Vec::new(),
+        };
+
+        // 未配置 key 时的校验
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        std::env::remove_var("OPENAI_API_KEY");
+
+        // 回退默认模型
+        let err = super::resolve_model(&def, None).unwrap_err();
+        assert!(err.contains("未配置 API 密钥"));
+
+        // 优先会话覆盖模型
+        let err = super::resolve_model(&def, Some(&session_model)).unwrap_err();
+        assert!(err.contains("api.anthropic.com"));
+
+        // 配上 key 后成功解析
+        std::env::set_var("ANTHROPIC_API_KEY", "test-key");
+        let (resolved, key) = super::resolve_model(&def, Some(&session_model)).unwrap();
+        assert_eq!(resolved.id, "claude-sonnet-4-5");
+        assert_eq!(key, "test-key");
+        std::env::remove_var("ANTHROPIC_API_KEY");
     }
 }

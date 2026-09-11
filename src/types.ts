@@ -93,6 +93,7 @@ export interface SessionSummaryView {
   messageCount: number;
   startedAt: number;
   lastActive: number;
+  model?: string;
 }
 
 export interface SessionInfoView {
@@ -100,4 +101,6 @@ export interface SessionInfoView {
   sessionId: string;
   running: boolean;
   runId?: number;
+  model?: ModelConfig | null;
+  isCustomModel?: boolean;
 }

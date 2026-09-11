@@ -26,18 +26,111 @@ let webSocket: WebSocket | null = null;
 let webReconnectTimer: number | null = null;
 let webReconnectAttempt = 0;
 
-function isTauriRuntime(): boolean {
+const TOKEN_STORAGE_KEY = "pipi_web_token";
+
+/** 前端可见的运行期连接状态（状态栏用）。 */
+export type ConnectionState = "online" | "connecting" | "offline" | "dev";
+
+const connectionListeners = new Set<(state: ConnectionState) => void>();
+let webConnectionState: ConnectionState = "connecting";
+
+function setConnectionState(next: ConnectionState): void {
+  if (webConnectionState === next) return;
+  webConnectionState = next;
+  connectionListeners.forEach((listener) => listener(next));
+}
+
+/**
+ * 桌面端与开发桩没有「连接」概念，直接视为在线；
+ * 浏览器模式跟随 WebSocket 状态。
+ */
+export function getConnectionState(): ConnectionState {
+  if (devPlatform()) return "dev";
+  if (isTauriRuntime()) return "online";
+  return webConnectionState;
+}
+
+export function subscribeConnection(listener: (state: ConnectionState) => void): () => void {
+  connectionListeners.add(listener);
+  listener(getConnectionState());
+  return () => {
+    connectionListeners.delete(listener);
+  };
+}
+
+/** 状态栏展示用：当前实际生效的运行端点描述。 */
+export function getRuntimeEndpoint(): string {
+  if (devPlatform()) return "浏览器演示桩";
+  if (isTauriRuntime()) return "桌面端 · 内置核心";
+  try {
+    return `本地服务 ${new URL(webApiBase()).host}`;
+  } catch {
+    return "本地服务";
+  }
+}
+
+export interface AuthStatus {
+  authRequired: boolean;
+  authenticated: boolean;
+}
+
+type AuthRequiredListener = () => void;
+const authRequiredListeners = new Set<AuthRequiredListener>();
+
+export function onAuthRequired(listener: AuthRequiredListener): () => void {
+  authRequiredListeners.add(listener);
+  return () => {
+    authRequiredListeners.delete(listener);
+  };
+}
+
+export function notifyAuthRequired(): void {
+  authRequiredListeners.forEach((fn) => fn());
+}
+
+export function isTauriRuntime(): boolean {
   return typeof window !== "undefined"
     && "__TAURI_INTERNALS__" in (window as Window & { __TAURI_INTERNALS__?: unknown });
 }
 
+export function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const query = new URLSearchParams(window.location.search);
+    const queryToken = query.get("token");
+    if (queryToken) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, queryToken);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("token");
+      window.history.replaceState({}, "", url.toString());
+      return queryToken;
+    }
+  } catch {}
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch {}
+}
+
 function webApiBase(): string {
-  const configured = import.meta.env.VITE_PIPI_API_BASE?.trim();
-  return (configured || window.location.origin).replace(/\/+$/, "");
+  const configured = (typeof import.meta !== "undefined" && import.meta.env?.VITE_PIPI_API_BASE)?.trim();
+  return (configured || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/+$/, "");
 }
 
 function webToken(): string | null {
-  return new URLSearchParams(window.location.search).get("token");
+  return getStoredToken();
 }
 
 function webHeaders(): HeadersInit {
@@ -45,6 +138,57 @@ function webHeaders(): HeadersInit {
   return token
     ? { "Content-Type": "application/json", "X-Pipi-Token": token }
     : { "Content-Type": "application/json" };
+}
+
+export async function getAuthStatus(): Promise<AuthStatus> {
+  if (isTauriRuntime()) {
+    return { authRequired: false, authenticated: true };
+  }
+  try {
+    const response = await fetch(webApiBase() + "/api/auth/status", {
+      method: "GET",
+      headers: webHeaders(),
+      credentials: "include",
+    });
+    if (response.ok) {
+      const data = (await response.json()) as AuthStatus;
+      return data;
+    }
+  } catch {}
+  return { authRequired: false, authenticated: true };
+}
+
+export async function loginWithToken(token: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const response = await fetch(webApiBase() + "/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ token: token.trim() }),
+    });
+    const data = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (response.ok && data.ok) {
+      setStoredToken(token.trim());
+      closeWebSocket();
+      ensureWebSocket();
+      return { ok: true };
+    }
+    return { ok: false, error: data.error || "Token 错误，请核对后重试" };
+  } catch {
+    return { ok: false, error: "连接服务器失败，请检查网络" };
+  }
+}
+
+export async function logout(): Promise<void> {
+  setStoredToken(null);
+  try {
+    await fetch(webApiBase() + "/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch {}
+  closeWebSocket();
+  notifyAuthRequired();
 }
 
 async function webInvoke<T>(
@@ -67,6 +211,12 @@ async function webInvoke<T>(
     }
   }
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyAuthRequired();
+      const authErr = new Error("需要 PIPI_AUTH_TOKEN");
+      (authErr as unknown as { isAuthError?: boolean }).isAuthError = true;
+      throw authErr;
+    }
     const message = value && typeof value === "object" && "error" in value
       ? (value as { error?: unknown }).error
       : value;
@@ -117,8 +267,10 @@ function ensureWebSocket(): void {
   }
   const socket = new WebSocket(webEventUrl());
   webSocket = socket;
+  setConnectionState("connecting");
   socket.onopen = () => {
     webReconnectAttempt = 0;
+    setConnectionState("online");
   };
   socket.onmessage = (message) => {
     if (typeof message.data !== "string") return;
@@ -133,10 +285,14 @@ function ensureWebSocket(): void {
       // 忽略无法解析的远程帧；下一帧仍可继续处理。
     }
   };
-  socket.onerror = () => socket.close();
+  socket.onerror = () => {
+    setConnectionState("offline");
+    socket.close();
+  };
   socket.onclose = () => {
     if (webSocket !== socket) return;
     webSocket = null;
+    setConnectionState("offline");
     scheduleWebSocketReconnect();
   };
 }

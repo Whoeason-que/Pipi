@@ -17,16 +17,16 @@ const demoAgent: AgentDefinition = {
 };
 
 const initialDemoMessages: Array<Record<string, unknown>> = [
-  { role: "user", content: "帮我看看这个项目的结构", timestamp: 0 },
+  { role: "user", content: "帮我看看这个项目的结构", timestamp: Date.now() - 260000 },
   {
     role: "assistant",
     content: [{ type: "text", text: "我先用 bash 看一下目录。" }],
     usage: { input: 320, output: 48, cacheRead: 280, cacheWrite: 0, totalTokens: 648 },
     stopReason: "toolUse",
-    timestamp: 0,
+    timestamp: Date.now() - 240000,
     durationMs: 1900,
   },
-  { role: "toolResult", toolCallId: "t1", toolName: "bash", content: [{ type: "text", text: "src/ README.md" }], isError: false, timestamp: 0 },
+  { role: "toolResult", toolCallId: "t1", toolName: "bash", content: [{ type: "text", text: "src/ README.md" }], isError: false, timestamp: Date.now() - 238000 },
   {
     role: "assistant",
     content: [{ type: "text", text: `项目结构很简洁，核心三块：
@@ -55,7 +55,7 @@ let messages = run_agent_loop(
 > 一切皆文件，配置即代码。详见 README。` }],
     usage: { input: 410, output: 96, cacheRead: 380, cacheWrite: 0, totalTokens: 886 },
     stopReason: "stop",
-    timestamp: 0,
+    timestamp: Date.now() - 230000,
     durationMs: 2600,
   },
 ];
@@ -118,12 +118,13 @@ function startDemoRun(prompt: string): void {
   demoRunning = true;
   demoHasSession = true;
   demoSessionTitles.set(demoSessionId, demoSessionTitles.get(demoSessionId) ?? prompt);
-  demoMessages.push({ role: "user", content: prompt, timestamp: 0 });
+  demoMessages.push({ role: "user", content: prompt, timestamp: Date.now() });
   const response = {
     role: "assistant",
     content: [{ type: "text", text: `我已收到：${prompt}\n\n这是浏览器演示模式的流式响应。` }],
     usage: { input: 120, output: 32, cacheRead: 80, cacheWrite: 0, totalTokens: 232 },
     stopReason: "stop",
+    timestamp: Date.now(),
     durationMs: 320,
   };
   demoRunTimer = setTimeout(() => {

@@ -10,14 +10,19 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{now_millis, Message};
+use crate::types::{now_millis, Message, Model};
 
-/// 条目类型。pi 还有 compaction / branch_summary / custom，先支持两种。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// 条目类型。pi 还有 compaction / branch_summary / custom，包含会话模型选择与变更。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EntryKind {
     Message { message: Message },
     Custom { custom_type: String },
+    #[serde(rename = "model_change")]
+    ModelChange {
+        #[serde(alias = "model")]
+        provider: Model,
+    },
 }
 
 /// 会话条目。对应 pi 的 `Entry`。
@@ -116,6 +121,22 @@ impl SessionWriter {
         Ok(id)
     }
 
+    /// 追加模型变更条目，切换当前会话所用的模型配置。
+    pub fn append_model_change(&mut self, model: &Model) -> std::io::Result<String> {
+        let entry = SessionEntry {
+            id: new_id(),
+            parent_id: self.tip_id.clone(),
+            seq: self.seq,
+            timestamp: now_millis(),
+            kind: EntryKind::ModelChange {
+                provider: model.clone(),
+            },
+        };
+        let id = entry.id.clone();
+        self.write_entry(&entry)?;
+        Ok(id)
+    }
+
     pub fn write_entry(&mut self, entry: &SessionEntry) -> std::io::Result<()> {
         let mut line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
         line.push('\n');
@@ -198,6 +219,19 @@ pub struct SessionSummary {
     pub started_at: u64,
     /// 最后一条消息的时间戳
     pub last_active: u64,
+    /// 会话使用的模型（从最新 model_change 或最新 assistant 消息提取）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// 从条目列表中检索活跃路径上最新的模型配置（若无则返回 None，由上层回退到 Agent 默认模型）。
+pub fn active_model_from_entries(entries: &[SessionEntry]) -> Option<Model> {
+    for entry in active_path(entries).into_iter().rev() {
+        if let EntryKind::ModelChange { provider } = &entry.kind {
+            return Some(provider.clone());
+        }
+    }
+    None
 }
 
 /// 扫描会话目录，按最后活跃时间倒序返回摘要。
@@ -250,12 +284,23 @@ pub fn list_session_summaries(sessions_dir: &Path) -> Vec<SessionSummary> {
             .filter(|e| matches!(e.kind, EntryKind::Message { .. }))
             .count();
         let last_active = file_entries.last().map(|e| e.timestamp).unwrap_or(0);
+        let model = active_model_from_entries(&file_entries)
+            .map(|m| m.display_name().to_string())
+            .or_else(|| {
+                file_entries.iter().rev().find_map(|e| match &e.kind {
+                    EntryKind::Message {
+                        message: Message::Assistant { model, .. },
+                    } if !model.is_empty() => Some(model.clone()),
+                    _ => None,
+                })
+            });
         out.push(SessionSummary {
             id,
             title,
             message_count,
             started_at,
             last_active,
+            model,
         });
     }
     out.sort_by_key(|summary| std::cmp::Reverse(summary.last_active));
@@ -425,6 +470,51 @@ mod tests {
         assert_eq!(forked_entries.len(), 2);
         assert_eq!(forked_entries[1].parent_id.as_deref(), Some(id1.as_str()));
         assert_eq!(forked_entries[1].id, id3);
+    }
+
+    #[test]
+    fn model_change_entry_roundtrip_and_active_resolution() {
+        let dir = temp_dir();
+        let mut writer = SessionWriter::create(&dir).unwrap();
+        let model1 = Model {
+            id: "gpt-4o".into(),
+            name: "GPT-4o".into(),
+            api: crate::types::Api::OpenAICompletions,
+            base_url: "https://api.openai.com/v1".into(),
+            max_tokens: 4096,
+            context_window: 128000,
+        };
+        let model2 = Model {
+            id: "claude-sonnet-4-5".into(),
+            name: "Claude Sonnet".into(),
+            api: crate::types::Api::AnthropicMessages,
+            base_url: "https://api.anthropic.com".into(),
+            max_tokens: 8192,
+            context_window: 200000,
+        };
+
+        writer.append_message(&Message::user_text("hello")).unwrap();
+        writer.append_model_change(&model1).unwrap();
+        let id_mid = writer.append_message(&Message::user_text("with gpt-4o")).unwrap();
+        writer.append_model_change(&model2).unwrap();
+        writer.append_message(&Message::user_text("with claude")).unwrap();
+
+        let entries = load_session(writer.path()).unwrap();
+        assert_eq!(entries.len(), 5);
+
+        // 最新活跃模型应为 model2
+        let active = active_model_from_entries(&entries).unwrap();
+        assert_eq!(active.id, "claude-sonnet-4-5");
+
+        // 分叉到 id_mid，活跃模型应为 model1
+        let forked = fork_session(writer.path(), &dir, Some(&id_mid)).unwrap();
+        let forked_entries = load_session(forked.path()).unwrap();
+        let forked_active = active_model_from_entries(&forked_entries).unwrap();
+        assert_eq!(forked_active.id, "gpt-4o");
+
+        let summaries = list_session_summaries(&dir);
+        let current_summary = summaries.iter().find(|s| s.id == writer.path().file_stem().unwrap().to_str().unwrap()).unwrap();
+        assert_eq!(current_summary.model.as_deref(), Some("Claude Sonnet"));
     }
 }
 

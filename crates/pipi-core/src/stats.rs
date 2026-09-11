@@ -83,6 +83,10 @@ impl SessionStatsTracker {
         }
     }
 
+    pub fn set_context_max(&mut self, context_max: Option<u64>) {
+        self.context_max = context_max;
+    }
+
     /// 记录一次助手响应（从消息里取 usage 与耗时）。
     pub fn record(&mut self, message: &Message) {
         let Message::Assistant {

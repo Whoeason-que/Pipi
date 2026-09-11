@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 use pipi_core::runtime::{self, EventEmitter, RuntimeEvent, SessionInfo};
-use pipi_core::types::Message;
+use pipi_core::types::{Message, Model};
 
 pub use pipi_core::runtime::RuntimeState as ChatState;
 
@@ -63,8 +63,14 @@ pub fn send_prompt(
     state: State<'_, ChatState>,
     agent_name: String,
     prompt: String,
+    model: Option<Model>,
 ) -> Result<(), String> {
-    state.send_prompt(&agent_name, &prompt, tauri_emitter(app))
+    state.send_prompt(&agent_name, &prompt, model, tauri_emitter(app))
+}
+
+#[tauri::command]
+pub fn set_session_model(state: State<ChatState>, model: Option<Model>) -> Result<(), String> {
+    state.set_session_model(model)
 }
 
 #[tauri::command]

@@ -25,6 +25,8 @@ export interface MessageView {
   toolName?: string;
   toolCallId?: string;
   isError?: boolean;
+  /** 消息创建时间（毫秒时间戳，Rust 侧 Message::timestamp）。 */
+  timestamp?: number;
 }
 
 export type ToolResultContentView =
@@ -142,6 +144,8 @@ export interface ChatEntry {
   durationMs?: number;
   streaming?: boolean;
   toolRunning?: boolean;
+  /** 消息创建时间（毫秒），实时条目取本地接收时间。 */
+  timestamp?: number;
   /** 尚未被后端历史快照确认的本地/实时条目。 */
   transient?: boolean;
 }
@@ -240,6 +244,7 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
     stopReason: message.stopReason,
     usage: message.usage,
     durationMs: message.durationMs ?? undefined,
+    timestamp: message.timestamp,
     transient,
   };
 }
@@ -391,6 +396,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           key: action.key,
           role: "user",
           text: action.text,
+          timestamp: Date.now(),
           transient: true,
         }],
         running: true,
@@ -518,6 +524,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             toolName: event.toolName,
             toolCallId: event.toolCallId,
             toolArgs: event.args ?? existing?.toolArgs,
+            timestamp: existing?.timestamp ?? Date.now(),
             toolRunning: true,
             transient: true,
           };

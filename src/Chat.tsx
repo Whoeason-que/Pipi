@@ -1,6 +1,8 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Markdown } from "./Markdown";
 import { invoke, listen } from "./platform";
+import { ScreenTabs } from "./ScreenTabs";
 import {
   assistantFooter,
   chatReducer,
@@ -12,26 +14,42 @@ import {
   normalizeStatsPayload,
   type AgentEvent,
   type AgentEventPayload,
+  type ChatEntry,
   type MessageView,
   type SessionErrorPayload,
   type SessionEventMeta,
   type SessionStatsPayload,
 } from "./chat-runtime";
-import type { AgentDefinition, SessionInfoView, SessionStatsView } from "./types";
+import type { AgentDefinition, ModelConfig, ProviderConfig, SessionInfoView, SessionStatsView } from "./types";
 
 export type { MessageView } from "./chat-runtime";
 
+const WRITE_TOOLS = new Set(["write", "edit"]);
+
 interface ChatViewProps {
   agent: AgentDefinition;
+  providers: ProviderConfig[];
   blockedSessionIds: string[];
   onBack: () => void;
+  onShowDetail: () => void;
   onError: (msg: string) => void;
   onNewSession: (previousSessionId?: string) => Promise<boolean>;
   onRunningChange: (running: boolean) => void;
-  onSessionReset: () => void;
+  /** 新会话：传 null 表示无会话；分叉/重建后传新的会话信息以同步侧栏高亮。 */
+  onSessionReset: (info?: SessionInfoView | null) => void;
 }
 
-export default function ChatView({ agent, blockedSessionIds, onBack, onError, onNewSession, onRunningChange, onSessionReset }: ChatViewProps) {
+export default function ChatView({
+  agent,
+  providers,
+  blockedSessionIds,
+  onBack,
+  onShowDetail,
+  onError,
+  onNewSession,
+  onRunningChange,
+  onSessionReset,
+}: ChatViewProps) {
   const [state, dispatch] = useReducer(chatReducer, INITIAL_CHAT_STATE);
   const { entries, stats, running } = state;
   const runningRef = useRef(running);
@@ -39,6 +57,16 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
   const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
   const [stopping, setStopping] = useState(false);
+  const [sessionModel, setSessionModel] = useState<ModelConfig | null>(agent.provider ?? null);
+  const [isCustomModel, setIsCustomModel] = useState(false);
+  const [modelModalOpen, setModelModalOpen] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(
+    () => typeof window === "undefined" || window.innerWidth > 1100,
+  );
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= 1100,
+  );
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(true);
@@ -190,6 +218,15 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
           settledRunIdRef.current = info.running ? null : (info.runId ?? null);
           awaitingSessionIdentityRef.current = false;
         }
+        setSessionId(info.sessionId);
+        if (info.model !== undefined) {
+          setSessionModel(info.model ?? agent.provider ?? null);
+          setIsCustomModel(Boolean(info.isCustomModel));
+        }
+      } else if (infoResult.status === "fulfilled" && infoResult.value === null) {
+        setSessionModel(agent.provider ?? null);
+        setIsCustomModel(false);
+        setSessionId(null);
       }
       const identityEvents = pendingIdentityEventsRef.current;
       const identityStats = pendingIdentityStatsRef.current;
@@ -238,6 +275,24 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
       for (const unlisten of unlisteners) unlisten();
     };
   }, [agent.name, onError]);
+
+  useEffect(() => {
+    if (!isCustomModel) {
+      setSessionModel(agent.provider ?? null);
+    }
+  }, [agent.provider, isCustomModel]);
+
+  // 检查器在窄屏是抽屉：跨过断点时对齐默认值（宽屏展开 / 窄屏收起），
+  // 不覆盖用户在同一布局下的手动切换。
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth <= 1100);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    setInspectorOpen(!narrow);
+  }, [narrow]);
 
   // 只有用户仍停留在底部时才跟随流式输出，阅读历史时不抢滚动位置。
   useEffect(() => {
@@ -300,7 +355,11 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
     followTailRef.current = true;
     dispatch({ type: "submit_user", key: userKey, text });
     try {
-      await invoke("send_prompt", { agentName: agent.name, prompt: text });
+      await invoke("send_prompt", {
+        agentName: agent.name,
+        prompt: text,
+        model: isCustomModel ? sessionModel : null,
+      });
     } catch (error) {
       dispatch({ type: "reject_user", key: userKey });
       onError(formatRuntimeError(error));
@@ -362,6 +421,11 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
         sessionInfoResolvedRef.current = true;
         sessionInfoFailedRef.current = false;
         settledRunIdRef.current = info.running ? null : (info.runId ?? null);
+        setSessionId(info.sessionId);
+        if (info.model !== undefined) {
+          setSessionModel(info.model ?? agent.provider ?? null);
+          setIsCustomModel(Boolean(info.isCustomModel));
+        }
       } else {
         sessionInfoResolvedRef.current = false;
         sessionInfoFailedRef.current = true;
@@ -482,6 +546,15 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
         };
         settledRunIdRef.current = infoResult.value.running ? null : (infoResult.value.runId ?? null);
         awaitingSessionIdentityRef.current = false;
+        setSessionId(infoResult.value.sessionId);
+        if (infoResult.value.model !== undefined) {
+          setSessionModel(infoResult.value.model ?? agent.provider ?? null);
+          setIsCustomModel(Boolean(infoResult.value.isCustomModel));
+        }
+      } else {
+        setSessionModel(agent.provider ?? null);
+        setIsCustomModel(false);
+        setSessionId(null);
       }
       const identityEvents = pendingIdentityEventsRef.current;
       const identityStats = pendingIdentityStatsRef.current;
@@ -535,7 +608,12 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
         runId: info.runId,
       };
       settledRunIdRef.current = null;
-      onSessionReset();
+      setSessionId(info.sessionId);
+      if (info.model !== undefined) {
+        setSessionModel(info.model ?? agent.provider ?? null);
+        setIsCustomModel(Boolean(info.isCustomModel));
+      }
+      onSessionReset(info);
       const messages = await invoke<MessageView[]>("session_messages");
       const loadedStats = await invoke<SessionStatsView>("session_stats").catch(() => null);
       dispatch({ type: "hydrate", messages, stats: loadedStats, running: false });
@@ -544,153 +622,269 @@ export default function ChatView({ agent, blockedSessionIds, onBack, onError, on
     }
   };
 
-  const statsBits: string[] = [];
-  if (stats) {
-    if (stats.avgTps != null) statsBits.push(`${stats.avgTps.toFixed(1)} tok/s`);
-    if (stats.cacheHitPct != null) statsBits.push(`缓存命中 ${stats.cacheHitPct.toFixed(0)}%`);
-    if (stats.contextPercent != null) {
-      statsBits.push(`上下文 ${stats.contextUsed}/${stats.contextMax}（${stats.contextPercent}%）`);
+  const handleModelChange = async (target: { isCustom: boolean; model: ModelConfig | null }) => {
+    const modelToSet = target.isCustom ? target.model : null;
+    const hasActiveSession = Boolean(sessionIdentityRef.current?.sessionId);
+    if (hasActiveSession) {
+      try {
+        await invoke("set_session_model", { model: modelToSet });
+      } catch (err) {
+        throw new Error(formatRuntimeError(err));
+      }
     }
-    statsBits.push(`${stats.calls} 次调用`);
-  }
+    setSessionModel(target.isCustom ? target.model : (agent.provider ?? null));
+    setIsCustomModel(target.isCustom);
+    setModelModalOpen(false);
+  };
 
   return (
-    <div className="chat">
-      <header className="chat-header">
-        <button type="button" className="ghost" onClick={onBack}>
-          ← 返回
-        </button>
-        <div className="chat-title">
-          <span className="mono">{agent.name}</span>
-          {statsBits.length > 0 && (
-            <span className="badge neutral chat-stats" title="最近 10 次调用的滚动统计">
-              {statsBits.join(" · ")}
-            </span>
-          )}
-        </div>
-        <div className="chat-actions">
+    <div className={`chat-shell${inspectorOpen ? " inspector-open" : ""}`}>
+      <div className="chat">
+        <div className="screen-bar">
+          <button type="button" className="icon-btn" title="返回" aria-label="返回" onClick={onBack}>
+            ←
+          </button>
+          <span className="crumb" title={`~/.pipi/agents/${agent.name}/sessions/${sessionId ?? ""}`}>
+            ~/.pipi/agents/<b>{agent.name}</b>/sessions/{sessionId ? <b>{sessionId}</b> : "…"}
+          </span>
+          <ScreenTabs
+            active="chat"
+            onSelect={(view) => {
+              if (view === "detail") onShowDetail();
+            }}
+          />
+          <span className="spacer" />
           <button
             type="button"
-            className="ghost"
+            className="model-pill"
+            onClick={() => setModelModalOpen(true)}
+            disabled={running}
+            title={running ? "Agent 运行中不可切换模型" : "点击切换当前会话的模型"}
+          >
+            <span className="model-pill-name mono">{sessionModel?.id || "未配置模型"}</span>
+            <span className="model-pill-tag">{isCustomModel ? "自定义" : "默认"}</span>
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
             onClick={forkSession}
             disabled={!ready || running || !sessionIdentityRef.current?.sessionId}
             title="从当前对话节点分叉出新会话"
+            aria-label="分叉会话"
           >
-            分叉
+            ⑂
           </button>
-          <button type="button" className="ghost" onClick={newSession} disabled={!ready || running}>
-            新会话
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={newSession}
+            disabled={!ready || running}
+            title="新会话"
+            aria-label="新建会话"
+          >
+            ＋
+          </button>
+          <button
+            type="button"
+            className={`icon-btn${inspectorOpen ? " active" : ""}`}
+            onClick={() => setInspectorOpen((open) => !open)}
+            title="统计 / 检查器"
+            aria-label="切换检查器"
+            aria-expanded={inspectorOpen}
+            aria-controls="session-inspector"
+          >
+            ▥
           </button>
         </div>
-      </header>
 
-      <div
-        className="chat-list"
-        ref={listRef}
-        onScroll={handleScroll}
-        aria-live={running ? "polite" : undefined}
-      >
-        {entries.length === 0 && (
-          <div className="chat-welcome">
-            <p>
+        <div
+          className="log"
+          ref={listRef}
+          onScroll={handleScroll}
+          aria-live={running ? "polite" : undefined}
+        >
+          {entries.length === 0 && (
+            <div className="chat-welcome">
               与 <span className="mono">{agent.name}</span> 对话。会话记录将写入
               <span className="mono"> sessions/*.jsonl</span>。
-            </p>
-          </div>
-        )}
-        {entries.map((entry) => (
-          <div key={entry.key} className={`chat-entry role-${entry.role}`}>
-            <div className="chat-role">
-              {entry.role === "user" ? "你" : entry.role === "assistant" ? agent.name : "工具"}
             </div>
-            <div className={`chat-bubble ${entry.isError ? "is-error" : ""}`}>
-              {entry.role === "assistant" ? (
-                <>
-                  {entry.thinking && (
-                    <details className="chat-thinking" open={entry.streaming && !entry.text}>
-                      <summary className="thinking-summary">
-                        <span className="thinking-icon">💭</span>
-                        <span className="thinking-label">
-                          {entry.streaming && !entry.text
-                            ? "思考中…"
-                            : `深度思考（${entry.thinking.length} 字）`}
-                        </span>
-                      </summary>
-                      <pre className="thinking-body mono">{entry.thinking}</pre>
-                    </details>
-                  )}
-                  <Markdown text={entry.text || (entry.streaming ? "…" : "")} />
-                </>
-              ) : entry.role === "toolResult" ? (
-                <ToolResultCard entry={entry} />
-              ) : (
-                <pre className="chat-text">{entry.text || (entry.streaming ? "…" : "")}</pre>
-              )}
-              {entry.role === "assistant" && !entry.streaming && !entry.status && (
-                <div className="chat-foot">
-                  {assistantFooter({
-                    role: "assistant",
-                    content: entry.text,
-                    usage: entry.usage,
-                    durationMs: entry.durationMs,
-                  })}
+          )}
+          {entries.map((entry) => {
+            const isUser = entry.role === "user";
+            const isTool = entry.role === "toolResult";
+            const tagClass = isUser ? "user" : isTool ? "tool" : entry.isError ? "error" : "";
+            const tagText = isUser ? "YOU" : isTool ? "TOOL" : "AGENT";
+            const footer = !isTool && !isUser && !entry.streaming && !entry.status
+              ? assistantFooter({
+                  role: "assistant",
+                  content: entry.text,
+                  usage: entry.usage,
+                  durationMs: entry.durationMs,
+                })
+              : null;
+            return (
+              <div key={entry.key} className={`row${isTool ? " alt" : ""}`}>
+                <div className="gut">
+                  {entry.timestamp ? <span className="time">{formatClock(entry.timestamp)}</span> : null}
+                  <span className={`role-tag ${tagClass}`}>{tagText}</span>
                 </div>
-              )}
-              {entry.streaming && <div className="chat-cursor">▍</div>}
-            </div>
+                <div className="content">
+                  {isUser ? (
+                    <div className="user-text">{entry.text}</div>
+                  ) : isTool ? (
+                    <ToolResultCard entry={entry} />
+                  ) : (
+                    <>
+                      {entry.thinking && (
+                        <ThinkingFold
+                          thinking={entry.thinking}
+                          streaming={Boolean(entry.streaming)}
+                          hasText={Boolean(entry.text)}
+                        />
+                      )}
+                      <Markdown text={entry.text || (entry.streaming ? "…" : "")} />
+                      {entry.streaming && <span className="cursor" aria-hidden="true" />}
+                      {footer && <div className="hint">{footer}</div>}
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="composer">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={ready ? (running ? "Agent 正在运行…" : "输入消息，Enter 发送（Shift+Enter 换行）") : "正在连接 Agent…"}
+            disabled={!ready || running}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              composingRef.current = false;
+              compositionEndedAtRef.current = Date.now();
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.shiftKey) return;
+              const native = event.nativeEvent;
+              const composing = composingRef.current
+                || native.isComposing
+                || native.keyCode === 229
+                || Date.now() - compositionEndedAtRef.current < 100;
+              if (composing) return;
+              event.preventDefault();
+              void send();
+            }}
+          />
+          <div className="composer-bar">
+            <span className="hint">ENTER 发送 · SHIFT+ENTER 换行</span>
+            <span className="spacer" />
+            {running ? (
+              <button type="button" className="btn ghost" onClick={stop} disabled={stopping}>
+                {stopping ? "■ 停止中…" : "■ 停止"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn primary"
+                disabled={!ready || !sessionInfoResolvedRef.current || !input.trim()}
+                onClick={() => void send()}
+              >
+                发送
+              </button>
+            )}
           </div>
-        ))}
+        </div>
       </div>
 
-      <footer className="chat-input">
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder={ready ? (running ? "Agent 正在运行…" : "输入消息，Enter 发送（Shift+Enter 换行）") : "正在连接 Agent…"}
-          disabled={!ready || running}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={() => {
-            composingRef.current = false;
-            compositionEndedAtRef.current = Date.now();
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || event.shiftKey) return;
-            const native = event.nativeEvent;
-            const composing = composingRef.current
-              || native.isComposing
-              || native.keyCode === 229
-              || Date.now() - compositionEndedAtRef.current < 100;
-            if (composing) return;
-            event.preventDefault();
-            void send();
-          }}
+      <Inspector
+        agent={agent}
+        sessionId={sessionId}
+        entries={entries}
+        stats={stats}
+        running={running}
+        sessionModel={sessionModel}
+        isCustomModel={isCustomModel}
+        blockedCount={blockedSessionIds.length}
+      />
+
+      {narrow && inspectorOpen && (
+        <button
+          type="button"
+          className="inspector-backdrop"
+          aria-label="关闭检查器"
+          onClick={() => setInspectorOpen(false)}
         />
-        {running ? (
-          <button type="button" className="ghost stop" onClick={stop} disabled={stopping}>
-            {stopping ? "■ 停止中…" : "■ 停止"}
-          </button>
-        ) : (
-          <button type="button" className="primary" disabled={!ready || !sessionInfoResolvedRef.current || !input.trim()} onClick={() => void send()}>
-            发送
-          </button>
-        )}
-      </footer>
+      )}
+
+      {modelModalOpen && (
+        <ModelSelectModal
+          isOpen={modelModalOpen}
+          onClose={() => setModelModalOpen(false)}
+          onConfirm={handleModelChange}
+          currentModel={sessionModel}
+          isCustomModel={isCustomModel}
+          agentDefaultModel={agent.provider}
+          providers={providers}
+        />
+      )}
     </div>
   );
 }
 
-function ToolResultCard({ entry }: { entry: import("./chat-runtime").ChatEntry }) {
-  const [open, setOpen] = useState(!entry.text.includes("\n") || entry.isError || entry.toolRunning);
+function formatClock(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function formatTokens(value: number | undefined): string {
+  if (value == null) return "—";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return String(value);
+}
+
+function ThinkingFold({
+  thinking,
+  streaming,
+  hasText,
+}: {
+  thinking: string;
+  streaming: boolean;
+  hasText: boolean;
+}) {
+  const autoOpen = streaming && !hasText;
+  const [open, setOpen] = useState(autoOpen);
+
+  useEffect(() => {
+    if (autoOpen) setOpen(true);
+  }, [autoOpen]);
+
+  return (
+    <>
+      <button
+        type="button"
+        className={`fold${open ? " open" : ""}`}
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className="k">THINKING</span>
+        <span>{streaming && !hasText ? "思考中…" : `深度思考（${thinking.length} 字）`}</span>
+        <span className="caret">▶</span>
+      </button>
+      {open && <pre className="thinking-body">{thinking}</pre>}
+    </>
+  );
+}
+
+function ToolResultCard({ entry }: { entry: ChatEntry }) {
+  const [open, setOpen] = useState(!entry.text.includes("\n") || Boolean(entry.isError) || Boolean(entry.toolRunning));
   const toolName = entry.toolName ?? "tool";
-  const statusLabel = entry.toolRunning
-    ? "运行中"
-    : entry.isError
-      ? "失败"
-      : "完成";
-  const statusClass = entry.toolRunning ? "running" : entry.isError ? "error" : "success";
+  const running = Boolean(entry.toolRunning);
+  const failed = Boolean(entry.isError);
 
   let commandStr: string | null = null;
   let pathStr: string | null = null;
@@ -702,53 +896,62 @@ function ToolResultCard({ entry }: { entry: import("./chat-runtime").ChatEntry }
 
   const details = entry.toolDetails as { diff?: string } | undefined;
   const hasDiff = typeof details?.diff === "string" && details.diff.trim().length > 0;
+  const argsText = entry.toolArgs != null ? JSON.stringify(entry.toolArgs, null, 2) : null;
+  const summary = commandStr ?? pathStr;
 
   return (
-    <div className={`tool-card ${statusClass}`}>
-      <div className="tool-card-head" onClick={() => setOpen(!open)}>
-        <span className="tool-card-name mono">
-          <span className="tool-icon">⚙</span> {toolName}
+    <div className={`tool${running ? " running" : failed ? " error" : ""}`}>
+      <button
+        type="button"
+        className="tool-head"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className="tool-name">{toolName}</span>
+        {summary && (
+          <span className="tool-cmd" title={summary}>
+            {summary}
+          </span>
+        )}
+        <span className="tool-meta">
+          {running ? (
+            <span className="run">● 运行中</span>
+          ) : failed ? (
+            <span className="fail">✕ 失败</span>
+          ) : (
+            <span className="ok">✓ 完成</span>
+          )}
+          <span>{open ? "▾" : "▸"}</span>
         </span>
-        {commandStr && <span className="tool-summary-cmd mono" title={commandStr}>$ {commandStr}</span>}
-        {!commandStr && pathStr && <span className="tool-summary-cmd mono" title={pathStr}>{pathStr}</span>}
-        <span className={`badge tool-status ${statusClass}`}>{statusLabel}</span>
-        <span className="tool-toggle-btn">
-          {open ? "收起 ▲" : "详情 ▼"}
-        </span>
-      </div>
+      </button>
 
       {open && (
-        <div className="tool-card-body">
-          {entry.toolArgs != null && (
-            <div className="tool-section">
-              <div className="tool-section-label">参数</div>
-              <pre className="tool-code mono">
-                {JSON.stringify(entry.toolArgs, null, 2)}
-              </pre>
+        <div className="tool-body">
+          {argsText && (
+            <div className="tpane">
+              <div className="plabel">参数</div>
+              <pre className="code">{argsText}</pre>
             </div>
           )}
-
-
-          <div className="tool-section">
-            <div className="tool-section-label">输出</div>
+          <div className={`tpane${argsText ? "" : " full"}`}>
+            <div className="plabel">输出</div>
             {hasDiff ? (
-              <pre className="tool-diff mono">
-                {details!.diff!.split("\n").map((line, idx) => {
-                  let lineClass = "";
-                  if (line.startsWith("+")) lineClass = "diff-add";
-                  else if (line.startsWith("-")) lineClass = "diff-del";
-                  else if (line.startsWith("@@")) lineClass = "diff-hunk";
+              <pre className="code">
+                {details!.diff!.split("\n").map((line, index) => {
+                  let lineClass = "ln-ctx";
+                  if (line.startsWith("+++") || line.startsWith("---")) lineClass = "ln-ctx";
+                  else if (line.startsWith("+")) lineClass = "ln-add";
+                  else if (line.startsWith("-")) lineClass = "ln-del";
+                  else if (line.startsWith("@@")) lineClass = "ln-hunk";
                   return (
-                    <div key={idx} className={lineClass}>
+                    <span key={index} className={lineClass}>
                       {line}
-                    </div>
+                    </span>
                   );
                 })}
               </pre>
             ) : (
-              <pre className="tool-output-text mono">
-                {entry.text || (entry.toolRunning ? "执行中…" : "（无输出）")}
-              </pre>
+              <pre className="code">{entry.text || (running ? "执行中…" : "（无输出）")}</pre>
             )}
           </div>
         </div>
@@ -757,3 +960,636 @@ function ToolResultCard({ entry }: { entry: import("./chat-runtime").ChatEntry }
   );
 }
 
+// ============ 右侧检查器 ============
+
+type InspectorTab = "stats" | "state" | "files";
+
+interface InspectorProps {
+  agent: AgentDefinition;
+  sessionId: string | null;
+  entries: ChatEntry[];
+  stats: SessionStatsView | null;
+  running: boolean;
+  sessionModel: ModelConfig | null;
+  isCustomModel: boolean;
+  blockedCount: number;
+}
+
+const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
+  { id: "stats", label: "会话统计" },
+  { id: "state", label: "当前状态" },
+  { id: "files", label: "文件变更" },
+];
+
+const BASH_MODE_TEXT: Record<string, string> = {
+  allowAll: "全部允许",
+  allowlist: "白名单",
+  denylist: "黑名单",
+};
+
+function Inspector({
+  agent,
+  sessionId,
+  entries,
+  stats,
+  running,
+  sessionModel,
+  isCustomModel,
+  blockedCount,
+}: InspectorProps) {
+  const [tab, setTab] = useState<InspectorTab>("stats");
+
+  const lastTool = useMemo(() => {
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      if (entries[index].role === "toolResult") return entries[index];
+    }
+    return null;
+  }, [entries]);
+
+  // 「当前工具」只在真的有工具在跑时才算数；否则只显示最近一次工具。
+  const runningTool = useMemo(() => {
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (entry.role === "toolResult" && entry.toolRunning) return entry;
+    }
+    return null;
+  }, [entries]);
+
+  const handleTabKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    event.preventDefault();
+    const index = INSPECTOR_TABS.findIndex((item) => item.id === tab);
+    const delta = event.key === "ArrowRight" ? 1 : -1;
+    const next = INSPECTOR_TABS[(index + delta + INSPECTOR_TABS.length) % INSPECTOR_TABS.length];
+    setTab(next.id);
+    document.getElementById(`itab-${next.id}`)?.focus();
+  };
+
+  const toolSummary = useMemo(() => {
+    const map = new Map<string, { count: number; errors: number; running: number }>();
+    for (const entry of entries) {
+      if (entry.role !== "toolResult") continue;
+      const name = entry.toolName ?? "tool";
+      const item = map.get(name) ?? { count: 0, errors: 0, running: 0 };
+      item.count += 1;
+      if (entry.toolRunning) item.running += 1;
+      else if (entry.isError || entry.status === "tool-error") item.errors += 1;
+      map.set(name, item);
+    }
+    return [...map.entries()]
+      .map(([name, value]) => ({ name, ...value }))
+      .sort((left, right) => right.count - left.count);
+  }, [entries]);
+
+  const fileChanges = useMemo(() => {
+    const map = new Map<string, { path: string; add: number; del: number; calls: number; errors: number }>();
+    for (const entry of entries) {
+      if (entry.role !== "toolResult") continue;
+      const name = entry.toolName ?? "";
+      if (!WRITE_TOOLS.has(name)) continue;
+      const args = (entry.toolArgs ?? {}) as { path?: unknown };
+      const path = typeof args.path === "string" && args.path.trim()
+        ? args.path
+        : `（未记录路径的 ${name} 调用）`;
+      const diff = (entry.toolDetails as { diff?: unknown } | undefined)?.diff;
+      let add = 0;
+      let del = 0;
+      if (typeof diff === "string") {
+        for (const line of diff.split("\n")) {
+          if (line.startsWith("+++") || line.startsWith("---")) continue;
+          if (line.startsWith("+")) add += 1;
+          else if (line.startsWith("-")) del += 1;
+        }
+      }
+      const item = map.get(path) ?? { path, add: 0, del: 0, calls: 0, errors: 0 };
+      item.calls += 1;
+      item.add += add;
+      item.del += del;
+      if (entry.isError) item.errors += 1;
+      map.set(path, item);
+    }
+    return [...map.values()].reverse();
+  }, [entries]);
+
+  const writeCalls = fileChanges.reduce((total, item) => total + item.calls, 0);
+  const maxToolCount = toolSummary.reduce((max, item) => Math.max(max, item.count), 0);
+  const workspace = agent.workspace ?? `~/.pipi/agents/${agent.name}/workspace`;
+  const currentToolText = running
+    ? (runningTool ? `${runningTool.toolName ?? "tool"} · 运行中` : "模型调用中")
+    : (lastTool ? `上次工具 ${lastTool.toolName ?? "tool"}` : "尚无工具调用");
+
+  return (
+    <aside className="inspector" id="session-inspector" aria-label="会话检查器">
+      <div className="itabs" role="tablist" aria-label="检查器视图" onKeyDown={handleTabKeys}>
+        {INSPECTOR_TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            id={`itab-${item.id}`}
+            aria-selected={tab === item.id}
+            aria-controls={`ipanel-${item.id}`}
+            tabIndex={tab === item.id ? 0 : -1}
+            className={`itab${tab === item.id ? " active" : ""}`}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="ipanels">
+        <div
+          className={`ipanel${tab === "stats" ? " active" : ""}`}
+          id="ipanel-stats"
+          role="tabpanel"
+          aria-labelledby="itab-stats"
+        >
+            <div className="ip">
+              <h4>当前上下文</h4>
+              {stats?.contextPercent != null || stats?.cacheHitPct != null ? (
+                <>
+                  {stats?.contextPercent != null && (
+                    <div className="metric">
+                      <span className="m-k">上下文占用</span>
+                      <span className="m-v">
+                        {formatTokens(stats.contextUsed)} / {formatTokens(stats.contextMax)}
+                      </span>
+                      <span className="track" title="最近一次请求的 prompt 用量 / 上下文窗口">
+                        <i style={{ width: `${Math.min(100, Math.max(0, stats.contextPercent))}%` }} />
+                      </span>
+                    </div>
+                  )}
+                  {stats?.cacheHitPct != null && (
+                    <div className="metric">
+                      <span className="m-k">缓存命中</span>
+                      <span className="m-v">{stats.cacheHitPct.toFixed(0)}%</span>
+                      <span className="track" title="最近一次调用：cache_read / prompt">
+                        <i style={{ width: `${Math.min(100, Math.max(0, stats.cacheHitPct))}%` }} />
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="ip-note">暂无统计：本次会话还没有产生调用。</div>
+              )}
+            </div>
+
+            <div className="ip">
+              <h4>近 10 次调用</h4>
+              {stats && (stats.avgTps != null || stats.avgLatencyS != null) ? (
+                <>
+                  {stats.avgTps != null && (
+                    <div className="metric">
+                      <span className="m-k">输出速度</span>
+                      <span className="m-v">{stats.avgTps.toFixed(1)} tok/s</span>
+                      <span className="track" title="滚动平均；进度条以 100 tok/s 为满量程">
+                        <i
+                          className="warm"
+                          style={{ width: `${Math.min(100, Math.max(0, stats.avgTps))}%` }}
+                        />
+                      </span>
+                    </div>
+                  )}
+                  {stats.avgLatencyS != null && (
+                    <div className="metric">
+                      <span className="m-k">平均延迟</span>
+                      <span className="m-v">{stats.avgLatencyS.toFixed(2)}s</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="ip-note">有效调用不足，暂不计算窗口指标。</div>
+              )}
+            </div>
+
+            <div className="ip">
+              <h4>累计</h4>
+              <div className="metric">
+                <span className="m-k">调用次数</span>
+                <span className="m-v">{stats?.calls ?? 0}</span>
+              </div>
+              <div className="metric">
+                <span className="m-k">输入 / 输出</span>
+                <span className="m-v dim">
+                  {formatTokens(stats?.input)} / {formatTokens(stats?.output)}
+                </span>
+              </div>
+            </div>
+
+            <div className="ip">
+              <h4>工具调用</h4>
+              {toolSummary.length > 0 ? (
+                <div className="tl">
+                  {toolSummary.map((item) => (
+                    <div className="tl-row" key={item.name}>
+                      <span className="n" title={item.name}>
+                        {item.name}
+                      </span>
+                      <span className="b">
+                        <i
+                          style={{
+                            width: `${maxToolCount > 0 ? Math.max(6, (item.count / maxToolCount) * 100) : 0}%`,
+                          }}
+                        />
+                      </span>
+                      <span className={`d${item.errors > 0 ? " fail" : ""}`}>
+                        {item.count} 次{item.errors > 0 ? ` · ${item.errors} 失败` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="ip-note">本次会话尚未调用工具。</div>
+              )}
+            </div>
+        </div>
+
+        <div
+          className={`ipanel${tab === "state" ? " active" : ""}`}
+          id="ipanel-state"
+          role="tabpanel"
+          aria-labelledby="itab-state"
+        >
+            <div className="ip">
+              <h4>运行状态</h4>
+              <div className={`state-line${running ? "" : " idle"}`}>
+                <span className="dot" aria-hidden="true" />
+                {running ? "运行中" : "空闲"}
+                <span className="sub">{currentToolText}</span>
+              </div>
+              <div className="kv-row">
+                <span className="k">{runningTool ? "当前工具" : "最近工具"}</span>
+                <span className="v">
+                  {runningTool || lastTool ? (
+                    <>
+                      <span className="mono" style={{ color: "var(--accent-text)" }}>
+                        {(runningTool ?? lastTool)!.toolName ?? "tool"}
+                      </span>{" "}
+                      <span className="dim">
+                        {runningTool ? "运行中" : lastTool!.isError ? "失败" : "完成"}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="dim">—</span>
+                  )}
+                </span>
+              </div>
+              <div className="kv-row">
+                <span className="k">消息条数</span>
+                <span className="v mono">{entries.length}</span>
+              </div>
+              <div className="kv-row">
+                <span className="k">调用次数</span>
+                <span className="v mono">{stats?.calls ?? 0}</span>
+              </div>
+              <div className="kv-row">
+                <span className="k">阻塞会话</span>
+                <span className="v mono dim">{blockedCount}</span>
+              </div>
+            </div>
+
+            <div className="ip">
+              <h4>会话</h4>
+              <div className="kv-row">
+                <span className="k">模型</span>
+                <span className="v mono">
+                  {sessionModel?.id || "未配置"}
+                  {sessionModel && <span className="dim"> {isCustomModel ? "自定义" : "默认"}</span>}
+                </span>
+              </div>
+              <div className="kv-row">
+                <span className="k">会话 ID</span>
+                <span className="v mono">{sessionId ?? "（新会话）"}</span>
+              </div>
+              <div className="kv-row">
+                <span className="k">上下文</span>
+                <span className="v mono">
+                  {stats?.contextPercent != null ? (
+                    <>
+                      {formatTokens(stats.contextUsed)} / {formatTokens(stats.contextMax)}{" "}
+                      <span className="dim">{stats.contextPercent}%</span>
+                    </>
+                  ) : (
+                    <span className="dim">—</span>
+                  )}
+                </span>
+              </div>
+              <div className="kv-row">
+                <span className="k">会话文件</span>
+                <span className="v mono dim">
+                  {sessionId ? `~/.pipi/agents/${agent.name}/sessions/` : "—"}
+                </span>
+              </div>
+            </div>
+
+            <div className="ip">
+              <h4>约束</h4>
+              <div className="kv-row">
+                <span className="k">沙箱</span>
+                <span className="v">
+                  <span className="tag ok">{agent.permissions.sandbox}</span>
+                </span>
+              </div>
+              <div className="kv-row">
+                <span className="k">bash</span>
+                <span className="v mono">
+                  {BASH_MODE_TEXT[agent.permissions.bash.mode] ?? agent.permissions.bash.mode}
+                  <span className="dim">
+                    {agent.permissions.bash.mode !== "allowAll"
+                      ? ` · ${agent.permissions.bash.commands.length} 条`
+                      : ""}
+                  </span>
+                </span>
+              </div>
+              <div className="kv-row">
+                <span className="k">工作目录</span>
+                <span className="v mono">{workspace}</span>
+              </div>
+              <div className="kv-row">
+                <span className="k">工具</span>
+                <span className="v mono dim">
+                  {agent.permissions.tools.length ? agent.permissions.tools.join(" · ") : "（无）"}
+                </span>
+              </div>
+            </div>
+        </div>
+
+        <div
+          className={`ipanel${tab === "files" ? " active" : ""}`}
+          id="ipanel-files"
+          role="tabpanel"
+          aria-labelledby="itab-files"
+        >
+            <div className="ip">
+              <h4>本次会话改动</h4>
+              {fileChanges.length > 0 ? (
+                <div className="chg">
+                  {fileChanges.map((item) => (
+                    <div className="chg-row" key={item.path} title={item.path}>
+                      <span className="p">{item.path}</span>
+                      <span className="add">+{item.add}</span>
+                      <span className="del">−{item.del}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="ip-note">本次会话还没有 write / edit 调用。</div>
+              )}
+            </div>
+
+            <div className="ip">
+              <h4>变更统计</h4>
+              <div className="metric">
+                <span className="m-k">文件</span>
+                <span className="m-v">{fileChanges.length}</span>
+              </div>
+              <div className="metric">
+                <span className="m-k">新增 / 删除</span>
+                <span className="m-v dim">
+                  +{fileChanges.reduce((total, item) => total + item.add, 0)} / −
+                  {fileChanges.reduce((total, item) => total + item.del, 0)}
+                </span>
+              </div>
+              <div className="metric">
+                <span className="m-k">写入调用</span>
+                <span className="m-v dim">{writeCalls}</span>
+              </div>
+            </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+// ============ 会话模型选择 ============
+
+interface ModelSelectModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (target: { isCustom: boolean; model: ModelConfig | null }) => Promise<void>;
+  currentModel: ModelConfig | null;
+  isCustomModel: boolean;
+  agentDefaultModel: ModelConfig | null;
+  providers: ProviderConfig[];
+}
+
+const PRESET_MODELS: Array<{
+  label: string;
+  id: string;
+  apiHint: "anthropic-messages" | "openai-completions";
+  maxTokens: number;
+  contextWindow: number;
+}> = [
+  { label: "Claude 3.7 Sonnet", id: "claude-3-7-sonnet-20250219", apiHint: "anthropic-messages", maxTokens: 8192, contextWindow: 200000 },
+  { label: "Claude 3.5 Sonnet", id: "claude-3-5-sonnet-20241022", apiHint: "anthropic-messages", maxTokens: 8192, contextWindow: 200000 },
+  { label: "Claude 3.5 Haiku", id: "claude-3-5-haiku-20241022", apiHint: "anthropic-messages", maxTokens: 8192, contextWindow: 200000 },
+  { label: "GPT-4o", id: "gpt-4o", apiHint: "openai-completions", maxTokens: 4096, contextWindow: 128000 },
+  { label: "GPT-4o-mini", id: "gpt-4o-mini", apiHint: "openai-completions", maxTokens: 4096, contextWindow: 128000 },
+  { label: "o3-mini", id: "o3-mini", apiHint: "openai-completions", maxTokens: 8192, contextWindow: 200000 },
+  { label: "DeepSeek Chat", id: "deepseek-chat", apiHint: "openai-completions", maxTokens: 8192, contextWindow: 64000 },
+  { label: "DeepSeek Reasoner", id: "deepseek-reasoner", apiHint: "openai-completions", maxTokens: 8192, contextWindow: 64000 },
+];
+
+function ModelSelectModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  currentModel,
+  isCustomModel,
+  agentDefaultModel,
+  providers,
+}: ModelSelectModalProps) {
+  const [mode, setMode] = useState<"default" | "custom">(isCustomModel ? "custom" : "default");
+
+  const initialProvider = providers.find((p) => {
+    if (isCustomModel && currentModel) {
+      return p.api === currentModel.api && (p.baseUrl || "") === (currentModel.baseUrl || "");
+    }
+    if (agentDefaultModel) {
+      return p.api === agentDefaultModel.api && (p.baseUrl || "") === (agentDefaultModel.baseUrl || "");
+    }
+    return false;
+  }) ?? providers[0];
+
+  const [selectedProviderId, setSelectedProviderId] = useState<string>(initialProvider?.id || "");
+  const [modelId, setModelId] = useState<string>(
+    isCustomModel && currentModel ? currentModel.id : ""
+  );
+  const [maxTokens, setMaxTokens] = useState<number>(
+    isCustomModel && currentModel ? currentModel.maxTokens : 8192
+  );
+  const [contextWindow, setContextWindow] = useState<number>(
+    isCustomModel && currentModel ? currentModel.contextWindow : 0
+  );
+  const [saving, setSaving] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const handleApplyPreset = (preset: (typeof PRESET_MODELS)[number]) => {
+    setModelId(preset.id);
+    setMaxTokens(preset.maxTokens);
+    setContextWindow(preset.contextWindow);
+    const currentProvider = providers.find((p) => p.id === selectedProviderId);
+    if (!currentProvider || currentProvider.api !== preset.apiHint) {
+      const match = providers.find((p) => p.api === preset.apiHint);
+      if (match) {
+        setSelectedProviderId(match.id);
+      }
+    }
+  };
+
+  const handleSave = async () => {
+    setModalError(null);
+    setSaving(true);
+    try {
+      if (mode === "default") {
+        await onConfirm({ isCustom: false, model: agentDefaultModel });
+      } else {
+        const trimmed = modelId.trim();
+        if (!trimmed) {
+          setModalError("请输入模型 ID（如 claude-3-7-sonnet-20250219）");
+          setSaving(false);
+          return;
+        }
+        const provider = providers.find((p) => p.id === selectedProviderId);
+        if (!provider) {
+          setModalError("请选择有效的供应商配置");
+          setSaving(false);
+          return;
+        }
+        const targetModel: ModelConfig = {
+          id: trimmed,
+          name: trimmed,
+          api: provider.api,
+          baseUrl: provider.baseUrl || "",
+          maxTokens: maxTokens > 0 ? maxTokens : 8192,
+          contextWindow: contextWindow > 0 ? contextWindow : 0,
+        };
+        await onConfirm({ isCustom: true, model: targetModel });
+      }
+    } catch (err: unknown) {
+      setModalError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose();
+      }}
+    >
+      <div className="modal model-select-modal">
+        <div className="modal-header">
+          <h2>选择会话模型</h2>
+          <button type="button" className="icon-btn close-btn" onClick={onClose} disabled={saving}>
+            ✕
+          </button>
+        </div>
+
+        <div className="modal-section">
+          <div className="mode-toggle-group">
+            <button
+              type="button"
+              className={`mode-toggle-card ${mode === "default" ? "active" : ""}`}
+              onClick={() => setMode("default")}
+            >
+              <div className="mode-toggle-title">跟随 Agent 默认</div>
+              <div className="mode-toggle-desc">
+                {agentDefaultModel ? (
+                  <span className="mono">{agentDefaultModel.id}</span>
+                ) : (
+                  <span className="mode-toggle-hint">（Agent 暂未绑定默认模型）</span>
+                )}
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={`mode-toggle-card ${mode === "custom" ? "active" : ""}`}
+              onClick={() => setMode("custom")}
+            >
+              <div className="mode-toggle-title">自定义会话模型</div>
+              <div className="mode-toggle-desc">
+                仅对当前会话生效，后续可随时切换
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {mode === "custom" && (
+          <div className="modal-section custom-model-form">
+            <div className="form-row">
+              <label className="label" htmlFor="model-provider-select">供应商</label>
+              {providers.length > 0 ? (
+                <select
+                  id="model-provider-select"
+                  value={selectedProviderId}
+                  onChange={(e) => setSelectedProviderId(e.target.value)}
+                >
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name || p.id} ({p.api === "anthropic-messages" ? "Anthropic" : "OpenAI"})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="form-warning">
+                  未检测到配置的供应商，请先在右上角「设置」中添加供应商 API Key。
+                </div>
+              )}
+            </div>
+
+            <div className="form-row">
+              <label className="label" htmlFor="session-model-id">模型 ID</label>
+              <input
+                id="session-model-id"
+                type="text"
+                value={modelId}
+                onChange={(e) => setModelId(e.target.value)}
+                placeholder="如 claude-3-7-sonnet-20250219、gpt-4o…"
+                className="mono"
+              />
+            </div>
+
+            <div className="form-row">
+              <span className="label">常用快捷预设</span>
+              <div className="model-preset-chips">
+                {PRESET_MODELS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`preset-chip ${modelId === preset.id ? "active" : ""}`}
+                    onClick={() => handleApplyPreset(preset)}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {modalError && <div className="form-error-banner">{modalError}</div>}
+
+        <div className="modal-actions">
+          <button type="button" className="btn ghost" onClick={onClose} disabled={saving}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={handleSave}
+            disabled={saving || (mode === "custom" && (!modelId.trim() || !selectedProviderId))}
+          >
+            {saving ? "切换中…" : "确认切换"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

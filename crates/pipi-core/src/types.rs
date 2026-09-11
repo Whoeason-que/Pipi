@@ -209,7 +209,7 @@ pub struct Tool {
 }
 
 /// 模型描述。对应 pi 的 `Model`（简化：去掉 cost / catalog 元数据）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
     pub id: String,

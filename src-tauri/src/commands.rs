@@ -2,6 +2,7 @@
 
 use pipi_core::agents::{self, AgentDefinition, PermissionsConfig};
 use pipi_core::settings::{self, Settings};
+use pipi_core::types::Model;
 
 #[tauri::command]
 pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
@@ -14,8 +15,17 @@ pub fn create_agent(
     description: String,
     workspace: Option<String>,
     permissions: Option<PermissionsConfig>,
+    model: Option<String>,
+    provider: Option<Model>,
 ) -> Result<AgentDefinition, String> {
-    agents::create_agent(&name, &description, workspace.as_deref(), permissions)
+    agents::create_agent(
+        &name,
+        &description,
+        workspace.as_deref(),
+        permissions,
+        model.as_deref(),
+        provider,
+    )
 }
 
 #[tauri::command]
