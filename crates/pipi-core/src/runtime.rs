@@ -4,6 +4,7 @@
 //! 编排、消息落盘和事件协议。宿主只需要把 RuntimeEvent 转发到自己的
 //! 事件系统即可，不应重复实现 Agent 执行逻辑。
 
+use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -153,9 +154,31 @@ struct Session {
 }
 
 /// 共享会话状态。Tauri 与 Web 服务各自持有一个实例。
-#[derive(Default)]
 pub struct RuntimeState {
+    /// 跑 Agent 循环用的 Tokio 运行时句柄，由宿主注入（桌面壳用 Tauri 的运行时，
+    /// Web 服务用自己的运行时）。核心不依赖宿主框架，也不能假设「调用线程已在
+    /// reactor 里」：桌面壳的 Tauri command 跑在 GTK 主线程上，那里没有运行时
+    /// 上下文，直接 `tokio::spawn` 会 panic（there is no reactor running）。
+    runtime: tokio::runtime::Handle,
     session: Mutex<Option<Session>>,
+}
+
+impl RuntimeState {
+    /// 用宿主运行时句柄构造。句柄必须指向多线程、IO/time 驱动齐全的运行时。
+    pub fn new(runtime: tokio::runtime::Handle) -> Self {
+        Self {
+            runtime,
+            session: Mutex::new(None),
+        }
+    }
+
+    /// 把一轮运行交给注入的运行时执行（不依赖调用线程的 reactor 上下文）。
+    fn spawn_run<F>(&self, task: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.runtime.spawn(task);
+    }
 }
 
 /// 暂存 slot 原值，前置步骤失败时自动恢复，成功后才提交新值。
@@ -727,8 +750,9 @@ impl RuntimeState {
             session_id.clone(),
             run_id,
         );
-
-        tokio::spawn(async move {
+        // 显式 spawn 到注入的运行时上：调用线程可能根本不在运行时里
+        // （桌面壳的 Tauri command 跑在 GTK 主线程），此时 `tokio::spawn` 会 panic。
+        self.spawn_run(async move {
             let _running_guard = running_guard;
             let context = AgentContext {
                 system_prompt,
@@ -873,6 +897,32 @@ mod tests {
 
         assert_eq!(result, Err("preflight failed"));
         assert_eq!(slot, Some("old"));
+    }
+
+    /// 回归：桌面壳的 Tauri command 跑在 GTK 主线程上，那里没有 reactor。
+    /// 核心必须把运行 spawn 到注入的运行时上，而不是依赖调用线程的上下文 ——
+    /// 修复前这里会 panic（there is no reactor running），且 panic 发生在主线程、
+    /// 直接中止整个进程。
+    #[test]
+    fn spawn_run_works_without_ambient_reactor() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let state = RuntimeState::new(runtime.handle().clone());
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = done.clone();
+
+        // 关键：不套 runtime.block_on —— 模拟「调用线程不在运行时里」
+        state.spawn_run(async move {
+            flag.store(true, Ordering::SeqCst);
+        });
+        assert!(!done.load(Ordering::SeqCst), "任务不该在调用线程上同步执行");
+
+        runtime.block_on(async {
+            tokio::task::yield_now().await;
+        });
+        assert!(done.load(Ordering::SeqCst), "任务必须落在注入的运行时上执行");
     }
 
     #[test]

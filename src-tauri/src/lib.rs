@@ -1,9 +1,15 @@
 mod chat;
 mod commands;
 
+/// 桌面壳的 command 跑在 GTK 主线程上，那里没有 reactor；把 Tauri 自己的
+/// Tokio 运行时句柄交给核心，Agent 循环由 `RuntimeState` 显式 spawn 上去。
+fn runtime_handle() -> tokio::runtime::Handle {
+    tauri::async_runtime::handle().inner().clone()
+}
+
 pub fn run() {
     tauri::Builder::default()
-        .manage(chat::ChatState::default())
+        .manage(chat::ChatState::new(runtime_handle()))
         .invoke_handler(tauri::generate_handler![
             commands::list_agents,
             commands::create_agent,

@@ -138,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (events, _) = broadcast::channel(256);
     let state = AppState {
-        runtime: Arc::new(RuntimeState::default()),
+        runtime: Arc::new(RuntimeState::new(tokio::runtime::Handle::current())),
         events,
         web_root: web_root.clone(),
         auth_token,
@@ -458,7 +458,7 @@ mod tests {
     fn test_state(token: Option<String>) -> AppState {
         let (events, _) = broadcast::channel(16);
         AppState {
-            runtime: Arc::new(RuntimeState::default()),
+            runtime: Arc::new(RuntimeState::new(tokio::runtime::Handle::current())),
             events,
             web_root: PathBuf::from("target/test-web-root"),
             auth_token: token,
