@@ -3,7 +3,17 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Markdown } from "./Markdown";
 import { invoke, listen } from "./platform";
 import { ScreenTabs } from "./ScreenTabs";
-import { findProviderPresetByEndpoint } from "./providers";
+import {
+  catalogSourceLabel,
+  findCatalogModel,
+  matchProvider,
+  resolveContextWindow,
+  resolveMaxTokens,
+  type ModelCatalog,
+} from "./catalog";
+import { loadCatalog, peekCatalog } from "./catalog-client";
+import { ModelPicker } from "./ModelPicker";
+import { ChoiceSelect } from "./Select";
 import {
   assistantFooter,
   chatReducer,
@@ -1376,23 +1386,6 @@ interface ModelSelectModalProps {
   providers: ProviderConfig[];
 }
 
-const PRESET_MODELS: Array<{
-  label: string;
-  id: string;
-  apiHint: "anthropic-messages" | "openai-completions";
-  maxTokens: number;
-  contextWindow: number;
-}> = [
-  { label: "Claude 3.7 Sonnet", id: "claude-3-7-sonnet-20250219", apiHint: "anthropic-messages", maxTokens: 8192, contextWindow: 200000 },
-  { label: "Claude 3.5 Sonnet", id: "claude-3-5-sonnet-20241022", apiHint: "anthropic-messages", maxTokens: 8192, contextWindow: 200000 },
-  { label: "Claude 3.5 Haiku", id: "claude-3-5-haiku-20241022", apiHint: "anthropic-messages", maxTokens: 8192, contextWindow: 200000 },
-  { label: "GPT-4o", id: "gpt-4o", apiHint: "openai-completions", maxTokens: 4096, contextWindow: 128000 },
-  { label: "GPT-4o-mini", id: "gpt-4o-mini", apiHint: "openai-completions", maxTokens: 4096, contextWindow: 128000 },
-  { label: "o3-mini", id: "o3-mini", apiHint: "openai-completions", maxTokens: 8192, contextWindow: 200000 },
-  { label: "DeepSeek Chat", id: "deepseek-chat", apiHint: "openai-completions", maxTokens: 8192, contextWindow: 64000 },
-  { label: "DeepSeek Reasoner", id: "deepseek-reasoner", apiHint: "openai-completions", maxTokens: 8192, contextWindow: 64000 },
-];
-
 function ModelSelectModal({
   isOpen,
   onClose,
@@ -1426,43 +1419,38 @@ function ModelSelectModal({
   );
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
-  const [modelQuery, setModelQuery] = useState("");
+  const [catalog, setCatalog] = useState<ModelCatalog | null>(peekCatalog());
 
-  // 当前选中的供应商若命中 models.dev 预设，就列出该供应商可用模型（避免手抄模型 ID）
+  useEffect(() => {
+    if (peekCatalog()) return;
+    let alive = true;
+    loadCatalog()
+      .then((next) => {
+        if (alive) setCatalog(next);
+      })
+      .catch(() => {
+        // 目录拉不到不影响切换模型：ModelPicker 会退化成手填
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 当前选中的供应商在目录里的条目（按「协议 + 端点」反查，口径与会话绑定一致）
   const activeProvider = providers.find((p) => p.id === selectedProviderId);
-  const preset = activeProvider
-    ? findProviderPresetByEndpoint(activeProvider.api, activeProvider.baseUrl)
-    : undefined;
-  const catalogModels = useMemo(() => {
-    if (!preset) return [];
-    const q = modelQuery.trim().toLowerCase();
-    if (!q) return preset.models;
-    return preset.models.filter(
-      (model) => model.id.toLowerCase().includes(q) || model.name.toLowerCase().includes(q),
-    );
-  }, [preset, modelQuery]);
+  const entry = matchProvider(catalog, activeProvider?.api ?? "", activeProvider?.baseUrl ?? "");
 
   if (!isOpen) return null;
 
-  const applyCatalogModel = (model: (typeof catalogModels)[number]) => {
-    setModelId(model.id);
-    setMaxTokens(model.output && model.output > 0 ? model.output : 8192);
-    setContextWindow(model.context && model.context > 0 ? model.context : 0);
+  // 切换供应商必须清掉上一个供应商残留的模型 ID 与限额，
+  // 否则会保存出「B 的端点 + A 的模型/上限」这种静默错配。
+  const handleProviderChange = (nextProviderId: string) => {
+    setSelectedProviderId(nextProviderId);
+    setModelId("");
+    setMaxTokens(8192);
+    setContextWindow(0);
   };
-  const pickedCatalogModel = preset?.models.find((model) => model.id === modelId);
-
-  const handleApplyPreset = (preset: (typeof PRESET_MODELS)[number]) => {
-    setModelId(preset.id);
-    setMaxTokens(preset.maxTokens);
-    setContextWindow(preset.contextWindow);
-    const currentProvider = providers.find((p) => p.id === selectedProviderId);
-    if (!currentProvider || currentProvider.api !== preset.apiHint) {
-      const match = providers.find((p) => p.api === preset.apiHint);
-      if (match) {
-        setSelectedProviderId(match.id);
-      }
-    }
-  };
+  const pickedModel = findCatalogModel(entry, modelId);
 
   const handleSave = async () => {
     setModalError(null);
@@ -1550,17 +1538,16 @@ function ModelSelectModal({
             <div className="form-row">
               <label className="label" htmlFor="model-provider-select">供应商</label>
               {providers.length > 0 ? (
-                <select
+                <ChoiceSelect
                   id="model-provider-select"
                   value={selectedProviderId}
-                  onChange={(e) => setSelectedProviderId(e.target.value)}
-                >
-                  {providers.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name || p.id} ({p.api === "anthropic-messages" ? "Anthropic" : "OpenAI"})
-                    </option>
-                  ))}
-                </select>
+                  choices={providers.map((p) => ({
+                    value: p.id,
+                    label: `${p.name || p.id}（${p.api === "anthropic-messages" ? "Anthropic" : "OpenAI"} 协议）`,
+                  }))}
+                  onChange={handleProviderChange}
+                  menuInPortal
+                />
               ) : (
                 <div className="form-warning">
                   未检测到配置的供应商，请先在右上角「设置」中添加供应商 API Key。
@@ -1569,81 +1556,44 @@ function ModelSelectModal({
             </div>
 
             <div className="form-row">
-              <label className="label" htmlFor="session-model-id">模型 ID</label>
-              <input
+              <label className="label" htmlFor="session-model-id">模型</label>
+              <ModelPicker
                 id="session-model-id"
-                type="text"
-                value={modelId}
-                onChange={(e) => setModelId(e.target.value)}
+                providers={providers}
+                providerId={selectedProviderId}
+                modelId={modelId}
+                disabled={saving}
                 placeholder="如 gpt-4o、deepseek-chat、anthropic/claude-sonnet-4.5"
-                className="mono"
+                onModelChange={(nextId, model) => {
+                  setModelId(nextId);
+                  // 手填（model 为 undefined）时保留已有限额：不能因为改了个 ID 就静默把
+                  // 目录/用户先前的 maxTokens、contextWindow 复位成默认值。
+                  setMaxTokens(resolveMaxTokens(model, maxTokens));
+                  setContextWindow(resolveContextWindow(model, contextWindow));
+                }}
               />
             </div>
 
-            {preset && preset.models.length > 0 ? (
+            {entry && entry.models.length > 0 ? (
               <div className="form-row">
-                <span className="label">可用模型 · {preset.name}</span>
-                <input
-                  className="preset-search"
-                  value={modelQuery}
-                  onChange={(event) => setModelQuery(event.target.value)}
-                  placeholder="筛选模型（id / 名称）…"
-                  aria-label="筛选模型"
-                  spellCheck={false}
-                />
-                <div className="model-list">
-                  {catalogModels.map((model) => (
-                    <button
-                      key={model.id}
-                      type="button"
-                      className={`model-row${modelId === model.id ? " active" : ""}`}
-                      aria-pressed={modelId === model.id}
-                      onClick={() => applyCatalogModel(model)}
-                      title={model.name}
-                    >
-                      <span className="m-name">{model.name}</span>
-                      {model.reasoning && <span className="badge neutral">推理</span>}
-                      <span className="m-id mono">{model.id}</span>
-                      {model.context ? (
-                        <span className="m-ctx mono">{formatTokens(model.context)} ctx</span>
-                      ) : null}
-                    </button>
-                  ))}
-                  {catalogModels.length === 0 && <div className="hint">没有匹配的模型。</div>}
-                </div>
                 <div className="hint">
-                  {preset.modelCount && preset.modelCount > preset.models.length
-                    ? `目录共 ${preset.modelCount} 个可用模型，此处列出前 ${preset.models.length} 个（可用筛选框查，也可直接填 ID）。`
-                    : "选中会自动填入上下文窗口与最大输出（仍可手动改）；目录数据来自 models.dev。"}
+                  {`模型列表来自 models.dev：${entry.name} 收录 ${entry.models.length} 个可工具调用的模型（来源 ${catalog ? catalogSourceLabel(catalog) : "目录"}）；目录外的模型直接输入模型 ID 回车即可。`}
                 </div>
-                {pickedCatalogModel && (
+                {pickedModel && (
                   <div className="hint mono">
-                    已选 {pickedCatalogModel.name} · 上下文 {formatTokens(pickedCatalogModel.context)} · 最大输出{" "}
-                    {formatTokens(pickedCatalogModel.output)}
+                    已选 {pickedModel.name} · 上下文 {formatTokens(pickedModel.context)} · 最大输出{" "}
+                    {formatTokens(pickedModel.output)}
                   </div>
                 )}
               </div>
             ) : (
-              <div className="form-row">
-                <span className="label">常用快捷预设</span>
-                <div className="model-preset-chips">
-                  {PRESET_MODELS.map((presetModel) => (
-                    <button
-                      key={presetModel.id}
-                      type="button"
-                      className={`preset-chip ${modelId === presetModel.id ? "active" : ""}`}
-                      onClick={() => handleApplyPreset(presetModel)}
-                    >
-                      {presetModel.label}
-                    </button>
-                  ))}
-                </div>
-                {!preset && (
+              providers.length > 0 && (
+                <div className="form-row">
                   <div className="hint">
-                    当前供应商不在 models.dev 目录里（自定义端点），直接填写模型 ID 即可。
+                    该供应商不在模型目录里（自定义端点）：直接输入模型 ID 即可。
                   </div>
-                )}
-              </div>
+                </div>
+              )
             )}
           </div>
         )}

@@ -1,6 +1,7 @@
 // 仅开发环境生效：在普通浏览器（无 Tauri 后端）里提供最小 invoke 桩，
 // 让前端 UI 可以脱离桌面壳独立开发调试。Tauri 生产构建不受影响。
 import type { AgentDefinition, Settings } from "./types";
+import type { ModelCatalog } from "./catalog";
 
 const demoAgent: AgentDefinition = {
   name: "demo-assistant",
@@ -171,6 +172,66 @@ interface TauriInternals {
   transformCallback: (cb: unknown) => unknown;
 }
 
+/** 浏览器演示用的模型目录桩：结构与 pipi-core 的 models.dev 结果一致（camelCase）。 */
+const demoCatalog: ModelCatalog = {
+  fetchedAt: Math.floor(Date.now() / 1000),
+  source: "models.dev",
+  stale: false,
+  providers: [
+    {
+      id: "anthropic",
+      name: "Anthropic",
+      api: "anthropic-messages",
+      baseUrl: "https://api.anthropic.com",
+      envKey: "ANTHROPIC_API_KEY",
+      group: "国际",
+      local: false,
+      models: [
+        { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", context: 1000000, output: 128000, reasoning: true },
+        { id: "claude-opus-4-5", name: "Claude Opus 4.5", context: 200000, output: 64000, reasoning: true },
+      ],
+    },
+    {
+      id: "openai",
+      name: "OpenAI",
+      api: "openai-completions",
+      baseUrl: "https://api.openai.com/v1",
+      envKey: "OPENAI_API_KEY",
+      group: "国际",
+      local: false,
+      models: [
+        { id: "gpt-5", name: "GPT-5", context: 400000, output: 128000, reasoning: true },
+        { id: "gpt-5-mini", name: "GPT-5 mini", context: 400000, output: 128000, reasoning: true },
+      ],
+    },
+    {
+      id: "deepseek",
+      name: "DeepSeek",
+      api: "openai-completions",
+      baseUrl: "https://api.deepseek.com/v1",
+      envKey: "DEEPSEEK_API_KEY",
+      group: "国内",
+      local: false,
+      models: [
+        { id: "deepseek-chat", name: "DeepSeek Chat", context: 128000, output: 8192 },
+        { id: "deepseek-reasoner", name: "DeepSeek Reasoner", context: 128000, output: 65536, reasoning: true },
+      ],
+    },
+    {
+      id: "ollama",
+      name: "Ollama（本地）",
+      api: "openai-completions",
+      baseUrl: "http://localhost:11434/v1",
+      envKey: "OLLAMA_API_KEY",
+      group: "本地",
+      local: true,
+      doc: "https://docs.ollama.com/api/openai-compatibility",
+      note: "本地服务：密钥填任意非空值（如 ollama）；模型名以 `ollama list` 为准",
+      models: [],
+    },
+  ],
+};
+
 const settings: Settings = {
   theme: localStorage.getItem("pipi-theme") === "light" ? "light" : "dark",
   providers: [
@@ -230,6 +291,15 @@ export function installDevMock(): void {
           return Promise.resolve(null);
         case "list_agents":
           return Promise.resolve([demoAgent]);
+        case "save_agent": {
+          // 浏览器演示模式：把保存落回 demoAgent，让「改完刷新」的流程可验证
+          const def = args.def as AgentDefinition | undefined;
+          if (def && def.name === demoAgent.name) Object.assign(demoAgent, def);
+          return Promise.resolve(null);
+        }
+        case "model_catalog":
+          // 与 pipi-core 的 wire 结构一致（providers/models 按 camelCase）
+          return Promise.resolve(structuredClone(demoCatalog));
         case "load_agent":
           return Promise.resolve(demoAgent);
         case "list_sessions":

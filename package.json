@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test:frontend": "node --experimental-strip-types --test tests/*.test.ts",
-    "providers:gen": "node scripts/gen-provider-catalog.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -16,6 +15,7 @@
     "react": "^19",
     "react-dom": "^19",
     "react-markdown": "^10.1.0",
+    "react-select": "^5.10.2",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1"
   },

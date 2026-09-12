@@ -15,12 +15,18 @@ import ChatView from "./Chat";
 import Login from "./Login";
 import { ScreenTabs } from "./ScreenTabs";
 import {
-  PROVIDER_GROUPS,
-  PROVIDER_PRESETS,
-  presetToProviderFields,
-  type ProviderGroup,
-  type ProviderPreset,
-} from "./providers";
+  catalogSourceLabel,
+  providerGroups,
+  providerSeed,
+  resolveContextWindow,
+  resolveMaxTokens,
+  type CatalogModel,
+  type CatalogProvider,
+  type ModelCatalog,
+} from "./catalog";
+import { loadCatalog, peekCatalog, resetCatalog } from "./catalog-client";
+import { ModelPicker } from "./ModelPicker";
+import { ChoiceSelect } from "./Select";
 import {
   formatRuntimeError,
   normalizeAgentEvent,
@@ -774,6 +780,14 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
     return bound?.id ?? "";
   });
   const [modelId, setModelId] = useState(agent.provider?.id ?? "");
+  // 从目录里选的模型：用它回填 maxTokens / contextWindow（不在目录里的模型保持原值）
+  const [pickedModel, setPickedModel] = useState<CatalogModel | undefined>(undefined);
+  // 当前「已保存绑定」的限额。换供应商后必须作废：否则手填目录外模型时会写回
+  // 上一家供应商的旧限额（端点换成了 B、限额还是 A 的）。
+  const [savedLimits, setSavedLimits] = useState(() => ({
+    maxTokens: agent.provider?.maxTokens ?? 8192,
+    contextWindow: agent.provider?.contextWindow ?? 0,
+  }));
   const [saving, setSaving] = useState(false);
 
   const bindProvider = async () => {
@@ -790,12 +804,16 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
               name: modelId.trim(),
               api: p.api,
               baseUrl: p.baseUrl,
-              maxTokens: agent.provider?.maxTokens ?? 8192,
-              contextWindow: agent.provider?.contextWindow ?? 0,
+              maxTokens: resolveMaxTokens(pickedModel, savedLimits.maxTokens),
+              contextWindow: resolveContextWindow(pickedModel, savedLimits.contextWindow),
             }
           : null,
       };
       await invoke("save_agent", { def: next });
+      setSavedLimits({
+        maxTokens: next.provider?.maxTokens ?? 8192,
+        contextWindow: next.provider?.contextWindow ?? 0,
+      });
       await onSaved();
     } catch (errorValue) {
       onError(formatRuntimeError(errorValue));
@@ -836,19 +854,35 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
             <span className="k">default_model</span>
             <div className="v">
               <div className="bind-row">
-                <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
-                  <option value="">（未绑定提供商）</option>
-                  {providers.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className="mono"
-                  value={modelId}
-                  onChange={(e) => setModelId(e.target.value)}
+                <div className="provider-picker">
+                  <ChoiceSelect
+                    id="agent-provider-select"
+                    value={providerId}
+                    choices={providers.map((p) => ({ value: p.id, label: p.name }))}
+                    placeholder="（未绑定提供商）"
+                    isClearable
+                    menuInPortal
+                    onChange={(next) => {
+                      setProviderId(next);
+                      // 与会话模型弹窗同一护栏：换供应商必须清掉上一家的模型与限额，
+                      // 否则会保存出「B 的端点 + A 的模型/上限」这种静默错配。
+                      setModelId("");
+                      setPickedModel(undefined);
+                      setSavedLimits({ maxTokens: 8192, contextWindow: 0 });
+                    }}
+                  />
+                </div>
+                <ModelPicker
+                  id="agent-default-model"
+                  providers={providers}
+                  providerId={providerId}
+                  modelId={modelId}
+                  disabled={saving}
                   placeholder="模型 ID，如 claude-sonnet-4-5"
+                  onModelChange={(nextId, model) => {
+                    setModelId(nextId);
+                    setPickedModel(model);
+                  }}
                 />
                 <button
                   className="btn primary"
@@ -962,6 +996,8 @@ function CreateForm({
     return providers[0]?.id ?? "";
   });
   const [modelId, setModelId] = useState("");
+  // 目录里选的模型：用它回填 provider 的 maxTokens / contextWindow
+  const [pickedModel, setPickedModel] = useState<CatalogModel | undefined>(undefined);
   const [tools, setTools] = useState<string[]>([...KNOWN_TOOLS]);
   const [bashMode, setBashMode] = useState<BashMode>("allowAll");
   const [commands, setCommands] = useState("");
@@ -1002,8 +1038,8 @@ function CreateForm({
             name: trimmedModel,
             api: selectedProvider.api,
             baseUrl: selectedProvider.baseUrl,
-            maxTokens: 8192,
-            contextWindow: 0,
+            maxTokens: resolveMaxTokens(pickedModel, 8192),
+            contextWindow: resolveContextWindow(pickedModel, 0),
           }
         : null;
 
@@ -1071,19 +1107,32 @@ function CreateForm({
           <div className="field">
             <label className="label">默认模型</label>
             <div className="bind-row">
-              <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
-                <option value="">（未绑定提供商）</option>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="mono"
-                value={modelId}
-                onChange={(e) => setModelId(e.target.value)}
+              <div className="provider-picker">
+                <ChoiceSelect
+                  id="agent-create-provider"
+                  value={providerId}
+                  choices={providers.map((p) => ({ value: p.id, label: p.name }))}
+                  placeholder="（未绑定提供商）"
+                  isClearable
+                  menuInPortal
+                  onChange={(next) => {
+                    setProviderId(next);
+                    // 同上：换供应商先清模型与目录限额，避免继承上一家的状态
+                    setModelId("");
+                    setPickedModel(undefined);
+                  }}
+                />
+              </div>
+              <ModelPicker
+                id="agent-create-model"
+                providers={providers}
+                providerId={providerId}
+                modelId={modelId}
                 placeholder="模型 ID，如 claude-sonnet-4-5 / gpt-4o"
+                onModelChange={(nextId, model) => {
+                  setModelId(nextId);
+                  setPickedModel(model);
+                }}
               />
             </div>
             <div className="hint">新建会话时将默认使用此模型；也可留空稍后在详情页配置</div>
@@ -1200,14 +1249,33 @@ interface SettingsModalProps {
 
 function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModalProps) {
   const [editing, setEditing] = useState<ProviderConfig | "new" | null>(null);
-  const [preset, setPreset] = useState<ProviderPreset | null>(null);
+  const [preset, setPreset] = useState<CatalogProvider | null>(null);
   const [picking, setPicking] = useState(false);
+  const [catalogNote, setCatalogNote] = useState<string | null>(null);
+  const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [draft, setDraft] = useState(settings);
   const draftRef = useRef(settings);
+
+  /** 手动刷新模型目录（默认 24h 才自动刷新，这里给用户一个立即刷新的出口）。 */
+  const refreshCatalog = async () => {
+    if (refreshingCatalog) return;
+    setRefreshingCatalog(true);
+    setCatalogNote(null);
+    try {
+      resetCatalog();
+      const next = await loadCatalog(true);
+      setCatalogNote(`已刷新：${next.providers.length} 家提供商 · 来源 ${catalogSourceLabel(next)}`);
+    } catch (reason) {
+      setCatalogNote(`刷新失败：${reason instanceof Error ? reason.message : String(reason)}`);
+    } finally {
+      setRefreshingCatalog(false);
+    }
+  };
 
   const closeEditor = () => {
     setEditing(null);
     setPreset(null);
+    setPicking(false);
   };
 
   useEffect(() => {
@@ -1304,7 +1372,15 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
                   <div className="p-url mono">{provider.baseUrl}</div>
                 </div>
                 <div className="p-actions">
-                  <button type="button" className="link" onClick={() => { setPreset(null); setEditing(provider); }}>
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => {
+                      setPreset(null);
+                      setPicking(false);
+                      setEditing(provider);
+                    }}
+                  >
                     编辑
                   </button>
                   {draft.defaultProviderId !== provider.id && (
@@ -1339,6 +1415,16 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
               >
                 手动配置端点
               </button>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="link"
+                disabled={refreshingCatalog}
+                onClick={() => void refreshCatalog()}
+              >
+                {refreshingCatalog ? "刷新中…" : "刷新模型目录"}
+              </button>
+              {catalogNote && <span className="hint">{catalogNote}</span>}
             </div>
           )}
 
@@ -1429,91 +1515,92 @@ function ThemeOption({
 
 interface PresetPickerProps {
   existingIds: string[];
-  onPick: (preset: ProviderPreset) => void;
+  onPick: (provider: CatalogProvider) => void;
   onCancel: () => void;
 }
 
-/** 预设选择器：按分组列出 models.dev 目录里的提供商，选中后进入表单预填。 */
+/**
+ * 预设选择器：选项来自模型目录（models.dev），按分组列出。
+ * 搜索与键盘导航交给 react-select；这里只标注「已添加」和来源。
+ */
 function PresetPicker({ existingIds, onPick, onCancel }: PresetPickerProps) {
-  const [query, setQuery] = useState("");
-  const q = query.trim().toLowerCase();
+  const [catalog, setCatalog] = useState<ModelCatalog | null>(peekCatalog());
+  const [loading, setLoading] = useState(peekCatalog() === null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
-  const groups: Array<{ group: ProviderGroup; items: ProviderPreset[] }> = PROVIDER_GROUPS
-    .map((group) => ({
-      group,
-      items: PROVIDER_PRESETS
-        .filter((preset) => preset.group === group)
-        .filter((preset) => !q
-          || preset.name.toLowerCase().includes(q)
-          || preset.id.toLowerCase().includes(q)
-          || preset.baseUrl.toLowerCase().includes(q)
-          || preset.envKey.toLowerCase().includes(q)),
-    }))
-    .filter((entry) => entry.items.length > 0);
+  useEffect(() => {
+    if (peekCatalog()) return;
+    let alive = true;
+    setLoading(true);
+    loadCatalog(attempt > 0)
+      .then((next) => {
+        if (!alive) return;
+        setCatalog(next);
+        setError(null);
+      })
+      .catch((reason: unknown) => {
+        if (alive) setError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [attempt]);
 
-  const hitCount = groups.reduce((total, entry) => total + entry.items.length, 0);
+  const groups = catalog
+    ? providerGroups(catalog).map((entry) => ({
+        label: entry.label,
+        options: entry.options.map((option) => {
+          const provider = catalog.providers.find((item) => item.id === option.value);
+          const parts = [option.label];
+          if (provider?.api === "anthropic-messages") parts.push("Anthropic 协议");
+          if (existingIds.includes(option.value)) parts.push("已添加");
+          return { value: option.value, label: parts.join(" · ") };
+        }),
+      }))
+    : [];
 
   return (
     <div className="preset-picker">
       <div className="preset-picker-head">
-        <input
-          className="preset-search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索提供商（名称 / id / 端点 / 环境变量）…"
-          aria-label="搜索提供商预设"
-          autoFocus
-          spellCheck={false}
-        />
-        <span className="hint">{hitCount} / {PROVIDER_PRESETS.length}</span>
+        <span className="label">选择提供商预设</span>
+        <span className="spacer" />
         <button type="button" className="link" onClick={onCancel}>
           取消
         </button>
       </div>
 
-      <div className="preset-groups">
-        {groups.map(({ group, items }) => (
-          <div className="preset-group" key={group}>
-            <h5>
-              {group}
-              <span>{items.length}</span>
-            </h5>
-            {items.map((preset) => {
-              const added = existingIds.includes(preset.id);
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={`preset-row${added ? " added" : ""}`}
-                  onClick={() => onPick(preset)}
-                  title={preset.note ?? preset.baseUrl}
-                >
-                  <span className="p-name">{preset.name}</span>
-                  <span className="badge neutral">
-                    {preset.api === "anthropic-messages" ? "Anthropic 协议" : "OpenAI 兼容"}
-                  </span>
-                  {preset.models.length > 0 && (
-                    <span className="p-count">
-                      {preset.modelCount && preset.modelCount > preset.models.length
-                        ? `${preset.modelCount} 个可用模型`
-                        : `${preset.models.length} 模型`}
-                    </span>
-                  )}
-                  {added && <span className="badge">已添加</span>}
-                  <span className="p-env mono">{preset.envKey}</span>
-                </button>
-              );
-            })}
+      <div className="preset-picker-body">
+        <ChoiceSelect
+          value=""
+          groups={groups}
+          disabled={loading || !catalog}
+          placeholder={loading ? "正在加载模型目录…" : "搜索提供商（名称 / id）…"}
+          ariaLabel="选择提供商预设"
+          autoFocus
+          menuInPortal
+          onChange={(id) => {
+            const hit = catalog?.providers.find((provider) => provider.id === id);
+            if (hit) onPick(hit);
+          }}
+        />
+        {error && (
+          <div className="form-warning">
+            {error}
+            <button type="button" className="link" onClick={() => setAttempt((n) => n + 1)}>
+              重试
+            </button>
           </div>
-        ))}
-        {hitCount === 0 && (
-          <div className="hint">没有匹配的预设；可以返回后用「手动配置端点」。</div>
         )}
-      </div>
-
-      <div className="preset-foot">
-        目录来自 <span className="mono">models.dev</span>（opencode 使用的模型目录）——
-        预设只填端点、协议与环境变量名，密钥始终由你提供（环境变量优先，其次明文）。
+        {catalog && (
+          <div className="hint">
+            {catalog.providers.length} 家提供商 · 来源 {catalogSourceLabel(catalog)}；
+            预设只填端点、协议与环境变量名，密钥始终由你提供（环境变量优先，其次明文）。
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1521,22 +1608,25 @@ function PresetPicker({ existingIds, onPick, onCancel }: PresetPickerProps) {
 
 interface ProviderFormProps {
   initial: ProviderConfig | null;
-  /** 从预设添加时的种子值（不含密钥）；编辑已有提供商时为 null。 */
-  preset: ProviderPreset | null;
+  /** 从目录预设添加时的种子值（不含密钥）；编辑已有提供商时为 null。 */
+  preset: CatalogProvider | null;
   existingIds: string[];
   onSave: (p: ProviderConfig) => void;
   onCancel: () => void;
 }
 
 function ProviderForm({ initial, preset, existingIds, onSave, onCancel }: ProviderFormProps) {
-  const seed = preset ? presetToProviderFields(preset) : null;
+  const seed = preset ? providerSeed(preset) : null;
   const [name, setName] = useState(initial?.name ?? seed?.name ?? "");
   const [api, setApi] = useState<ApiKind>(initial?.api ?? seed?.api ?? "anthropic-messages");
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? seed?.baseUrl ?? "");
   const [envKey, setEnvKey] = useState(initial?.envKey ?? seed?.envKey ?? "");
   const [apiKey, setApiKey] = useState(initial?.apiKey ?? "");
 
-  const id = initial?.id ?? seed?.id ?? slugify(name);
+  // 预设默认沿用预设 id；但用户一改名称就改由名称派生（与手动路径一致），
+  // 否则「改个名字换个 id」这条出路在预设路径上不成立。
+  const nameEdited = Boolean(preset) && name.trim() !== preset!.name;
+  const id = initial?.id ?? (seed && !nameEdited ? seed.id : slugify(name));
 
   const valid =
     name.trim().length > 0 &&
@@ -1562,16 +1652,14 @@ function ProviderForm({ initial, preset, existingIds, onSave, onCancel }: Provid
       {preset && (
         <div className="preset-banner">
           <div className="preset-banner-head">
-            <span className="badge">预设</span>
+            <span className="badge">目录预设</span>
             <span className="preset-banner-name">{preset.name}</span>
             <span className="badge neutral">{preset.group}</span>
-            {preset.models.length > 0 && (
-              <span className="hint">
-                {preset.modelCount && preset.modelCount > preset.models.length
-                  ? `目录共 ${preset.modelCount} 个可用模型`
-                  : `${preset.models.length} 个可用模型`}
-              </span>
-            )}
+            <span className="hint">
+              {preset.models.length > 0
+                ? `${preset.models.length} 个可工具调用的模型`
+                : "本地运行时：模型名手填"}
+            </span>
             {preset.doc && (
               <a className="link" href={preset.doc} target="_blank" rel="noreferrer">
                 文档 ↗
@@ -1579,6 +1667,9 @@ function ProviderForm({ initial, preset, existingIds, onSave, onCancel }: Provid
             )}
           </div>
           {preset.note && <div className="hint">{preset.note}</div>}
+          {preset.baseUrlNote && (
+            <div className="hint mono">端点说明：{preset.baseUrlNote}</div>
+          )}
         </div>
       )}
       <div className="grid">
@@ -1632,7 +1723,7 @@ function ProviderForm({ initial, preset, existingIds, onSave, onCancel }: Provid
       </div>
       {idTaken && (
         <div className="form-warning">
-          id「{id}」已存在：换个名称可以换 id，或关闭本表单后直接「编辑」已有提供商。
+          id「{id}」已存在：改一下名称即可换 id；或关闭本表单后直接「编辑」已有提供商。
         </div>
       )}
       <div className="actions">
