@@ -19,7 +19,7 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 ```
 crates/pipi-core/   Rust 核心（不依赖 Tauri）：agent_loop / tools / provider（rig 适配层）/
                     session / permissions / context / skills / stats / project_doc /
-                    settings / agents / truncate / types
+                    settings / agents / catalog（模型目录，models.dev）/ truncate / types
 src-tauri/          Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务逻辑
 src/                React + TypeScript 前端
 ```
@@ -48,9 +48,14 @@ src/                React + TypeScript 前端
 - 业务逻辑只进 `pipi-core`；`src-tauri` 是薄壳，不写逻辑。
 - Agent 数据根目录是 `~/.pipi/agents/<name>/`，结构见 README；不要把 Agent 状态存到别处。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息用用户可读的中文。
-- 前端保持零 UI 框架依赖，手写样式；新增依赖需要充分理由。已批准的例外：
-  react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，
-  见 src/Markdown.tsx；不启用 rehype-raw，模型输出不可信）。
+- 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
+  - react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，
+    见 src/Markdown.tsx；不启用 rehype-raw，模型输出不可信）；
+  - react-select（模型/供应商选择器的搜索与键盘导航，见 src/Select.tsx）——统一以
+    `unstyled` + 自有 `.pipi-select__*` 样式使用，不让第三方样式体系渗进来。
+- 模型目录（提供商与模型清单）**不再手写或生成**：运行时从 models.dev 拉取并缓存到
+  `~/.pipi/cache/models.json`，实现见 `crates/pipi-core/src/catalog.rs`。上游给的是
+  AI SDK 语义的 baseUrl，未经 `CURATION` 表核实不得直接当 Pipi 的 baseUrl 使用。
 - 目录骨架必须与 README「Agent 的组成」表格一致；改动时两边同步更新。
 - provider 协议层用 rig（`rig` crate，依赖重命名自 rig-core）：新增 provider
   能力优先看 rig 是否已支持，不要回退到手写 SSE；映射偏差记录在 provider.rs。

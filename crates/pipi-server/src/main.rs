@@ -330,6 +330,10 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
     let args = &request.args;
     match command {
         "list_agents" => to_value(agents::list_agents_bootstrapped()?),
+        "model_catalog" => {
+            let refresh = optional_value::<bool>(args, "refresh")?.unwrap_or(false);
+            to_value(pipi_core::catalog::load_catalog(refresh).await?)
+        }
         "create_agent" => {
             let name = required_string(args, "name")?;
             let description = required_string(args, "description")?;

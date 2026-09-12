@@ -25,6 +25,7 @@
 
 pub mod agent_loop;
 pub mod agents;
+pub mod catalog;
 pub mod context;
 pub mod harness;
 pub mod permissions;

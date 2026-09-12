@@ -11,6 +11,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(chat::ChatState::new(runtime_handle()))
         .invoke_handler(tauri::generate_handler![
+            commands::model_catalog,
             commands::list_agents,
             commands::create_agent,
             commands::load_agent,

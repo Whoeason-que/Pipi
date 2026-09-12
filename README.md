@@ -127,13 +127,18 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 
 有意推迟移植（需要时再从上游搬）：compaction、hooks 全集、transformContext/
 prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`permissions`
-（命令权限）、`agents`（Agent 注册表）、memory 工具。
+（命令权限）、`agents`（Agent 注册表）、`catalog`（模型目录，models.dev）、memory 工具。
 
 ### 与 opencode / hermes 的关系
 
 - **opencode**（sst/opencode）：「provider 层用第三方库」的架构决策来自它
   （它用 Vercel AI SDK，我们用 rig）；`session.ts` 里 usage 的归一化口径
   （cache read/write 从输入中拆分）与我们的 Usage 字段一致。
+- **模型目录**：运行时从 [models.dev](https://models.dev)（MIT，opencode 用的模型目录）
+  拉取并缓存到 `~/.pipi/cache/models.json`；Pipi 只保留「收录哪些家 + 端点/协议的人工
+  核实」这一张 `CURATION` 表（`crates/pipi-core/src/catalog.rs`）。上游给的是 AI SDK
+  语义的 baseUrl，未经核实不得直接当 Pipi 的 baseUrl 用 —— 例如上游 DeepSeek 只给
+  `https://api.deepseek.com`（无版本段），而 rig 的 OpenAI 兼容客户端会往后拼路径。
 - **hermes**（NousResearch/hermes-agent）：会话统计面板整套语义来自它 ——
   滚动 N 次调用的平均 tok/s（sum(output)/sum(latency)）、缓存命中率
   （cache_read / prompt 总量）、上下文占用用最近一次请求的实际值而非累计值，

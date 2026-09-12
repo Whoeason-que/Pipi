@@ -465,7 +465,18 @@ impl Provider for RigProvider {
                         cb = cb.base_url(model.base_url.clone());
                     }
                     let client = cb.build().map_err(|e| format!("Client 初始化失败: {e}"))?;
-                    run_with_model!(tx, abort, model, context, options, client.completion_model(&model.id))
+                    // 统一走 Chat Completions（`/chat/completions`）：rig 0.42 的 openai 客户端
+                    // 默认是 Responses API（`/responses`），而「openai-completions」协议在中转商、
+                    // 本地运行时那里就是 Chat Completions 的兼容层 —— 只有官方 OpenAI 才认
+                    // /responses。协议名与实现必须一致，否则绝大多数兼容端点直接 404。
+                    run_with_model!(
+                        tx,
+                        abort,
+                        model,
+                        context,
+                        options,
+                        client.completions_api().completion_model(&model.id)
+                    )
                 }
                 }
             }
