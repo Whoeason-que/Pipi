@@ -79,6 +79,15 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 会话 | `sessions/*.jsonl` | Append-only 的运行记录，一文件一会话，树状条目（id/parentId）支持分叉 |
 
+### 默认 Agent
+
+首次启动（或 `~/.pipi/agents/Pipi/` 不存在）时，核心会自动播种一个名为 **Pipi** 的默认 Agent：
+启用全部内置工具、`workspace-write` 沙箱、工作目录为自身目录下的 `workspace/`，
+与手动新建的 Agent 完全同构 —— 想改就改 `~/.pipi/agents/Pipi/agent.json`。
+
+**已存在时一律不覆盖**（哪怕文件被改坏也不动用户数据）；删掉该目录后下次启动会重新播种，
+想彻底移除它请改名而不是删除。
+
 ## 架构
 
 ```

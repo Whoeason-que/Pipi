@@ -6,7 +6,8 @@ use pipi_core::types::Model;
 
 #[tauri::command]
 pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
-    agents::list_agents()
+    // 首次启动时播种默认 Agent（Pipi），已存在则原样返回
+    agents::list_agents_bootstrapped()
 }
 
 #[tauri::command]

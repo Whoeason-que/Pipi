@@ -221,6 +221,55 @@ pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
     Ok(agents)
 }
 
+/// 默认 Agent 的名字。首次启动（或该 Agent 缺失）时由核心播种，保证开箱即可用。
+/// 它与用户自建 Agent 完全同构：就是 `~/.pipi/agents/<name>/` 下的一组普通文件。
+pub const DEFAULT_AGENT_NAME: &str = "Pipi";
+
+/// 播种默认 Agent 时写入的描述（同时作为它 AGENTS.md 的首段）。
+const DEFAULT_AGENT_DESCRIPTION: &str =
+    "Pipi 自带的默认 Agent：开箱可用；工作目录、技能与记忆都在 ~/.pipi/agents/Pipi/ 下，改文件即生效";
+
+/// 确保默认 Agent 存在；**目录已存在时一律不动**（哪怕 manifest 被改坏，也不覆盖用户数据）。
+///
+/// 只在目录缺失时创建。因此删掉 `~/.pipi/agents/Pipi/` 后下次启动会重新播种；
+/// 想彻底移除它，请改名而不是删除。
+/// 返回 `Some(def)` 表示本次确实新建了。
+pub fn ensure_default_agent() -> Result<Option<AgentDefinition>, String> {
+    let dir = checked_agent_dir(DEFAULT_AGENT_NAME)?;
+    if dir.exists() {
+        return Ok(None);
+    }
+    // 权限沿用「新建 Agent」表单的默认：全部已知工具 + 受限沙箱（workspace-write）。
+    // 注意不要直接传 PermissionsConfig::default()，其沙箱默认是 DangerFullAccess。
+    match create_agent(
+        DEFAULT_AGENT_NAME,
+        DEFAULT_AGENT_DESCRIPTION,
+        None,
+        None,
+        None,
+        None,
+    ) {
+        Ok(def) => Ok(Some(def)),
+        Err(error) => {
+            // 并发播种（桌面端与 Web 端同时启动）：另一边先建好了，不算失败。
+            if dir.exists() {
+                Ok(None)
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
+/// 列表入口：先确保默认 Agent 已播种，再返回列表。
+/// 播种失败不阻断列表（用户仍可手动创建 Agent），错误只记 stderr。
+pub fn list_agents_bootstrapped() -> Result<Vec<AgentDefinition>, String> {
+    if let Err(error) = ensure_default_agent() {
+        eprintln!("pipi: 播种默认 Agent 失败：{error}");
+    }
+    list_agents()
+}
+
 /// 创建 Agent：生成目录骨架并写入 agent.json / AGENTS.md。
 /// 不做任何额外存储 —— Agent 从诞生起就是一组普通文件。
 pub fn create_agent(
@@ -819,6 +868,89 @@ mod tests {
         let loaded = loaded.unwrap();
         assert_eq!(loaded.model, "claude-3-7-sonnet-20250219");
         assert!(loaded.provider.is_some());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn seeds_default_agent_when_missing_and_never_overwrites() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-seed-{}", crate::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", &home);
+
+        // 目录缺失 → 播种；骨架与 README「Agent 的组成」一致
+        let created = ensure_default_agent()
+            .unwrap()
+            .expect("首次调用应播种默认 Agent");
+        assert_eq!(created.name, DEFAULT_AGENT_NAME);
+        let dir = home.join(".pipi").join("agents").join(DEFAULT_AGENT_NAME);
+        for entry in [
+            "agent.json",
+            "AGENTS.md",
+            "skills",
+            "memory",
+            "sessions",
+            "workspace",
+        ] {
+            assert!(dir.join(entry).exists(), "{entry} 应存在");
+        }
+        // 默认权限：全部工具 + 受限沙箱（PermissionsConfig::default 的沙箱是 DangerFullAccess，不能被沿用）
+        assert_eq!(
+            created.permissions.sandbox,
+            crate::permissions::SandboxMode::WorkspaceWrite
+        );
+        assert!(created.permissions.tools.iter().any(|tool| tool == "bash"));
+        assert!(
+            created.provider.is_none(),
+            "播种的默认 Agent 不应凭空绑定模型"
+        );
+
+        // 已存在 → 不再创建，且不覆盖用户改动
+        std::fs::write(dir.join("AGENTS.md"), "# Pipi\n\n用户改过的说明\n").unwrap();
+        assert!(ensure_default_agent().unwrap().is_none());
+        let agents = list_agents_bootstrapped().unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, DEFAULT_AGENT_NAME);
+        assert!(
+            std::fs::read_to_string(dir.join("AGENTS.md"))
+                .unwrap()
+                .contains("用户改过的说明"),
+            "播种不得覆盖用户对 AGENTS.md 的改动"
+        );
+
+        std::env::set_var("HOME", &prev);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn bootstrap_keeps_existing_agents_and_backfills_default() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-fill-{}", crate::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", &home);
+
+        create_agent("helper", "已有的 Agent", None, None, None, None).unwrap();
+        assert_eq!(
+            list_agents().unwrap().len(),
+            1,
+            "list_agents 本身不应有副作用"
+        );
+
+        // 有其它 Agent 但没有默认 Agent → 保留原样并补上默认 Agent
+        let agents = list_agents_bootstrapped().unwrap();
+        let names: Vec<String> = agents.iter().map(|agent| agent.name.clone()).collect();
+        assert!(names.contains(&"helper".to_string()));
+        assert!(names.contains(&DEFAULT_AGENT_NAME.to_string()));
+        assert_eq!(names.len(), 2);
+        // 幂等
+        assert!(ensure_default_agent().unwrap().is_none());
+        assert_eq!(list_agents().unwrap().len(), 2);
+
+        std::env::set_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
     }
 }

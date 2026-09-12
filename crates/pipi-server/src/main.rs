@@ -329,7 +329,7 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
     let command = request.command.trim();
     let args = &request.args;
     match command {
-        "list_agents" => to_value(agents::list_agents()?),
+        "list_agents" => to_value(agents::list_agents_bootstrapped()?),
         "create_agent" => {
             let name = required_string(args, "name")?;
             let description = required_string(args, "description")?;

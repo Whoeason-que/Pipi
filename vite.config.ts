@@ -16,6 +16,8 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // 监听所有网卡：手机等局域网设备可用 http://<本机IP>:1420 访问（仅开发模式生效）
+    host: true,
     watch: { ignored: ["**/src-tauri/**"] },
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
