@@ -89,6 +89,12 @@ let demoRunning = false;
 let demoHasSession = true;
 let demoRunId = 0;
 let demoSessionCounter = 0;
+// 归档演示状态：Agent 与部分会话可被「归档/恢复/删除」，在内存里挪动。
+// deleted 与 archived 分开：删除是永久消失（对应真实后端删目录），
+// 归档后仍可恢复（对应真实后端从 .archive 移回）。
+let demoAgentArchived = false;
+let demoAgentDeleted = false;
+const demoArchivedSessions = new Map<string, Array<Record<string, unknown>>>();
 
 function emitDevEvent(name: string, payload: unknown): void {
   devListeners.get(name)?.forEach((listener) => listener({ payload }));
@@ -290,7 +296,8 @@ export function installDevMock(): void {
           Object.assign(settings, args.settings);
           return Promise.resolve(null);
         case "list_agents":
-          return Promise.resolve([demoAgent]);
+          // 尊重归档/删除状态：归档后活跃列表为空，删除后彻底消失
+          return Promise.resolve(demoAgentArchived || demoAgentDeleted ? [] : [demoAgent]);
         case "save_agent": {
           // 浏览器演示模式：把保存落回 demoAgent，让「改完刷新」的流程可验证
           const def = args.def as AgentDefinition | undefined;
@@ -356,6 +363,70 @@ export function installDevMock(): void {
           demoMessages = [];
           demoSessionHistories.set(demoSessionId, demoMessages);
           return Promise.resolve(null);
+        // —— 归档 / 恢复 / 删除（演示桩：内存里挪动 demo 数据）——
+        case "list_archived_agents":
+          return Promise.resolve(demoAgentArchived && !demoAgentDeleted ? [demoAgent] : []);
+        case "archive_agent":
+          if (String(args.name ?? "") === demoAgent.name && !demoAgentDeleted) {
+            demoAgentArchived = true;
+          }
+          return Promise.resolve(null);
+        case "restore_agent":
+          if (String(args.name ?? "") === demoAgent.name && !demoAgentDeleted) {
+            demoAgentArchived = false;
+          }
+          return Promise.resolve(null);
+        case "delete_agent":
+          if (String(args.name ?? "") === demoAgent.name) {
+            // 真实后端：删除目录 → Agent 永久消失（不复活，不重新播种）
+            demoAgentDeleted = true;
+            demoAgentArchived = false;
+            demoSessionHistories.clear();
+            demoArchivedSessions.clear();
+          }
+          return Promise.resolve(null);
+        case "delete_archived_agent":
+          demoAgentDeleted = true;
+          demoAgentArchived = false;
+          return Promise.resolve(null);
+        case "list_archived_sessions":
+          return Promise.resolve(
+            [...demoArchivedSessions.entries()].map(([id, messages]) => ({
+              id,
+              title: demoSessionTitles.get(id) ?? "已归档会话",
+              messageCount: messages.length,
+              startedAt: Number(id.split("-")[0]) || 0,
+              lastActive: Number(id.split("-")[0]) || 0,
+            })),
+          );
+        case "archive_session": {
+          const sid = String(args.sessionId ?? "");
+          const history = demoSessionHistories.get(sid);
+          if (history !== undefined) {
+            demoSessionHistories.delete(sid);
+            demoArchivedSessions.set(sid, history);
+          }
+          return Promise.resolve(null);
+        }
+        case "restore_session": {
+          const sid = String(args.sessionId ?? "");
+          const history = demoArchivedSessions.get(sid);
+          if (history !== undefined) {
+            demoArchivedSessions.delete(sid);
+            demoSessionHistories.set(sid, history);
+          }
+          return Promise.resolve(null);
+        }
+        case "delete_session": {
+          const sid = String(args.sessionId ?? "");
+          demoSessionHistories.delete(sid);
+          return Promise.resolve(null);
+        }
+        case "delete_archived_session": {
+          const sid = String(args.sessionId ?? "");
+          demoArchivedSessions.delete(sid);
+          return Promise.resolve(null);
+        }
         default:
           return Promise.resolve(null);
       }

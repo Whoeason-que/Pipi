@@ -229,26 +229,42 @@ button {
   border-bottom: 1px solid var(--line);
 }
 
-.sb-filter input {
-  width: 100%;
-  height: 26px;
+.sb-filter .search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
   background: var(--code-bg);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
+  color: var(--faint);
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+
+.sb-filter .search:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.sb-filter .search svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.sb-filter input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: 0;
   color: var(--fg);
   font-size: 12px;
-  padding: 0 8px;
-  outline: 0;
-  transition: border-color 0.14s, box-shadow 0.14s;
 }
 
 .sb-filter input::placeholder {
   color: var(--faint);
-}
-
-.sb-filter input:focus {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .sb-sec {
@@ -293,10 +309,42 @@ button {
   align-items: center;
   gap: 6px;
   padding: 5px 8px 5px 10px;
+  min-width: 0;
 }
 
-.agent-row button {
+.agent-row .agent-actions {
+  display: inline-flex;
+  gap: 2px;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.agent:hover .agent-row .agent-actions,
+.agent-row:hover .agent-actions {
+  opacity: 1;
+}
+
+.agent-actions .icon-btn {
+  width: 22px;
+  height: 22px;
+}
+
+.agent-actions .icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 纯键盘用户 Tab 聚焦到隐藏按钮时立即显形（焦点轮廓不被 opacity 带没） */
+.agent-actions:focus-within {
+  opacity: 1;
+}
+
+/* 危险操作（删除类）图标按钮 */
+.icon-btn.danger:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
 }
 
 .agent-name {
@@ -359,6 +407,32 @@ button {
   white-space: nowrap;
 }
 
+.session-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.session:hover .session-actions {
+  opacity: 1;
+}
+
+.session-actions .icon-btn {
+  width: 20px;
+  height: 20px;
+}
+
+.session-actions .icon-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.session-actions:focus-within {
+  opacity: 1;
+}
+
 .session-model {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 10px;
@@ -384,6 +458,68 @@ button {
 .session.pending {
   color: var(--faint);
   padding-left: 12px;
+}
+
+/* 已归档 Agents 分组（侧栏底部） */
+
+.archived-head {
+  cursor: pointer;
+  border-top: 1px solid var(--line);
+  user-select: none;
+}
+
+.archived-head .caret {
+  font-size: 8px;
+  color: var(--faint);
+  transition: transform 0.16s;
+}
+
+.archived-head .caret.open {
+  transform: rotate(90deg);
+}
+
+.archived {
+  padding-bottom: 8px;
+}
+
+.archived .agent-row {
+  border-radius: var(--r-sm);
+}
+
+.archived .agent-row:hover {
+  background: var(--hover);
+}
+
+.archived .agent-name {
+  font-weight: 500;
+}
+
+/* 会话树内的「已归档」折叠区 */
+
+.archived-toggle > svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--faint);
+}
+
+.archived-toggle .caret {
+  font-size: 8px;
+  color: var(--faint);
+  transition: transform 0.16s;
+  flex-shrink: 0;
+}
+
+.archived-toggle .caret.open {
+  transform: rotate(90deg);
+}
+
+.archived-sessions .session {
+  padding-left: 18px;
+}
+
+.archived-sessions .session .session-title {
+  color: var(--faint);
 }
 
 .sidebar-backdrop {
@@ -442,22 +578,23 @@ button {
 .tab {
   background: transparent;
   border: 0;
-  border-bottom: 1.5px solid transparent;
   cursor: pointer;
   font-family: inherit;
   font-size: 12px;
   color: var(--muted);
-  padding: 4px 9px 3px;
-  transition: color 0.13s, border-color 0.13s;
+  padding: 4px 10px 3px;
+  border-radius: var(--r-sm);
+  transition: color 0.13s, background 0.13s;
 }
 
 .tab:hover {
   color: var(--fg);
+  background: var(--hover);
 }
 
 .tab.active {
   color: var(--fg);
-  border-bottom-color: var(--accent-text);
+  background: var(--hover-2);
 }
 
 .screen-bar .spacer {
@@ -471,11 +608,11 @@ button {
   max-width: 30ch;
   background: var(--code-bg);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: 999px;
   color: var(--muted);
   cursor: pointer;
   font-size: 11px;
-  padding: 2px 8px;
+  padding: 3px 10px;
   transition: color 0.13s, border-color 0.13s, background 0.13s;
 }
 
@@ -517,6 +654,12 @@ button {
   font-size: 12.5px;
   line-height: 1;
   transition: background 0.12s, color 0.12s, border-color 0.12s, opacity 0.12s;
+}
+
+.icon-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .icon-btn:hover:not(:disabled) {
@@ -596,6 +739,31 @@ button {
   cursor: not-allowed;
 }
 
+/* 危险操作（删除确认等） */
+.btn.danger {
+  color: var(--on-accent);
+  background: var(--danger);
+  border-color: transparent;
+  font-weight: 550;
+}
+
+.btn.danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+  color: var(--on-accent);
+  background: var(--danger);
+}
+
+/* 删除确认弹窗 */
+.confirm-modal {
+  width: min(420px, 100%);
+}
+
+.confirm-message {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
 .btn.wide {
   width: 100%;
 }
@@ -627,6 +795,16 @@ button {
   cursor: pointer;
   font-size: 12px;
   opacity: 0.75;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.error-dismiss svg {
+  width: 13px;
+  height: 13px;
 }
 
 .error-dismiss:hover {
@@ -673,6 +851,11 @@ button {
   background: var(--stripe);
 }
 
+/* 用户消息行：左侧 accent 渐变薄层，一眼区分「我问的」与「它做的」 */
+.row.user-row {
+  background: linear-gradient(90deg, var(--accent-softer), transparent 55%);
+}
+
 .gut {
   width: 74px;
   min-width: 74px;
@@ -690,32 +873,54 @@ button {
 }
 
 .role-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 9.5px;
-  letter-spacing: 0.8px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  border: 1px solid var(--line);
+  letter-spacing: 0.4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
   color: var(--muted);
-  background: var(--hover);
+}
+
+/* 语义点（代替底色块）：user 蓝 / tool 琥珀 / error 红 */
+.role-tag::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex-shrink: 0;
 }
 
 .role-tag.user {
   color: var(--accent-text);
   border-color: var(--accent-border);
-  background: var(--accent-soft);
+}
+
+.role-tag.user::before {
+  background: var(--accent-text);
+  box-shadow: 0 0 6px var(--accent-border);
 }
 
 .role-tag.tool {
   color: var(--warn);
   border-color: var(--warn-border);
-  background: var(--warn-soft);
+}
+
+.role-tag.tool::before {
+  background: var(--warn);
 }
 
 .role-tag.error {
   color: var(--danger);
   border-color: var(--danger-border);
-  background: var(--danger-soft);
+}
+
+.role-tag.error::before {
+  background: var(--danger);
 }
 
 .content {
@@ -969,15 +1174,29 @@ pre.code {
   padding-bottom: var(--safe-bottom);
 }
 
+/* 独立圆角容器：聚焦时 accent 光环，与日志流分离 */
+.composer-box {
+  margin: 10px 18px 12px;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+
+.composer-box:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 .composer textarea {
   width: 100%;
-  min-height: 46px;
+  min-height: 44px;
   max-height: 180px;
   resize: none;
   border: 0;
   outline: 0;
   background: transparent;
-  padding: 10px 14px 2px;
+  padding: 10px 12px 0;
   font-size: 13px;
   line-height: 1.6;
   color: var(--fg);
@@ -995,7 +1214,19 @@ pre.code {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 8px 8px 14px;
+  padding: 2px 8px 8px 12px;
+}
+
+/* 停止按钮：语义红（不再用字符方块） */
+.btn.stop {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+
+.btn.stop:hover:not(:disabled) {
+  background: var(--danger-border);
+  color: var(--fg);
 }
 
 .hint {

@@ -15,6 +15,17 @@ import ChatView from "./Chat";
 import Login from "./Login";
 import { ScreenTabs } from "./ScreenTabs";
 import {
+  IconArchive,
+  IconBack,
+  IconClose,
+  IconGear,
+  IconMenu,
+  IconPlus,
+  IconRestore,
+  IconSearch,
+  IconTrash,
+} from "./icons";
+import {
   catalogSourceLabel,
   providerGroups,
   providerSeed,
@@ -89,6 +100,14 @@ export default function App() {
     checking: !isTauriRuntime(),
   });
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
+  const [archivedAgents, setArchivedAgents] = useState<AgentDefinition[]>([]);
+  const [archivedOpen, setArchivedOpen] = useState(true);
+  const [archivedSessions, setArchivedSessions] = useState<
+    Record<string, SessionSummaryView[]>
+  >({});
+  const [archivedSessionsExpanded, setArchivedSessionsExpanded] = useState<
+    Record<string, boolean>
+  >({});
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -102,6 +121,12 @@ export default function App() {
   const [filter, setFilter] = useState("");
   const [connection, setConnection] = useState<ConnectionState>(getConnectionState());
   const [error, setError] = useState<string | null>(null);
+  // 删除确认弹窗（window.confirm 在 Tauri WebView 不可用，一律走自定义弹层）
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    action: () => Promise<void>;
+  } | null>(null);
   const agentsRef = useRef<AgentDefinition[]>([]);
   const sessionListRequestRef = useRef(0);
   const agentRequestRef = useRef(0);
@@ -226,11 +251,22 @@ export default function App() {
     }
   }, [safeSetError]);
 
+  const refreshArchived = useCallback(async () => {
+    try {
+      const next = await invoke<AgentDefinition[]>("list_archived_agents");
+      setArchivedAgents(next);
+    } catch (errorValue) {
+      const formatted = formatRuntimeError(errorValue);
+      if (formatted !== "需要 PIPI_AUTH_TOKEN") safeSetError(formatted);
+    }
+  }, [safeSetError]);
+
   useEffect(() => {
     if (authStatus.checking || (authStatus.authRequired && !authStatus.authenticated)) {
       return;
     }
     void refresh();
+    void refreshArchived();
     let active = true;
     invoke<Settings>("get_settings")
       .then((nextSettings) => {
@@ -253,7 +289,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [authStatus.checking, authStatus.authRequired, authStatus.authenticated, refresh, safeSetError]);
+  }, [authStatus.checking, authStatus.authRequired, authStatus.authenticated, refresh, refreshArchived, safeSetError]);
 
   // agents 变化后拉取各 Agent 的会话列表；空列表也要清理旧数据。
   useEffect(() => {
@@ -434,12 +470,160 @@ export default function App() {
 
   const current = agents.find((a) => a.name === selected) ?? null;
 
+  // ============ 归档 / 恢复 / 删除 ============
+  // 归档 = 移到 .archive/（文件即真相）；删除不可恢复，一律 confirm 后才执行。
+
+  const archiveAgent = async (name: string) => {
+    try {
+      await invoke("archive_agent", { name });
+      if (selectedRef.current === name) {
+        setSelected(null);
+        setChatOpen(false);
+      }
+      setSessionsByAgent((previous) => {
+        const next = { ...previous };
+        delete next[name];
+        return next;
+      });
+      await Promise.all([refresh(), refreshArchived()]);
+    } catch (errorValue) {
+      safeSetError(formatRuntimeError(errorValue));
+    }
+  };
+
+  const restoreAgent = async (name: string) => {
+    try {
+      await invoke("restore_agent", { name });
+      await Promise.all([refresh(), refreshArchived()]);
+    } catch (errorValue) {
+      safeSetError(formatRuntimeError(errorValue));
+    }
+  };
+
+  const deleteAgent = async (name: string, archived: boolean) => {
+    const kind = archived ? "已归档 Agent" : "Agent";
+    setConfirmState({
+      title: `彻底删除${kind}「${name}」？`,
+      message:
+        "其目录下的会话、技能、记忆与工作区文件将一并删除，此操作不可恢复。",
+      action: async () => {
+        try {
+          await invoke(archived ? "delete_archived_agent" : "delete_agent", { name });
+          if (!archived && selectedRef.current === name) {
+            setSelected(null);
+            setChatOpen(false);
+          }
+          if (!archived) {
+            setSessionsByAgent((previous) => {
+              const next = { ...previous };
+              delete next[name];
+              return next;
+            });
+          }
+          // Agent 消失后归档会话缓存一并清掉，避免同名重建后残留旧数据
+          setArchivedSessions((previous) => {
+            const next = { ...previous };
+            delete next[name];
+            return next;
+          });
+          setArchivedSessionsExpanded((previous) => {
+            const next = { ...previous };
+            delete next[name];
+            return next;
+          });
+          await Promise.all([refresh(), refreshArchived()]);
+        } catch (errorValue) {
+          safeSetError(formatRuntimeError(errorValue));
+        }
+      },
+    });
+  };
+
+  const archiveSession = async (agentName: string, sessionId: string) => {
+    try {
+      await invoke("archive_session", { agentName, sessionId });
+      await refreshSessions([agentName]);
+      // 「已归档」折叠区若正展开，同步回写新归档的会话，避免收起再展开才可见
+      if (archivedSessionsExpanded[agentName]) {
+        const list = await invoke<SessionSummaryView[]>("list_archived_sessions", {
+          agentName,
+        });
+        setArchivedSessions((previous) => ({ ...previous, [agentName]: list }));
+      }
+    } catch (errorValue) {
+      safeSetError(formatRuntimeError(errorValue));
+    }
+  };
+
+  const deleteSession = async (agentName: string, sessionId: string) => {
+    setConfirmState({
+      title: "彻底删除该会话？",
+      message: "其记录文件将被删除，此操作不可恢复。",
+      action: async () => {
+        try {
+          await invoke("delete_session", { agentName, sessionId });
+          await refreshSessions([agentName]);
+        } catch (errorValue) {
+          safeSetError(formatRuntimeError(errorValue));
+        }
+      },
+    });
+  };
+
+  // 归档会话的「已归档」折叠区：展开时才拉取列表（避免每次刷新都读全部归档 JSONL）
+  const toggleArchivedSessions = async (agentName: string) => {
+    const willOpen = !archivedSessionsExpanded[agentName];
+    setArchivedSessionsExpanded((previous) => ({ ...previous, [agentName]: willOpen }));
+    if (!willOpen) return;
+    try {
+      const list = await invoke<SessionSummaryView[]>("list_archived_sessions", {
+        agentName,
+      });
+      setArchivedSessions((previous) => ({ ...previous, [agentName]: list }));
+    } catch (errorValue) {
+      safeSetError(formatRuntimeError(errorValue));
+    }
+  };
+
+  const restoreSession = async (agentName: string, sessionId: string) => {
+    try {
+      await invoke("restore_session", { agentName, sessionId });
+      setArchivedSessions((previous) => ({
+        ...previous,
+        [agentName]: (previous[agentName] ?? []).filter((s) => s.id !== sessionId),
+      }));
+      await refreshSessions([agentName]);
+    } catch (errorValue) {
+      safeSetError(formatRuntimeError(errorValue));
+    }
+  };
+
+  const deleteArchivedSession = async (agentName: string, sessionId: string) => {
+    setConfirmState({
+      title: "彻底删除该归档会话？",
+      message: "其记录文件将被删除，此操作不可恢复。",
+      action: async () => {
+        try {
+          await invoke("delete_archived_session", { agentName, sessionId });
+          setArchivedSessions((previous) => ({
+            ...previous,
+            [agentName]: (previous[agentName] ?? []).filter((s) => s.id !== sessionId),
+          }));
+        } catch (errorValue) {
+          safeSetError(formatRuntimeError(errorValue));
+        }
+      },
+    });
+  };
+
   const selectAgent = (agentName: string) => {
     if (chatRunning) {
       setError("Agent 正在运行，请先停止后再切换");
       return;
     }
     invalidateNavigation();
+    // 释放后端会话槽（new_session 仅清空槽、不落盘），避免该 Agent 被占用检查锁住
+    void invoke("new_session").catch(() => {});
     setSelected(agentName);
     setCreating(false);
     setChatOpen(false);
@@ -513,19 +697,22 @@ export default function App() {
                 setSettingsOpen(true);
               }}
             >
-              ⚙
+              <IconGear />
             </button>
           </div>
 
           <div className="sb-filter">
-            <input
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              placeholder="筛选 Agents / 会话…"
-              aria-label="筛选 Agents 与会话"
-              autoComplete="off"
-              spellCheck={false}
-            />
+            <div className="search">
+              <IconSearch />
+              <input
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+                placeholder="筛选 Agents / 会话…"
+                aria-label="筛选 Agents 与会话"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
           </div>
 
           <div className="sb-sec">
@@ -539,7 +726,7 @@ export default function App() {
               aria-label="新建 Agent"
               onClick={startCreating}
             >
-              ＋
+              <IconPlus />
             </button>
           </div>
 
@@ -561,38 +748,156 @@ export default function App() {
                       {a.name}
                     </button>
                     <span className="agent-count">{sessionsByAgent[a.name]?.length ?? 0}</span>
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="新建会话"
-                      aria-label={`为 ${a.name} 新建会话`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void startNewSession(a.name);
-                      }}
-                    >
-                      ＋
-                    </button>
+                    <span className="agent-actions">
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title="新建会话"
+                        aria-label={`为 ${a.name} 新建会话`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void startNewSession(a.name);
+                        }}
+                      >
+                        <IconPlus />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title={`归档 ${a.name}（移入 .archive/）`}
+                        aria-label={`归档 ${a.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void archiveAgent(a.name);
+                        }}
+                      >
+                        <IconArchive />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn danger"
+                        title={`彻底删除 ${a.name}`}
+                        aria-label={`彻底删除 ${a.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void deleteAgent(a.name, false);
+                        }}
+                      >
+                        <IconTrash />
+                      </button>
+                    </span>
                   </div>
                   <div className="sessions">
                     {sessions.map((sess) => {
                       const isCurrent = activeHere && activeSession?.sessionId === sess.id;
                       return (
-                        <button
+                        <div
                           key={sess.id}
-                          type="button"
                           className={`session${isCurrent ? " active" : ""}`}
+                          role="button"
+                          tabIndex={0}
                           aria-current={isCurrent ? "true" : undefined}
                           title={`${sess.title}${sess.model ? ` · ${sess.model}` : ""}（${sess.messageCount} 条消息）`}
                           onClick={() => void openSession(a.name, sess.id)}
+                          onKeyDown={(event) => {
+                            // 内层按钮（归档/删除）的键盘事件不冒泡成「打开会话」
+                            if (event.target !== event.currentTarget) return;
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              void openSession(a.name, sess.id);
+                            }
+                          }}
                         >
                           <span className="session-title">{sess.title}</span>
                           {sess.model && <span className="session-model">{sess.model}</span>}
-                        </button>
+                          <span className="session-actions">
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              title="归档会话"
+                              aria-label={`归档会话 ${sess.title}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void archiveSession(a.name, sess.id);
+                              }}
+                            >
+                              <IconArchive />
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn danger"
+                              title="彻底删除会话"
+                              aria-label={`彻底删除会话 ${sess.title}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void deleteSession(a.name, sess.id);
+                              }}
+                            >
+                              <IconTrash />
+                            </button>
+                          </span>
+                        </div>
                       );
                     })}
                     {isActiveAgent && chatOpen && !activeSession && (
                       <div className="session pending">（新会话）</div>
+                    )}
+                    <div
+                      className="session archived-toggle"
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={Boolean(archivedSessionsExpanded[a.name])}
+                      onClick={() => void toggleArchivedSessions(a.name)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          void toggleArchivedSessions(a.name);
+                        }
+                      }}
+                    >
+                      <IconArchive />
+                      <span className="session-title dim">已归档</span>
+                      <span className="session-model">{archivedSessions[a.name]?.length ?? ""}</span>
+                      <span className={`caret${archivedSessionsExpanded[a.name] ? " open" : ""}`}>▶</span>
+                    </div>
+                    {archivedSessionsExpanded[a.name] && (
+                      <div className="archived-sessions">
+                        {(archivedSessions[a.name] ?? []).length === 0 ? (
+                          <div className="session pending">没有归档会话</div>
+                        ) : (
+                          (archivedSessions[a.name] ?? []).map((sess) => (
+                            <div key={sess.id} className="session">
+                              <span className="session-title dim">{sess.title}</span>
+                              <span className="session-actions">
+                                <button
+                                  type="button"
+                                  className="icon-btn"
+                                  title="恢复会话"
+                                  aria-label={`恢复会话 ${sess.title}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void restoreSession(a.name, sess.id);
+                                  }}
+                                >
+                                  <IconRestore />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="icon-btn danger"
+                                  title="彻底删除归档会话"
+                                  aria-label={`彻底删除归档会话 ${sess.title}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void deleteArchivedSession(a.name, sess.id);
+                                  }}
+                                >
+                                  <IconTrash />
+                                </button>
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -602,6 +907,64 @@ export default function App() {
               <div className="session pending">没有匹配的 Agent 或会话</div>
             )}
           </nav>
+
+          {archivedAgents.length > 0 && (
+            <>
+              <div
+                className="sb-sec archived-head"
+                role="button"
+                tabIndex={0}
+                aria-expanded={archivedOpen}
+                onClick={() => setArchivedOpen((open) => !open)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setArchivedOpen((open) => !open);
+                  }
+                }}
+              >
+                <span>已归档</span>
+                <span className="spacer" />
+                <span className="sb-count">{archivedAgents.length}</span>
+                <span className={`caret${archivedOpen ? " open" : ""}`}>▶</span>
+              </div>
+              {archivedOpen && (
+                <div className="archived">
+                  {archivedAgents.map((agent) => (
+                    <div key={agent.name} className="agent-row">
+                      <span className="agent-name dim">{agent.name}</span>
+                      <span className="agent-actions">
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title={`恢复 ${agent.name}`}
+                          aria-label={`恢复 ${agent.name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void restoreAgent(agent.name);
+                          }}
+                        >
+                          <IconRestore />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn danger"
+                          title={`彻底删除 ${agent.name}`}
+                          aria-label={`彻底删除 ${agent.name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteAgent(agent.name, true);
+                          }}
+                        >
+                          <IconTrash />
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </aside>
 
         {sidebarOpen && (
@@ -624,7 +987,7 @@ export default function App() {
               aria-controls="primary-navigation"
               onClick={() => setSidebarOpen(true)}
             >
-              ☰
+              <IconMenu />
             </button>
             <span className="mobile-toolbar-title">
               {current?.name ?? (creating ? "新建 Agent" : "Pipi")}
@@ -640,7 +1003,7 @@ export default function App() {
                 onClick={() => setError(null)}
                 aria-label="关闭错误提示"
               >
-                ✕
+                <IconClose />
               </button>
             </div>
           )}
@@ -671,6 +1034,8 @@ export default function App() {
                       return;
                     }
                     invalidateNavigation();
+                    // 释放后端会话槽：否则「返回」后该 Agent 仍被占用，归档/删除会被拒
+                    void invoke("new_session").catch(() => {});
                     setChatOpen(false);
                     setSidebarOpen(false);
                   }}
@@ -680,6 +1045,7 @@ export default function App() {
                       return;
                     }
                     invalidateNavigation();
+                    void invoke("new_session").catch(() => {});
                     setChatOpen(false);
                   }}
                   onError={safeSetError}
@@ -742,6 +1108,15 @@ export default function App() {
           onChange={updateSettings}
           onClose={() => setSettingsOpen(false)}
           showLogout={!isTauriRuntime() && authStatus.authRequired}
+        />
+      )}
+
+      {confirmState && (
+        <ConfirmModal
+          title={confirmState.title}
+          message={confirmState.message}
+          onConfirm={confirmState.action}
+          onCancel={() => setConfirmState(null)}
         />
       )}
     </div>
@@ -1063,7 +1438,7 @@ function CreateForm({
     <div className="screen">
       <div className="screen-bar">
         <button type="button" className="icon-btn" title="返回" onClick={onCancel}>
-          ←
+          <IconBack />
         </button>
         <span className="crumb">
           新建 Agent · <b>~/.pipi/agents/&lt;name&gt;/</b>
@@ -1330,7 +1705,7 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
         <div className="modal-header">
           <h2 id="settings-title">设置</h2>
           <button type="button" className="icon-btn close-btn" onClick={onClose} title="关闭">
-            ✕
+            <IconClose />
           </button>
         </div>
 
@@ -1477,6 +1852,73 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ConfirmModal({
+  title,
+  message,
+  confirmLabel = "彻底删除",
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div
+        className="modal confirm-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h2 id="confirm-title">{title}</h2>
+          <button type="button" className="icon-btn close-btn" onClick={onCancel} title="取消">
+            <IconClose />
+          </button>
+        </div>
+        <div className="modal-section">
+          <p className="confirm-message">{message}</p>
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="btn ghost" onClick={onCancel} disabled={busy}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn danger"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onConfirm();
+              } finally {
+                setBusy(false);
+                onCancel();
+              }
+            }}
+          >
+            {busy ? "删除中…" : confirmLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

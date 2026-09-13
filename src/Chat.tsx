@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Markdown } from "./Markdown";
 import { invoke, listen } from "./platform";
 import { ScreenTabs } from "./ScreenTabs";
+import { IconBack, IconFork, IconGrid, IconPlus, IconSend, IconStop } from "./icons";
 import {
   catalogSourceLabel,
   findCatalogModel,
@@ -653,7 +654,7 @@ export default function ChatView({
       <div className="chat">
         <div className="screen-bar">
           <button type="button" className="icon-btn" title="返回" aria-label="返回" onClick={onBack}>
-            ←
+            <IconBack />
           </button>
           <span className="crumb" title={`~/.pipi/agents/${agent.name}/sessions/${sessionId ?? ""}`}>
             ~/.pipi/agents/<b>{agent.name}</b>/sessions/{sessionId ? <b>{sessionId}</b> : "…"}
@@ -683,7 +684,7 @@ export default function ChatView({
             title="从当前对话节点分叉出新会话"
             aria-label="分叉会话"
           >
-            ⑂
+            <IconFork />
           </button>
           <button
             type="button"
@@ -693,7 +694,7 @@ export default function ChatView({
             title="新会话"
             aria-label="新建会话"
           >
-            ＋
+            <IconPlus />
           </button>
           <button
             type="button"
@@ -704,7 +705,7 @@ export default function ChatView({
             aria-expanded={inspectorOpen}
             aria-controls="session-inspector"
           >
-            ▥
+            <IconGrid />
           </button>
         </div>
 
@@ -724,7 +725,7 @@ export default function ChatView({
             const isUser = entry.role === "user";
             const isTool = entry.role === "toolResult";
             const tagClass = isUser ? "user" : isTool ? "tool" : entry.isError ? "error" : "";
-            const tagText = isUser ? "YOU" : isTool ? "TOOL" : "AGENT";
+            const tagText = isUser ? "you" : isTool ? "tool" : "agent";
             const footer = !isTool && !isUser && !entry.streaming && !entry.status
               ? assistantFooter({
                   role: "assistant",
@@ -734,7 +735,7 @@ export default function ChatView({
                 })
               : null;
             return (
-              <div key={entry.key} className={`row${isTool ? " alt" : ""}`}>
+              <div key={entry.key} className={`row${isTool ? " alt" : ""}${isUser ? " user-row" : ""}`}>
                 <div className="gut">
                   {entry.timestamp ? <span className="time">{formatClock(entry.timestamp)}</span> : null}
                   <span className={`role-tag ${tagClass}`}>{tagText}</span>
@@ -765,48 +766,52 @@ export default function ChatView({
         </div>
 
         <div className="composer">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder={ready ? (running ? "Agent 正在运行…" : "输入消息，Enter 发送（Shift+Enter 换行）") : "正在连接 Agent…"}
-            disabled={!ready || running}
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-              compositionEndedAtRef.current = Date.now();
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" || event.shiftKey) return;
-              const native = event.nativeEvent;
-              const composing = composingRef.current
-                || native.isComposing
-                || native.keyCode === 229
-                || Date.now() - compositionEndedAtRef.current < 100;
-              if (composing) return;
-              event.preventDefault();
-              void send();
-            }}
-          />
-          <div className="composer-bar">
-            <span className="hint">ENTER 发送 · SHIFT+ENTER 换行</span>
-            <span className="spacer" />
-            {running ? (
-              <button type="button" className="btn ghost" onClick={stop} disabled={stopping}>
-                {stopping ? "■ 停止中…" : "■ 停止"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="btn primary"
-                disabled={!ready || !sessionInfoResolvedRef.current || !input.trim()}
-                onClick={() => void send()}
-              >
-                发送
-              </button>
-            )}
+          <div className="composer-box">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={ready ? (running ? "Agent 正在运行…" : "输入消息，Enter 发送（Shift+Enter 换行）") : "正在连接 Agent…"}
+              disabled={!ready || running}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                composingRef.current = false;
+                compositionEndedAtRef.current = Date.now();
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey) return;
+                const native = event.nativeEvent;
+                const composing = composingRef.current
+                  || native.isComposing
+                  || native.keyCode === 229
+                  || Date.now() - compositionEndedAtRef.current < 100;
+                if (composing) return;
+                event.preventDefault();
+                void send();
+              }}
+            />
+            <div className="composer-bar">
+              <span className="hint">ENTER 发送 · SHIFT+ENTER 换行</span>
+              <span className="spacer" />
+              {running ? (
+                <button type="button" className="btn stop" onClick={stop} disabled={stopping}>
+                  <IconStop />
+                  {stopping ? "停止中…" : "停止"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={!ready || !sessionInfoResolvedRef.current || !input.trim()}
+                  onClick={() => void send()}
+                >
+                  发送
+                  <IconSend />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

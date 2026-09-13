@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Pipi · 变体 A 精工暗台</title>
+<style>
+/* ============ 变体 A · 精工暗台（Precision） ============
+   延续现有暗色基底，打磨点：
+   - 手写线性 SVG 图标替换字符符号
+   - 角色标签：语义点 + 小写 mono，去掉全大写色块
+   - 用户消息轻微底色/右缘强调，AI 消息纯净
+   - 状态栏改为分段仪表样式
+   - 空状态给出下一步引导
+*/
+:root {
+  color-scheme: dark;
+  --bg: #0a0c0e;
+  --panel: #101316;
+  --panel-2: #151a1e;
+  --code-bg: #0c0f11;
+  --line: #1e242a;
+  --line-2: #2b333b;
+  --line-soft: rgba(255,255,255,0.045);
+  --hover: rgba(255,255,255,0.045);
+  --hover-2: rgba(255,255,255,0.07);
+  --fg: #e8ecef;
+  --text: #c6cdd4;
+  --muted: #8a939d;
+  --faint: #59626b;
+  --accent: #0f7bd6;
+  --accent-hover: #2b92e6;
+  --accent-text: #66b1f2;
+  --accent-strong: #d5e9ff;
+  --accent-soft: rgba(15,123,214,0.14);
+  --accent-softer: rgba(15,123,214,0.07);
+  --accent-border: rgba(15,123,214,0.45);
+  --on-accent: #ffffff;
+  --ok: #4ac26b; --ok-soft: rgba(74,194,107,0.12); --ok-border: rgba(74,194,107,0.32);
+  --warn: #e0a458; --warn-soft: rgba(224,164,88,0.12); --warn-border: rgba(224,164,88,0.32);
+  --danger: #e5534b; --danger-soft: rgba(229,83,75,0.12); --danger-border: rgba(229,83,75,0.4);
+  --r: 7px; --r-sm: 5px; --r-lg: 9px;
+  --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font); font-size: 12.5px; line-height: 1.5;
+  background: var(--bg); color: var(--fg); user-select: none; overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.mono { font-family: var(--mono); }
+
+/* ============ 骨架 ============ */
+.app { display: flex; flex-direction: column; height: 100%; }
+.app-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+
+/* ============ 侧栏 ============ */
+.sidebar { width: 244px; min-width: 244px; display: flex; flex-direction: column;
+  background: var(--panel); border-right: 1px solid var(--line); }
+.sb-head { display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 10px 0 14px; }
+.wordmark { font-weight: 700; font-size: 13.5px; letter-spacing: 0.2px; }
+.wordmark i { font-style: normal; color: var(--accent-text); }
+.ver-chip { font-family: var(--mono); font-size: 10px; color: var(--faint);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.sb-head .spacer { flex: 1; }
+.icon-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm); color: var(--muted); transition: background .12s, color .12s; }
+.icon-btn:hover { background: var(--hover); color: var(--fg); }
+.icon-btn.active { background: var(--accent-soft); color: var(--accent-text); }
+.icon-btn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round; }
+
+.sb-filter { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.sb-filter .search { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px;
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r-sm);
+  color: var(--faint); transition: border-color .14s; }
+.sb-filter .search:focus-within { border-color: var(--accent-border); box-shadow: 0 0 0 2px var(--accent-soft); }
+.sb-filter .search svg { width: 13px; height: 13px; flex-shrink: 0; }
+.sb-filter input { flex: 1; min-width: 0; background: none; border: 0; outline: 0;
+  color: var(--fg); font-size: 12px; }
+.sb-filter input::placeholder { color: var(--faint); }
+
+.sb-sec { display: flex; align-items: center; gap: 6px; height: 32px; padding: 8px 12px 4px 14px;
+  font-size: 10.5px; color: var(--faint); font-weight: 600; }
+.sb-count { font-family: var(--mono); font-size: 10px; }
+.sb-sec .spacer { flex: 1; }
+
+.agents { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+.agent { margin: 2px 6px; border-radius: var(--r); }
+.agent.active-agent { background: var(--hover); }
+.agent-row { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 10px; }
+.agent-name { flex: 1; min-width: 0; text-align: left; font-size: 12.5px; font-weight: 600;
+  color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-name:hover { color: var(--accent-text); }
+.agent-count { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+.agent-row .icon-btn { width: 22px; height: 22px; opacity: 0; }
+.agent:hover .agent-row .icon-btn, .agent.active-agent .agent-row .icon-btn { opacity: 1; }
+.agent-row .icon-btn svg { width: 12px; height: 12px; }
+
+.sessions { padding-left: 6px; }
+.session { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  border-left: 2px solid transparent; cursor: pointer; padding: 4px 8px 4px 10px;
+  font-size: 12px; color: var(--muted); border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  transition: background .12s, color .12s, border-color .12s; }
+.session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-model { font-family: var(--mono); font-size: 9.5px; color: var(--faint); flex-shrink: 0; }
+.session:hover { background: var(--hover); color: var(--text); }
+.session.active { background: var(--accent-soft); border-left-color: var(--accent); color: var(--fg); }
+.session.active .session-model { color: var(--accent-text); }
+.session.pending { color: var(--faint); padding-left: 12px; font-style: italic; }
+
+/* ============ 主区 ============ */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.screen { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.screen-bar { display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 12px;
+  border-bottom: 1px solid var(--line); background: var(--panel); flex-shrink: 0; }
+.crumb { font-family: var(--mono); font-size: 11px; color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
+.crumb b { color: var(--muted); font-weight: 500; }
+.tabs { display: flex; gap: 2px; margin-left: 6px; }
+.tab { padding: 4px 10px 3px; font-size: 12px; color: var(--muted); border-radius: var(--r-sm);
+  transition: color .13s, background .13s; }
+.tab:hover { color: var(--fg); background: var(--hover); }
+.tab.active { color: var(--fg); background: var(--hover-2); }
+.screen-bar .spacer { flex: 1; }
+
+.model-pill { display: inline-flex; align-items: center; gap: 6px; max-width: 32ch;
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted); font-size: 11px; padding: 3px 10px; transition: color .13s, border-color .13s; }
+.model-pill:hover { color: var(--fg); border-color: var(--line-2); }
+.model-pill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-pill-tag { font-size: 10px; color: var(--accent-text); flex-shrink: 0; }
+
+/* ============ 日志流：行结构 ============ */
+.chat-shell { display: flex; flex: 1; min-height: 0; }
+.chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.log { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.row { display: flex; gap: 16px; padding: 12px 18px; }
+.row.user-row { background: linear-gradient(90deg, var(--accent-softer), transparent 55%); }
+.gut { width: 84px; min-width: 84px; display: flex; flex-direction: column; gap: 4px;
+  align-items: flex-end; padding-top: 2px; }
+.gut .time { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+.rlabel { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono);
+  font-size: 9.5px; letter-spacing: 0.4px; color: var(--muted); padding: 2px 7px;
+  border-radius: 999px; border: 1px solid var(--line-soft); }
+.rlabel::before { content: ""; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--faint); }
+.rlabel.user::before { background: var(--accent-text); box-shadow: 0 0 6px var(--accent-border); }
+.rlabel.tool::before { background: var(--warn); }
+.rlabel.error::before { background: var(--danger); }
+.content { flex: 1; min-width: 0; max-width: 880px; }
+
+.user-text { font-size: 13px; line-height: 1.7; color: var(--text); white-space: pre-wrap;
+  overflow-wrap: anywhere; }
+.chat-welcome { padding: 32px 20px; color: var(--faint); font-size: 12.5px; line-height: 2; }
+.chat-welcome .brand { font-size: 17px; font-weight: 700; color: var(--fg); margin-bottom: 8px; }
+.chat-welcome code, .chat-welcome .mono { font-family: var(--mono); font-size: 11.5px;
+  color: var(--muted); background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+
+.cursor { display: inline-block; width: 7px; height: 13px; background: var(--accent-text);
+  vertical-align: -2px; animation: blink 1.05s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* 思考折叠 */
+.fold { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 10px;
+  font-size: 11.5px; color: var(--muted); transition: border-color .13s, color .13s, background .13s; }
+.fold:hover { color: var(--fg); border-color: var(--line-2); background: var(--hover); }
+.fold .k { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.5px; color: var(--faint);
+  text-transform: uppercase; }
+.fold .caret { margin-left: auto; font-size: 9px; color: var(--faint); transition: transform .16s; }
+.fold.open .caret { transform: rotate(90deg); }
+.thinking-body { margin-top: 6px; padding: 10px 12px; background: var(--code-bg);
+  border: 1px solid var(--line); border-radius: var(--r-sm); font-family: var(--mono);
+  font-size: 11px; line-height: 1.7; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 工具卡片 */
+.tool { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+  overflow: hidden; }
+.tool-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 12px;
+  text-align: left; font-family: inherit; border-left: 2px solid var(--ok);
+  transition: background .12s, border-color .12s; }
+.tool.running .tool-head { border-left-color: var(--warn); }
+.tool.error .tool-head { border-left-color: var(--danger); }
+.tool-head:hover { background: var(--hover); }
+.tool-name { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--fg); flex-shrink: 0; }
+.tool-cmd { font-family: var(--mono); font-size: 11px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tool-meta { margin-left: auto; display: flex; gap: 10px; align-items: center;
+  font-family: var(--mono); font-size: 10px; color: var(--faint); white-space: nowrap; flex-shrink: 0; }
+.tool-meta .ok { color: var(--ok); }
+.tool-meta .run { color: var(--warn); }
+.tool-meta .fail { color: var(--danger); }
+.tool-body { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); border-top: 1px solid var(--line); }
+.tpane { padding: 10px 12px; min-width: 0; }
+.tpane + .tpane { border-left: 1px solid var(--line); background: var(--code-bg); }
+.pre { font-family: var(--mono); font-size: 10.5px; line-height: 1.65; color: var(--text);
+  white-space: pre; overflow-x: auto; }
+.diff-add { background: var(--ok-soft); color: var(--ok); }
+.diff-del { background: var(--danger-soft); color: var(--danger); }
+
+.hint { font-size: 11px; color: var(--faint); line-height: 1.7; }
+.md { font-size: 13px; line-height: 1.72; color: var(--text); user-select: text; overflow-wrap: anywhere; }
+.md p { margin: 7px 0; }
+.md code { font-family: var(--mono); font-size: 11.5px; background: var(--code-bg);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.md pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 10px 12px; overflow-x: auto; margin: 9px 0; }
+.afoot { display: flex; gap: 14px; margin-top: 10px; padding-top: 8px;
+  border-top: 1px solid var(--line-soft); font-family: var(--mono); font-size: 10px; color: var(--faint); }
+
+/* ============ composer ============ */
+.composer { border-top: 1px solid var(--line); background: var(--panel); }
+.composer-wrap { margin: 10px 18px 12px; background: var(--code-bg);
+  border: 1px solid var(--line); border-radius: 10px; transition: border-color .14s, box-shadow .14s; }
+.composer-wrap:focus-within { border-color: var(--accent-border); box-shadow: 0 0 0 2px var(--accent-soft); }
+.composer textarea { width: 100%; min-height: 44px; max-height: 160px; resize: none; border: 0; outline: 0;
+  background: transparent; padding: 10px 12px 0; font-size: 13px; line-height: 1.6; color: var(--fg); }
+.composer textarea::placeholder { color: var(--faint); }
+.composer-bar { display: flex; align-items: center; gap: 8px; padding: 2px 8px 8px 12px; }
+.composer-bar .spacer { flex: 1; }
+.btn { height: 27px; padding: 0 13px; border-radius: var(--r-sm); border: 1px solid var(--line-2);
+  background: transparent; color: var(--muted); font-size: 12px; display: inline-flex; align-items: center;
+  gap: 6px; white-space: nowrap; transition: background .13s, color .13s, border-color .13s; }
+.btn:hover { background: var(--hover-2); color: var(--fg); }
+.btn.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 550; }
+.btn.primary:hover { filter: brightness(1.12); }
+.btn svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round; }
+.btn.stop { color: var(--danger); border-color: var(--danger-border); }
+.btn.stop:hover { background: var(--danger-soft); color: var(--danger); }
+.hint { font-size: 10.5px; color: var(--faint); font-family: var(--mono); }
+
+/* ============ 检查器 ============ */
+.inspector { width: 296px; min-width: 296px; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel); border-left: 1px solid var(--line); }
+.itabs { display: flex; border-bottom: 1px solid var(--line); padding: 0 8px; background: var(--panel-2); flex-shrink: 0; }
+.itab { flex: 1; background: none; border: 0; cursor: pointer; font-size: 11.5px; color: var(--muted);
+  padding: 10px 4px 8px; white-space: nowrap; border-bottom: 2px solid transparent;
+  transition: color .13s, border-color .13s; }
+.itab:hover { color: var(--fg); }
+.itab.active { color: var(--fg); border-bottom-color: var(--accent-text); }
+.ipanels { flex: 1; min-height: 0; overflow-y: auto; }
+.ip { border-bottom: 1px solid var(--line); padding: 13px 14px 15px; }
+.ip h4 { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--faint);
+  font-weight: 650; margin-bottom: 11px; display: flex; align-items: center; gap: 8px; }
+.ip h4::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.state-line { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 11px; }
+.state-line .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn);
+  box-shadow: 0 0 8px var(--warn-border); flex-shrink: 0; }
+.state-line.idle .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok-border); }
+.state-line .sub { color: var(--faint); font-family: var(--mono); font-size: 10px; margin-left: auto; }
+.metric { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-bottom: 10px; }
+.m-k { font-size: 11.5px; color: var(--muted); }
+.m-v { font-family: var(--mono); font-size: 11.5px; color: var(--fg); }
+.m-v.dim { color: var(--muted); }
+.track { grid-column: 1 / -1; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+.track > i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+.kv-row { display: grid; grid-template-columns: 76px 1fr; gap: 8px; padding: 5px 0;
+  border-bottom: 1px solid var(--line-soft); font-size: 11.5px; }
+.kv-row .k { color: var(--faint); font-family: var(--mono); font-size: 10.5px; }
+.kv-row .v { color: var(--text); overflow-wrap: anywhere; }
+.chg { display: flex; flex-direction: column; gap: 7px; font-size: 11.5px; }
+.chg-row { display: flex; align-items: center; gap: 8px; font-family: var(--mono); }
+.chg-row .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.chg-row .add { color: var(--ok); }
+.chg-row .del { color: var(--danger); }
+
+/* ============ 状态栏 ============ */
+.status-bar { display: flex; align-items: center; gap: 14px; height: 27px; padding: 0 14px;
+  border-top: 1px solid var(--line); background: var(--panel-2);
+  font-family: var(--mono); font-size: 10px; color: var(--faint); flex-shrink: 0; overflow-x: auto; }
+.status-bar > span { white-space: nowrap; }
+.status-bar .conn { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex-shrink: 0; }
+.status-dot.online { background: var(--ok); box-shadow: 0 0 7px var(--ok-border); }
+.status-bar .spacer { flex: 1; }
+.status-bar b { color: var(--muted); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="app-body">
+    <!-- ===== 侧栏 ===== -->
+    <aside class="sidebar" id="primary-navigation" aria-label="主导航">
+      <div class="sb-head">
+        <span class="wordmark">Pipi<i>·</i></span>
+        <span class="ver-chip">v0.9.1</span>
+        <span class="spacer"></span>
+        <button class="icon-btn" aria-label="设置" title="设置">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.08a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.08a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z"/></svg>
+        </button>
+      </div>
+      <div class="sb-filter">
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input placeholder="筛选 Agents / 会话…" aria-label="筛选 Agents 与会话">
+        </div>
+      </div>
+      <div class="sb-sec">
+        <span>Agents</span>
+        <span class="spacer"></span>
+        <span class="sb-count">3</span>
+        <button class="icon-btn active" aria-label="新建 Agent" title="新建 Agent">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <nav class="agents">
+        <div class="agent active-agent">
+          <div class="agent-row">
+            <button class="agent-name">Pipi</button>
+            <span class="agent-count">12</span>
+            <button class="icon-btn" title="新建会话">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+          </div>
+          <div class="sessions">
+            <button class="session active">
+              <span class="session-title">统计口径对齐：滚动窗口 N=10</span>
+              <span class="session-model">ds-v4</span>
+            </button>
+            <button class="session">
+              <span class="session-title">失败订单分类：细分一字涨停</span>
+              <span class="session-model">ds-v4</span>
+            </button>
+            <button class="session">
+              <span class="session-title">nightly 回测批量跑</span>
+              <span class="session-model">claude-sn-4</span>
+            </button>
+            <div class="session pending">（新会话）</div>
+          </div>
+        </div>
+        <div class="agent">
+          <div class="agent-row">
+            <button class="agent-name">code-reviewer</button>
+            <span class="agent-count">7</span>
+            <button class="icon-btn" title="新建会话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+          </div>
+          <div class="sessions">
+            <button class="session"><span class="session-title">PR #142 检查</span><span class="session-model">claude-sn</span></button>
+            <button class="session"><span class="session-title">依赖白名单梳理</span><span class="session-model">claude-sn</span></button>
+          </div>
+        </div>
+        <div class="agent">
+          <div class="agent-row">
+            <button class="agent-name">research-eth</button>
+            <span class="agent-count">4</span>
+            <button class="icon-btn" title="新建会话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+          </div>
+          <div class="sessions">
+            <button class="session"><span class="session-title">资金流因子文献</span><span class="session-model">gpt-4o</span></button>
+          </div>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- ===== 主区 ===== -->
+    <main class="main">
+      <div class="chat-shell">
+        <div class="chat">
+        <div class="screen-bar">
+          <button class="icon-btn" title="返回" aria-label="返回">
+            <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <span class="crumb" title="~/.pipi/agents/Pipi/sessions/20260913-1002">~/.pipi/agents/<b>Pipi</b>/sessions/<b>20260913-1002</b></span>
+          <div class="tabs">
+            <button class="tab">详情</button>
+            <button class="tab active">对话</button>
+          </div>
+          <span class="spacer"></span>
+          <button class="model-pill">
+            <span class="model-pill-name mono">deepseek-v4-flash</span>
+            <span class="model-pill-tag">默认</span>
+          </button>
+          <button class="icon-btn" title="分叉会话" aria-label="分叉会话">
+            <svg viewBox="0 0 24 24"><path d="M6 3v12M6 15c0 3 2.5 5 5.5 5M6 15c0-3 3-4 5-4s4-1 4-4V3"/><path d="M9 6h8"/><path d="M14 3l3 3-3 3"/></svg>
+          </button>
+          <button class="icon-btn" title="新会话" aria-label="新建会话">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <button class="icon-btn active" title="统计 / 检查器" aria-label="切换检查器">
+            <svg viewBox="0 0 24 24"><path d="M4 4h4v4H4zM10 4h4v4h-4zM16 4h4v4h-4zM4 10h4v4H4zM10 10h4v4h-4zM16 10h4v4h-4zM4 16h4v4H4zM10 16h4v4h-4zM16 16h4v4h-4z"/></svg>
+          </button>
+        </div>
+
+        <!-- 日志流 -->
+        <div class="log">
+          <div class="row">
+            <div class="gut"><span class="time">10:02:31</span><span class="rlabel user">you</span></div>
+            <div class="content"><div class="user-text">帮我把会话统计的口径改成滚动窗口 N=10，命中率按 cache_read/prompt 计算，数据不足时省略而不是显示 0。</div></div>
+          </div>
+          <div class="row">
+            <div class="gut"><span class="time">10:02:33</span><span class="rlabel">agnt</span></div>
+            <div class="content">
+              <button class="fold open" aria-expanded="true">
+                <span class="k">Thinking</span>
+                <span>深度思考（1,284 字）</span>
+                <span class="caret">▶</span>
+              </button>
+              <pre class="thinking-body">先读 crates/pipi-core/src/stats.rs 确认现有口径：当前是滚动窗口 N=10、命中率 = cache_read/prompt、数据不足省略。与需求逐条核对后只需确认测试覆盖。</pre>
+            </div>
+          </div>
+          <div class="row">
+            <div class="gut"><span class="time">10:02:35</span><span class="rlabel tool">tool</span></div>
+            <div class="content">
+              <div class="tool">
+                <button class="tool-head" aria-expanded="true">
+                  <span class="tool-name">read</span>
+                  <span class="tool-cmd">crates/pipi-core/src/stats.rs</span>
+                  <span class="tool-meta"><span class="ok">✓ 完成</span><span>0.21s</span><span>▾</span></span>
+                </button>
+                <div class="tool-body">
+                  <div class="tpane">
+                    <pre class="pre">{"path": "crates/pipi-core/src/stats.rs"}</pre>
+                  </div>
+                  <div class="tpane">
+                    <pre class="pre">// 滚动窗口 N=10
+const WINDOW: usize = 10;
+pub fn hit_rate(s: &Stats) -> f64 {
+    s.cache_read as f64 / s.prompt as f64
+}</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="gut"><span class="time">10:02:41</span><span class="rlabel tool">tool</span></div>
+            <div class="content">
+              <div class="tool">
+                <button class="tool-head" aria-expanded="true">
+                  <span class="tool-name">edit</span>
+                  <span class="tool-cmd">crates/pipi-core/src/stats.rs (+24 −6)</span>
+                  <span class="tool-meta"><span class="ok">✓ 完成</span><span>0.87s</span><span>▾</span></span>
+                </button>
+                <div class="tool-body">
+                  <div class="tpane">
+                    <pre class="pre">{"path": "crates/pipi-core/src/stats.rs",
+ "operations": [...]}</pre>
+                  </div>
+                  <div class="tpane">
+                    <pre class="pre"><span class="diff-del">-fn hit_rate(s: &Stats) -> f64</span>
+<span class="diff-del">-    { s.cache_read as f64 / s.prompt as f64 }</span>
+<span class="diff-add">+fn hit_rate(s: &Stats) -> Option&lt;f64&gt;</span>
+<span class="diff-add">+    { (s.prompt &gt; 0).then(|| s.cache_read as f64 / s.prompt as f64) }</span>
+<span class="diff-add">+// 数据不足时省略展示而非显示 0</span></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="gut"><span class="time">10:02:47</span><span class="rlabel">agnt</span></div>
+            <div class="content">
+              <div class="md">
+                <p>已改完，三个口径逐条对齐：</p>
+                <ul>
+                  <li>滚动窗口 <code>N=10</code>（与现有实现一致，无需动）</li>
+                  <li>命中率 = <code>cache_read / prompt</code>（语义已正确）</li>
+                  <li><b>数据不足时省略</b>：<code>hit_rate</code> 现在返回 <code>Option</code>，<code>prompt &gt; 0</code> 才有值，前端不渲染 0</li>
+                </ul>
+                <p>已跑 <code>cargo test -p pipi-core</code>，统计相关用例全绿。前端状态栏在三组数据下不会再出现「0.0%」的误导展示。</p>
+              </div>
+              <div class="afoot"><span>12.4k in · 8.9k out</span><span>4.2s</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- composer -->
+        <div class="composer">
+          <div class="composer-wrap">
+            <textarea placeholder="输入消息，Enter 发送（Shift+Enter 换行）"></textarea>
+            <div class="composer-bar">
+              <span class="hint">ENTER 发送 · SHIFT+ENTER 换行</span>
+              <span class="spacer"></span>
+              <button class="btn primary">
+                发送
+                <svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 检查器 ===== -->
+      <aside class="inspector" id="session-inspector">
+        <div class="itabs">
+          <button class="itab active">会话统计</button>
+          <button class="itab">当前状态</button>
+          <button class="itab">文件变更</button>
+        </div>
+        <div class="ipanels">
+          <div class="ip">
+            <h4>运行概况</h4>
+            <div class="state-line idle">
+              <span class="dot"></span>
+              <span>已完成</span>
+              <span class="sub">run #3</span>
+            </div>
+            <div class="metric"><span class="m-k">消息</span><span class="m-v">12</span></div>
+            <div class="metric"><span class="m-k">工具调用</span><span class="m-v">8 · 0 失败</span></div>
+            <div class="metric"><span class="m-k">Token</span><span class="m-v">34.2k</span><span class="track"><i style="width:63%"></i></span></div>
+            <div class="metric"><span class="m-k">最大上下文</span><span class="m-v">128k</span></div>
+          </div>
+          <div class="ip">
+            <h4>费用</h4>
+            <div class="metric"><span class="m-k">输入</span><span class="m-v">0.021</span></div>
+            <div class="metric"><span class="m-k">输出</span><span class="m-v">0.036</span></div>
+            <div class="metric"><span class="m-k">累计（本次会话）</span><span class="m-v dim">— 数据不足</span></div>
+          </div>
+          <div class="ip">
+            <h4>最近工具</h4>
+            <div class="kv-row"><span class="k">read</span><span class="v">0.21s · ✓</span></div>
+            <div class="kv-row"><span class="k">edit</span><span class="v">0.87s · ✓</span></div>
+            <div class="kv-row"><span class="k">bash</span><span class="v">1.4s · ✓ cargo test</span></div>
+          </div>
+        </div>
+      </aside>
+      </div>
+    </main>
+  </div>
+
+  <!-- ===== 状态栏 ===== -->
+  <footer class="status-bar" aria-label="运行状态">
+    <span class="conn"><i class="status-dot online"></i>已连接</span>
+    <span>127.0.0.1:1421</span>
+    <span>数据根 <b>~/.pipi/agents</b></span>
+    <span class="spacer"></span>
+    <span><b>3</b> 个 Agent · <b>23</b> 个会话</span>
+    <span>运行中 <b>0</b></span>
+    <span>Pipi <b>v0.9.1</b></span>
+  </footer>
+</div>
+</body>
+</html>
