@@ -93,3 +93,71 @@ pub fn fork_session(
     state.fork_session(&agent_name, &session_id, up_to_entry_id.as_deref())
 }
 
+// ============ 归档 / 恢复 / 删除（Agent 与会话） ============
+// 归档 = 目录/文件移动到 `.archive/`（文件即真相，不引入新状态）；
+// 删除不可恢复，UI 层负责确认。核心层负责「会话打开中禁止操作」的占用检查。
+
+#[tauri::command]
+pub fn archive_agent(state: State<ChatState>, name: String) -> Result<(), String> {
+    state.archive_agent(&name)
+}
+
+#[tauri::command]
+pub fn restore_agent(state: State<ChatState>, name: String) -> Result<(), String> {
+    state.restore_agent(&name)
+}
+
+#[tauri::command]
+pub fn delete_agent(state: State<ChatState>, name: String) -> Result<(), String> {
+    state.delete_agent(&name)
+}
+
+#[tauri::command]
+pub fn delete_archived_agent(state: State<ChatState>, name: String) -> Result<(), String> {
+    state.delete_archived_agent(&name)
+}
+
+#[tauri::command]
+pub fn list_archived_sessions(
+    state: State<ChatState>,
+    agent_name: String,
+) -> Result<Vec<runtime::SessionSummary>, String> {
+    state.list_archived_sessions(&agent_name)
+}
+
+#[tauri::command]
+pub fn archive_session(
+    state: State<ChatState>,
+    agent_name: String,
+    session_id: String,
+) -> Result<(), String> {
+    state.archive_session(&agent_name, &session_id)
+}
+
+#[tauri::command]
+pub fn restore_session(
+    state: State<ChatState>,
+    agent_name: String,
+    session_id: String,
+) -> Result<(), String> {
+    state.restore_session(&agent_name, &session_id)
+}
+
+#[tauri::command]
+pub fn delete_session(
+    state: State<ChatState>,
+    agent_name: String,
+    session_id: String,
+) -> Result<(), String> {
+    state.delete_session(&agent_name, &session_id)
+}
+
+#[tauri::command]
+pub fn delete_archived_session(
+    state: State<ChatState>,
+    agent_name: String,
+    session_id: String,
+) -> Result<(), String> {
+    state.delete_archived_session(&agent_name, &session_id)
+}
+

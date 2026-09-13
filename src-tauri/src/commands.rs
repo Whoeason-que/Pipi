@@ -48,6 +48,11 @@ pub fn save_agent(def: AgentDefinition) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn list_archived_agents() -> Result<Vec<AgentDefinition>, String> {
+    agents::list_archived_agents()
+}
+
+#[tauri::command]
 pub fn get_settings() -> Settings {
     settings::load_settings()
 }

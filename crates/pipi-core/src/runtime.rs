@@ -163,6 +163,18 @@ pub struct RuntimeState {
     session: Mutex<Option<Session>>,
 }
 
+/// 校验会话 ID：必须是单一、稳定的文件名（`<id>.jsonl` 的 stem）。
+pub fn validate_session_id(session_id: &str) -> Result<(), String> {
+    if session_id.is_empty()
+        || !session_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err("非法会话 ID".into());
+    }
+    Ok(())
+}
+
 impl RuntimeState {
     /// 用宿主运行时句柄构造。句柄必须指向多线程、IO/time 驱动齐全的运行时。
     pub fn new(runtime: tokio::runtime::Handle) -> Self {
@@ -178,6 +190,185 @@ impl RuntimeState {
         F: Future<Output = ()> + Send + 'static,
     {
         self.runtime.spawn(task);
+    }
+
+    /// 打开中的会话身份（Agent 名 + 会话 id）。须在持有 session 槽锁时调用
+    /// （锁内检查 + 锁内文件操作才能保证「检查后不被并发占用」的原子性）。
+    fn opened_session_identity_locked(slot: &Option<Session>) -> Option<(String, String)> {
+        let session = slot.as_ref()?;
+        let id = session
+            .writer
+            .lock()
+            .ok()?
+            .path()
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())?;
+        Some((session.agent.name.clone(), id))
+    }
+
+    fn session_file_path(&self, agent_name: &str, session_id: &str) -> Result<std::path::PathBuf, String> {
+        let def = agents::load_agent(agent_name)?;
+        let dir = def.sessions_dir().ok_or_else(|| "无法解析会话目录".to_string())?;
+        // 会话目录必须是真实目录（非符号链接），否则 rename/remove 会沿链接波及外部文件
+        agents::ensure_real_directory(&dir, "sessions 目录")?;
+        Ok(dir.join(format!("{session_id}.jsonl")))
+    }
+
+    /// 校验会话文件：必须是真实文件（非符号链接）；不存在返回 false。
+    fn ensure_real_session_file(path: &std::path::Path) -> Result<bool, String> {
+        agents::ensure_real_file(path, "会话文件")
+    }
+
+    // ============ 会话归档 / 恢复 / 删除 ============
+    // 归档 = 移动 `sessions/<id>.jsonl` 到 `sessions/.archive/<id>.jsonl`，
+    // 与 Agent 归档同一套「文件即真相」语义。删除不可恢复，UI 层需确认。
+    // 注意：占用检查与文件操作必须在同一把 session 槽锁内完成，
+    // 否则检查与移动之间可能被并发 open_session 抢跑。
+    // （跨进程限制：桌面壳与 Web 服务同时跑时各有 RuntimeState，进程间的
+    // 并发打开不在本锁覆盖范围内 —— 产品形态是二选一，已知限制。）
+
+    /// 归档会话：移动到 `sessions/.archive/`。
+    pub fn archive_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
+        validate_session_id(session_id)?;
+        let slot = self.session.lock().map_err(|e| e.to_string())?;
+        if let Some((open_agent, open_id)) = Self::opened_session_identity_locked(&slot) {
+            if open_agent == agent_name && open_id == session_id {
+                return Err("该会话当前已打开，请先返回再归档".into());
+            }
+        }
+        let src = self.session_file_path(agent_name, session_id)?;
+        if !Self::ensure_real_session_file(&src)? {
+            return Err("会话不存在".into());
+        }
+        let archive_dir = src
+            .parent()
+            .ok_or_else(|| "无法解析会话目录".to_string())?
+            .join(agents::ARCHIVE_DIR);
+        // 归档目录：不存在则创建；存在必须是真实目录（防符号链接）
+        if agents::ensure_real_directory(&archive_dir, "归档目录")? {
+            // 已存在，检查目标是否会覆盖
+            let dst = archive_dir.join(format!("{session_id}.jsonl"));
+            if dst.exists() {
+                return Err("归档区已存在同名会话".into());
+            }
+        } else {
+            std::fs::create_dir_all(&archive_dir).map_err(|e| format!("无法创建归档目录: {e}"))?;
+        }
+        let dst = archive_dir.join(format!("{session_id}.jsonl"));
+        std::fs::rename(&src, &dst).map_err(|e| format!("归档会话失败: {e}"))
+    }
+
+    /// 恢复归档会话：移回 `sessions/`。
+    pub fn restore_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
+        validate_session_id(session_id)?;
+        let _slot = self.session.lock().map_err(|e| e.to_string())?;
+        let live_dir = self
+            .session_file_path(agent_name, session_id)?
+            .parent()
+            .ok_or_else(|| "无法解析会话目录".to_string())?
+            .to_path_buf();
+        let src = live_dir
+            .join(agents::ARCHIVE_DIR)
+            .join(format!("{session_id}.jsonl"));
+        if !Self::ensure_real_session_file(&src)? {
+            return Err("归档区没有该会话".into());
+        }
+        let dst = live_dir.join(format!("{session_id}.jsonl"));
+        if dst.exists() {
+            return Err("活跃区已存在同名会话".into());
+        }
+        std::fs::rename(&src, &dst).map_err(|e| format!("恢复会话失败: {e}"))
+    }
+
+    /// 彻底删除会话（`sessions/<id>.jsonl`）。不可恢复；UI 层需确认。
+    pub fn delete_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
+        validate_session_id(session_id)?;
+        let slot = self.session.lock().map_err(|e| e.to_string())?;
+        if let Some((open_agent, open_id)) = Self::opened_session_identity_locked(&slot) {
+            if open_agent == agent_name && open_id == session_id {
+                return Err("该会话当前已打开，请先返回再删除".into());
+            }
+        }
+        let path = self.session_file_path(agent_name, session_id)?;
+        if !Self::ensure_real_session_file(&path)? {
+            return Err("会话不存在".into());
+        }
+        std::fs::remove_file(&path).map_err(|e| format!("删除会话失败: {e}"))
+    }
+
+    /// 删除已归档会话（`sessions/.archive/<id>.jsonl`）。不可恢复。
+    pub fn delete_archived_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
+        validate_session_id(session_id)?;
+        let _slot = self.session.lock().map_err(|e| e.to_string())?;
+        let def = agents::load_agent(agent_name)?;
+        let archive_dir = def
+            .sessions_dir()
+            .ok_or_else(|| "无法解析会话目录".to_string())?
+            .join(agents::ARCHIVE_DIR);
+        if !agents::ensure_real_directory(&archive_dir, "归档目录")? {
+            return Err("归档区没有该会话".into());
+        }
+        let path = archive_dir.join(format!("{session_id}.jsonl"));
+        if !Self::ensure_real_session_file(&path)? {
+            return Err("归档区没有该会话".into());
+        }
+        std::fs::remove_file(&path).map_err(|e| format!("删除归档会话失败: {e}"))
+    }
+
+    /// 列出已归档会话摘要。
+    pub fn list_archived_sessions(&self, agent_name: &str) -> Result<Vec<SessionSummary>, String> {
+        let def = agents::load_agent(agent_name)?;
+        let dir = def
+            .sessions_dir()
+            .ok_or_else(|| "无法解析会话目录".to_string())?
+            .join(agents::ARCHIVE_DIR);
+        match agents::ensure_real_directory(&dir, "归档目录") {
+            Ok(false) => return Ok(Vec::new()),
+            Ok(true) => {}
+            Err(error) => return Err(error),
+        }
+        Ok(list_session_summaries(&dir))
+    }
+
+    // ============ Agent 归档 / 恢复 / 删除（运行时占用检查） ============
+
+    /// 归档 Agent：目录移入 `.archive/`。该 Agent 有会话打开时拒绝。
+    /// 占用检查与目录移动在同一把会话槽锁内，避免检查后被并发打开抢跑。
+    pub fn archive_agent(&self, name: &str) -> Result<(), String> {
+        let slot = self.session.lock().map_err(|e| e.to_string())?;
+        if let Some((open_agent, _)) = Self::opened_session_identity_locked(&slot) {
+            if open_agent == name {
+                return Err(format!(
+                    "Agent「{name}」仍有会话打开，请先打开其他会话或新建会话，再归档"
+                ));
+            }
+        }
+        drop(slot);
+        agents::archive_agent(name)
+    }
+
+    /// 恢复归档 Agent（归档时已保证无会话打开，这里只做文件移动）。
+    pub fn restore_agent(&self, name: &str) -> Result<(), String> {
+        agents::restore_agent(name)
+    }
+
+    /// 彻底删除 Agent。该 Agent 有会话打开时拒绝；不可恢复。
+    pub fn delete_agent(&self, name: &str) -> Result<(), String> {
+        let slot = self.session.lock().map_err(|e| e.to_string())?;
+        if let Some((open_agent, _)) = Self::opened_session_identity_locked(&slot) {
+            if open_agent == name {
+                return Err(format!(
+                    "Agent「{name}」仍有会话打开，请先打开其他会话或新建会话，再删除"
+                ));
+            }
+        }
+        drop(slot);
+        agents::delete_agent(name)
+    }
+
+    /// 彻底删除已归档 Agent。不可恢复。
+    pub fn delete_archived_agent(&self, name: &str) -> Result<(), String> {
+        agents::delete_archived_agent(name)
     }
 }
 
@@ -356,13 +547,7 @@ pub struct SessionInfo {
 impl RuntimeState {
     /// 打开（续写）一个已有会话。
     pub fn open_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
-        if session_id.is_empty()
-            || !session_id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-')
-        {
-            return Err("非法会话 ID".into());
-        }
+        validate_session_id(session_id)?;
         let def = agents::load_agent(agent_name)?;
         let dir = def.sessions_dir().ok_or("无法解析会话目录")?;
         let path = dir.join(format!("{session_id}.jsonl"));

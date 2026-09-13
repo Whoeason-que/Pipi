@@ -29,6 +29,16 @@ pub fn run() {
             chat::session_info,
             chat::fork_session,
             chat::set_session_model,
+            chat::archive_agent,
+            chat::restore_agent,
+            chat::delete_agent,
+            chat::delete_archived_agent,
+            chat::archive_session,
+            chat::restore_session,
+            chat::delete_session,
+            chat::delete_archived_session,
+            chat::list_archived_sessions,
+            commands::list_archived_agents,
         ])
         .run(tauri::generate_context!())
         .expect("Pipi 启动失败");

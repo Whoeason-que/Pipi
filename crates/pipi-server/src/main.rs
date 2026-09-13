@@ -413,6 +413,55 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
         }
         "session_messages" => to_value(state.runtime.session_messages().await?),
         "session_stats" => to_value(state.runtime.session_stats()?),
+        "list_archived_agents" => to_value(agents::list_archived_agents()?),
+        "archive_agent" => {
+            let name = required_string(args, "name")?;
+            state.runtime.archive_agent(&name)?;
+            Ok(Value::Null)
+        }
+        "restore_agent" => {
+            let name = required_string(args, "name")?;
+            state.runtime.restore_agent(&name)?;
+            Ok(Value::Null)
+        }
+        "delete_agent" => {
+            let name = required_string(args, "name")?;
+            state.runtime.delete_agent(&name)?;
+            Ok(Value::Null)
+        }
+        "delete_archived_agent" => {
+            let name = required_string(args, "name")?;
+            state.runtime.delete_archived_agent(&name)?;
+            Ok(Value::Null)
+        }
+        "list_archived_sessions" => {
+            let agent_name = required_string(args, "agentName")?;
+            to_value(state.runtime.list_archived_sessions(&agent_name)?)
+        }
+        "archive_session" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            state.runtime.archive_session(&agent_name, &session_id)?;
+            Ok(Value::Null)
+        }
+        "restore_session" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            state.runtime.restore_session(&agent_name, &session_id)?;
+            Ok(Value::Null)
+        }
+        "delete_session" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            state.runtime.delete_session(&agent_name, &session_id)?;
+            Ok(Value::Null)
+        }
+        "delete_archived_session" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            state.runtime.delete_archived_session(&agent_name, &session_id)?;
+            Ok(Value::Null)
+        }
         _ => Err(format!("未知命令: {command}")),
     }
 }

@@ -62,6 +62,11 @@ pub fn agents_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".pipi").join("agents"))
 }
 
+/// 归档区目录名（agents 根与各 Agent 的 sessions 目录共用）：
+/// `~/.pipi/agents/.archive/` 与 `<agent>/sessions/.archive/`。以点开头，
+/// 列表扫描天然跳过，文件即真相 —— 归档就是一次目录/文件移动。
+pub const ARCHIVE_DIR: &str = ".archive";
+
 /// 校验 Agent 名称必须是单一、稳定的目录名，禁止路径分隔符与 `..` 穿越。
 pub fn validate_agent_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
@@ -80,7 +85,7 @@ fn manifest_name_matches_directory(directory_name: &str, manifest_name: &str) ->
     directory_name == manifest_name && validate_agent_name(manifest_name).is_ok()
 }
 
-fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
+pub(crate) fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             Err(format!("{label} 不能是符号链接: {}", path.display()))
@@ -92,7 +97,7 @@ fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
     }
 }
 
-fn ensure_real_file(path: &Path, label: &str) -> Result<bool, String> {
+pub(crate) fn ensure_real_file(path: &Path, label: &str) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             Err(format!("{label} 不能是符号链接: {}", path.display()))
@@ -169,15 +174,15 @@ impl AgentDefinition {
     }
 }
 
-/// 扫描 ~/.pipi/agents，返回所有合法 Agent。
+/// 扫描一个目录下的所有合法 Agent（活跃区与归档区共用）。
 /// 缺 agent.json 或解析失败的目录直接跳过 —— 文件即真相，坏文件不拖垮列表。
-pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
-    let dir = checked_agents_root()?;
-    if !dir.exists() {
-        return Ok(Vec::new());
-    }
+/// 以 `.` 开头的目录（归档区等）一律跳过。
+fn scan_agents(dir: &Path) -> Vec<AgentDefinition> {
     let mut agents = Vec::new();
-    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return agents;
+    };
+    for entry in entries.flatten() {
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
             Err(error) => {
@@ -189,6 +194,9 @@ pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
             continue;
         }
         let directory_name = entry.file_name().to_string_lossy().into_owned();
+        if directory_name.starts_with('.') {
+            continue;
+        }
         let manifest = entry.path().join("agent.json");
         match ensure_real_file(&manifest, "agent.json") {
             Ok(true) => {}
@@ -218,7 +226,77 @@ pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
         }
     }
     agents.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(agents)
+    agents
+}
+
+/// 扫描 ~/.pipi/agents，返回所有合法 Agent。
+pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
+    let dir = checked_agents_root()?;
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    Ok(scan_agents(&dir))
+}
+
+// ============ 归档 / 恢复 / 删除 ============
+// 归档 = 移动到 `agents/.archive/<name>/`；删除 = 彻底删目录。
+// 都是纯文件操作：移动失败、目录不存在都直接报中文错误。
+// 调用方（命令层）负责先做「会话占用」检查 —— 打开中的 Agent 目录不能挪走。
+
+fn checked_archive_dir() -> Result<PathBuf, String> {
+    Ok(checked_agents_root()?.join(ARCHIVE_DIR))
+}
+
+fn checked_archived_agent_dir(name: &str) -> Result<PathBuf, String> {
+    validate_agent_name(name)?;
+    let dir = checked_archive_dir()?.join(name);
+    ensure_real_directory(&dir, "归档 Agent 目录")?;
+    Ok(dir)
+}
+
+/// 列出已归档 Agent（`~/.pipi/agents/.archive/` 下）。
+pub fn list_archived_agents() -> Result<Vec<AgentDefinition>, String> {
+    let dir = checked_archive_dir()?;
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    Ok(scan_agents(&dir))
+}
+
+/// 归档 Agent：把 `agents/<name>/` 整体移入 `agents/.archive/<name>/`。
+pub fn archive_agent(name: &str) -> Result<(), String> {
+    let src = checked_agent_dir(name)?;
+    let archive_dir = checked_archive_dir()?;
+    fs::create_dir_all(&archive_dir).map_err(|e| format!("无法创建归档目录: {e}"))?;
+    let dst = archive_dir.join(name);
+    if dst.exists() {
+        return Err(format!("归档区已存在同名 Agent「{name}」"));
+    }
+    fs::rename(&src, &dst).map_err(|e| format!("归档 Agent「{name}」失败: {e}"))
+}
+
+/// 恢复归档 Agent：移回 `agents/<name>/`。
+pub fn restore_agent(name: &str) -> Result<(), String> {
+    let src = checked_archived_agent_dir(name)?;
+    let root = checked_agents_root()?;
+    let dst = root.join(name);
+    if dst.exists() {
+        return Err(format!("活跃区已存在同名 Agent「{name}」"));
+    }
+    fs::rename(&src, &dst).map_err(|e| format!("恢复 Agent「{name}」失败: {e}"))
+}
+
+/// 彻底删除 Agent（含其目录下的 session、workspace、skills、memory）。
+/// 不可恢复；调用方应先在 UI 层做确认。
+pub fn delete_agent(name: &str) -> Result<(), String> {
+    let dir = checked_agent_dir(name)?;
+    fs::remove_dir_all(&dir).map_err(|e| format!("删除 Agent「{name}」失败: {e}"))
+}
+
+/// 彻底删除已归档 Agent（`agents/.archive/<name>/`）。不可恢复。
+pub fn delete_archived_agent(name: &str) -> Result<(), String> {
+    let dir = checked_archived_agent_dir(name)?;
+    fs::remove_dir_all(&dir).map_err(|e| format!("删除归档 Agent「{name}」失败: {e}"))
 }
 
 /// 默认 Agent 的名字。首次启动（或该 Agent 缺失）时由核心播种，保证开箱即可用。
@@ -949,6 +1027,81 @@ mod tests {
         // 幂等
         assert!(ensure_default_agent().unwrap().is_none());
         assert_eq!(list_agents().unwrap().len(), 2);
+
+        std::env::set_var("HOME", &prev);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn agent_archive_restore_delete_lifecycle() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-arch-{}", crate::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", &home);
+
+        let name = "arch-lifecycle";
+        create_agent(name, "归档生命周期", None, None, None, None).unwrap();
+        assert!(list_agents().unwrap().iter().any(|a| a.name == name));
+        assert!(list_archived_agents().unwrap().is_empty());
+
+        // 归档：活跃列表消失、归档列表出现、目录真的移动了
+        archive_agent(name).unwrap();
+        assert!(!list_agents().unwrap().iter().any(|a| a.name == name));
+        assert!(list_archived_agents().unwrap().iter().any(|a| a.name == name));
+        let dir = agents_dir().unwrap();
+        assert!(dir.join(ARCHIVE_DIR).join(name).is_dir());
+        assert!(!dir.join(name).exists());
+
+        // 重复归档同一名字的 Agent → 该名字现在已不在活跃区 → 报错
+        assert!(archive_agent(name).is_err());
+
+        // 恢复：回到活跃区
+        restore_agent(name).unwrap();
+        assert!(list_agents().unwrap().iter().any(|a| a.name == name));
+        assert!(!list_archived_agents().unwrap().iter().any(|a| a.name == name));
+
+        // 恢复一个不存在的归档 Agent → 报错
+        assert!(restore_agent("no-such-archived-agent").is_err());
+
+        // 删除（活跃区）
+        delete_agent(name).unwrap();
+        assert!(!list_agents().unwrap().iter().any(|a| a.name == name));
+
+        // 归档区删除
+        archive_agent("arch-lifecycle-2").unwrap_or_else(|_| {
+            create_agent("arch-lifecycle-2", "归档删除", None, None, None, None).unwrap();
+            archive_agent("arch-lifecycle-2").unwrap();
+        });
+        // 上一步用 create+archive 保证该名字存在
+        delete_archived_agent("arch-lifecycle-2").unwrap();
+        assert!(!list_archived_agents().unwrap().iter().any(|a| a.name == "arch-lifecycle-2"));
+
+        // 删除不存在的 Agent → 报错
+        assert!(delete_agent("no-such-agent").is_err());
+
+        std::env::set_var("HOME", &prev);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn archive_scan_skips_dot_dir_with_manifest() {
+        // 归档区里即使意外出现 agent.json，活跃列表也不得扫到（点目录硬跳过）
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-dot-{}", crate::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", &home);
+
+        let name = "dot-dir-agent";
+        create_agent(name, "点目录防漏", None, None, None, None).unwrap();
+        archive_agent(name).unwrap();
+        // 往归档区里塞一个「坏掉」的 agent.json（不该影响活跃列表）
+        let archive_agent_dir = agents_dir().unwrap().join(ARCHIVE_DIR).join(name);
+        std::fs::write(archive_agent_dir.join("agent.json"), "{ broken json").unwrap();
+        assert!(!list_agents().unwrap().iter().any(|a| a.name == name));
 
         std::env::set_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
