@@ -5701,6 +5701,7 @@ dependencies = [
  "base64 0.22.1",
  "dirs",
  "futures-util",
+ "http",
  "reqwest 0.12.28",
  "rig",
  "serde",

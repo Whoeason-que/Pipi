@@ -716,6 +716,8 @@ impl RuntimeState {
                 temperature: None,
                 max_tokens: Some(model.max_tokens),
                 timeout_secs: 300,
+                // 会话标识：需要它的供应商（如 OpenCode Go）据此做路由与缓存
+                session_id: writer_session_id(&writer).ok(),
             },
             tool_execution: ToolExecutionMode::Parallel,
             steering: MessageQueue::new(),

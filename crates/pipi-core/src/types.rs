@@ -290,6 +290,9 @@ pub struct StreamOptions {
     pub max_tokens: Option<u32>,
     /// 单次请求的整体超时（秒）；0 表示使用默认 300 秒。
     pub timeout_secs: u64,
+    /// 当前会话 ID。少数供应商要求客户端自带会话标识才肯路由
+    /// （如 OpenCode Go 的 `x-opencode-session`），见 provider::extra_headers。
+    pub session_id: Option<String>,
 }
 
 impl Default for StreamOptions {
@@ -299,6 +302,7 @@ impl Default for StreamOptions {
             temperature: None,
             max_tokens: None,
             timeout_secs: 300,
+            session_id: None,
         }
     }
 }

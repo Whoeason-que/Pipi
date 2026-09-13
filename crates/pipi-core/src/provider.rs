@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use http::{HeaderMap, HeaderName, HeaderValue};
 use rig::client::CompletionClient;
 use rig::completion::{CompletionRequestBuilder, FinishReason, Usage as RigUsage};
 use rig::message::{
@@ -45,6 +46,38 @@ pub trait Provider: Send + Sync {
 
 pub fn provider_for(api: Api) -> std::sync::Arc<dyn Provider> {
     std::sync::Arc::new(RigProvider::new(api))
+}
+
+/// 需要「客户端自带会话标识」的供应商：键是 baseUrl 片段，值是要注入的会话头名。
+///
+/// 目前只有 OpenCode Go：它的文档要求第三方 coding agent 每个会话带稳定 ID
+/// （<https://opencode.ai/docs/go/>，缺失直接 400 `MissingSessionID`），
+/// 这样它才能做路由优化与 prompt 缓存。Hermes、Claude Code 等客户端都按此实现。
+const SESSION_HEADER_PROVIDERS: &[(&str, &str)] = &[("opencode.ai/zen/go", "x-opencode-session")];
+
+/// 我们自己的 User-Agent。供应商文档普遍要求客户端别用通用 SDK / HTTP 库的名字。
+fn pipi_user_agent() -> String {
+    format!("pipi/{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// 按供应商组装额外请求头；没有特殊要求时返回 `None`（普通供应商一个头都不塞）。
+fn extra_headers(base_url: &str, session_id: Option<&str>) -> Option<HeaderMap> {
+    let (_, session_header) = SESSION_HEADER_PROVIDERS
+        .iter()
+        .find(|(pattern, _)| base_url.contains(pattern))?;
+    let mut headers = HeaderMap::new();
+    if let Ok(value) = HeaderValue::from_str(&pipi_user_agent()) {
+        headers.insert(HeaderName::from_static("user-agent"), value);
+    }
+    if let Some(id) = session_id.filter(|id| !id.is_empty()) {
+        if let (Ok(name), Ok(value)) = (
+            HeaderName::from_bytes(session_header.as_bytes()),
+            HeaderValue::from_str(id),
+        ) {
+            headers.insert(name, value);
+        }
+    }
+    Some(headers)
 }
 
 /// rig 适配器。按 [`Api`] 分派到 rig 的对应 provider client。
@@ -455,6 +488,11 @@ impl Provider for RigProvider {
                     if !model.base_url.is_empty() {
                         cb = cb.base_url(model.base_url.clone());
                     }
+                    if let Some(headers) =
+                        extra_headers(&model.base_url, options.session_id.as_deref())
+                    {
+                        cb = cb.http_headers(headers);
+                    }
                     let client = cb.build().map_err(|e| format!("Client 初始化失败: {e}"))?;
                     run_with_model!(tx, abort, model, context, options, client.completion_model(&model.id))
                 }
@@ -463,6 +501,11 @@ impl Provider for RigProvider {
                     let mut cb = rig::providers::openai::Client::builder().api_key(key);
                     if !model.base_url.is_empty() {
                         cb = cb.base_url(model.base_url.clone());
+                    }
+                    if let Some(headers) =
+                        extra_headers(&model.base_url, options.session_id.as_deref())
+                    {
+                        cb = cb.http_headers(headers);
                     }
                     let client = cb.build().map_err(|e| format!("Client 初始化失败: {e}"))?;
                     // 统一走 Chat Completions（`/chat/completions`）：rig 0.42 的 openai 客户端
@@ -606,5 +649,38 @@ mod tests {
                 arguments: json!({"cmd": "ls"}),
             }
         );
+    }
+
+    #[test]
+    fn extra_headers_only_for_providers_that_require_session_id() {
+        // 普通供应商：一个头都不塞，避免给无关请求改变行为
+        assert!(extra_headers("https://api.deepseek.com/v1", Some("s-1")).is_none());
+        assert!(extra_headers("https://api.anthropic.com", None).is_none());
+        assert!(extra_headers("", Some("s-1")).is_none());
+
+        // OpenCode Go：UA + 会话头都要有
+        let headers = extra_headers("https://opencode.ai/zen/go/v1", Some("1789230239133-abc"))
+            .expect("opencode-go 应带额外请求头");
+        assert_eq!(
+            headers.get("x-opencode-session").and_then(|v| v.to_str().ok()),
+            Some("1789230239133-abc"),
+        );
+        let user_agent = headers
+            .get("user-agent")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert!(user_agent.starts_with("pipi/"), "UA 应为 pipi/<版本>，实际 {user_agent}");
+    }
+
+    #[test]
+    fn extra_headers_without_session_id_still_identifies_client() {
+        let headers = extra_headers("https://opencode.ai/zen/go/v1", None)
+            .expect("命中供应商时至少应带 UA");
+        assert!(headers.get("x-opencode-session").is_none());
+        assert!(headers.get("user-agent").is_some());
+
+        // 空串视为没有会话 ID，不得塞空值头（HeaderValue 允许空串，但供应商侧无法路由）
+        let headers = extra_headers("https://opencode.ai/zen/go/v1", Some("")).unwrap();
+        assert!(headers.get("x-opencode-session").is_none());
     }
 }
