@@ -348,6 +348,44 @@ pub fn list_agents_bootstrapped() -> Result<Vec<AgentDefinition>, String> {
     list_agents()
 }
 
+/// 校验 Agent 定义的合法性（create 与 save 共用；UI 全字段编辑也走 save）。
+///
+/// - 名称合法（字母数字 + `-` `_`）
+/// - 工具名单：至少启用一个，且全部是已知内置工具
+/// - 工作目录：显式指定时必须展开后为绝对路径（不自动创建 —— 创建目录
+///   是 create_agent 的行为，save 保持只写 agent.json）
+/// - MCP 服务器：名称非空且不重复（M3 占位，先挡住明显错误）
+pub fn validate_definition(def: &AgentDefinition) -> Result<(), String> {
+    validate_agent_name(&def.name)?;
+    if def.permissions.tools.is_empty() {
+        return Err("至少启用一个工具".into());
+    }
+    for tool in &def.permissions.tools {
+        if !KNOWN_TOOLS.contains(&tool.as_str()) {
+            return Err(format!(
+                "未知工具: {tool}（可用：{}）",
+                KNOWN_TOOLS.join(", ")
+            ));
+        }
+    }
+    if let Some(workspace) = def.workspace.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
+        let expanded = expand_tilde(workspace);
+        if !PathBuf::from(&expanded).is_absolute() {
+            return Err(format!("工作目录必须是绝对路径: {workspace}"));
+        }
+    }
+    let mut seen_servers = std::collections::HashSet::new();
+    for server in &def.mcp_servers {
+        if server.name.trim().is_empty() {
+            return Err("MCP 服务器名称不能为空".into());
+        }
+        if !seen_servers.insert(server.name.trim().to_string()) {
+            return Err(format!("MCP 服务器名称重复: {}", server.name));
+        }
+    }
+    Ok(())
+}
+
 /// 创建 Agent：生成目录骨架并写入 agent.json / AGENTS.md。
 /// 不做任何额外存储 —— Agent 从诞生起就是一组普通文件。
 pub fn create_agent(
@@ -366,18 +404,6 @@ pub fn create_agent(
         sandbox: crate::permissions::SandboxMode::WorkspaceWrite,
         ..Default::default()
     });
-    // 工具名单校验：必须是已知工具的子集且至少启用一个
-    if permissions.tools.is_empty() {
-        return Err("至少启用一个工具".into());
-    }
-    for tool in &permissions.tools {
-        if !KNOWN_TOOLS.contains(&tool.as_str()) {
-            return Err(format!(
-                "未知工具: {tool}（可用：{}）",
-                KNOWN_TOOLS.join(", ")
-            ));
-        }
-    }
 
     // 工作目录校验：显式指定时展开 ~ 并确保是绝对路径，不存在则创建
     let workspace = match workspace.map(str::trim).filter(|w| !w.is_empty()) {
@@ -393,6 +419,23 @@ pub fn create_agent(
         None => None,
     };
 
+    let model_label = match (model.map(str::trim).filter(|m| !m.is_empty()), &provider) {
+        (Some(m), _) => m.to_string(),
+        (None, Some(p)) => p.display_name().to_string(),
+        (None, None) => String::new(),
+    };
+
+    let def = AgentDefinition {
+        name: name.clone(),
+        description: description.trim().to_string(),
+        model: model_label,
+        provider,
+        workspace: workspace.clone(),
+        permissions,
+        mcp_servers: Vec::new(),
+    };
+    // 与 save_agent 同一套校验（工具名单等）
+    validate_definition(&def)?;
     let dir = agent_dir(&name).ok_or_else(|| "无法定位用户主目录".to_string())?;
     if dir.exists() {
         return Err(format!("Agent「{name}」已存在"));
@@ -406,21 +449,6 @@ pub fn create_agent(
         fs::create_dir_all(dir.join("workspace")).map_err(|e| e.to_string())?;
     }
 
-    let model_label = match (model.map(str::trim).filter(|m| !m.is_empty()), &provider) {
-        (Some(m), _) => m.to_string(),
-        (None, Some(p)) => p.display_name().to_string(),
-        (None, None) => String::new(),
-    };
-
-    let def = AgentDefinition {
-        name: name.clone(),
-        description: description.trim().to_string(),
-        model: model_label,
-        provider,
-        workspace,
-        permissions,
-        mcp_servers: Vec::new(),
-    };
     let manifest = serde_json::to_string_pretty(&def).map_err(|e| e.to_string())?;
     fs::write(dir.join("agent.json"), manifest + "\n").map_err(|e| e.to_string())?;
     let intro = if def.description.is_empty() {
@@ -462,7 +490,9 @@ pub fn load_agent(name: &str) -> Result<AgentDefinition, String> {
 }
 
 /// 保存 agent.json（UI 编辑入口；文件仍是唯一真相源）。
+/// 与 create 走同一套校验 —— UI 全字段编辑无法绕过工具/路径约束。
 pub fn save_agent(def: &AgentDefinition) -> Result<(), String> {
+    validate_definition(def)?;
     let dir = checked_agent_dir(&def.name)?;
     if !dir.is_dir() {
         return Err(format!("Agent「{}」不存在", def.name));
@@ -471,6 +501,172 @@ pub fn save_agent(def: &AgentDefinition) -> Result<(), String> {
     let manifest_path = dir.join("agent.json");
     ensure_real_file(&manifest_path, "agent.json")?;
     fs::write(manifest_path, manifest + "\n").map_err(|e| e.to_string())
+}
+
+/// 解析 Agent 目录内允许 UI 编辑的 Markdown 相对路径。
+///
+/// 只放行两类：根目录的 `AGENTS.md`，以及 `memory/` 下的 `.md` 文件树
+/// （深度 ≤ 3，对齐 memory 工具的 `collect_markdown`）。其余路径一律
+/// 拒绝 —— UI 编辑器不是任意文件写入通道。任何组件都不允许 `..`、
+/// 点开头或符号链接（fail-closed）。
+fn resolve_agent_md_path(dir: &Path, rel_path: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(rel_path);
+    if relative.is_absolute() {
+        return Err(format!("必须是相对路径: {rel_path}"));
+    }
+    let components: Vec<std::ffi::OsString> = relative
+        .components()
+        .map(|c| c.as_os_str().to_owned())
+        .collect();
+    if components.is_empty() {
+        return Err("路径不能为空".into());
+    }
+    let dot_or_escape = components
+        .iter()
+        .any(|c| c == ".." || c.to_string_lossy().starts_with('.'));
+    if dot_or_escape {
+        return Err(format!("路径不合法: {rel_path}"));
+    }
+
+    let first = components[0].to_string_lossy().into_owned();
+    let target = if first == "AGENTS.md" {
+        if components.len() != 1 {
+            return Err(format!("AGENTS.md 只能是 Agent 目录根下的文件: {rel_path}"));
+        }
+        dir.join("AGENTS.md")
+    } else if first == "memory" {
+        if components.len() < 2 || components.len() > 4 {
+            return Err(format!("memory 路径深度须为 1-3 层: {rel_path}"));
+        }
+        let file_name = components.last().unwrap().to_string_lossy().into_owned();
+        if !file_name.ends_with(".md") || file_name.len() <= 3 {
+            return Err(format!("memory 下只能编辑 .md 文件: {rel_path}"));
+        }
+        let mut path = dir.to_path_buf();
+        for component in &components {
+            path.push(component);
+        }
+        path
+    } else {
+        return Err(format!("只允许编辑 AGENTS.md 与 memory/*.md: {rel_path}"));
+    };
+
+    // 中间目录与目标本身都不能是符号链接/非常规条目
+    let mut current = dir.to_path_buf();
+    for component in &components {
+        current.push(component);
+        if current == target {
+            ensure_real_file(&current, "目标文件")?;
+        } else {
+            ensure_real_directory(&current, "路径目录")?;
+        }
+    }
+    Ok(target)
+}
+
+/// 读取 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+pub fn read_agent_file(agent_name: &str, rel_path: &str) -> Result<String, String> {
+    let dir = checked_agent_dir(agent_name)?;
+    let target = resolve_agent_md_path(&dir, rel_path)?;
+    if !target.is_file() {
+        return Err(format!("文件不存在: {rel_path}"));
+    }
+    fs::read_to_string(&target).map_err(|e| format!("无法读取 {rel_path}: {e}"))
+}
+
+/// 写入 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+/// memory 下的新文件允许创建（父目录自动补齐）；AGENTS.md 必须已存在。
+pub fn write_agent_file(agent_name: &str, rel_path: &str, content: &str) -> Result<(), String> {
+    let dir = checked_agent_dir(agent_name)?;
+    let target = resolve_agent_md_path(&dir, rel_path)?;
+    if rel_path == "AGENTS.md" && !target.is_file() {
+        return Err("AGENTS.md 不存在（不应删除 Agent 的系统指令文件）".into());
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("无法创建目录 {}: {e}", parent.display()))?;
+    }
+    fs::write(&target, content).map_err(|e| format!("无法写入 {rel_path}: {e}"))
+}
+
+/// 列出 Agent 目录内可编辑的 Markdown 相对路径（`AGENTS.md` + `memory/*.md`）。
+/// UI 文件编辑器与 memory 索引共用此扫描（复用 memory 工具的 collect_markdown）。
+pub fn list_agent_md_files(agent_name: &str) -> Result<Vec<String>, String> {
+    let dir = checked_agent_dir(agent_name)?;
+    let mut out = Vec::new();
+    if dir.join("AGENTS.md").is_file() {
+        out.push("AGENTS.md".to_string());
+    }
+    let mut rels = Vec::new();
+    crate::tools::memory::collect_markdown(&dir.join("memory"), 0, &mut rels);
+    rels.sort();
+    for rel in rels {
+        out.push(format!("memory/{rel}"));
+    }
+    Ok(out)
+}
+
+/// memory 渐进召回的单条索引：相对 memory 目录的路径 + 一句话摘要。
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryFileMeta {
+    /// 相对 memory 目录的路径（`/` 分隔）。
+    pub path: String,
+    /// 首个标题或首行非空文本（截断）。
+    pub summary: String,
+}
+
+/// 摘要截断长度（字符）；超长以省略号收尾。
+const MEMORY_SUMMARY_MAX_CHARS: usize = 80;
+
+/// 从 memory 文件内容提取摘要：优先首个 `#` 标题，否则首行非空文本。
+fn memory_summary(content: &str) -> String {
+    let mut fallback = String::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let candidate = trimmed.trim_start_matches('#').trim();
+        if line.trim_start().starts_with('#') && !candidate.is_empty() {
+            return truncate_summary(candidate);
+        }
+        if fallback.is_empty() {
+            fallback = candidate.to_string();
+        }
+    }
+    truncate_summary(&fallback)
+}
+
+fn truncate_summary(value: &str) -> String {
+    let char_count = value.chars().count();
+    if char_count <= MEMORY_SUMMARY_MAX_CHARS {
+        return value.to_string();
+    }
+    let head: String = value.chars().take(MEMORY_SUMMARY_MAX_CHARS).collect();
+    format!("{head}…")
+}
+
+/// 生成 memory 渐进召回索引（空目录返回空 —— 零打扰）。
+/// `path` 是绝对路径：模型用 read 工具直接加载正文（memory 目录在
+/// build_tool_context 里加入了 read_roots）。
+pub fn memory_index(def: &AgentDefinition) -> Vec<crate::harness::MemoryFileMeta> {
+    let Some(dir) = def.memory_dir() else {
+        return Vec::new();
+    };
+    let mut rels = Vec::new();
+    crate::tools::memory::collect_markdown(&dir, 0, &mut rels);
+    rels.sort();
+    rels
+        .into_iter()
+        .map(|rel| {
+            let summary = fs::read_to_string(dir.join(&rel))
+                .map(|content| memory_summary(&content))
+                .unwrap_or_default();
+            crate::harness::MemoryFileMeta {
+                path: dir.join(&rel).display().to_string(),
+                summary,
+            }
+        })
+        .collect()
 }
 
 /// 组装工具执行上下文（loop 与工具共用）。
@@ -482,7 +678,7 @@ pub fn build_tool_context(
     fs::create_dir_all(&workspace).map_err(|e| format!("工作目录不可用: {e}"))?;
     let workspace =
         fs::canonicalize(&workspace).map_err(|e| format!("工作目录不可用：无法规范化路径: {e}"))?;
-    let read_roots = match def.dir().map(|dir| dir.join("skills")) {
+    let mut read_roots = match def.dir().map(|dir| dir.join("skills")) {
         Some(skills) if skills.is_dir() => {
             let agent_dir = skills
                 .parent()
@@ -502,6 +698,15 @@ pub fn build_tool_context(
         }
         _ => Vec::new(),
     };
+    // memory 渐进召回：正文由模型用 read 按需加载，memory 目录须在受信任
+    // 读取根内（memory 工具本身仍走自己的 memory_dir 约束）。
+    if let Some(memory_dir) = def.memory_dir() {
+        if memory_dir.is_dir() {
+            if let Ok(canonical_memory) = fs::canonicalize(&memory_dir) {
+                read_roots.push(canonical_memory);
+            }
+        }
+    }
     Ok(crate::tools::ToolContext {
         workspace,
         memory_dir: def.memory_dir(),
@@ -566,6 +771,7 @@ pub fn build_system_prompt_with_tools(def: &AgentDefinition, tools: &[Tool]) -> 
         cwd,
         context_files,
         skills,
+        memory_files: memory_index(def),
         append_system_prompt,
         ..Default::default()
     })
@@ -761,6 +967,62 @@ mod tests {
         assert!(prompt.contains("- read: Read files"));
     }
 
+    #[test]
+    fn system_prompt_injects_memory_index_with_summaries() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let name = format!("memory-index-{}", crate::session::new_id());
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
+        let memory_dir = def.memory_dir().unwrap();
+        fs::write(
+            memory_dir.join("user-prefs.md"),
+            "# 用户偏好\n\n简洁回答，中文优先。\n",
+        )
+        .unwrap();
+
+        let prompt = build_system_prompt_with_tools(&def, &[]);
+        assert!(prompt.contains("<persistent_memory>"));
+        assert!(prompt.contains("<path>"));
+        assert!(prompt
+            .contains(&memory_dir.join("user-prefs.md").display().to_string()));
+        assert!(prompt.contains("用户偏好"));
+        // 渐进披露：只注入摘要，不注入正文
+        assert!(prompt.contains("简洁回答") || !prompt.contains("中文优先"));
+
+        // 空 memory 时零打扰
+        fs::remove_file(memory_dir.join("user-prefs.md")).unwrap();
+        let prompt = build_system_prompt_with_tools(&def, &[]);
+        assert!(!prompt.contains("<persistent_memory>"));
+
+        let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
+    #[test]
+    fn tool_context_grants_read_access_to_memory_dir() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let name = format!("memory-read-{}", crate::session::new_id());
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
+        let memory_dir = def.memory_dir().unwrap();
+        fs::write(memory_dir.join("note.md"), "hello").unwrap();
+
+        let ctx = build_tool_context(&def, crate::types::AbortSignal::new()).unwrap();
+        let read_root = ctx
+            .read_roots
+            .iter()
+            .find(|root| root.ends_with("memory"))
+            .expect("memory dir should be a trusted read root");
+
+        // read 工具路径解析能通过 memory 根
+        let resolved = crate::tools::resolve_read_path(
+            &ctx.workspace,
+            &ctx.read_roots,
+            &memory_dir.join("note.md").display().to_string(),
+        )
+        .unwrap();
+        assert!(resolved.starts_with(read_root));
+
+        let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
     #[cfg(unix)]
     #[test]
     fn build_tool_context_rejects_skills_symlink_outside_agent_dir() {
@@ -817,6 +1079,40 @@ mod tests {
     }
 
     #[test]
+    fn agent_file_editor_is_restricted_to_agents_md_and_memory() {        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!("pipi-edit-{}", crate::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", &home);
+        create_agent("editor", "d", None, None, None, None).unwrap();
+
+        // AGENTS.md 可读写
+        write_agent_file("editor", "AGENTS.md", "# 新指令\n").unwrap();
+        assert_eq!(read_agent_file("editor", "AGENTS.md").unwrap(), "# 新指令\n");
+
+        // memory 新文件可创建并读写
+        write_agent_file("editor", "memory/user-prefs.md", "偏好： concise\n").unwrap();
+        assert!(read_agent_file("editor", "memory/user-prefs.md")
+            .unwrap()
+            .contains("偏好"));
+
+        // 拒绝：绝对路径、逃逸、agent.json、其他扩展名、过深路径
+        assert!(read_agent_file("editor", "/etc/passwd").is_err());
+        assert!(read_agent_file("editor", "../escape.md").is_err());
+        assert!(write_agent_file("editor", "agent.json", "{}").is_err());
+        assert!(write_agent_file("editor", "memory/notes.txt", "x").is_err());
+        assert!(write_agent_file("editor", "skills/tool/SKILL.md", "x").is_err());
+        assert!(write_agent_file("editor", "memory/a/b/c/d.md", "x").is_err());
+        assert!(read_agent_file("editor", "memory/missing.md").is_err());
+        // AGENTS.md 不允许通过 write 新建（已被 create_agent 管理）
+        std::fs::remove_file(home.join(".pipi/agents/editor/AGENTS.md")).unwrap();
+        assert!(write_agent_file("editor", "AGENTS.md", "x").is_err());
+
+        std::env::set_var("HOME", prev);
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
     fn create_rejects_bad_names_and_tools() {
         assert!(create_agent("", "d", None, None, None, None).is_err());
         assert!(create_agent("bad name", "d", None, None, None, None).is_err());
@@ -847,6 +1143,50 @@ mod tests {
             None,
         )
         .is_err());
+    }
+
+    #[test]
+    fn validate_definition_rejects_bad_tools_workspace_and_mcp() {
+        let base = || AgentDefinition {
+            name: "ok-name".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: None,
+            permissions: PermissionsConfig::default(),
+            mcp_servers: Vec::new(),
+        };
+
+        // 未知工具 / 空工具名单
+        let mut def = base();
+        def.permissions.tools = vec!["nuclear".into()];
+        assert!(validate_definition(&def).is_err());
+        def.permissions.tools = vec![];
+        assert!(validate_definition(&def).is_err());
+        // 相对工作目录拒绝，绝对路径通过
+        def.permissions.tools = vec!["read".into()];
+        def.workspace = Some("relative/path".into());
+        assert!(validate_definition(&def).is_err());
+        def.workspace = Some("/absolute/path".into());
+        assert!(validate_definition(&def).is_ok());
+        // 名称非法
+        def.workspace = None;
+        def.name = "bad name".into();
+        assert!(validate_definition(&def).is_err());
+        def.name = "ok-name".into();
+        assert!(validate_definition(&def).is_ok());
+        // MCP 名称重复拒绝
+        let server = |name: &str| McpServerConfig {
+            name: name.into(),
+            command: "cmd".into(),
+            args: Vec::new(),
+            env: Default::default(),
+            enabled: true,
+        };
+        def.mcp_servers = vec![server("a"), server("a")];
+        assert!(validate_definition(&def).is_err());
+        def.mcp_servers = vec![server("a"), server("b")];
+        assert!(validate_definition(&def).is_ok());
     }
 
     /// HOME 环境变量是进程级的：涉及 ~/.pipi 的测试互斥串行。

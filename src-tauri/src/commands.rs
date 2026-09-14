@@ -52,6 +52,24 @@ pub fn list_archived_agents() -> Result<Vec<AgentDefinition>, String> {
     agents::list_archived_agents()
 }
 
+/// 列出 Agent 目录内可编辑的 Markdown（AGENTS.md / memory/*.md）。
+#[tauri::command]
+pub fn list_agent_files(agent_name: String) -> Result<Vec<String>, String> {
+    agents::list_agent_md_files(&agent_name)
+}
+
+/// 读取 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+#[tauri::command]
+pub fn read_agent_file(agent_name: String, rel_path: String) -> Result<String, String> {
+    agents::read_agent_file(&agent_name, &rel_path)
+}
+
+/// 写入 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+#[tauri::command]
+pub fn write_agent_file(agent_name: String, rel_path: String, content: String) -> Result<(), String> {
+    agents::write_agent_file(&agent_name, &rel_path, &content)
+}
+
 #[tauri::command]
 pub fn get_settings() -> Settings {
     settings::load_settings()

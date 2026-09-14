@@ -309,6 +309,16 @@ export function installDevMock(): void {
           return Promise.resolve(structuredClone(demoCatalog));
         case "load_agent":
           return Promise.resolve(demoAgent);
+        case "list_agent_files":
+          return Promise.resolve(["AGENTS.md", "memory/user-prefs.md"]);
+        case "read_agent_file":
+          return Promise.resolve(
+            String(args.relPath) === "AGENTS.md"
+              ? "# demo-assistant\n\n演示模式的系统指令。\n"
+              : "",
+          );
+        case "write_agent_file":
+          return Promise.resolve(null);
         case "list_sessions":
           return Promise.resolve(listDemoSessions());
         case "open_session":

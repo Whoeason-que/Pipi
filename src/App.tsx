@@ -1165,6 +1165,26 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
   }));
   const [saving, setSaving] = useState(false);
 
+  // —— 元信息 / 权限编辑（agent.json 全字段）——
+  const [description, setDescription] = useState(agent.description);
+  const [workspace, setWorkspace] = useState(agent.workspace ?? "");
+  const [tools, setTools] = useState<string[]>(agent.permissions.tools);
+  const [bashMode, setBashMode] = useState<BashMode>(bash.mode);
+  const [commands, setCommands] = useState(bash.commands.join("\n"));
+  const [sandbox, setSandbox] = useState<SandboxMode>(agent.permissions.sandbox);
+  const [savingMeta, setSavingMeta] = useState(false);
+  // agent 切换时重置编辑状态（否则上一个 Agent 的草稿会串台）
+  const agentNameRef = useRef(agent.name);
+  if (agentNameRef.current !== agent.name) {
+    agentNameRef.current = agent.name;
+    setDescription(agent.description);
+    setWorkspace(agent.workspace ?? "");
+    setTools(agent.permissions.tools);
+    setBashMode(bash.mode);
+    setCommands(bash.commands.join("\n"));
+    setSandbox(agent.permissions.sandbox);
+  }
+
   const bindProvider = async () => {
     if (saving) return;
     setSaving(true);
@@ -1196,6 +1216,46 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
       setSaving(false);
     }
   };
+
+  const saveMeta = async () => {
+    if (savingMeta || tools.length === 0) return;
+    setSavingMeta(true);
+    try {
+      const next: AgentDefinition = {
+        ...agent,
+        description: description.trim(),
+        workspace: workspace.trim() || null,
+        permissions: {
+          tools,
+          bash: {
+            mode: bashMode,
+            commands:
+              bashMode === "allowAll"
+                ? []
+                : commands
+                    .split("\n")
+                    .map((c) => c.trim())
+                    .filter(Boolean),
+          },
+          sandbox,
+        },
+      };
+      await invoke("save_agent", { def: next });
+      await onSaved();
+    } catch (errorValue) {
+      onError(formatRuntimeError(errorValue));
+    } finally {
+      setSavingMeta(false);
+    }
+  };
+
+  const metaDirty =
+    description !== agent.description ||
+    (workspace.trim() || null) !== (agent.workspace ?? null) ||
+    tools.join(",") !== agent.permissions.tools.join(",") ||
+    bashMode !== bash.mode ||
+    (bashMode === "allowAll" ? "" : commands) !== bash.commands.join("\n") ||
+    sandbox !== agent.permissions.sandbox;
 
   return (
     <div className="screen">
@@ -1278,33 +1338,116 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
         </section>
 
         <section className="dsec">
-          <h4>权限</h4>
+          <h4>信息与权限</h4>
+          <div className="drow">
+            <span className="k">description</span>
+            <div className="v">
+              <textarea
+                className="meta-editor"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="这个 Agent 是做什么的？"
+                rows={2}
+              />
+            </div>
+          </div>
+          <div className="drow">
+            <span className="k">workspace</span>
+            <div className="v">
+              <input
+                className="mono"
+                value={workspace}
+                onChange={(e) => setWorkspace(e.target.value)}
+                placeholder={`~/.pipi/agents/${agent.name}/workspace（默认）`}
+              />
+            </div>
+          </div>
           <div className="drow">
             <span className="k">tools</span>
             <div className="v">
-              {agent.permissions.tools.length
-                ? agent.permissions.tools.map((tool) => (
-                    <span className="tag" key={tool}>
-                      {tool}
-                    </span>
-                  ))
-                : <span className="dim">（无）</span>}
+              <div className="tool-row">
+                {KNOWN_TOOLS.map((tool) => (
+                  <label key={tool} className="tool-check">
+                    <input
+                      type="checkbox"
+                      checked={tools.includes(tool)}
+                      onChange={() =>
+                        setTools((prev) =>
+                          prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool],
+                        )
+                      }
+                    />
+                    <span className="mono">{tool}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
           <div className="drow">
             <span className="k">bash.mode</span>
             <div className="v">
-              {BASH_MODE_LABELS[bash.mode]}
-              {bash.mode !== "allowAll" && bash.commands.length > 0 && (
-                <span className="mono perm-list">{bash.commands.join("\n")}</span>
+              <div className="tool-row">
+                {(Object.keys(BASH_MODE_LABELS) as BashMode[]).map((mode) => (
+                  <label key={mode} className="tool-check">
+                    <input
+                      type="radio"
+                      name="agent-bash-mode"
+                      checked={bashMode === mode}
+                      onChange={() => setBashMode(mode)}
+                    />
+                    <span>{BASH_MODE_LABELS[mode]}</span>
+                  </label>
+                ))}
+              </div>
+              {bashMode !== "allowAll" && (
+                <div className="perm-editor">
+                  <textarea
+                    value={commands}
+                    onChange={(e) => setCommands(e.target.value)}
+                    placeholder={bashMode === "allowlist" ? "git\nnpm run\nls" : "rm\nsudo"}
+                  />
+                  <div className="hint">
+                    {bashMode === "allowlist"
+                      ? "每行一条；单词条目匹配以该词开头的命令，带空格按前缀匹配"
+                      : "每行一条；命中任意条目的命令将被拒绝"}
+                  </div>
+                </div>
               )}
             </div>
           </div>
           <div className="drow">
             <span className="k">sandbox</span>
             <div className="v">
-              <span className="tag ok">{agent.permissions.sandbox}</span>
-              <span className="sub">{SANDBOX_LABELS[agent.permissions.sandbox]}</span>
+              <div className="tool-row">
+                {(Object.keys(SANDBOX_LABELS) as SandboxMode[]).map((mode) => (
+                  <label key={mode} className="tool-check">
+                    <input
+                      type="radio"
+                      name="agent-sandbox"
+                      checked={sandbox === mode}
+                      onChange={() => setSandbox(mode)}
+                    />
+                    <span>{SANDBOX_LABELS[mode]}</span>
+                  </label>
+                ))}
+              </div>
+              <span className="hint">
+                只读：不执行命令、不写文件；工作目录内可写：强制删除类命令与越出
+                工作目录的写入被拒绝；完全访问：不设限。保存后对下一次会话生效。
+              </span>
+            </div>
+          </div>
+          <div className="drow">
+            <span className="k" />
+            <div className="v">
+              <button
+                className="btn primary"
+                disabled={!metaDirty || tools.length === 0 || savingMeta}
+                onClick={saveMeta}
+              >
+                {savingMeta ? "保存中…" : "保存信息与权限"}
+              </button>
+              {!metaDirty && <span className="sub">（无改动）</span>}
             </div>
           </div>
         </section>
@@ -1312,18 +1455,10 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
         <section className="dsec">
           <h4>文件</h4>
           <div className="drow">
-            <span className="k">workspace</span>
-            <div className="v mono">
-              {agent.workspace ?? `~/.pipi/agents/${agent.name}/workspace（默认）`}
-            </div>
-          </div>
-          <div className="drow">
             <span className="k">agent_dir</span>
             <div className="v mono">
               ~/.pipi/agents/{agent.name}/
-              <span className="sub">
-                agent.json · AGENTS.md · skills/ · memory/ —— 直接编辑即生效
-              </span>
+              <span className="sub">skills/ · sessions/ 由文件直接管理，改动即生效</span>
             </div>
           </div>
           <div className="drow">
@@ -1338,7 +1473,174 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
                 : <span className="dim">未配置</span>}
             </div>
           </div>
+          <AgentFileEditor agentName={agent.name} onError={onError} />
         </section>
+      </div>
+    </div>
+  );
+}
+
+// ============ Agent 文件编辑器（AGENTS.md / memory/*.md） ============
+
+interface AgentFileEditorProps {
+  agentName: string;
+  onError: (msg: string) => void;
+}
+
+function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
+  const [files, setFiles] = useState<string[]>([]);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [content, setContent] = useState("");
+  const [savedContent, setSavedContent] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [newFileName, setNewFileName] = useState("");
+
+  const openFile = useCallback(async (relPath: string) => {
+    setActiveFile(relPath);
+    setLoading(true);
+    try {
+      const text = await invoke<string>("read_agent_file", {
+        agentName,
+        relPath,
+      });
+      setContent(text);
+      setSavedContent(text);
+    } catch (errorValue) {
+      setActiveFile(null);
+      onError(formatRuntimeError(errorValue));
+    } finally {
+      setLoading(false);
+    }
+  }, [agentName, onError]);
+
+  const refreshFiles = useCallback(async () => {
+    try {
+      const list = await invoke<string[]>("list_agent_files", { agentName });
+      setFiles(list);
+      return list;
+    } catch (errorValue) {
+      onError(formatRuntimeError(errorValue));
+      return [];
+    }
+  }, [agentName, onError]);
+
+  useEffect(() => {
+    void (async () => {
+      const list = await refreshFiles();
+      // 默认打开 AGENTS.md（存在时）
+      if (list.includes("AGENTS.md")) void openFile("AGENTS.md");
+    })();
+    // agentName 变化时重置
+    setActiveFile(null);
+    setContent("");
+    setSavedContent("");
+    setNewFileName("");
+  }, [refreshFiles, openFile, agentName]);
+
+  const saveFile = async () => {
+    if (!activeFile || saving || content === savedContent) return;
+    setSaving(true);
+    try {
+      await invoke("write_agent_file", {
+        agentName,
+        relPath: activeFile,
+        content,
+      });
+      setSavedContent(content);
+    } catch (errorValue) {
+      onError(formatRuntimeError(errorValue));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const createMemoryFile = async () => {
+    const name = newFileName.trim().replace(/\.md$/, "");
+    if (!name || name.includes("/")) return;
+    const relPath = `memory/${name}.md`;
+    if (files.includes(relPath)) {
+      void openFile(relPath);
+      setNewFileName("");
+      return;
+    }
+    try {
+      await invoke("write_agent_file", { agentName, relPath, content: "" });
+      setNewFileName("");
+      await refreshFiles();
+      await openFile(relPath);
+    } catch (errorValue) {
+      onError(formatRuntimeError(errorValue));
+    }
+  };
+
+  const dirty = activeFile !== null && content !== savedContent;
+
+  return (
+    <div className="drow file-editor-row">
+      <span className="k">AGENTS.md · memory/</span>
+      <div className="v">
+        <div className="file-tabs">
+          {files.map((file) => (
+            <button
+              key={file}
+              type="button"
+              className={`file-tab mono${file === activeFile ? " active" : ""}`}
+              onClick={() => void openFile(file)}
+            >
+              {file}
+            </button>
+          ))}
+        </div>
+        <div className="file-new">
+          <input
+            className="mono"
+            value={newFileName}
+            onChange={(e) => setNewFileName(e.target.value)}
+            placeholder="新建 memory 文件，例如 user-prefs"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void createMemoryFile();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={!newFileName.trim() || newFileName.trim().includes("/")}
+            onClick={() => void createMemoryFile()}
+          >
+            新建
+          </button>
+        </div>
+        <textarea
+          className="mono file-editor"
+          value={loading ? "加载中…" : content}
+          onChange={(e) => setContent(e.target.value)}
+          disabled={!activeFile || loading}
+          placeholder={activeFile ? undefined : "选择或新建一个文件开始编辑"}
+          rows={8}
+          spellCheck={false}
+        />
+        <div className="hint">
+          {activeFile ? (
+            <>
+              {activeFile} —— AGENTS.md 每次对话开始时注入为系统指令；memory
+              索引常驻上下文、正文由模型按需读取。改动需手动保存。
+            </>
+          ) : (
+            "AGENTS.md 是系统级指令，memory/ 是 Agent 的持久记忆"
+          )}
+        </div>
+        <button
+          type="button"
+          className="btn primary"
+          disabled={!dirty || saving}
+          onClick={() => void saveFile()}
+        >
+          {saving ? "保存中…" : dirty ? "保存文件" : "已保存"}
+        </button>
       </div>
     </div>
   );

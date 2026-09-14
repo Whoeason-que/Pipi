@@ -414,6 +414,22 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
         "session_messages" => to_value(state.runtime.session_messages().await?),
         "session_stats" => to_value(state.runtime.session_stats()?),
         "list_archived_agents" => to_value(agents::list_archived_agents()?),
+        "list_agent_files" => {
+            let agent_name = required_string(args, "agentName")?;
+            to_value(agents::list_agent_md_files(&agent_name)?)
+        }
+        "read_agent_file" => {
+            let agent_name = required_string(args, "agentName")?;
+            let rel_path = required_string(args, "relPath")?;
+            to_value(agents::read_agent_file(&agent_name, &rel_path)?)
+        }
+        "write_agent_file" => {
+            let agent_name = required_string(args, "agentName")?;
+            let rel_path = required_string(args, "relPath")?;
+            let content = required_string(args, "content")?;
+            agents::write_agent_file(&agent_name, &rel_path, &content)?;
+            Ok(Value::Null)
+        }
         "archive_agent" => {
             let name = required_string(args, "name")?;
             state.runtime.archive_agent(&name)?;

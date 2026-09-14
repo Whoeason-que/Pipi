@@ -2013,6 +2013,64 @@ pre.code {
   gap: 6px;
 }
 
+/* ============ Agent 详情：元信息编辑器 ============ */
+
+.meta-editor {
+  min-height: 0;
+  resize: vertical;
+}
+
+/* ============ Agent 文件编辑器（AGENTS.md / memory）============ */
+
+.file-editor-row .v {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.file-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.file-tab {
+  padding: 4px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.file-tab:hover {
+  color: var(--fg);
+}
+
+.file-tab.active {
+  color: var(--accent-text);
+  border-color: var(--accent-border);
+}
+
+.file-new {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.file-new input {
+  flex: 1;
+}
+
+.file-editor {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;

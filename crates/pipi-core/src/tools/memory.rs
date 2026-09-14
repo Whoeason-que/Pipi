@@ -95,7 +95,8 @@ impl AgentTool for MemoryTool {
 
 /// 递归收集 memory 目录下的 .md 文件（相对路径）。同步实现：memory 目录
 /// 很小，不值得为它引入 Box::pin 的递归 future。
-fn collect_markdown(dir: &Path, depth: usize, out: &mut Vec<String>) {
+/// 供 memory 工具与 agents.rs 的 memory 索引/编辑器列表共用。
+pub(crate) fn collect_markdown(dir: &Path, depth: usize, out: &mut Vec<String>) {
     if depth > 3 {
         return;
     }
@@ -117,7 +118,8 @@ fn collect_markdown(dir: &Path, depth: usize, out: &mut Vec<String>) {
                 .strip_prefix(dir)
                 .unwrap_or(&path)
                 .to_string_lossy()
-                .to_string();
+                .to_string()
+                .replace('\\', "/");
             out.push(rel);
         }
     }

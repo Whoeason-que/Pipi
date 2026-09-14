@@ -4,5 +4,5 @@ pub mod resources;
 pub mod system_prompt;
 
 pub use system_prompt::{
-    build_system_prompt, BuildSystemPromptOptions, ContextFile, SkillMetadata,
+    build_system_prompt, BuildSystemPromptOptions, ContextFile, MemoryFileMeta, SkillMetadata,
 };

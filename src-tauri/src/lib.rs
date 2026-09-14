@@ -39,6 +39,9 @@ pub fn run() {
             chat::delete_archived_session,
             chat::list_archived_sessions,
             commands::list_archived_agents,
+            commands::list_agent_files,
+            commands::read_agent_file,
+            commands::write_agent_file,
         ])
         .run(tauri::generate_context!())
         .expect("Pipi 启动失败");

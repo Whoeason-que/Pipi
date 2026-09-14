@@ -11,6 +11,8 @@ pub struct BuildSystemPromptOptions {
     pub cwd: String,
     pub context_files: Vec<ContextFile>,
     pub skills: Vec<SkillMetadata>,
+    /// memory 渐进召回索引：路径 + 一句话摘要常驻，正文按需 read。
+    pub memory_files: Vec<MemoryFileMeta>,
 }
 
 /// 预加载的项目上下文文件；正文由宿主负责读取，builder 只负责渲染。
@@ -30,6 +32,15 @@ pub struct SkillMetadata {
     pub path: String,
 }
 
+/// 常驻 system prompt 的 memory 索引条目；正文按需 read（渐进披露）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MemoryFileMeta {
+    /// memory 文件的绝对路径（模型直接用 read 加载）。
+    pub path: String,
+    /// 首个标题或首行非空文本（截断）。
+    pub summary: String,
+}
+
 /// 根据 Pi coding-agent 的规则构造 system prompt。
 ///
 /// 该函数是纯渲染层：不读取文件、不访问 session，也不执行权限检查。
@@ -43,6 +54,7 @@ pub fn build_system_prompt(options: BuildSystemPromptOptions) -> String {
         cwd,
         context_files,
         skills,
+        memory_files,
     } = options;
     let prompt_cwd = crate::context::escape_path_for_prompt(&cwd);
     let tools = selected_tools.unwrap_or_else(|| {
@@ -76,6 +88,7 @@ pub fn build_system_prompt(options: BuildSystemPromptOptions) -> String {
     append_context_files(&mut prompt, &context_files);
     if let Some(read_tool) = skill_file_read_tool {
         append_skills(&mut prompt, &skills, read_tool);
+        append_memory_index(&mut prompt, &memory_files, read_tool);
     }
 
     prompt.push_str("\nCurrent working directory: ");
@@ -195,6 +208,33 @@ fn append_skills(prompt: &mut String, skills: &[SkillMetadata], read_tool: &str)
         prompt.push_str("  </skill>\n");
     }
     prompt.push_str("</available_skills>");
+}
+
+fn append_memory_index(prompt: &mut String, memory_files: &[MemoryFileMeta], read_tool: &str) {
+    if memory_files.is_empty() {
+        return;
+    }
+    prompt.push_str(
+        "\n\nYou also have persistent memory: Markdown files you and the user maintain together across sessions.\n",
+    );
+    prompt.push_str(&format!(
+        "When a memory file may contain relevant preferences, background or lessons, use {read_tool} to load it before acting on assumptions.\n\n<persistent_memory>\n"
+    ));
+    for file in memory_files {
+        prompt.push_str("  <memory>\n");
+        prompt.push_str(&format!(
+            "    <path>{}</path>\n",
+            crate::context::escape_path_for_prompt(&file.path)
+        ));
+        if !file.summary.is_empty() {
+            prompt.push_str(&format!(
+                "    <summary>{}</summary>\n",
+                escape_xml(&file.summary)
+            ));
+        }
+        prompt.push_str("  </memory>\n");
+    }
+    prompt.push_str("</persistent_memory>");
 }
 
 fn escape_xml(value: &str) -> String {
