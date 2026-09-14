@@ -269,3 +269,30 @@ test("tool execution preserves toolArgs and toolDetails across lifecycle", () =>
   });
 });
 
+
+test("compaction events produce a single system entry with collapsible summary", () => {
+  let state = chatReducer(INITIAL_CHAT_STATE, {
+    type: "submit_user",
+    key: "user-local",
+    text: "开始干活",
+  });
+
+  state = event(state, { type: "compaction_start" });
+  assert.equal(state.running, true);
+  const pendingKey = state.activeCompactionKey;
+  assert.ok(pendingKey);
+  assert.equal(state.entries.at(-1)?.kind, "compaction");
+  assert.equal(state.entries.at(-1)?.text, "♻ 正在压缩上下文…");
+
+  state = event(state, { type: "compaction_end", summary: "## 摘要\n- 修好了 bug", replaced: 12 });
+  assert.equal(state.activeCompactionKey, null);
+  // 进行中条目被原位替换，而不是追加第二条
+  assert.equal(state.entries.filter((entry) => entry.kind === "compaction").length, 1);
+  assert.equal(state.entries.at(-1)?.text, "♻ 已压缩上下文：12 条旧消息已并入摘要");
+  assert.equal(state.entries.at(-1)?.summary, "## 摘要\n- 修好了 bug");
+
+  // agent_end 清理压缩态
+  state = event(state, { type: "agent_end" });
+  assert.equal(state.activeCompactionKey, null);
+  assert.equal(state.running, false);
+});

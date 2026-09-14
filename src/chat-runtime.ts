@@ -55,7 +55,9 @@ export type AgentEvent =
       toolName: string;
       result: ToolOutputView;
       isError: boolean;
-    };
+    }
+  | { type: "compaction_start" }
+  | { type: "compaction_end"; summary: string; replaced: number };
 
 export interface SessionEventMeta {
   agentName: string;
@@ -148,6 +150,10 @@ export interface ChatEntry {
   timestamp?: number;
   /** 尚未被后端历史快照确认的本地/实时条目。 */
   transient?: boolean;
+  /** 系统级条目（如上下文压缩标记），不走常规 assistant 渲染。 */
+  kind?: "compaction";
+  /** compaction 摘要正文（折叠展示）。 */
+  summary?: string;
 }
 
 
@@ -158,6 +164,8 @@ export interface ChatState {
   activeAssistantKey: string | null;
   hydrated: boolean;
   liveEventSeen: boolean;
+  /** 进行中的压缩条目 key（compaction_start → compaction_end 之间）。 */
+  activeCompactionKey: string | null;
 }
 
 export type ChatAction =
@@ -181,6 +189,7 @@ export const INITIAL_CHAT_STATE: ChatState = {
   activeAssistantKey: null,
   hydrated: false,
   liveEventSeen: false,
+  activeCompactionKey: null,
 };
 
 export function messageStatus(message: MessageView): EntryStatus | undefined {
@@ -388,6 +397,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         stats: state.stats ?? action.stats,
         running: state.liveEventSeen ? state.running : action.running,
         hydrated: true,
+        activeCompactionKey: null,
       };
     case "submit_user":
       return {
@@ -414,6 +424,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             entries: finishRunningEntries(state.entries),
             running: false,
             activeAssistantKey: null,
+            activeCompactionKey: null,
           };
         case "message_start": {
           const message = event.message;
@@ -582,6 +593,45 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             entries: existing
               ? state.entries.map((entry) => (entry.key === key ? { ...entry, ...nextEntry } : entry))
               : [...state.entries, nextEntry],
+          };
+        }
+
+        case "compaction_start":
+          return {
+            ...state,
+            entries: [
+              ...state.entries,
+              {
+                key: action.key,
+                role: "assistant",
+                kind: "compaction",
+                text: "♻ 正在压缩上下文…",
+                timestamp: Date.now(),
+                transient: true,
+              },
+            ],
+            running: true,
+            activeCompactionKey: action.key,
+          };
+        case "compaction_end": {
+          const pendingKey = state.activeCompactionKey;
+          const nextEntry: ChatEntry = {
+            key: pendingKey ?? action.key,
+            role: "assistant",
+            kind: "compaction",
+            text:
+              event.replaced > 0
+                ? `♻ 已压缩上下文：${event.replaced} 条旧消息已并入摘要`
+                : "♻ 已压缩上下文",
+            summary: event.summary,
+            timestamp: Date.now(),
+          };
+          return {
+            ...state,
+            entries: pendingKey
+              ? state.entries.map((entry) => (entry.key === pendingKey ? nextEntry : entry))
+              : [...state.entries, nextEntry],
+            activeCompactionKey: null,
           };
         }
 

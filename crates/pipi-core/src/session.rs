@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{now_millis, Message, Model};
 
-/// 条目类型。pi 还有 compaction / branch_summary / custom，包含会话模型选择与变更。
+/// 条目类型。pi 还有 branch_summary / custom；Pipi 增量新增 compaction
+/// （摘要式上下文压缩的落点：其之前的消息被摘要替换，回放时丢弃）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EntryKind {
@@ -22,6 +23,14 @@ pub enum EntryKind {
     ModelChange {
         #[serde(alias = "model")]
         provider: Model,
+    },
+    /// 摘要式压缩标记。`summary` 是摘要正文；`source_tip` 是被压缩前的
+    /// 活跃条目 id（审计用）。回放时：丢弃此条之前的所有 Message，
+    /// 注入一条包裹摘要的 User 消息。
+    Compaction {
+        summary: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        source_tip: String,
     },
 }
 
@@ -114,6 +123,23 @@ impl SessionWriter {
             timestamp: now_millis(),
             kind: EntryKind::Custom {
                 custom_type: custom_type.to_string(),
+            },
+        };
+        let id = entry.id.clone();
+        self.write_entry(&entry)?;
+        Ok(id)
+    }
+
+    /// 追加一条摘要压缩标记条目，返回新条目 id。
+    pub fn append_compaction(&mut self, summary: &str, source_tip: &str) -> std::io::Result<String> {
+        let entry = SessionEntry {
+            id: new_id(),
+            parent_id: self.tip_id.clone(),
+            seq: self.seq,
+            timestamp: now_millis(),
+            kind: EntryKind::Compaction {
+                summary: summary.to_string(),
+                source_tip: source_tip.to_string(),
             },
         };
         let id = entry.id.clone();
@@ -325,6 +351,28 @@ pub fn active_path(entries: &[SessionEntry]) -> Vec<&SessionEntry> {
     path
 }
 
+/// 从活跃路径条目重建可执行的消息历史。
+///
+/// Message 条目顺序累积；遇到 Compaction 条目时丢弃其之前的全部消息，
+/// 注入一条包裹摘要的 User 消息（append-only 文件上仍然保留全部原始
+/// 条目，分叉/回看不受影响）。open 与 fork 两条重建路径共用此函数。
+pub fn rebuild_messages(entries: &[&SessionEntry]) -> Vec<Message> {
+    let mut messages: Vec<Message> = Vec::new();
+    for entry in entries {
+        match &entry.kind {
+            EntryKind::Message { message } => messages.push(message.clone()),
+            EntryKind::Compaction { summary, .. } => {
+                messages.clear();
+                messages.push(Message::user_text(format!(
+                    "<compaction summary>\n{summary}\n</compaction summary>"
+                )));
+            }
+            _ => {}
+        }
+    }
+    messages
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,6 +499,60 @@ mod tests {
         assert_eq!(path.len(), 3);
         assert_eq!(path[0].seq, 0);
         assert_eq!(path[2].seq, 2);
+    }
+
+    #[test]
+    fn compaction_entry_roundtrip_and_replay() {
+        let dir = temp_dir();
+        let mut writer = SessionWriter::create(&dir).unwrap();
+        writer.append_message(&Message::user_text("old 1")).unwrap();
+        writer.append_message(&Message::user_text("old 2")).unwrap();
+        let tip = writer.tip_id().unwrap().to_string();
+        writer.append_compaction("此前对话的摘要", &tip).unwrap();
+        writer.append_message(&Message::user_text("new turn")).unwrap();
+
+        let entries = load_session(&writer.path()).unwrap();
+        // Compaction 条目随 load 原样往返（serde snake_case 兼容）
+        assert!(matches!(
+            &entries[2].kind,
+            EntryKind::Compaction { summary, source_tip }
+                if summary == "此前对话的摘要" && source_tip == &tip
+        ));
+
+        let active = active_path(&entries);
+        let messages = rebuild_messages(&active);
+        // 旧消息被摘要替换，摘要之后的新消息保留
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(
+            &messages[0],
+            Message::User { content, .. } if content.contains("compaction summary") && content.contains("此前对话的摘要")
+        ));
+        assert!(matches!(
+            &messages[1],
+            Message::User { content, .. } if content == "new turn"
+        ));
+    }
+
+    #[test]
+    fn rebuild_without_compaction_keeps_all_messages() {
+        let dir = temp_dir();
+        let mut writer = SessionWriter::create(&dir).unwrap();
+        writer.append_message(&Message::user_text("a")).unwrap();
+        writer.append_custom("bookmark").unwrap();
+        writer.append_model_change(&Model {
+            id: "m".into(),
+            name: "m".into(),
+            api: crate::types::Api::AnthropicMessages,
+            base_url: String::new(),
+            max_tokens: 4096,
+            context_window: 100_000,
+        })
+        .unwrap();
+
+        let entries = load_session(&writer.path()).unwrap();
+        let active = active_path(&entries);
+        let messages = rebuild_messages(&active);
+        assert_eq!(messages.len(), 1);
     }
 
     #[test]

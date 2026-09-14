@@ -923,6 +923,37 @@ button {
   background: var(--danger);
 }
 
+.role-tag.system {
+  color: var(--muted);
+  border-color: var(--line-soft);
+}
+
+/* 上下文压缩标记：系统级折叠条 */
+.compaction-fold {
+  border: 1px dashed var(--line-soft);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.compaction-fold summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.compaction-fold[open] summary {
+  margin-bottom: 6px;
+}
+
+.compaction-fold > *:not(summary) {
+  font-size: 13px;
+  color: var(--fg);
+}
+
 .content {
   flex: 1;
   min-width: 0;

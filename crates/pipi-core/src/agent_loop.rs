@@ -66,6 +66,13 @@ pub enum AgentEvent {
         result: ToolOutput,
         is_error: bool,
     },
+    /// 摘要式上下文压缩开始（runtime 在 turn 边界触发）。
+    CompactionStart,
+    /// 压缩完成；`summary` 为摘要正文，`replaced` 为被替换的消息条数。
+    CompactionEnd {
+        summary: String,
+        replaced: u64,
+    },
 }
 
 pub type Emitter = Arc<dyn Fn(AgentEvent) + Send + Sync>;

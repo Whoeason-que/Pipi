@@ -15,6 +15,7 @@ use crate::agent_loop::{
     run_agent_loop, AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode,
 };
 use crate::agents::{self, AgentDefinition};
+use crate::context::{prune_transform, DEFAULT_RESERVE_TOKENS};
 use crate::provider::provider_for;
 pub use crate::session::SessionSummary;
 use crate::session::{list_session_summaries, load_session, SessionWriter};
@@ -564,13 +565,7 @@ impl RuntimeState {
 
         let entries = load_session(&path).map_err(|e| e.to_string())?;
         let active = crate::session::active_path(&entries);
-        let messages: Vec<Message> = active
-            .into_iter()
-            .filter_map(|entry| match &entry.kind {
-                crate::session::EntryKind::Message { message } => Some(message.clone()),
-                _ => None,
-            })
-            .collect();
+        let messages = crate::session::rebuild_messages(&active);
         let active_model = crate::session::active_model_from_entries(&entries);
         let effective_model = active_model.as_ref().or(def.provider.as_ref());
         let context_max = effective_model
@@ -633,13 +628,7 @@ impl RuntimeState {
 
         let entries = load_session(&new_session_path).map_err(|e| e.to_string())?;
         let active = crate::session::active_path(&entries);
-        let messages: Vec<Message> = active
-            .into_iter()
-            .filter_map(|entry| match &entry.kind {
-                crate::session::EntryKind::Message { message } => Some(message.clone()),
-                _ => None,
-            })
-            .collect();
+        let messages = crate::session::rebuild_messages(&active);
         let active_model = crate::session::active_model_from_entries(&entries);
         let effective_model = active_model.clone().or_else(|| def.provider.clone());
         let context_max = effective_model
@@ -891,6 +880,8 @@ impl RuntimeState {
         let tool_context = agents::build_tool_context(&def, abort.clone())?;
         let registry = Arc::new(ToolRegistry::for_context(&tool_context));
         let wire_tools = registry.wire_tools();
+        // api_key 随 config 被移走；压缩摘要调用还要用一份
+        let compaction_api_key = api_key.clone();
         let config = AgentLoopConfig {
             model: model.clone(),
             provider: provider_for(model.api),
@@ -909,7 +900,11 @@ impl RuntimeState {
             follow_up: MessageQueue::new(),
             before_tool_call: None,
             after_tool_call: None,
-            transform_context: None,
+            // 请求前保底裁剪（pi 的 transformContext）：摘要压缩失败或
+            // 压缩后仍超限时，从这里硬裁剪兜底，避免直接撞 provider 上限。
+            transform_context: (model.context_window > 0)
+                .then(|| Arc::new(prune_transform(model.context_window, DEFAULT_RESERVE_TOKENS))
+                    as crate::agent_loop::TransformContextHook),
         };
 
         // 首条消息先落盘（崩溃也会留下用户输入）；写入失败必须阻止启动本轮。
@@ -929,6 +924,8 @@ impl RuntimeState {
         let session_id = writer_session_id(&writer)?;
         let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools);
         let completion_sink = event_sink.clone();
+        // make_emitter 会按值取走 writer；压缩阶段还要用它，先克隆
+        let compaction_writer = writer.clone();
         let emitter = make_emitter(
             event_sink,
             writer,
@@ -956,13 +953,89 @@ impl RuntimeState {
                 context,
                 config,
                 emitter,
-                abort,
+                abort.clone(),
             )
             .await;
 
             let completion_messages = new_messages.clone();
             messages.lock().await.extend(new_messages);
+
+            // turn 边界的摘要压缩：历史超预算时把旧轮次压成摘要并持久化。
+            // 失败不阻塞会话 —— 请求前的 prune_transform 保底仍在。
+            // 注意：压缩完成前会话仍处于 running 状态（见下方 finish），
+            // 避免压缩期间新请求读到未压缩历史。
+            let history = messages.lock().await.clone();
+            if crate::compaction::needs_compaction(&history, model.context_window) {
+                completion_sink(RuntimeEvent::AgentEvent(AgentEventEnvelope {
+                    agent_name: def.name.clone(),
+                    session_id: session_id.clone(),
+                    run_id,
+                    event: AgentEvent::CompactionStart,
+                }));
+                match crate::compaction::compact(
+                    provider_for(model.api).as_ref(),
+                    &model,
+                    &StreamOptions {
+                        api_key: Some(compaction_api_key.clone()),
+                        temperature: None,
+                        max_tokens: None,
+                        timeout_secs: 300,
+                        session_id: None,
+                    },
+                    &history,
+                    model.context_window,
+                    DEFAULT_RESERVE_TOKENS,
+                    abort.clone(),
+                )
+                .await
+                {
+                    Ok(compacted) => {
+                        let summary = compacted
+                            .messages
+                            .first()
+                            .map(|m| match m {
+                                Message::User { content, .. } => content.clone(),
+                                _ => String::new(),
+                            })
+                            .unwrap_or_default();
+                        let source_tip = compaction_writer
+                            .lock()
+                            .ok()
+                            .and_then(|writer| writer.tip_id().map(str::to_string))
+                            .unwrap_or_default();
+                        let appended = {
+                            match compaction_writer.lock() {
+                                Ok(mut writer) => writer
+                                    .append_compaction(&summary, &source_tip)
+                                    .map_err(|e| format!("无法写入压缩条目: {e}")),
+                                Err(e) => Err(format!("无法锁定会话写入器: {e}")),
+                            }
+                        };
+                        // 落盘成功才替换内存历史 —— 两者必须一致，否则重开
+                        // 会话时会回到未压缩状态。
+                        if let Err(error) = appended {
+                            eprintln!("pipi: 上下文压缩失败（本轮跳过）: {error}");
+                        } else {
+                            *messages.lock().await = compacted.messages;
+                            completion_sink(RuntimeEvent::AgentEvent(AgentEventEnvelope {
+                                agent_name: def.name.clone(),
+                                session_id: session_id.clone(),
+                                run_id,
+                                event: AgentEvent::CompactionEnd {
+                                    summary,
+                                    replaced: compacted.replaced as u64,
+                                },
+                            }));
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("pipi: 上下文压缩失败（本轮跳过）: {error}");
+                    }
+                }
+            }
+
             running.finish(run_token);
+
             completion_sink(RuntimeEvent::AgentEvent(AgentEventEnvelope {
                 agent_name: def.name,
                 session_id,

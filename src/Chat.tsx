@@ -722,6 +722,22 @@ export default function ChatView({
             </div>
           )}
           {entries.map((entry) => {
+            if (entry.kind === "compaction") {
+              return (
+                <div key={entry.key} className="row system-row">
+                  <div className="gut">
+                    {entry.timestamp ? <span className="time">{formatClock(entry.timestamp)}</span> : null}
+                    <span className="role-tag system">system</span>
+                  </div>
+                  <div className="content">
+                    <details className="compaction-fold" open={!entry.summary}>
+                      <summary>{entry.text}</summary>
+                      {entry.summary ? <Markdown text={entry.summary} /> : null}
+                    </details>
+                  </div>
+                </div>
+              );
+            }
             const isUser = entry.role === "user";
             const isTool = entry.role === "toolResult";
             const tagClass = isUser ? "user" : isTool ? "tool" : entry.isError ? "error" : "";

@@ -11,6 +11,7 @@
 //! | `packages/agent` harness/utils/truncate | [`truncate`] | 2000 行 / 50KB 截断规则 |
 //! | `packages/agent` harness/session | [`session`] | 树状 JSONL 条目（append-only） |
 //! | `packages/agent` compaction（启发式部分） | [`context`] | token 估算 / 裁剪 / 环境上下文 |
+//! | `packages/agent` compaction（LLM 摘要替换） | [`compaction`] | 摘要替换旧轮次 + 保留近期轮次，落盘为 compaction 条目 |
 //! | `packages/agent` skills（frontmatter + 索引） | [`skills`] | 渐进式披露：索引常驻、全文按需 read |
 //! | （Pipi 新增） | [`permissions`] | bash 命令权限：白名单 / 黑名单 |
 //! | （Pipi 新增） | [`agents`] | Agent 定义与注册表（一切皆文件） |
@@ -20,12 +21,12 @@
 //! 的关系」。
 //!
 //! 尚未移植（有意推迟，需要时再从上游搬运）：
-//! compaction 的 LLM 摘要替换（现用 [`context::prune_oldest`] 保底）、
 //! hooks 全集、prepareNextTurn、多 provider 目录、图片工具等。
 
 pub mod agent_loop;
 pub mod agents;
 pub mod catalog;
+pub mod compaction;
 pub mod context;
 pub mod harness;
 pub mod permissions;
