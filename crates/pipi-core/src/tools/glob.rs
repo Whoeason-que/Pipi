@@ -15,8 +15,9 @@ use super::{resolve_read_path, AgentTool, ToolContext, ToolOutput};
 use crate::truncate::{truncate_head, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
 use crate::types::ToolResultContent;
 
-/// 单次列出的路径上限（截断前的硬上限，避免巨型目录树拖垮执行）。
-const MAX_MATCHES: usize = 2000;
+/// 单次列出的路径上限（截断前的硬上限，对齐 opencode 的 limit=100：
+/// 结果太多会刷爆上下文，模型应改用更精确的 pattern）。
+const MAX_MATCHES: usize = 100;
 
 /// glob 匹配选项：`*` 不跨 `/`（`**` 才跨），对齐 shell 直觉。
 const MATCH_OPTIONS: glob::MatchOptions = glob::MatchOptions {

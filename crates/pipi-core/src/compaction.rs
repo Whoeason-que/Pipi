@@ -16,6 +16,10 @@ use crate::types::{AbortSignal, Context, Message, Model, StreamEvent, StreamOpti
 /// 摘要正文的 token 上限（约 4000 字；防摘要失控，无需等于 reserve 全额）。
 const SUMMARY_MAX_TOKENS: u32 = 1024;
 
+/// 保留近期原文轮次的 token 预算（对齐 pi 的 keepRecentTokens 默认值）。
+/// 不超过该值的原文轮次按原文保留，其余并入摘要。
+const KEEP_RECENT_TOKENS: u64 = 20_000;
+
 /// 压缩结果：摘要 + 保留的近期轮次。
 #[derive(Debug, Clone)]
 pub struct Compacted {
@@ -91,24 +95,39 @@ fn find_keep_start(messages: &[Message], budget_tokens: u64) -> Option<usize> {
     None // 全部都在预算内：无需保留切点（也不会触发压缩）
 }
 
-/// 构造摘要请求的消息：历史全文 + 摘要指令。
-fn build_summary_prompt(messages: &[Message]) -> String {
+/// 构造摘要请求：固定骨架（对齐 pi 的 compaction prompt），避免重复压缩
+/// 时因措辞漂移丢失信息。有前一份摘要时用 update 版指令，旧摘要放
+/// `<previous-summary>` 并要求保留其中全部既有信息。
+fn build_summary_prompt(messages: &[Message], previous_summary: Option<&str>) -> String {
     let transcript: String = messages
         .iter()
         .map(render_message)
         .collect::<Vec<_>>()
         .join("\n\n");
-    format!(
-        "Below is the conversation history between the user and an AI assistant. \
-Write a self-contained summary in the same language as the conversation that preserves everything needed to continue the work seamlessly:\n\
-- The user's goals, explicit requirements and constraints\n\
-- Key decisions made and their rationale\n\
-- Important file paths, commands, code identifiers and data\n\
-- Current state: what is done, what is in progress, what is next\n\n\
-Write it as structured markdown. Be factual and dense; omit pleasantries.\n\n\
---- CONVERSATION HISTORY ---\n\n{transcript}"
-    )
+    let previous_section = previous_summary
+        .map(|summary| format!("<previous-summary>\n{summary}\n</previous-summary>\n\n"))
+        .unwrap_or_default();
+    let instruction = if previous_summary.is_some() {
+        "Update the previous summary with new information from the conversation below. \
+PRESERVE all existing information from the previous summary, add new facts, \
+and move items from \"In Progress\" to \"Done\" when completed. \
+ONLY output the updated summary."
+    } else {
+        "Write a structured context checkpoint summary that another LLM will use \
+to continue the work seamlessly. Use EXACTLY this skeleton:\n\n\
+## Goal\n\n## Constraints & Preferences\n\n## Progress\n\n\
+### Done\n\n### In Progress\n\n### Blocked\n\n## Key Decisions\n\n\
+## Next Steps\n\n## Critical Context\n\n\
+Keep each section concise. Preserve exact file paths, function names, and error \
+messages. Write in the same language as the conversation."
+    };
+    format!("{previous_section}{instruction}\n\n<conversation>\n\n{transcript}\n\n</conversation>")
 }
+
+/// 摘要调用的系统提示：限定为总结者角色，禁止把对话接下去（对齐 pi）。
+const SUMMARY_SYSTEM_PROMPT: &str = "You are a context summarization assistant. \
+Do NOT continue the conversation. Do NOT respond to any questions in the conversation. \
+ONLY output the structured summary.";
 
 /// 把摘要包装成与 pi 一致的 User 消息。
 fn summary_message(summary: &str) -> Message {
@@ -151,22 +170,38 @@ pub async fn compact(
         return Err("空上下文无需压缩".into());
     }
 
-    // 保留尾部的预算：预留 + 摘要自身的空间（摘要约 SUMMARY_MAX_TOKENS）
+    // 保留尾部的预算：预留 + 摘要自身的空间（摘要约 SUMMARY_MAX_TOKENS），
+    // 并收敛到 pi 的 keepRecentTokens 默认值以内
     let keep_budget = context_window
         .saturating_sub(reserve_tokens)
-        .saturating_sub(SUMMARY_MAX_TOKENS as u64 * 2);
+        .saturating_sub(SUMMARY_MAX_TOKENS as u64 * 2)
+        .min(KEEP_RECENT_TOKENS);
 
     let keep_start = find_keep_start(messages, keep_budget).ok_or_else(|| {
         "历史无需压缩：尚未超出保留预算".to_string()
     })?;
+
+    // 再次压缩时，历史首条是上次注入的摘要消息 —— 取出旧摘要交给
+    // update 版指令，避免措辞漂移（pi 的 previousSummary 语义）。
+    let previous_summary = match messages.first() {
+        Some(Message::User { content, .. }) => content
+            .strip_prefix("<compaction summary>\n")
+            .and_then(|rest| rest.split("</compaction summary>").next())
+            .map(str::trim)
+            .filter(|summary| !summary.is_empty()),
+        _ => None,
+    };
 
     let to_summarize = &messages[..keep_start];
     let keep = &messages[keep_start..];
 
     // 摘要调用：空 tools 的纯文本请求，收集流式事件直到 Done
     let summary_context = Context {
-        system_prompt: None,
-        messages: vec![Message::user_text(build_summary_prompt(to_summarize))],
+        system_prompt: Some(SUMMARY_SYSTEM_PROMPT.to_string()),
+        messages: vec![Message::user_text(build_summary_prompt(
+            to_summarize,
+            previous_summary,
+        ))],
         tools: vec![],
     };
     let mut summary_options = options.clone();
@@ -207,13 +242,61 @@ pub async fn compact(
         return Err("摘要调用失败：模型未返回摘要内容".into());
     }
 
+    // 摘要末尾追加文件操作清单（对齐 pi 的 formatFileOperations）：
+    // 继续工作时最需要知道动过哪些文件。
+    let (read_files, modified_files) = file_operations(to_summarize);
+    let mut summary = summary_text.trim().to_string();
+    if !read_files.is_empty() {
+        summary.push_str(&format!("\n\nFiles read: {}", read_files.join(", ")));
+    }
+    if !modified_files.is_empty() {
+        summary.push_str(&format!(
+            "\n\nFiles modified: {}",
+            modified_files.join(", ")
+        ));
+    }
+
     let mut compacted = Vec::with_capacity(keep.len() + 1);
-    compacted.push(summary_message(summary_text.trim()));
+    compacted.push(summary_message(&summary));
     compacted.extend(keep.iter().cloned());
     Ok(Compacted {
         messages: compacted,
         replaced: keep_start,
     })
+}
+
+/// 从被摘要的消息中提取文件操作（read → 读取清单，write/edit → 修改清单）。
+/// glob 的 `path` 参数是搜索根而非文件，bash 参数不可靠，都跳过。
+fn file_operations(messages: &[Message]) -> (Vec<String>, Vec<String>) {
+    use std::collections::BTreeSet;
+    let mut read = BTreeSet::new();
+    let mut modified = BTreeSet::new();
+    for message in messages {
+        let Message::Assistant { content, .. } = message else {
+            continue;
+        };
+        for block in content {
+            let crate::types::ContentBlock::ToolCall {
+                name, arguments, ..
+            } = block
+            else {
+                continue;
+            };
+            let Some(path) = arguments["path"].as_str() else {
+                continue;
+            };
+            match name.as_str() {
+                "read" => {
+                    read.insert(path.to_string());
+                }
+                "write" | "edit" => {
+                    modified.insert(path.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+    (read.into_iter().collect(), modified.into_iter().collect())
 }
 
 /// 压缩决策：上下文是否超预算（供 runtime 在 turn 边界检查）。
@@ -261,17 +344,63 @@ mod tests {
 
     #[test]
     fn renders_all_message_kinds() {
-        let transcript = build_summary_prompt(&[
-            Message::user_text("fix the bug"),
-            assistant_text("let me check"),
-            tool_result("ok"),
-        ]);
+        let transcript = build_summary_prompt(
+            &[
+                Message::user_text("fix the bug"),
+                assistant_text("let me check"),
+                tool_result("ok"),
+            ],
+            None,
+        );
         assert!(transcript.contains("[user]"));
         assert!(transcript.contains("fix the bug"));
         assert!(transcript.contains("[assistant]"));
         assert!(transcript.contains("[assistant tool call:") || transcript.contains("let me check"));
         assert!(transcript.contains("[tool result: bash (ok)]"));
-        assert!(transcript.contains("CONVERSATION HISTORY"));
+        assert!(transcript.contains("<conversation>"));
+        assert!(transcript.contains("## Goal"));
+        assert!(transcript.contains("## Critical Context"));
+        // 无前摘要时不含 previous-summary 节
+        assert!(!transcript.contains("<previous-summary>"));
+    }
+
+    #[test]
+    fn summary_prompt_includes_previous_summary_and_update_instruction() {
+        let transcript = build_summary_prompt(&[Message::user_text("next turn")], Some("## Goal\n旧摘要"));
+        assert!(transcript.contains("<previous-summary>\n## Goal\n旧摘要\n</previous-summary>"));
+        assert!(transcript.contains("PRESERVE all existing information"));
+        assert!(!transcript.contains("Use EXACTLY this skeleton"));
+    }
+
+    #[test]
+    fn file_operations_extracts_read_and_modified_paths() {
+        let tool_call = |name: &str, path: &str| Message::Assistant {
+            content: vec![crate::types::ContentBlock::ToolCall {
+                id: "c1".into(),
+                name: name.into(),
+                arguments: serde_json::json!({ "path": path }),
+            }],
+            api: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            usage: Default::default(),
+            stop_reason: StopReason::ToolUse,
+            error_message: None,
+            timestamp: 0,
+            duration_ms: None,
+        };
+        let messages = vec![
+            Message::user_text("go"),
+            tool_call("read", "b.rs"),
+            tool_call("read", "a.rs"),
+            tool_call("write", "a.rs"),
+            tool_call("edit", "c.rs"),
+            tool_call("bash", "irrelevant"),
+            tool_result("done"),
+        ];
+        let (read, modified) = file_operations(&messages);
+        assert_eq!(read, vec!["a.rs".to_string(), "b.rs".to_string()]);
+        assert_eq!(modified, vec!["a.rs".to_string(), "c.rs".to_string()]);
     }
 
     #[test]

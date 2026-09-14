@@ -34,20 +34,50 @@ fn compile_pattern(pattern: &str, case_insensitive: bool) -> Result<Regex, Strin
         .map_err(|e| format!("非法正则表达式 {pattern:?}：{e}"))
 }
 
-/// 文件名是否匹配 include glob（如 `*.ts`）。多模式以 `,` 分隔。
+/// 文件名是否匹配 include 模式。多模式以 `,` 分隔；支持 `*.{ts,tsx}` 式
+/// 花括号展开（对齐 opencode 描述的用法习惯）。注意先展开括号再按逗号
+/// 分割 —— 括号内本身可能含逗号。
 fn matches_include(file_name: &str, include: Option<&str>) -> bool {
     let Some(spec) = include else {
         return true;
     };
-    spec.split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .any(|glob| {
-            // include 模式只匹配文件名本身；`*` 天然不跨 `/`
-            glob::Pattern::new(&glob.replace('\\', "/"))
-                .map(|p| p.matches_path(file_name.as_ref()))
-                .unwrap_or(false)
+    expand_braces(&spec.replace('\\', "/"))
+        .into_iter()
+        .flat_map(|part| {
+            part.split(',')
+                .map(|glob| expand_braces(glob.trim()))
+                .collect::<Vec<_>>()
         })
+        .filter(|patterns| patterns.iter().all(|p| !p.is_empty()))
+        .any(|patterns| {
+            patterns.iter().any(|pattern| {
+                glob::Pattern::new(pattern)
+                    .map(|p| p.matches_path(file_name.as_ref()))
+                    .unwrap_or(false)
+            })
+        })
+}
+
+/// 展开 `*.{ts,tsx}` → `["*.ts", "*.tsx"]`。仅处理单组、无嵌套的花括号；
+/// 其余输入原样返回。
+fn expand_braces(spec: &str) -> Vec<String> {
+    let (Some(open), Some(close)) = (spec.find('{'), spec.rfind('}')) else {
+        return vec![spec.to_string()];
+    };
+    if close <= open + 1 || spec[open + 1..close].contains('{') {
+        return vec![spec.to_string()];
+    }
+    spec[open + 1..close]
+        .split(',')
+        .map(|alternative| {
+            format!(
+                "{}{}{}",
+                &spec[..open],
+                alternative.trim(),
+                &spec[close + 1..]
+            )
+        })
+        .collect()
 }
 
 /// 在单文件中搜索，返回 `相对路径:行号: 行内容` 行列表与是否被跳过。
@@ -347,5 +377,17 @@ mod tests {
         assert!(!matches_include("a.rs", Some("*.ts")));
         assert!(matches_include("anything.txt", None));
         assert!(matches_include("a.rs", Some(" *.rs , *.toml ")));
+        // 花括号展开
+        assert_eq!(
+            expand_braces("*.{ts,tsx}"),
+            vec!["*.ts".to_string(), "*.tsx".to_string()]
+        );
+        assert_eq!(expand_braces("*.rs"), vec!["*.rs".to_string()]);
+        assert_eq!(
+            expand_braces("prefix-{a,b}-suffix"),
+            vec!["prefix-a-suffix".to_string(), "prefix-b-suffix".to_string()]
+        );
+        assert!(matches_include("App.tsx", Some("*.{ts,tsx}")));
+        assert!(!matches_include("App.js", Some("*.{ts,tsx}")));
     }
 }

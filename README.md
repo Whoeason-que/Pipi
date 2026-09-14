@@ -124,7 +124,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | `packages/agent` harness/utils/truncate | `truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
 | `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_oldest` 保底裁剪、`transformContext` 钩子 |
-| `packages/agent` compaction（LLM 摘要替换） | `compaction` | turn 边界触发：摘要替换旧轮次 + 保留近期轮次；摘要落盘为 `compaction` 条目，重开/分叉会话时回放 |
+| `packages/agent` compaction（LLM 摘要替换） | `compaction` | turn 边界触发：摘要替换旧轮次 + 保留近期轮次（keepRecentTokens=20000，对齐上游默认）；摘要用上游的固定骨架 prompt，重复压缩时旧摘要经 `<previous-summary>` 交回 update 版指令避免措辞漂移；文件操作清单（read/modified）追加在摘要末尾。摘要落盘为 `compaction` 条目，重开/分叉会话时回放 |
 | `packages/agent` skills（frontmatter） | `skills` | 渐进式披露：索引常驻上下文，全文模型按需 read |
 
 有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/
@@ -136,7 +136,9 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
 
 - **opencode**（sst/opencode）：「provider 层用第三方库」的架构决策来自它
   （它用 Vercel AI SDK，我们用 rig）；`session.ts` 里 usage 的归一化口径
-  （cache read/write 从输入中拆分）与我们的 Usage 字段一致。
+  （cache read/write 从输入中拆分）与我们的 Usage 字段一致。glob/grep 检索
+  工具对齐它的结果上限约定：单次 100 条 + "use a more specific pattern"
+  注释，`include` 支持 `*.{ts,tsx}` 花括号展开。
 - **模型目录**：运行时从 [models.dev](https://models.dev)（MIT，opencode 用的模型目录）
   拉取并缓存到 `~/.pipi/cache/models.json`；Pipi 只保留「收录哪些家 + 端点/协议的人工
   核实」这一张 `CURATION` 表（`crates/pipi-core/src/catalog.rs`）。上游给的是 AI SDK
