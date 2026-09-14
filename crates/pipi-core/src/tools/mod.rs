@@ -4,6 +4,8 @@
 
 pub mod bash;
 pub mod edit;
+pub mod glob;
+pub mod grep;
 pub mod memory;
 pub mod read;
 pub mod write;
@@ -188,6 +190,12 @@ impl ToolRegistry {
         let mut tools: Vec<Arc<dyn AgentTool>> = Vec::new();
         if ctx.permissions.tool_enabled("read") {
             tools.push(Arc::new(read::ReadTool));
+        }
+        if ctx.permissions.tool_enabled("glob") {
+            tools.push(Arc::new(glob::GlobTool));
+        }
+        if ctx.permissions.tool_enabled("grep") {
+            tools.push(Arc::new(grep::GrepTool));
         }
         if ctx.permissions.tool_enabled("write") {
             tools.push(Arc::new(write::WriteTool));

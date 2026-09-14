@@ -71,7 +71,7 @@ const CONNECTION_LABELS: Record<ConnectionState, string> = {
   dev: "演示模式",
 };
 
-const KNOWN_TOOLS = ["read", "write", "edit", "bash", "memory"] as const;
+const KNOWN_TOOLS = ["read", "write", "edit", "bash", "memory", "glob", "grep"] as const;
 
 /** 构建时注入的版本号（vite define），未注入时留空。 */
 const APP_VERSION = typeof __PIPI_VERSION__ === "string" ? __PIPI_VERSION__ : "";

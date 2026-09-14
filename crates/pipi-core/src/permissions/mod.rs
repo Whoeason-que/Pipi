@@ -229,7 +229,7 @@ fn matches_entry(entry: &str, segment: &str) -> bool {
 }
 
 /// Pipi 已知内置工具名。
-pub const KNOWN_TOOLS: [&str; 5] = ["read", "write", "edit", "bash", "memory"];
+pub const KNOWN_TOOLS: [&str; 7] = ["read", "write", "edit", "bash", "memory", "glob", "grep"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

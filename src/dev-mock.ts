@@ -10,7 +10,7 @@ const demoAgent: AgentDefinition = {
   provider: null,
   workspace: null,
   permissions: {
-    tools: ["read", "write", "edit", "bash", "memory"],
+    tools: ["read", "write", "edit", "bash", "memory", "glob", "grep"],
     bash: { mode: "allowAll", commands: [] },
     sandbox: "workspace-write",
   },

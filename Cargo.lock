@@ -5701,7 +5701,9 @@ dependencies = [
  "base64 0.22.1",
  "dirs",
  "futures-util",
+ "glob",
  "http",
+ "regex",
  "reqwest 0.12.28",
  "rig",
  "serde",
@@ -5710,6 +5712,7 @@ dependencies = [
  "similar",
  "tokio",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]
