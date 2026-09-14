@@ -54,7 +54,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 
 ### 3. 小核心，组合优于配置
 
-核心只内置最小工具集（`read` / `write` / `edit` / `bash` / `memory`），其余能力全部来自组合：
+核心只内置最小工具集（`read` / `write` / `edit` / `bash` / `memory` / `glob` / `grep`），其余能力全部来自组合：
 
 - **Skills** —— 用 Markdown 写的能力包，渐进式加载：只有描述常驻上下文，正文在被触发时才进入（同 pi 的做法）。
 - **MCP** —— 标准工具协议，在 `agent.json` 里声明即可接入。
@@ -72,10 +72,10 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 模型 | `agent.json` → `provider` | OpenAI / Anthropic 兼容 API（流式）；`model` 字段仅作展示标签 |
 | 系统指令 | `AGENTS.md` | 人直接读写的 Markdown，每次运行注入为系统提示 |
 | 技能 | `skills/<name>/SKILL.md` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3） |
-| 记忆 | `memory/*.md` | 由 `memory` 工具读写的持久记忆，跨会话生效 |
+| 记忆 | `memory/*.md` | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
 | 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、越出工作目录的写入与重定向在非完全访问下被拒绝 |
-| 工具开关 | `agent.json` → `permissions.tools` | 内置工具（read/write/edit/bash/memory）按需启用 |
+| 工具开关 | `agent.json` → `permissions.tools` | 内置工具（read/write/edit/bash/memory/glob/grep）按需启用 |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 会话 | `sessions/*.jsonl` | Append-only 的运行记录，一文件一会话，树状条目（id/parentId）支持分叉 |
 
@@ -101,10 +101,11 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 │  crates/pipi-core  Rust 核心         │  不依赖 Tauri，可独立测试
 │  ├─ agent_loop    工具调用循环        │  LLM → 工具调用 → 执行 → 回喂
 │  ├─ tools         read/write/edit/   │  最小内置集，限定于 workspace
-│  │                bash/memory        │
+│  │                bash/memory/glob/grep│
 │  ├─ provider      anthropic +        │  流式 SSE，事件驱动
 │  │                openai-compat      │
 │  ├─ session       sessions/*.jsonl   │  append-only，崩溃安全
+│  ├─ compaction    LLM 摘要式上下文压缩│  turn 边界触发，摘要落盘可回放
 │  ├─ permissions   bash 白/黑名单      │
 │  └─ agents        扫描 ~/.pipi/agents │  一切皆文件
 └──────────────────────────────────────┘
@@ -119,15 +120,17 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | `packages/ai` types | `types` | 消息/内容块/事件协议，JSON 字段名与上游一致 |
 | `packages/ai` api adapters | `provider` | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
 | `packages/agent` agent-loop | `agent_loop` | 事件流 + steering/follow-up + 工具批次执行 |
-| `packages/agent` harness/tools | `tools` | read/write/edit/bash + 新增 memory |
+| `packages/agent` harness/tools | `tools` | read/write/edit/bash + 新增 memory/glob/grep |
 | `packages/agent` harness/utils/truncate | `truncate` | 2000 行 / 50KB，同一套提示文案 |
-| `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq） |
-| `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_oldest` 保底裁剪、`transformContext` 钩子；LLM 摘要式 compaction 仍未移植 |
+| `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
+| `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_oldest` 保底裁剪、`transformContext` 钩子 |
+| `packages/agent` compaction（LLM 摘要替换） | `compaction` | turn 边界触发：摘要替换旧轮次 + 保留近期轮次；摘要落盘为 `compaction` 条目，重开/分叉会话时回放 |
 | `packages/agent` skills（frontmatter） | `skills` | 渐进式披露：索引常驻上下文，全文模型按需 read |
 
-有意推迟移植（需要时再从上游搬）：compaction、hooks 全集、transformContext/
+有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/
 prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`permissions`
-（命令权限）、`agents`（Agent 注册表）、`catalog`（模型目录，models.dev）、memory 工具。
+（命令权限）、`agents`（Agent 注册表）、`catalog`（模型目录，models.dev）、
+memory 工具（含渐进召回注入）、glob/grep 检索工具。
 
 ### 与 opencode / hermes 的关系
 
@@ -214,10 +217,10 @@ Pipi 也可以把 React 前端和 pipi-core 运行时以浏览器服务方式启
 ## 路线图
 
 - [x] **M0 — 项目骨架**：Tauri 2.0 跑通，设计文档定稿
-- [x] **M1½ — 核心移植**：pi 的 agent loop / 工具 / provider / session 移植为 Rust（`crates/pipi-core`），命令权限与工作目录进 `agent.json`，38 个核心测试
-- [ ] **M2 — Agent 管理**：UI 编辑 `agent.json` / `AGENTS.md` 双向同步，memory 渐进召回
-- [ ] **M3 — Skills 与 MCP**：加载技能包（渐进式注入）、接入 stdio MCP 服务器
-- [ ] **M4 — 打磨**：会话树状分叉、Agent 模板市场（本地文件分发）、多语言
+- [x] **M1½ — 核心移植**：pi 的 agent loop / 工具 / provider / session 移植为 Rust（`crates/pipi-core`），命令权限与工作目录进 `agent.json`
+- [x] **M2 — Agent 管理**：UI 全字段编辑 `agent.json` / `AGENTS.md` 双向同步，memory 渐进召回（索引常驻 + 按需读取）
+- [ ] **M3 — Skills 与 MCP**：Skills 渐进注入已实现；stdio MCP 服务器接入未动
+- [x] **M4（部分）— 会话树状分叉**：`fork_session` 已实现并接线 UI；LLM 摘要式 compaction 已实现（turn 边界触发，摘要落盘可回放）。模板市场、多语言未动
 
 ## 致谢
 
