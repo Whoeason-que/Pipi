@@ -2017,13 +2017,13 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
             <ThemeOption
               active={draft.theme === "dark"}
               name="深色"
-              swatch={["#101214", "#0b0c0d", "#0169CC", "#e6eaee"]}
+              swatch={["#171717", "#212121", "#0169CC", "#ececec"]}
               onClick={() => commit((previous) => ({ ...previous, theme: "dark" }))}
             />
             <ThemeOption
               active={draft.theme === "light"}
               name="浅色"
-              swatch={["#f6f7f8", "#fbfbfc", "#0169CC", "#15181b"]}
+              swatch={["#f9f9f9", "#ffffff", "#0169CC", "#0d0d0d"]}
               onClick={() => commit((previous) => ({ ...previous, theme: "light" }))}
             />
           </div>

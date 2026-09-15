@@ -1,0 +1,113 @@
+/* ============================================================
+   响应式：检查器抽屉（≤1100px）/ 侧栏抽屉（≤860px）/ 动效降级
+   放在最后 import：覆盖前面的基础规则。
+   ============================================================ */
+
+/* 中窄屏：检查器改为抽屉（默认收起，由按钮展开） */
+@media (max-width: 1100px) {
+  .inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    width: min(320px, 88vw);
+    min-width: 0;
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+    box-shadow: var(--shadow);
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+  }
+
+  .chat-shell:not(.inspector-open) .inspector {
+    display: flex;
+  }
+
+  .chat-shell.inspector-open .inspector {
+    transform: none;
+  }
+}
+
+/* 窄屏：侧栏抽屉 + 移动工具栏 */
+@media (max-width: 860px) {
+  .mobile-toolbar {
+    display: flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 35;
+    width: min(300px, 84vw);
+    min-width: 0;
+    padding-bottom: var(--safe-bottom);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+
+  .app.sidebar-open .sidebar {
+    transform: none;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 34;
+    background: rgba(0, 0, 0, 0.5);
+    border: 0;
+    cursor: pointer;
+  }
+
+  .crumb {
+    max-width: 22ch;
+  }
+
+  .row {
+    padding: 6px 14px;
+  }
+
+  .user-bubble {
+    max-width: 88%;
+  }
+
+  /* 触屏没有 hover：时间直接常显 */
+  .row-meta {
+    opacity: 1;
+  }
+
+  /* 状态栏在窄屏只保留核心信息，长字段交给横向滚动 */
+  .status-bar .opt {
+    display: none;
+  }
+
+  .tool-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tpane + .tpane {
+    border-left: 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .composer {
+    padding: 0 12px;
+    padding-bottom: calc(10px + var(--safe-bottom));
+  }
+
+  .drow {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

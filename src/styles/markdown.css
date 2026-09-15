@@ -1,0 +1,224 @@
+/* ============================================================
+   Markdown 渲染 + 代码高亮
+   - 正文 15px/1.7（比 ChatGPT 的 16px 密一档，给工具日志留密度）
+   - 代码块两个主题都是深底（ChatGPT 做法），hljs 只需一套配色
+   ============================================================ */
+
+.md {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--fg);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md p {
+  margin: 8px 0;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 18px 0 8px;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--fg);
+}
+
+.md h1 {
+  font-size: 18px;
+}
+.md h2 {
+  font-size: 16px;
+}
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  font-size: 14.5px;
+}
+
+.md ul,
+.md ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.md li {
+  margin: 3px 0;
+}
+
+.md a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.md a:hover {
+  text-decoration: underline;
+}
+
+/* 行内 code：无实体边框，浅灰底（ChatGPT --gray-100 口径） */
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--inline-code);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+  font-weight: 500;
+}
+
+/* 代码块容器：头部（语言 + 复制）由 Markdown.tsx 的 <Pre> 渲染 */
+.codeblock {
+  margin: 10px 0;
+  border-radius: var(--r);
+  background: var(--code-bg);
+  overflow: hidden;
+}
+
+.codeblock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.codeblock-lang {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #b4b4b4;
+}
+
+.codeblock-copy {
+  background: transparent;
+  border: 0;
+  color: #b4b4b4;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 6px;
+  transition: background 0.13s, color 0.13s;
+}
+
+.codeblock-copy:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ececec;
+}
+
+.md .codeblock pre {
+  margin: 0;
+  padding: 10px 14px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow-x: auto;
+}
+
+.md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #ececec;
+}
+
+.md blockquote {
+  margin: 10px 0;
+  padding: 2px 14px;
+  border-left: 3px solid var(--line-2);
+  color: var(--text);
+}
+
+.md table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+
+.md th,
+.md td {
+  border: 1px solid var(--line-2);
+  padding: 6px 12px;
+  text-align: left;
+}
+
+.md th {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.md hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 14px 0;
+}
+
+.md img {
+  max-width: 100%;
+  border-radius: var(--r-sm);
+}
+
+/* highlight.js 配色（ChatGPT 深色调色板；代码块恒为深底，两主题通用） */
+
+.md .hljs-comment,
+.md .hljs-quote {
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+}
+
+.md .hljs-keyword,
+.md .hljs-selector-tag,
+.md .hljs-literal,
+.md .hljs-doctag {
+  color: #2e95d3;
+}
+
+.md .hljs-string,
+.md .hljs-regexp,
+.md .hljs-addition {
+  color: #00a67d;
+}
+
+.md .hljs-number,
+.md .hljs-symbol,
+.md .hljs-bullet,
+.md .hljs-variable,
+.md .hljs-template-variable {
+  color: #df3079;
+}
+
+.md .hljs-title,
+.md .hljs-title.function_,
+.md .hljs-section,
+.md .hljs-name {
+  color: #f22c3d;
+}
+
+.md .hljs-attr,
+.md .hljs-attribute,
+.md .hljs-type,
+.md .hljs-built_in,
+.md .hljs-class .hljs-title {
+  color: #e9950c;
+}
+
+.md .hljs-meta,
+.md .hljs-deletion {
+  color: var(--danger);
+}

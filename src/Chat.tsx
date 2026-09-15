@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Markdown } from "./Markdown";
 import { invoke, listen } from "./platform";
 import { ScreenTabs } from "./ScreenTabs";
-import { IconBack, IconFork, IconGrid, IconPlus, IconSend, IconStop } from "./icons";
+import { IconBack, IconCheck, IconCopy, IconFork, IconGrid, IconPlus, IconSend, IconStop } from "./icons";
 import {
   catalogSourceLabel,
   findCatalogModel,
@@ -725,11 +725,7 @@ export default function ChatView({
             if (entry.kind === "compaction") {
               return (
                 <div key={entry.key} className="row system-row">
-                  <div className="gut">
-                    {entry.timestamp ? <span className="time">{formatClock(entry.timestamp)}</span> : null}
-                    <span className="role-tag system">system</span>
-                  </div>
-                  <div className="content">
+                  <div className="row-inner">
                     <details className="compaction-fold" open={!entry.summary}>
                       <summary>{entry.text}</summary>
                       {entry.summary ? <Markdown text={entry.summary} /> : null}
@@ -740,8 +736,6 @@ export default function ChatView({
             }
             const isUser = entry.role === "user";
             const isTool = entry.role === "toolResult";
-            const tagClass = isUser ? "user" : isTool ? "tool" : entry.isError ? "error" : "";
-            const tagText = isUser ? "you" : isTool ? "tool" : "agent";
             const footer = !isTool && !isUser && !entry.streaming && !entry.status
               ? assistantFooter({
                   role: "assistant",
@@ -751,28 +745,48 @@ export default function ChatView({
                 })
               : null;
             return (
-              <div key={entry.key} className={`row${isTool ? " alt" : ""}${isUser ? " user-row" : ""}`}>
-                <div className="gut">
-                  {entry.timestamp ? <span className="time">{formatClock(entry.timestamp)}</span> : null}
-                  <span className={`role-tag ${tagClass}`}>{tagText}</span>
-                </div>
-                <div className="content">
+              <div key={entry.key} className={`row${isUser ? " user-row" : ""}`}>
+                <div className="row-inner">
                   {isUser ? (
-                    <div className="user-text">{entry.text}</div>
-                  ) : isTool ? (
-                    <ToolResultCard entry={entry} />
+                    <>
+                      <div className="user-bubble">
+                        <div className="user-text">{entry.text}</div>
+                      </div>
+                      <div className="row-meta">
+                        <CopyButton text={entry.text} />
+                        {entry.timestamp ? (
+                          <span className="time">{formatClock(entry.timestamp)}</span>
+                        ) : null}
+                      </div>
+                    </>
                   ) : (
                     <>
-                      {entry.thinking && (
-                        <ThinkingFold
-                          thinking={entry.thinking}
-                          streaming={Boolean(entry.streaming)}
-                          hasText={Boolean(entry.text)}
-                        />
+                      <div className="content">
+                        {isTool ? (
+                          <ToolResultCard entry={entry} />
+                        ) : (
+                          <>
+                            {entry.thinking && (
+                              <ThinkingFold
+                                thinking={entry.thinking}
+                                streaming={Boolean(entry.streaming)}
+                                hasText={Boolean(entry.text)}
+                              />
+                            )}
+                            <Markdown text={entry.text || (entry.streaming ? "…" : "")} />
+                            {entry.streaming && <span className="cursor" aria-hidden="true" />}
+                            {footer && <div className="hint">{footer}</div>}
+                          </>
+                        )}
+                      </div>
+                      {!entry.streaming && (
+                        <div className="row-meta">
+                          {entry.timestamp ? (
+                            <span className="time">{formatClock(entry.timestamp)}</span>
+                          ) : null}
+                          <CopyButton text={entry.text} />
+                        </div>
                       )}
-                      <Markdown text={entry.text || (entry.streaming ? "…" : "")} />
-                      {entry.streaming && <span className="cursor" aria-hidden="true" />}
-                      {footer && <div className="hint">{footer}</div>}
                     </>
                   )}
                 </div>
@@ -812,18 +826,25 @@ export default function ChatView({
               <span className="hint">ENTER 发送 · SHIFT+ENTER 换行</span>
               <span className="spacer" />
               {running ? (
-                <button type="button" className="btn stop" onClick={stop} disabled={stopping}>
+                <button
+                  type="button"
+                  className="btn stop"
+                  onClick={stop}
+                  disabled={stopping}
+                  title={stopping ? "停止中…" : "停止"}
+                  aria-label="停止运行"
+                >
                   <IconStop />
-                  {stopping ? "停止中…" : "停止"}
                 </button>
               ) : (
                 <button
                   type="button"
-                  className="btn primary"
+                  className="btn send"
                   disabled={!ready || !sessionInfoResolvedRef.current || !input.trim()}
                   onClick={() => void send()}
+                  title="发送"
+                  aria-label="发送消息"
                 >
-                  发送
                   <IconSend />
                 </button>
               )}
@@ -873,6 +894,33 @@ function formatClock(timestamp: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+/** 消息操作：复制正文（hover 出现的操作行里，成功后短暂显示对勾） */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className={`icon-btn copy-btn${copied ? " copied" : ""}`}
+      title={copied ? "已复制" : "复制"}
+      aria-label={copied ? "已复制" : "复制消息"}
+      disabled={!text}
+      onClick={() => {
+        navigator.clipboard
+          ?.writeText(text)
+          .then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+          })
+          .catch(() => {
+            // 剪贴板不可用时静默失败，不打断阅读
+          });
+      }}
+    >
+      {copied ? <IconCheck /> : <IconCopy />}
+    </button>
+  );
+}
+
 function formatTokens(value: number | undefined): string {
   if (value == null) return "—";
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -904,8 +952,7 @@ function ThinkingFold({
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
       >
-        <span className="k">THINKING</span>
-        <span>{streaming && !hasText ? "思考中…" : `深度思考（${thinking.length} 字）`}</span>
+        {streaming && !hasText ? "思考中…" : `已思考（${thinking.length} 字）`}
         <span className="caret">▶</span>
       </button>
       {open && <pre className="thinking-body">{thinking}</pre>}
@@ -1256,7 +1303,7 @@ function Inspector({
                 <span className="v">
                   {runningTool || lastTool ? (
                     <>
-                      <span className="mono" style={{ color: "var(--accent-text)" }}>
+                      <span className="mono" style={{ color: "var(--fg)" }}>
                         {(runningTool ?? lastTool)!.toolName ?? "tool"}
                       </span>{" "}
                       <span className="dim">

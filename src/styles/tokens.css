@@ -1,0 +1,131 @@
+/* ============================================================
+   Pipi 设计令牌 —— 参考 chatgpt.com 的真实视觉体系
+   - 中性灰阶分层：暗色主区 #212121 / 侧栏 #171717 / 浮层 #2f2f2f；
+     浅色主区 #ffffff / 侧栏 #f9f9f9 / 气泡与输入面 #f4f4f4
+   - 边框一律黑白透明度（5%/10%/18%），靠表面色差而不是实体灰线
+   - 彩色只保留三类：focus ring（蓝）、链接、语义状态 ok·warn·danger
+   - 黑白主按钮（--primary-*）：暗色白底黑字，浅色黑底白字（ChatGPT 反转）
+   - 代码块两个主题都为深底（ChatGPT 做法），hljs 只需一套配色
+   - 不用 color-mix()/嵌套等新语法：Tauri 各平台 WebView 版本不一
+     （Linux 走 WebKitGTK），全部用显式令牌保证一致
+   ============================================================ */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* 等宽字体栈（单一来源，各处用 var(--font-mono)） */
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+
+  /* 表面 */
+  --bg: #212121;            /* 主区 */
+  --panel: #171717;         /* 侧栏 / 状态栏 */
+  --panel-2: #2f2f2f;       /* 浮层：弹窗 / 菜单 / 工具卡片 */
+  --chat-surface: #303030;  /* 用户气泡 / 输入框 / composer */
+  --code-bg: #0d0d0d;       /* 代码块（两个主题都为深底） */
+  --inline-code: rgba(255, 255, 255, 0.08);
+
+  /* 线与填充 */
+  --line: rgba(255, 255, 255, 0.1);
+  --line-2: rgba(255, 255, 255, 0.18);
+  --line-soft: rgba(255, 255, 255, 0.06);
+  --stripe: rgba(255, 255, 255, 0.03);
+  --hover: rgba(255, 255, 255, 0.07);
+  --hover-2: rgba(255, 255, 255, 0.12);
+
+  /* 文字（正文与标题同阶，层级靠字号/字重） */
+  --fg: #ececec;
+  --text: #ececec;
+  --muted: #b4b4b4;
+  --faint: #8f8f8f;
+
+  /* 强调：focus ring / 链接 / 少量小指示 */
+  --accent: #0169cc;
+  --accent-text: #7ab7ff;
+  --on-accent: #ffffff;
+
+  /* 黑白主按钮（ChatGPT 式：暗色白底） */
+  --primary-bg: #ececec;
+  --primary-fg: #0d0d0d;
+
+  /* 语义状态 */
+  --ok: #4ac26b;
+  --ok-soft: rgba(74, 194, 107, 0.12);
+  --ok-border: rgba(74, 194, 107, 0.32);
+  --warn: #d5a021;
+  --warn-soft: rgba(213, 160, 33, 0.12);
+  --warn-border: rgba(213, 160, 33, 0.32);
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.12);
+  --danger-border: rgba(229, 72, 77, 0.4);
+
+  /* 进度条 / 图表 */
+  --track: rgba(255, 255, 255, 0.1);
+  --bar: rgba(255, 255, 255, 0.35);
+  --glow-ok: rgba(74, 194, 107, 0.5);
+  --glow-warn: rgba(213, 160, 33, 0.45);
+
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+
+  /* 圆角阶梯（ChatGPT 官方阶：8/12/16/24/全圆） */
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+  --r-full: 999px;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* composer 顶部渐隐的透明端（与 --bg 同色相） */
+  --bg-fade: rgba(33, 33, 33, 0);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --panel: #f9f9f9;
+  --panel-2: #ffffff;
+  --chat-surface: #f4f4f4;
+  --code-bg: #27272a;
+  --inline-code: #ececec;
+
+  --line: rgba(0, 0, 0, 0.1);
+  --line-2: rgba(0, 0, 0, 0.18);
+  --line-soft: rgba(0, 0, 0, 0.06);
+  --stripe: rgba(0, 0, 0, 0.025);
+  --hover: rgba(0, 0, 0, 0.05);
+  --hover-2: rgba(0, 0, 0, 0.08);
+
+  --fg: #0d0d0d;
+  --text: #0d0d0d;
+  --muted: #5d5d5d;
+  --faint: #9b9b9b;
+
+  --accent: #0169cc;
+  --accent-text: #2964aa;
+  --on-accent: #ffffff;
+
+  --primary-bg: #0d0d0d;
+  --primary-fg: #ffffff;
+
+  --ok: #1a7f37;
+  --ok-soft: rgba(26, 127, 55, 0.1);
+  --ok-border: rgba(26, 127, 55, 0.3);
+  --warn: #9a6700;
+  --warn-soft: rgba(154, 103, 0, 0.1);
+  --warn-border: rgba(154, 103, 0, 0.3);
+  --danger: #cf222e;
+  --danger-soft: rgba(207, 34, 46, 0.08);
+  --danger-border: rgba(207, 34, 46, 0.35);
+
+  --track: rgba(0, 0, 0, 0.08);
+  --bar: rgba(0, 0, 0, 0.3);
+  --glow-ok: rgba(26, 127, 55, 0.4);
+  --glow-warn: rgba(154, 103, 0, 0.35);
+
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
+
+  --bg-fade: rgba(255, 255, 255, 0);
+}

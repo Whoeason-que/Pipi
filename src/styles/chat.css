@@ -1,0 +1,741 @@
+/* ============================================================
+   会话视图：日志流（气泡式） / 输入区 / 工具卡片 / 检查器
+   - 用户消息右对齐气泡，助手消息无气泡纯文本（ChatGPT 形态）
+   - 消息间不画分隔线，靠间距与表面色区分
+   ============================================================ */
+
+.chat-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+.log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  /* 顶栏是悬浮层：给滚动内容让出顶栏高度 + 原有呼吸空隙 */
+  padding-top: calc(68px + var(--safe-top));
+}
+
+/* 会话内容列：居中窄列（ChatGPT thread 宽度） */
+.row {
+  display: flex;
+  padding: 8px 24px;
+}
+
+.row-inner {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 用户消息：气泡右对齐（最宽 70% 列宽，ChatGPT --user-chat-width 口径），
+   下方 hover 操作行（复制 / 时间）跟随右缘 */
+.user-row .row-inner {
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.user-bubble {
+  max-width: 70%;
+  background: var(--chat-surface);
+  border-radius: 20px;
+  padding: 10px 16px;
+}
+
+.user-text {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.content {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.content > :last-child {
+  margin-bottom: 0;
+}
+
+/* 消息操作行：hover / 键盘聚焦时才浮现（窄屏常显）；
+   常驻占位（min-height）避免显隐时布局跳动 */
+.row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.row:hover .row-meta,
+.row:focus-within .row-meta {
+  opacity: 1;
+}
+
+.row-meta .time {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.row-meta .icon-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.row-meta .icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.copy-btn.copied {
+  color: var(--ok);
+}
+
+.chat-welcome {
+  padding: 72px 24px 24px;
+  max-width: 48ch;
+  margin: 0 auto;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+/* 流式光标：ChatGPT 式脉动圆点 */
+.cursor {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  vertical-align: baseline;
+  margin-left: 3px;
+  animation: pipi-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pipi-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 上下文压缩标记：系统级折叠条 */
+.compaction-fold {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: var(--stripe);
+}
+
+.compaction-fold summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.compaction-fold[open] summary {
+  margin-bottom: 8px;
+}
+
+.compaction-fold > *:not(summary) {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.compaction-fold .md {
+  font-size: 13px;
+}
+
+/* 折叠条（思考等）：ChatGPT 式无边框文字行 */
+
+.fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 2px 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  transition: color 0.14s;
+}
+
+.fold:hover {
+  color: var(--fg);
+}
+
+.fold .caret {
+  font-size: 9px;
+  color: var(--faint);
+  transition: transform 0.16s;
+}
+
+.fold.open .caret {
+  transform: rotate(90deg);
+}
+
+.thinking-body {
+  margin-top: 6px;
+  padding: 8px 12px 10px;
+  background: var(--stripe);
+  border: 0;
+  border-left: 2px solid var(--line-2);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* ============ 工具卡片：中性浮层（状态只靠一枚语义圆点/文字） ============ */
+
+.tool {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.13s;
+}
+
+.tool-head:hover {
+  background: var(--hover);
+}
+
+.tool-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  flex-shrink: 0;
+}
+
+.tool-cmd {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tool-meta {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tool-meta .ok {
+  color: var(--ok);
+}
+
+.tool-meta .run {
+  color: var(--warn);
+}
+
+.tool-meta .fail {
+  color: var(--danger);
+}
+
+.tool-body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  border-top: 1px solid var(--line-soft);
+}
+
+.tpane {
+  padding: 10px 12px 12px;
+  min-width: 0;
+}
+
+.tpane + .tpane {
+  border-left: 1px solid var(--line-soft);
+}
+
+.tpane.full {
+  grid-column: 1 / -1;
+  border-left: 0;
+}
+
+.plabel {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+pre.code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre;
+  overflow-x: auto;
+  user-select: text;
+}
+
+.ln-add {
+  display: block;
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.ln-del {
+  display: block;
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.ln-ctx {
+  display: block;
+  color: var(--faint);
+}
+
+.ln-hunk {
+  display: block;
+  color: var(--accent-text);
+}
+
+/* ============ 输入区：浮动圆角容器，上方渐变把滚动内容淡出 ============ */
+
+.composer {
+  position: relative;
+  padding: 0 24px;
+  padding-bottom: calc(12px + var(--safe-bottom));
+}
+
+.composer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -30px;
+  height: 30px;
+  background: linear-gradient(to top, var(--bg), var(--bg-fade));
+  pointer-events: none;
+}
+
+.composer-box {
+  position: relative;
+  max-width: 768px;
+  margin: 0 auto;
+  background: var(--chat-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-xl);
+  transition: border-color 0.15s;
+}
+
+.composer-box:focus-within {
+  border-color: var(--line-2);
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 44px;
+  max-height: 180px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 12px 16px 2px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg);
+}
+
+.composer textarea::placeholder {
+  color: var(--faint);
+}
+
+.composer textarea:disabled {
+  color: var(--faint);
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px 10px 16px;
+}
+
+/* 发送 / 停止：36px 圆形主按钮（ChatGPT 形态）。
+   hover 用 brightness 而不是通用 .btn:hover 的透明底，保持实心圆形态 */
+.btn.send,
+.btn.stop {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  flex-shrink: 0;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.btn.send:hover:not(:disabled),
+.btn.stop:hover:not(:disabled) {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  filter: brightness(1.08);
+}
+
+.btn.send:disabled {
+  opacity: 0.3;
+}
+
+.btn.stop:disabled {
+  opacity: 0.4;
+}
+
+.btn.send svg {
+  width: 16px;
+  height: 16px;
+}
+
+.btn.stop svg {
+  width: 14px;
+  height: 14px;
+}
+
+.composer-bar .spacer {
+  flex: 1;
+}
+
+/* ============ 右侧检查器 ============ */
+
+.inspector {
+  width: 296px;
+  min-width: 296px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  border-left: 1px solid var(--line-soft);
+  padding-top: var(--safe-top);
+}
+
+/* 宽屏下关闭即从布局中移除；窄屏下由 responsive.css 改为抽屉滑出 */
+.chat-shell:not(.inspector-open) .inspector {
+  display: none;
+}
+
+/* 窄屏检查器抽屉的遮罩（仅在窄屏且抽屉打开时渲染） */
+.inspector-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: rgba(0, 0, 0, 0.45);
+  border: 0;
+  cursor: pointer;
+}
+
+.ipanel {
+  display: none;
+}
+
+.ipanel.active {
+  display: block;
+}
+
+.itabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 6px 8px;
+  flex-shrink: 0;
+}
+
+.itab {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 7px 4px;
+  white-space: nowrap;
+  border-radius: var(--r-sm);
+  transition: color 0.13s, background 0.13s;
+}
+
+.itab:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.itab.active {
+  color: var(--fg);
+  background: var(--hover-2);
+}
+
+.ipanels {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ip {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 12px 14px 14px;
+}
+
+.ip h4 {
+  font-size: 10.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ip h4::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line-soft);
+}
+
+.ip-note {
+  font-size: 12px;
+  color: var(--faint);
+  line-height: 1.7;
+}
+
+.metric {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  margin-bottom: 10px;
+}
+
+.metric:last-child {
+  margin-bottom: 0;
+}
+
+.m-k {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.m-v {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.m-v.dim {
+  color: var(--muted);
+}
+
+.track {
+  grid-column: 1 / -1;
+  height: 3px;
+  background: var(--track);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.track > i {
+  display: block;
+  height: 100%;
+  background: var(--bar);
+  border-radius: 2px;
+}
+
+.track > i.warm {
+  background: var(--warn);
+}
+
+.tl {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.tl-row {
+  display: grid;
+  grid-template-columns: 66px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.tl-row .n {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-row .b {
+  height: 4px;
+  background: var(--track);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tl-row .b > i {
+  display: block;
+  height: 100%;
+  background: var(--bar);
+}
+
+.tl-row .d {
+  color: var(--faint);
+}
+
+.tl-row .d.fail {
+  color: var(--danger);
+}
+
+.kv-row {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+
+.kv-row:last-child {
+  border-bottom: 0;
+}
+
+.kv-row .k {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding-top: 1px;
+}
+
+.kv-row .v {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.state-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--fg);
+  margin-bottom: 10px;
+}
+
+.state-line .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 8px var(--glow-warn);
+  flex-shrink: 0;
+}
+
+.state-line.idle .dot {
+  background: var(--ok);
+  box-shadow: 0 0 8px var(--glow-ok);
+}
+
+.state-line .sub {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  margin-left: auto;
+}
+
+.chg {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12.5px;
+}
+
+.chg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+}
+
+.chg-row .p {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.chg-row .add {
+  color: var(--ok);
+}
+
+.chg-row .del {
+  color: var(--danger);
+}
