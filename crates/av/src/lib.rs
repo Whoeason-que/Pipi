@@ -16,7 +16,7 @@ pub mod requires;
 pub mod resolve;
 pub mod schema;
 
-pub use discovery::{discover, Discovered, Layer};
+pub use discovery::{discover, find_project_root, load_contract_file, resolve_path, Discovered, Layer};
 pub use merge::{merge_layers, Merged, MergedEnv};
 pub use resolve::{collect_process_env, resolve_env, ResolvedEnv};
 pub use requires::{check_requires, lookup_command, probe_version, version_satisfies};

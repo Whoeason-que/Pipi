@@ -34,6 +34,8 @@ export interface McpServer {
   name: string;
   command: string;
   args: string[];
+  /** MCP server 的环境变量（M3 拉起时叠加到会话 resolved env 之上）。 */
+  env: Record<string, string>;
   enabled: boolean;
 }
 

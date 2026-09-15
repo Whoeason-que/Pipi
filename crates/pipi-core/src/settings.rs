@@ -51,6 +51,19 @@ impl ProviderConfig {
         }
         self.api_key.clone().filter(|k| !k.trim().is_empty())
     }
+
+    /// 同 [`Self::resolve_api_key`]，但环境来源是 av 契约解析出的 resolved env
+    /// （一处解析，多处消费：bash 子进程 / provider key / 未来 MCP）。
+    pub fn resolve_api_key_in(&self, env: &std::collections::BTreeMap<String, String>) -> Option<String> {
+        if let Some(env_key) = &self.env_key {
+            if let Some(value) = env.get(env_key) {
+                if !value.trim().is_empty() {
+                    return Some(value.clone());
+                }
+            }
+        }
+        self.api_key.clone().filter(|k| !k.trim().is_empty())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

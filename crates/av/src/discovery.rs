@@ -87,26 +87,35 @@ pub fn discover(cwd: &Path) -> Result<Discovered, String> {
     Ok(Discovered { root, layers })
 }
 
+/// 显式加载单个契约文件（解析 + schema 校验；不含 symlink 包含检查）。
+///
+/// 供宿主直接读取已知路径的契约 —— 例如 Agent 定义目录里的 `agent.toml`
+/// （该目录不属于 cwd 发现范围）。
+pub fn load_contract_file(path: &Path) -> Result<AgentToml, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("无法读取 {}: {e}", path.display()))?;
+    let config: AgentToml =
+        toml::from_str(&text).map_err(|e| format!("解析 {} 失败：{e}", path.display()))?;
+    config
+        .validate()
+        .map_err(|e| format!("{} 校验失败：{e}", path.display()))?;
+    Ok(config)
+}
+
 fn load_layer(path: &Path, label: &str) -> Result<Layer, String> {
     // symlink 逃逸 fail-closed：契约文件必须真实存在于所在目录内
     let canonical = std::fs::canonicalize(path)
         .map_err(|e| format!("无法读取 {}: {e}", path.display()))?;
     if let Some(parent) = path.parent() {
         let parent = std::fs::canonicalize(parent)
-            .map_err(|e| format!("无法规范化 {}: {e}", path.parent().unwrap_or(path).display()))?;
+            .map_err(|e| format!("无法规范化 {}: {e}", parent.display()))?;
         if !canonical.starts_with(&parent) {
             return Err(format!(
                 "{label} 是指向目录外的符号链接，已拒绝（fail-closed）"
             ));
         }
     }
-    let text = std::fs::read_to_string(&canonical)
-        .map_err(|e| format!("无法读取 {}: {e}", canonical.display()))?;
-    let config: AgentToml =
-        toml::from_str(&text).map_err(|e| format!("解析 {label} 失败：{e}"))?;
-    config
-        .validate()
-        .map_err(|e| format!("{label} 校验失败：{e}"))?;
+    let config = load_contract_file(&canonical)?;
     Ok(Layer {
         label: label.to_string(),
         path: canonical,
@@ -253,8 +262,21 @@ mod tests {
     }
 
     #[test]
-    fn tilde_and_relative_resolution() {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    fn explicit_contract_file_load() {
+        let dir = temp_dir("explicit");
+        let path = dir.join("agent.toml");
+        std::fs::write(&path, "schema = 1\n[env]\nset = { K = \"v\" }").unwrap();
+
+        let config = load_contract_file(&path).unwrap();
+        assert!(config.env.is_some());
+        // 未知段 fail-closed
+        std::fs::write(&path, "schema = 1\n[unknown]\nx = 1").unwrap();
+        assert!(load_contract_file(&path).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn tilde_and_relative_resolution() {        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
         assert_eq!(expand_tilde("~"), home);
         assert_eq!(expand_tilde("~/x"), home.join("x"));
         assert_eq!(expand_tilde("/abs/x"), PathBuf::from("/abs/x"));

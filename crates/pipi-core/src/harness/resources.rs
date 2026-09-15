@@ -39,6 +39,20 @@ pub fn load_project_context_files_with_budget(
     if let Some(agent_dir) = agent_dir {
         load_directory_context(agent_dir, None, &mut seen, &mut loaded);
     }
+    loaded.extend(load_project_scope_files_with_budget(cwd, project_max_bytes));
+    loaded
+}
+
+/// Load only the project scope (root → cwd chain) with an explicit byte budget.
+///
+/// 供 av 契约的 instructions 三态使用：声明层替换项目发现时，缺省路径仍走这里。
+pub fn load_project_scope_files(cwd: &Path, project_max_bytes: usize) -> Vec<ContextFile> {
+    load_project_scope_files_with_budget(cwd, project_max_bytes)
+}
+
+fn load_project_scope_files_with_budget(cwd: &Path, project_max_bytes: usize) -> Vec<ContextFile> {
+    let mut loaded = Vec::new();
+    let mut seen = HashSet::new();
 
     let (project_root, directories) = project_directories(cwd);
     let Some(project_root) = project_root else {
@@ -162,7 +176,8 @@ fn load_directory_context(
     }
 }
 
-fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
+/// 在 UTF-8 字符边界上截断（声明式上下文文件与发现路径共用）。
+pub(crate) fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
     if max_bytes >= s.len() {
         return s.to_string();
     }

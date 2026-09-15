@@ -415,6 +415,7 @@ impl<T> Drop for SlotTransaction<'_, T> {
 fn resolve_model(
     def: &AgentDefinition,
     session_model: Option<&Model>,
+    env: Option<&std::collections::BTreeMap<String, String>>,
 ) -> Result<(Model, String), String> {
     let target = session_model
         .cloned()
@@ -427,7 +428,11 @@ fn resolve_model(
         .providers
         .iter()
         .find(|p| p.api == target.api && p.base_url == target.base_url)
-        .and_then(|p| p.resolve_api_key())
+        .and_then(|p| match env {
+            // 与 bash 子进程消费同一份 resolved env；无契约上下文时回退进程环境
+            Some(env) => p.resolve_api_key_in(env),
+            None => p.resolve_api_key(),
+        })
         .ok_or_else(|| {
             format!(
                 "提供商 {} 未配置 API 密钥（设置 → 模型提供商）",
@@ -709,7 +714,7 @@ impl RuntimeState {
 
         // 校验目标模型的 API 密钥是否已配置
         if let Some(target) = &effective_target {
-            let _ = resolve_model(&session.agent, Some(target))?;
+            let _ = resolve_model(&session.agent, Some(target), None)?;
         }
 
         let has_changed = *current_model_slot != model;
@@ -868,7 +873,6 @@ impl RuntimeState {
 
         let def = session.agent.clone();
         let current_session_model = session.model.lock().ok().and_then(|m| m.clone());
-        let (model, api_key) = resolve_model(&def, current_session_model.as_ref())?;
 
         let user_message = Message::user_text(prompt);
         let messages = session.messages.clone();
@@ -877,8 +881,29 @@ impl RuntimeState {
         let running = session.running.clone();
         let abort = session.abort.clone();
 
-        let tool_context =
+        // av 环境契约：会话启动时解析一次（requires fail-closed + AV_* 注入）
+        let (tool_context, resolved_env) =
             agents::build_tool_context(&def, writer_session_id(&writer).ok(), abort.clone())?;
+        // 环境记账：每会话至多一条（writer 幂等去重）；只记声明键（非 process 来源）
+        {
+            let declared = resolved_env
+                .provenance
+                .iter()
+                .filter(|(_, source)| source.as_str() != av::resolve::PROCESS_SOURCE)
+                .map(|(key, source)| crate::session::EnvDeclared {
+                    key: key.clone(),
+                    source: source.clone(),
+                })
+                .collect();
+            let mut writer = writer.lock().map_err(|e| format!("无法锁定会话写入器: {e}"))?;
+            writer
+                .append_env(declared)
+                .map_err(|e| format!("无法写入环境记账: {e}"))?;
+        }
+        // provider key 与工具子进程消费同一份 resolved env
+        let (model, api_key) =
+            resolve_model(&def, current_session_model.as_ref(), Some(&resolved_env.vars))?;
+
         let registry = Arc::new(ToolRegistry::for_context(&tool_context));
         let wire_tools = registry.wire_tools();
         // api_key 随 config 被移走；压缩摘要调用还要用一份
@@ -923,7 +948,7 @@ impl RuntimeState {
         let run_token = running_guard.token;
         let run_id = running.current_run_id();
         let session_id = writer_session_id(&writer)?;
-        let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools);
+        let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools)?;
         let completion_sink = event_sink.clone();
         // make_emitter 会按值取走 writer；压缩阶段还要用它，先克隆
         let compaction_writer = writer.clone();
@@ -1233,16 +1258,16 @@ mod tests {
         std::env::remove_var("OPENAI_API_KEY");
 
         // 回退默认模型
-        let err = super::resolve_model(&def, None).unwrap_err();
+        let err = super::resolve_model(&def, None, None).unwrap_err();
         assert!(err.contains("未配置 API 密钥"));
 
         // 优先会话覆盖模型
-        let err = super::resolve_model(&def, Some(&session_model)).unwrap_err();
+        let err = super::resolve_model(&def, Some(&session_model), None).unwrap_err();
         assert!(err.contains("api.anthropic.com"));
 
         // 配上 key 后成功解析
         std::env::set_var("ANTHROPIC_API_KEY", "test-key");
-        let (resolved, key) = super::resolve_model(&def, Some(&session_model)).unwrap();
+        let (resolved, key) = super::resolve_model(&def, Some(&session_model), None).unwrap();
         assert_eq!(resolved.id, "claude-sonnet-4-5");
         assert_eq!(key, "test-key");
         std::env::remove_var("ANTHROPIC_API_KEY");

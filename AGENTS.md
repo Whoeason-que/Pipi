@@ -17,6 +17,8 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 ## 代码结构
 
 ```
+crates/av/          agent.toml 环境契约（独立工具）：schema / 发现 / 合并 /
+                    env 解析 / requires；lib 供 pipi-core 复用，bin 为调试 CLI
 crates/pipi-core/   Rust 核心（不依赖 Tauri）：agent_loop / tools / provider（rig 适配层）/
                     session / permissions / context / skills / stats / project_doc /
                     settings / agents / catalog（模型目录，models.dev）/ truncate / types
@@ -37,6 +39,7 @@ src/                React + TypeScript 前端
 | `npm run tauri dev` | 启动开发模式（前端 + 桌面壳） |
 | `npm run tauri build` | 打包 |
 | `cargo test -p pipi-core` | 核心单元测试（改核心必跑） |
+| `cargo test -p av` | agent.toml 契约测试（改 av 必跑） |
 | `cargo check --workspace` | 全量编译检查 |
 | `cd src-tauri && cargo clippy` | Rust lint |
 | `npx tsc --noEmit` | 前端类型检查 |
@@ -64,3 +67,8 @@ src/                React + TypeScript 前端
 - 权限是安全边界：bash 命令检查在 `pipi-core/src/tools/bash.rs` 执行前发生，
   改权限逻辑（`permissions/`）必须带测试，且宁可拒绝不可放行 —— 无法静态
   分析的命令一律视为危险。
+- agent.toml 契约（`crates/av`，README「agent.toml 契约（av 标准）」一节）：
+  未知键/未知段一律拒绝、秘密值只许引用式（永不内联）、`AV_*` 是运行时
+  保留命名空间、项目层文件不得声明身份与权限段 —— 改 schema/合并/解析
+  逻辑必须带测试，宁可拒绝不可放行；工具子进程环境一律取
+  `ToolContext.resolved_env`（会话启动解析一次），不许在 spawn 点读进程环境。

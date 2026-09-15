@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::types::{now_millis, Message, Model};
 
 /// 条目类型。pi 还有 branch_summary / custom；Pipi 增量新增 compaction
-/// （摘要式上下文压缩的落点：其之前的消息被摘要替换，回放时丢弃）。
+/// （摘要式上下文压缩的落点：其之前的消息被摘要替换，回放时丢弃）
+/// 与 env（环境契约记账）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EntryKind {
@@ -32,6 +33,19 @@ pub enum EntryKind {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         source_tip: String,
     },
+    /// 环境契约记账（Pipi 新增）。记录会话启动时生效的声明式 env 变更：
+    /// 键 + 来源层。只记 `declared`（非 process 来源的键）——继承基线不记，
+    /// 秘密值永不落盘（契约文件本身在磁盘上，键+来源足以还原语义）。
+    /// 回放时只作审计信息，不影响消息流。
+    Env { declared: Vec<EnvDeclared> },
+}
+
+/// 环境记账单条：变量键 + 来源层标签（"runtime" 或契约层 label）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvDeclared {
+    pub key: String,
+    pub source: String,
 }
 
 /// 会话条目。对应 pi 的 `Entry`。
@@ -56,6 +70,8 @@ pub struct SessionWriter {
     file: std::fs::File,
     tip_id: Option<String>,
     seq: u64,
+    /// 环境记账每会话至多一条；打开旧会话时从已有条目恢复。
+    env_recorded: bool,
 }
 
 impl SessionWriter {
@@ -72,6 +88,7 @@ impl SessionWriter {
             file,
             tip_id: None,
             seq: 0,
+            env_recorded: false,
         })
     }
 
@@ -82,12 +99,16 @@ impl SessionWriter {
             Some(last) => (Some(last.id.clone()), last.seq + 1),
             None => (None, 0),
         };
+        let env_recorded = entries
+            .iter()
+            .any(|entry| matches!(entry.kind, EntryKind::Env { .. }));
         let file = std::fs::OpenOptions::new().append(true).open(path)?;
         Ok(SessionWriter {
             path: path.to_path_buf(),
             file,
             tip_id,
             seq,
+            env_recorded,
         })
     }
 
@@ -161,6 +182,24 @@ impl SessionWriter {
         let id = entry.id.clone();
         self.write_entry(&entry)?;
         Ok(id)
+    }
+
+    /// 追加环境契约记账条目（每会话至多一条，重复调用幂等跳过），返回新条目 id。
+    pub fn append_env(&mut self, declared: Vec<EnvDeclared>) -> std::io::Result<Option<String>> {
+        if self.env_recorded {
+            return Ok(None);
+        }
+        let entry = SessionEntry {
+            id: new_id(),
+            parent_id: self.tip_id.clone(),
+            seq: self.seq,
+            timestamp: now_millis(),
+            kind: EntryKind::Env { declared },
+        };
+        let id = entry.id.clone();
+        self.write_entry(&entry)?;
+        self.env_recorded = true;
+        Ok(Some(id))
     }
 
     pub fn write_entry(&mut self, entry: &SessionEntry) -> std::io::Result<()> {
@@ -530,6 +569,50 @@ mod tests {
         assert!(matches!(
             &messages[1],
             Message::User { content, .. } if content == "new turn"
+        ));
+    }
+
+    #[test]
+    fn env_entry_roundtrip_idempotent_and_replay_neutral() {
+        let dir = temp_dir();
+        let mut writer = SessionWriter::create(&dir).unwrap();
+        writer.append_message(&Message::user_text("first")).unwrap();
+
+        let declared = vec![
+            EnvDeclared {
+                key: "AV_AGENT".into(),
+                source: "runtime".into(),
+            },
+            EnvDeclared {
+                key: "GITHUB_TOKEN".into(),
+                source: "agent.local.toml".into(),
+            },
+        ];
+        assert!(writer.append_env(declared.clone()).unwrap().is_some());
+        // 幂等：同一会话再次记账不追加
+        assert!(writer.append_env(declared.clone()).unwrap().is_none());
+        writer.append_message(&Message::user_text("second")).unwrap();
+
+        let entries = load_session(&writer.path()).unwrap();
+        assert!(matches!(
+            &entries[1].kind,
+            EntryKind::Env { declared: recorded } if recorded == &declared
+        ));
+        // 打开旧会话：记账状态恢复，再调用仍幂等
+        let mut reopened = SessionWriter::open(&writer.path()).unwrap();
+        assert!(reopened.append_env(declared).unwrap().is_none());
+
+        // 回放中性：env 条目不影响消息流
+        let active = active_path(&entries);
+        let messages = rebuild_messages(&active);
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(
+            &messages[0],
+            Message::User { content, .. } if content == "first"
+        ));
+        assert!(matches!(
+            &messages[1],
+            Message::User { content, .. } if content == "second"
         ));
     }
 

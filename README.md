@@ -39,6 +39,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 ├── settings.json       # 全局设置：主题、模型提供商（密钥支持环境变量引用）
 └── agents/my-agent/
     ├── agent.json          # Agent 清单：模型、工作目录、权限、沙箱、MCP 服务器等
+    ├── agent.toml          # 环境契约（av 标准）：env 声明、工具链断言、资源覆盖（可选）
     ├── AGENTS.md           # 系统级指令，每次运行注入上下文
     ├── skills/             # 技能包（SKILL.md + 随附文件）
     │   └── git-safety/
@@ -47,6 +48,10 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
     ├── workspace/          # Agent 目录内的默认工作区（也可指向任意本地路径）
     └── sessions/           # 运行记录（JSONL，append-only）
 ```
+
+项目侧还有一份可选的项目层契约：`<项目根>/agent.toml`（随仓库提交）与
+`agent.local.toml`（本地覆盖层）。两层合并语义与注入规则见下文
+「agent.toml 契约（av 标准）」一节。
 
 - 没有数据库、没有私有格式、没有锁定。
 - 任何编辑器都能改，git 就是版本管理，网盘就是同步。
@@ -77,6 +82,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、越出工作目录的写入与重定向在非完全访问下被拒绝 |
 | 工具开关 | `agent.json` → `permissions.tools` | 内置工具（read/write/edit/bash/memory/glob/grep）按需启用 |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
+| 环境契约 | `agent.toml`（项目根 / Agent 定义目录）+ `agent.local.toml` | av 标准：env 声明、工具链断言、资源覆盖；会话启动解析一次，秘密值永不内联 |
 | 会话 | `sessions/*.jsonl` | Append-only 的运行记录，一文件一会话，树状条目（id/parentId）支持分叉 |
 
 ### 默认 Agent
@@ -169,6 +175,62 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
 - 尚未移植：OS 级沙箱（Landlock/Seatbelt）—— Pipi 当前是用户态粗粒度
   闸门（白/黑名单 + 危险启发式 + 重定向/写入路径约束），真正的强隔离
   列入 M3 后的路线。
+
+## agent.toml 契约（av 标准）
+
+Agent 运行时环境的声明式契约，实现在独立 crate [`crates/av`](crates/av)
+（lib + CLI，pipi-core 以库形态消费同一份实现）。设计参考 uv：
+
+- **一切皆文件**：环境不靠 shell 仪式（export / source），全部由文件声明；
+- **确定性**：cwd 向上找最近的 `agent.toml`（`.git` 定位项目根，不越界继承
+  外层 repo）；`agent.local.toml`（同目录本地层）覆盖之；
+- **分层合并**：进程环境 → Agent 定义目录 `agent.toml` → 项目
+  `agent.toml` → `agent.local.toml`；标量高层覆盖、映射按键合并、
+  数组整体替换；
+- **spawn 点注入**：会话启动时解析一次，bash 子进程环境由解析结果整体
+  重建（`env_clear` + envs）——不靠"模型记得 export"，同会话内一致；
+- **fail-closed**：未知键/未知段拒绝、秘密引用取不到即报错、requires
+  版本不可判定即失败、路径逃逸包含根即拒绝；
+- **秘密永不内联**：`secrets` 只接受 `{ env = "..." }` 透传或
+  `{ file = "..." }`（0600）引用；会话记账（JSONL `env` 条目）只记
+  键 + 来源层，秘密值永不落盘；
+- **保留命名空间**：`AV` / `AV_*`（`AV_AGENT`、`AV_WORKSPACE`、
+  `AV_SANDBOX`、`AV_SESSION`……嵌套感知变量）由运行时注入，声明文件
+  不得触碰；
+- **env 与权限分离**：env 只影响子进程看到什么，不影响它能做什么
+  （命令白名单 / 沙箱照旧）。
+
+```toml
+schema = 1                            # 契约版本
+
+[env]
+inherit = "all"                       # all（默认）| core | none
+ignore = ["AWS_*", "OPENAI_API_KEY"]  # 仅作用于继承的键
+set = { RUST_BACKTRACE = "1" }
+path-prepend = ["/opt/homebrew/bin"]
+[env.secrets]                         # 值只能引用式取得
+GITHUB_TOKEN = { file = "~/.pipi/secrets/gh.token" }
+
+[[requires]]                          # 只校验、不安装（fail-closed）
+command = "node"
+version = ">=20"
+
+[resources]                           # 资源覆盖：只允许路径，绝不内联正文
+instructions = ["AGENTS.md"]          # 三态：缺席=约定发现 | 列表=完全替换 | []=禁用
+max-bytes = 16384                     # 项目层字节预算（缺省 16KiB）
+[resources.skills]
+sources = [".pi/skills"]              # 按层替换约定目录
+only = ["git-safety", "review-*"]     # 按技能名 glob 白名单
+exclude = ["experimental-*"]          # 黑名单（优先于 only）
+```
+
+与 pi / codex 的既有约定对齐：项目层文件与 AGENTS.md 同属"随仓库走的
+指令"，但**项目层文件不得声明身份与权限段**（`[model]`、`[permissions]`、
+`[tools]`、`[mcp.*]` 出现即硬错误）——克隆来的仓库不能放宽沙箱或更换模型；
+改动只发生在用户自己的 Agent 定义文件里。
+
+CLI（调试用）：`av check`（静态校验）、`av env`（打印最终环境，秘密
+脱敏，`--json`）、`av doctor`（requires 实测）。
 
 ## 开发
 

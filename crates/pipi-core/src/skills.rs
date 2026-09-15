@@ -257,6 +257,60 @@ pub fn scan_skills(skills_dir: &Path) -> Vec<SkillMeta> {
     skills
 }
 
+/// 按声明的 sources 扫描技能（av 契约 `[resources.skills].sources`）。
+///
+/// 每个 source 独立做包含检查（canonical 路径必须落在 containment_root 内），
+/// 跨源按 canonical 路径与技能名去重（先发现者赢，与约定目录加载一致）。
+pub fn load_skill_sources(
+    sources: &[PathBuf],
+    containment_root: &Path,
+) -> Vec<SkillMeta> {
+    let mut skills = Vec::new();
+    let mut seen_paths = HashSet::new();
+    let mut seen_names = HashSet::new();
+    for source in sources {
+        load_bounded_skill_dir(
+            source,
+            containment_root,
+            &mut seen_paths,
+            &mut seen_names,
+            &mut skills,
+        );
+    }
+    skills
+}
+
+/// only / exclude 按技能名 glob 过滤（exclude 优先；`only` 缺席 = 全部保留）。
+///
+/// 模式非法即 fail-closed 报错 —— 宁可拒绝不可放行。
+pub fn filter_skills_by_name(
+    skills: Vec<SkillMeta>,
+    only: Option<&[String]>,
+    exclude: Option<&[String]>,
+) -> Result<Vec<SkillMeta>, String> {
+    let compile = |patterns: Option<&[String]>| -> Result<Vec<glob::Pattern>, String> {
+        patterns
+            .unwrap_or(&[])
+            .iter()
+            .map(|pattern| {
+                glob::Pattern::new(pattern)
+                    .map_err(|e| format!("技能过滤模式 {pattern:?} 无效：{e}"))
+            })
+            .collect()
+    };
+    let exclude_patterns = compile(exclude)?;
+    let only_patterns = compile(only)?;
+    Ok(skills
+        .into_iter()
+        .filter(|skill| {
+            if exclude_patterns.iter().any(|pattern| pattern.matches(&skill.name)) {
+                return false;
+            }
+            only_patterns.is_empty() || only_patterns.iter().any(|pattern| pattern.matches(&skill.name))
+        })
+        .collect())
+}
+
 /// 渲染技能索引段（注入系统提示；全文由模型按需 read）。
 pub fn render_skill_index(skills: &[SkillMeta]) -> String {
     let visible_skills = skills
@@ -516,5 +570,60 @@ mod tests {
     fn empty_dir_renders_nothing() {
         assert_eq!(render_skill_index(&[]), "");
         assert!(scan_skills(Path::new("/nonexistent-pipi-skills")).is_empty());
+    }
+
+    #[test]
+    fn load_skill_sources_scans_with_dedupe() {
+        let root =
+            std::env::temp_dir().join(format!("pipi-skill-sources-{}", crate::session::new_id()));
+        let a = root.join("pack-a");
+        let b = root.join("pack-b");
+        make_skill(&a, "alpha", "---\nname: alpha\ndescription: from a\n---\nbody");
+        make_skill(&b, "beta", "---\nname: beta\ndescription: from b\n---\nbody");
+        make_skill(&b, "alpha-dup", "---\nname: alpha\ndescription: dup\n---\nbody");
+
+        let skills = load_skill_sources(&[a.clone(), b.clone()], &root);
+        assert_eq!(skills.len(), 2, "同名技能先发现者赢：{:?}", skills);
+        assert_eq!(skills[0].name, "alpha");
+        assert_eq!(skills[0].description.as_deref(), Some("from a"));
+
+        // source 逃逸包含根：拒绝加载
+        let outside = std::env::temp_dir().join(format!("pipi-skill-outside-{}", crate::session::new_id()));
+        make_skill(&outside, "escaped", "---\nname: escaped\ndescription: x\n---\nbody");
+        let skills = load_skill_sources(std::slice::from_ref(&outside), &root);
+        assert!(skills.is_empty());
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    fn filter_skills_only_and_exclude() {
+        let make = |name: &str| SkillMeta {
+            name: name.to_string(),
+            description: None,
+            disable_model_invocation: false,
+            path: PathBuf::from(format!("/x/{name}/SKILL.md")),
+        };
+        let skills = vec![make("git-safety"), make("review-pr"), make("experimental-x")];
+
+        // exclude 优先
+        let filtered =
+            filter_skills_by_name(skills.clone(), None, Some(&["experimental-*".into()])).unwrap();
+        assert_eq!(
+            filtered.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            vec!["git-safety", "review-pr"]
+        );
+        // only 白名单
+        let filtered =
+            filter_skills_by_name(skills.clone(), Some(&["git-*".into()]), None).unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "git-safety");
+        // 同时命中：exclude 赢
+        let filtered =
+            filter_skills_by_name(skills, Some(&["git-*".into()]), Some(&["git-safety".into()]))
+                .unwrap();
+        assert!(filtered.is_empty());
+        // 模式非法 fail-closed
+        assert!(filter_skills_by_name(vec![], None, Some(&["[".into()])).is_err());
     }
 }
