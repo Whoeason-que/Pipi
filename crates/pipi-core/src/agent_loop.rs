@@ -868,6 +868,7 @@ mod tests {
                 read_roots: Vec::new(),
                 permissions: Arc::new(Default::default()),
                 sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+                resolved_env: Arc::new(std::collections::BTreeMap::new()),
                 abort: AbortSignal::new(),
             },
             options: StreamOptions::default(),

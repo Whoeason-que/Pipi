@@ -83,6 +83,9 @@ impl AgentTool for BashTool {
             .arg("-c")
             .arg(command)
             .current_dir(&ctx.workspace)
+            // 环境整体来自 av 契约解析结果（会话启动时已定，含继承策略与 AV_* 注入）
+            .env_clear()
+            .envs(ctx.resolved_env.iter())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -258,5 +261,41 @@ mod tests {
         assert!(validate_timeout(Some(-1.0)).is_err());
         assert!(validate_timeout(Some(f64::NAN)).is_err());
         assert!(validate_timeout(Some(MAX_TIMEOUT_SECONDS + 1.0)).is_err());
+    }
+
+    /// av 契约接线：子进程环境完全来自 resolved_env（env_clear + envs）——
+    /// 声明外的变量（含 PATH）不可见。
+    #[tokio::test]
+    async fn bash_spawns_with_resolved_env_only() {
+        let workspace =
+            std::env::temp_dir().join(format!("pipi-bash-env-{}", crate::session::new_id()));
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        let resolved = std::collections::BTreeMap::from([(
+            "AV_MARKER".to_string(),
+            "from-av".to_string(),
+        )]);
+        let ctx = ToolContext {
+            workspace,
+            memory_dir: None,
+            read_roots: Vec::new(),
+            permissions: std::sync::Arc::new(crate::permissions::PermissionsConfig::default()),
+            sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            resolved_env: std::sync::Arc::new(resolved),
+            abort: crate::types::AbortSignal::new(),
+        };
+        let output = BashTool
+            .execute(
+                &ctx,
+                // bash 在 PATH 缺失时会自行合成默认 PATH，故用自定义变量名验证隔离
+                &serde_json::json!({ "command": "echo \"$AV_MARKER:${PIPI_AV_TEST_LEAK:-absent}\"" }),
+                &|_| {},
+            )
+            .await
+            .unwrap();
+        let text = match &output.content[0] {
+            ToolResultContent::Text { text } => text.clone(),
+            _ => panic!("expected text output"),
+        };
+        assert_eq!(text.trim(), "from-av:absent");
     }
 }

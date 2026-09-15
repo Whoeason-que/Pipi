@@ -5,6 +5,7 @@ description = "Pipi 核心：从 pi 移植的 agent 循环、工具与 LLM provi
 edition = "2021"
 
 [dependencies]
+av = { path = "../av" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }

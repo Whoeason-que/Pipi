@@ -85,6 +85,7 @@ mod tests {
             read_roots: Vec::new(),
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox,
+            resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
         }
     }

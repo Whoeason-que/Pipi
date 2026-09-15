@@ -877,7 +877,8 @@ impl RuntimeState {
         let running = session.running.clone();
         let abort = session.abort.clone();
 
-        let tool_context = agents::build_tool_context(&def, abort.clone())?;
+        let tool_context =
+            agents::build_tool_context(&def, writer_session_id(&writer).ok(), abort.clone())?;
         let registry = Arc::new(ToolRegistry::for_context(&tool_context));
         let wire_tools = registry.wire_tools();
         // api_key 随 config 被移走；压缩摘要调用还要用一份

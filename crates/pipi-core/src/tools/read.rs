@@ -217,6 +217,7 @@ mod tests {
             read_roots: vec![skill_root],
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
         };
         (base, ctx, skill_file, outside)

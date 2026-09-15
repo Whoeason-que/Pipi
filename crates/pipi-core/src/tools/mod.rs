@@ -10,6 +10,7 @@ pub mod memory;
 pub mod read;
 pub mod write;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -42,6 +43,9 @@ impl ToolOutput {
 }
 
 /// 工具执行上下文：工作目录、memory 目录、受信任读取根、权限、沙箱、中止信号。
+///
+/// `resolved_env` 是 av 契约解析出的**完整**子进程环境（会话启动时解析一次），
+/// bash 等 spawn 点以它整体重建环境变量。
 #[derive(Clone)]
 pub struct ToolContext {
     pub workspace: PathBuf,
@@ -50,6 +54,7 @@ pub struct ToolContext {
     pub read_roots: Vec<PathBuf>,
     pub permissions: Arc<PermissionsConfig>,
     pub sandbox: SandboxMode,
+    pub resolved_env: Arc<BTreeMap<String, String>>,
     pub abort: AbortSignal,
 }
 

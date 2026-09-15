@@ -186,6 +186,7 @@ mod tests {
             read_roots: vec![],
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
         };
         (base, ctx, outside)

@@ -261,6 +261,7 @@ mod tests {
             read_roots: Vec::new(),
             permissions: std::sync::Arc::new(crate::permissions::PermissionsConfig::default()),
             sandbox: crate::permissions::SandboxMode::WorkspaceWrite,
+            resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
             abort: crate::types::AbortSignal::new(),
         };
         let result = EditTool

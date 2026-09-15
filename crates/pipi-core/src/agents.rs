@@ -670,8 +670,11 @@ pub fn memory_index(def: &AgentDefinition) -> Vec<crate::harness::MemoryFileMeta
 }
 
 /// 组装工具执行上下文（loop 与工具共用）。
+///
+/// `session_id` 注入 `AV_SESSION`（嵌套感知），无会话上下文时缺省。
 pub fn build_tool_context(
     def: &AgentDefinition,
+    session_id: Option<String>,
     abort: crate::types::AbortSignal,
 ) -> Result<crate::tools::ToolContext, String> {
     let workspace = def.resolve_workspace().ok_or("无法解析工作目录")?;
@@ -707,12 +710,32 @@ pub fn build_tool_context(
             }
         }
     }
+
+    // av 环境契约：会话启动时解析一次，本会话所有工具子进程共用同一份
+    // （inherit/ignore/set/path-prepend/secrets + AV_* 运行时注入）。
+    let mut runtime_vars = std::collections::BTreeMap::new();
+    runtime_vars.insert("AV".to_string(), "1".to_string());
+    runtime_vars.insert("AV_AGENT".to_string(), def.name.clone());
+    runtime_vars.insert("AV_WORKSPACE".to_string(), workspace.display().to_string());
+    runtime_vars.insert(
+        "AV_SANDBOX".to_string(),
+        def.permissions.sandbox.as_str().to_string(),
+    );
+    if let Some(session_id) = &session_id {
+        runtime_vars.insert("AV_SESSION".to_string(), session_id.clone());
+    }
+    let discovered = av::discover(&workspace)?;
+    let merged = av::merge_layers(&discovered.layers)?;
+    let resolved = av::resolve_env(&discovered.layers, &av::collect_process_env(), &runtime_vars)?;
+    av::check_requires(&merged.requires, &resolved.vars)?;
+
     Ok(crate::tools::ToolContext {
         workspace,
         memory_dir: def.memory_dir(),
         read_roots,
         permissions: std::sync::Arc::new(def.permissions.clone()),
         sandbox: def.permissions.sandbox,
+        resolved_env: std::sync::Arc::new(resolved.vars),
         abort,
     })
 }
@@ -1004,7 +1027,7 @@ mod tests {
         let memory_dir = def.memory_dir().unwrap();
         fs::write(memory_dir.join("note.md"), "hello").unwrap();
 
-        let ctx = build_tool_context(&def, crate::types::AbortSignal::new()).unwrap();
+        let ctx = build_tool_context(&def, None, crate::types::AbortSignal::new()).unwrap();
         let read_root = ctx
             .read_roots
             .iter()
@@ -1054,7 +1077,7 @@ mod tests {
             mcp_servers: Vec::new(),
         };
 
-        let result = build_tool_context(&def, crate::types::AbortSignal::new());
+        let result = build_tool_context(&def, None, crate::types::AbortSignal::new());
 
         std::env::set_var("HOME", previous_home);
         std::fs::remove_dir_all(&home).unwrap();
