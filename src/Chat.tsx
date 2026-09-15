@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } fro
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Markdown } from "./Markdown";
 import { invoke, listen } from "./platform";
-import { ScreenTabs } from "./ScreenTabs";
 import { IconBack, IconCheck, IconCopy, IconFork, IconGrid, IconPlus, IconSend, IconStop } from "./icons";
 import {
   catalogSourceLabel,
@@ -43,7 +42,6 @@ interface ChatViewProps {
   providers: ProviderConfig[];
   blockedSessionIds: string[];
   onBack: () => void;
-  onShowDetail: () => void;
   onError: (msg: string) => void;
   onNewSession: (previousSessionId?: string) => Promise<boolean>;
   onRunningChange: (running: boolean) => void;
@@ -56,7 +54,6 @@ export default function ChatView({
   providers,
   blockedSessionIds,
   onBack,
-  onShowDetail,
   onError,
   onNewSession,
   onRunningChange,
@@ -659,12 +656,6 @@ export default function ChatView({
           <span className="crumb" title={`~/.pipi/agents/${agent.name}/sessions/${sessionId ?? ""}`}>
             ~/.pipi/agents/<b>{agent.name}</b>/sessions/{sessionId ? <b>{sessionId}</b> : "…"}
           </span>
-          <ScreenTabs
-            active="chat"
-            onSelect={(view) => {
-              if (view === "detail") onShowDetail();
-            }}
-          />
           <span className="spacer" />
           <button
             type="button"

@@ -13,7 +13,6 @@ import {
 } from "./platform";
 import ChatView from "./Chat";
 import Login from "./Login";
-import { ScreenTabs } from "./ScreenTabs";
 import {
   IconArchive,
   IconBack,
@@ -752,6 +751,18 @@ export default function App() {
                       <button
                         type="button"
                         className="icon-btn"
+                        title="Agent 配置"
+                        aria-label={`打开 ${a.name} 的配置`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          selectAgent(a.name);
+                        }}
+                      >
+                        <IconGear />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn"
                         title="新建会话"
                         aria-label={`为 ${a.name} 新建会话`}
                         onClick={(event) => {
@@ -1039,15 +1050,6 @@ export default function App() {
                     setChatOpen(false);
                     setSidebarOpen(false);
                   }}
-                  onShowDetail={() => {
-                    if (chatRunning) {
-                      safeSetError("Agent 正在运行，请先停止后再切换");
-                      return;
-                    }
-                    invalidateNavigation();
-                    void invoke("new_session").catch(() => {});
-                    setChatOpen(false);
-                  }}
                   onError={safeSetError}
                   onNewSession={createSessionFromChat}
                   onRunningChange={setChatRunning}
@@ -1062,6 +1064,7 @@ export default function App() {
                   agent={current}
                   providers={settings.providers}
                   onSaved={refresh}
+                  onBack={() => setSelected(null)}
                   onChat={() => void startNewSession(current.name)}
                   onError={safeSetError}
                 />
@@ -1142,11 +1145,12 @@ interface AgentDetailProps {
   agent: AgentDefinition;
   providers: ProviderConfig[];
   onSaved: () => void | Promise<void>;
+  onBack: () => void;
   onChat: () => void;
   onError: (msg: string) => void;
 }
 
-function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetailProps) {
+function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: AgentDetailProps) {
   const { bash } = agent.permissions;
   const [providerId, setProviderId] = useState<string>(() => {
     const bound = providers.find(
@@ -1260,12 +1264,18 @@ function AgentDetail({ agent, providers, onSaved, onChat, onError }: AgentDetail
   return (
     <div className="screen">
       <div className="screen-bar">
-        <ScreenTabs
-          active="detail"
-          onSelect={(view) => {
-            if (view === "chat") onChat();
-          }}
-        />
+        <button
+          type="button"
+          className="icon-btn"
+          title="返回"
+          aria-label="返回"
+          onClick={onBack}
+        >
+          <IconBack />
+        </button>
+        <span className="crumb">
+          Agent 配置 · <b>{agent.name}</b>
+        </span>
         <span className="spacer" />
         <button className="btn primary" onClick={onChat}>
           ▶ 开始对话

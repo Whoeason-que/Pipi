@@ -414,33 +414,6 @@
   font-weight: 500;
 }
 
-.tabs {
-  display: flex;
-  gap: 4px;
-}
-
-.tab {
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 12.5px;
-  color: var(--muted);
-  padding: 5px 12px;
-  border-radius: var(--r-full);
-  transition: color 0.13s, background 0.13s;
-}
-
-.tab:hover {
-  color: var(--fg);
-  background: var(--hover);
-}
-
-.tab.active {
-  color: var(--fg);
-  background: var(--hover-2);
-}
-
 .screen-bar .spacer {
   flex: 1;
 }
