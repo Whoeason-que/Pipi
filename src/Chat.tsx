@@ -20,6 +20,7 @@ import {
   createEntryKey,
   eventMatchesRun,
   formatRuntimeError,
+  groupChatBlocks,
   INITIAL_CHAT_STATE,
   normalizeAgentEvent,
   normalizeStatsPayload,
@@ -28,6 +29,7 @@ import {
   type ApprovalDecisionValue,
   type ApprovalRequestPayload,
   type ChatEntry,
+  type ChipGroup,
   type MessageView,
   type SessionErrorPayload,
   type SessionEventMeta,
@@ -70,6 +72,9 @@ export default function ChatView({
   const [stopping, setStopping] = useState(false);
   /** 待处理的 bash 命令审批请求（同时至多一个：bash 工具强制顺序执行）。 */
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
+  /** 右栏「调用详情」：悬浮标签 = 临时预览，点击 = 固定（再点取消固定）。 */
+  const [pinnedChip, setPinnedChip] = useState<string | null>(null);
+  const [previewChip, setPreviewChip] = useState<string | null>(null);
   const [sessionModel, setSessionModel] = useState<ModelConfig | null>(agent.provider ?? null);
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [modelModalOpen, setModelModalOpen] = useState(false);
@@ -83,6 +88,24 @@ export default function ChatView({
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(true);
+
+  // 渲染分组：连续的工具调用 / thinking 折叠为一行标签
+  const blocks = useMemo(() => groupChatBlocks(entries), [entries]);
+  const chipById = useMemo(() => {
+    const map = new Map<string, ChipGroup>();
+    for (const block of blocks) {
+      if (block.kind !== "chips") continue;
+      for (const group of block.groups) map.set(group.id, group);
+    }
+    return map;
+  }, [blocks]);
+  const activeChipId = previewChip ?? pinnedChip;
+  const activeChip = activeChipId ? chipById.get(activeChipId) ?? null : null;
+  // 条目被整体替换（切会话 / 水合）后固定项可能已不存在：清掉悬空引用
+  useEffect(() => {
+    if (pinnedChip && !chipById.has(pinnedChip)) setPinnedChip(null);
+    if (previewChip && !chipById.has(previewChip)) setPreviewChip(null);
+  }, [chipById, pinnedChip, previewChip]);
   const sessionIdentityRef = useRef<{ sessionId: string; runId?: number } | null>(null);
   const blockedSessionIdsRef = useRef(new Set(blockedSessionIds));
   const awaitingSessionIdentityRef = useRef(true);
@@ -294,6 +317,8 @@ export default function ChatView({
       pendingStatsRef.current = [];
       setReady(false);
       setPendingApproval(null);
+      setPinnedChip(null);
+      setPreviewChip(null);
       if (stopPollTimerRef.current) {
         clearTimeout(stopPollTimerRef.current);
         stopPollTimerRef.current = null;
@@ -422,6 +447,15 @@ export default function ChatView({
     } catch (error) {
       onError(formatRuntimeError(error));
     }
+  };
+
+  // 标签交互：悬浮临时预览、移开还原；点击固定/取消固定（窄屏同时展开抽屉）
+  const previewDetail = (id: string) => setPreviewChip(id);
+  const clearPreviewDetail = () => setPreviewChip(null);
+  const togglePinnedDetail = (id: string) => {
+    setPinnedChip((current) => (current === id ? null : id));
+    setPreviewChip(null);
+    if (narrow) setInspectorOpen(true);
   };
 
   const isStopTarget = (
@@ -759,8 +793,9 @@ export default function ChatView({
               <span className="mono"> sessions/*.jsonl</span>。
             </div>
           )}
-          {entries.map((entry) => {
-            if (entry.kind === "compaction") {
+          {blocks.map((block) => {
+            if (block.kind === "system") {
+              const entry = block.entry;
               return (
                 <div key={entry.key} className="row system-row">
                   <div className="row-inner">
@@ -772,9 +807,39 @@ export default function ChatView({
                 </div>
               );
             }
-            const isUser = entry.role === "user";
-            const isTool = entry.role === "toolResult";
-            const footer = !isTool && !isUser && !entry.streaming && !entry.status
+            if (block.kind === "chips") {
+              return (
+                <ChipRow
+                  key={block.key}
+                  groups={block.groups}
+                  activeId={activeChipId}
+                  pinnedId={pinnedChip}
+                  onPreview={previewDetail}
+                  onPreviewEnd={clearPreviewDetail}
+                  onTogglePin={togglePinnedDetail}
+                />
+              );
+            }
+            const entry = block.entry;
+            if (block.kind === "user") {
+              return (
+                <div key={entry.key} className="row user-row">
+                  <div className="row-inner">
+                    <div className="user-bubble">
+                      <div className="user-text">{entry.text}</div>
+                    </div>
+                    <div className="row-meta">
+                      <CopyButton text={entry.text} />
+                      {entry.timestamp ? (
+                        <span className="time">{formatClock(entry.timestamp)}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            // 正文块：assistant 文本（thinking 与工具调用已由标签行承载）
+            const footer = !entry.streaming && !entry.status
               ? assistantFooter({
                   role: "assistant",
                   content: entry.text,
@@ -783,49 +848,20 @@ export default function ChatView({
                 })
               : null;
             return (
-              <div key={entry.key} className={`row${isUser ? " user-row" : ""}`}>
+              <div key={entry.key} className="row">
                 <div className="row-inner">
-                  {isUser ? (
-                    <>
-                      <div className="user-bubble">
-                        <div className="user-text">{entry.text}</div>
-                      </div>
-                      <div className="row-meta">
-                        <CopyButton text={entry.text} />
-                        {entry.timestamp ? (
-                          <span className="time">{formatClock(entry.timestamp)}</span>
-                        ) : null}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="content">
-                        {isTool ? (
-                          <ToolResultCard entry={entry} />
-                        ) : (
-                          <>
-                            {entry.thinking && (
-                              <ThinkingFold
-                                thinking={entry.thinking}
-                                streaming={Boolean(entry.streaming)}
-                                hasText={Boolean(entry.text)}
-                              />
-                            )}
-                            <Markdown text={entry.text || (entry.streaming ? "…" : "")} />
-                            {entry.streaming && <span className="cursor" aria-hidden="true" />}
-                            {footer && <div className="hint">{footer}</div>}
-                          </>
-                        )}
-                      </div>
-                      {!entry.streaming && (
-                        <div className="row-meta">
-                          {entry.timestamp ? (
-                            <span className="time">{formatClock(entry.timestamp)}</span>
-                          ) : null}
-                          <CopyButton text={entry.text} />
-                        </div>
-                      )}
-                    </>
+                  <div className="content">
+                    <Markdown text={entry.text} />
+                    {entry.streaming && <span className="cursor" aria-hidden="true" />}
+                    {footer && <div className="hint">{footer}</div>}
+                  </div>
+                  {!entry.streaming && (
+                    <div className="row-meta">
+                      {entry.timestamp ? (
+                        <span className="time">{formatClock(entry.timestamp)}</span>
+                      ) : null}
+                      <CopyButton text={entry.text} />
+                    </div>
                   )}
                 </div>
               </div>
@@ -924,6 +960,9 @@ export default function ChatView({
         sessionModel={sessionModel}
         isCustomModel={isCustomModel}
         blockedCount={blockedSessionIds.length}
+        chipDetail={activeChip}
+        chipDetailMode={previewChip ? "preview" : "pinned"}
+        onUnpinChip={() => setPinnedChip(null)}
       />
 
       {narrow && inspectorOpen && (
@@ -990,35 +1029,60 @@ function formatTokens(value: number | undefined): string {
   return String(value);
 }
 
-function ThinkingFold({
-  thinking,
-  streaming,
-  hasText,
+/**
+ * 正文里的标签行：连续的工具调用 / thinking 压成一行（同名合并计数）。
+ * 悬浮 = 右栏临时预览，点击 = 固定（再点取消）；状态由标签自身承载：
+ * 运行中脉冲、失败红色、成功低调。
+ */
+function ChipRow({
+  groups,
+  activeId,
+  pinnedId,
+  onPreview,
+  onPreviewEnd,
+  onTogglePin,
 }: {
-  thinking: string;
-  streaming: boolean;
-  hasText: boolean;
+  groups: ChipGroup[];
+  activeId: string | null;
+  pinnedId: string | null;
+  onPreview: (id: string) => void;
+  onPreviewEnd: () => void;
+  onTogglePin: (id: string) => void;
 }) {
-  const autoOpen = streaming && !hasText;
-  const [open, setOpen] = useState(autoOpen);
-
-  useEffect(() => {
-    if (autoOpen) setOpen(true);
-  }, [autoOpen]);
-
   return (
-    <>
-      <button
-        type="button"
-        className={`fold${open ? " open" : ""}`}
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-      >
-        {streaming && !hasText ? "思考中…" : `已思考（${thinking.length} 字）`}
-        <span className="caret">▶</span>
-      </button>
-      {open && <pre className="thinking-body">{thinking}</pre>}
-    </>
+    <div className="row chip-line">
+      <div className="row-inner">
+        <div className="chip-row">
+          {groups.map((group) => {
+            const classes = ["chip", `chip-${group.status}`];
+            if (group.id === activeId) classes.push("active");
+            if (group.id === pinnedId) classes.push("pinned");
+            const label = `${group.name}${group.count > 1 ? ` ×${group.count}` : ""}`;
+            return (
+              <button
+                key={group.id}
+                type="button"
+                className={classes.join(" ")}
+                onMouseEnter={() => onPreview(group.id)}
+                onMouseLeave={onPreviewEnd}
+                onFocus={() => onPreview(group.id)}
+                onBlur={onPreviewEnd}
+                onClick={() => onTogglePin(group.id)}
+                title={`${label} · ${
+                  group.status === "running" ? "运行中" : group.status === "error" ? "有失败" : "已完成"
+                }（悬浮预览 · 点击固定到右栏）`}
+                aria-expanded={group.id === pinnedId}
+              >
+                {group.status === "running" && <span className="chip-dot" aria-hidden="true" />}
+                {group.status === "error" && <span className="chip-x" aria-hidden="true">✕</span>}
+                <span className="chip-name">{group.name}</span>
+                {group.count > 1 && <span className="chip-count">×{group.count}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1093,7 +1157,7 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
                 })}
               </pre>
             ) : (
-              <pre className="code">{entry.text || (running ? "执行中…" : "（无输出）")}</pre>
+              <pre className="code">{toolOutputBody(entry) || (running ? "执行中…" : "（无输出）")}</pre>
             )}
           </div>
         </div>
@@ -1102,9 +1166,87 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
   );
 }
 
+/** 去除 runtime 前缀（⚙ 工具名 / ✕）后的工具输出正文。 */
+function toolOutputBody(entry: ChatEntry): string {
+  const text = entry.text ?? "";
+  const okPrefix = `⚙ ${entry.toolName ?? "tool"}`;
+  if (text.startsWith(okPrefix)) {
+    return text.slice(okPrefix.length).replace(/^\n/, "");
+  }
+  if (text.startsWith("✕ ")) return text.slice(2);
+  return text;
+}
+
+/**
+ * 右栏「调用详情」面板：承载被选中标签组的完整内容。
+ * - 工具组：每次调用一张可折叠卡（参数 / 输出 / diff）
+ * - thinking 组：逐段展示思考正文
+ * - 固定（pinned）时显示取消固定按钮；悬浮预览时标注「预览」
+ */
+function ChipDetailPane({
+  group,
+  entries,
+  mode,
+  canUnpin,
+  onUnpin,
+}: {
+  group: ChipGroup;
+  entries: ChatEntry[];
+  mode: "preview" | "pinned";
+  canUnpin: boolean;
+  onUnpin: () => void;
+}) {
+  return (
+    <div className="detail-pane">
+      <div className="detail-head">
+        <span className={`detail-name chip-${group.status}`}>
+          {group.name}
+          {group.count > 1 ? ` ×${group.count}` : ""}
+        </span>
+        <span className="detail-mode">{mode === "preview" ? "预览" : "已固定"}</span>
+        <span className="spacer" />
+        {canUnpin && (
+          <button
+            type="button"
+            className="icon-btn detail-unpin"
+            onClick={onUnpin}
+            title="取消固定"
+            aria-label="取消固定"
+          >
+            ×
+          </button>
+        )}
+      </div>
+      <div className="detail-body">
+        {group.members.map((member, index) => {
+          const label = group.count > 1
+            ? (group.kind === "thinking" ? `第 ${index + 1} 段` : `第 ${index + 1} 次`)
+            : null;
+          if (group.kind === "thinking") {
+            return (
+              <div className="detail-item" key={member.key}>
+                {label && <div className="detail-index">{label}</div>}
+                <pre className="thinking-body">{member.thinking || ""}</pre>
+              </div>
+            );
+          }
+          const entry = entries.find((candidate) => candidate.key === member.key);
+          if (!entry) return null;
+          return (
+            <div className="detail-item" key={member.key}>
+              {label && <div className="detail-index">{label}</div>}
+              <ToolResultCard entry={entry} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ============ 右侧检查器 ============
 
-type InspectorTab = "stats" | "state" | "files";
+type InspectorTab = "detail" | "stats" | "state" | "files";
 
 interface InspectorProps {
   agent: AgentDefinition;
@@ -1115,9 +1257,14 @@ interface InspectorProps {
   sessionModel: ModelConfig | null;
   isCustomModel: boolean;
   blockedCount: number;
+  /** 被选中的标签组（悬浮预览或固定）；null 表示没有选中项。 */
+  chipDetail: ChipGroup | null;
+  chipDetailMode: "preview" | "pinned";
+  onUnpinChip: () => void;
 }
 
 const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
+  { id: "detail", label: "调用详情" },
   { id: "stats", label: "会话统计" },
   { id: "state", label: "当前状态" },
   { id: "files", label: "文件变更" },
@@ -1138,8 +1285,26 @@ function Inspector({
   sessionModel,
   isCustomModel,
   blockedCount,
+  chipDetail,
+  chipDetailMode,
+  onUnpinChip,
 }: InspectorProps) {
   const [tab, setTab] = useState<InspectorTab>("stats");
+  // 选中标签时自动切到「调用详情」，取消选中后回到之前的 tab
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const previousTabRef = useRef<InspectorTab>("stats");
+  const detailKey = chipDetail ? chipDetail.id : null;
+  useEffect(() => {
+    if (detailKey) {
+      if (tabRef.current !== "detail") {
+        previousTabRef.current = tabRef.current;
+        setTab("detail");
+      }
+    } else if (tabRef.current === "detail") {
+      setTab(previousTabRef.current);
+    }
+  }, [detailKey]);
 
   const lastTool = useMemo(() => {
     for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -1241,6 +1406,26 @@ function Inspector({
       </div>
 
       <div className="ipanels">
+        <div
+          className={`ipanel${tab === "detail" ? " active" : ""}`}
+          id="ipanel-detail"
+          role="tabpanel"
+          aria-labelledby="itab-detail"
+        >
+          {chipDetail ? (
+            <ChipDetailPane
+              group={chipDetail}
+              entries={entries}
+              mode={chipDetailMode}
+              canUnpin={chipDetailMode === "pinned"}
+              onUnpin={onUnpinChip}
+            />
+          ) : (
+            <div className="detail-empty">
+              悬浮对话里的工具 / thinking 标签临时预览，点击固定到右栏。
+            </div>
+          )}
+        </div>
         <div
           className={`ipanel${tab === "stats" ? " active" : ""}`}
           id="ipanel-stats"

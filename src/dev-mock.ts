@@ -126,46 +126,142 @@ function startDemoRun(prompt: string): void {
   demoHasSession = true;
   demoSessionTitles.set(demoSessionId, demoSessionTitles.get(demoSessionId) ?? prompt);
   demoMessages.push({ role: "user", content: prompt, timestamp: Date.now() });
+
+  // 演示剧本：thinking → bash（成功）→ thinking → bash（失败）→ 正文，
+  // 覆盖标签行折叠、同名计数（thinking ×2 / bash ×2）与失败标红。
+  const call1 = `call-demo-${demoRunId}-1`;
+  const call2 = `call-demo-${demoRunId}-2`;
+  const thinking1 = "先确认一下项目结构，再决定改哪里。";
+  const thinking2 = "README 里应该有构建命令，直接读一下。";
+  const toolCallBlock = (id: string, command: string) => ({
+    type: "toolCall" as const,
+    id,
+    name: "bash",
+    arguments: { command },
+  });
+  const toolResult = (id: string, text: string, isError = false) => ({
+    role: "toolResult",
+    toolName: "bash",
+    toolCallId: id,
+    content: [{ type: "toolResultText", text }],
+    isError,
+    timestamp: Date.now(),
+  });
   const response = {
     role: "assistant",
-    content: [{ type: "text", text: `我已收到：${prompt}\n\n这是浏览器演示模式的流式响应。` }],
+    content: [{
+      type: "text",
+      text: `我已收到：${prompt}\n\n演示模式：工具调用与思考已折叠为正文上方的标签，悬浮可预览、点击固定到右侧「调用详情」。`,
+    }],
     usage: { input: 120, output: 32, cacheRead: 80, cacheWrite: 0, totalTokens: 232 },
     stopReason: "stop",
     timestamp: Date.now(),
     durationMs: 320,
   };
-  demoRunTimer = setTimeout(() => {
-    emitDemoAgentEvent({ type: "agent_start" });
-    emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [] } });
-    emitDemoAgentEvent({
+
+  const steps: Array<() => void> = [
+    () => emitDemoAgentEvent({ type: "agent_start" }),
+    // 第 1 条助手消息：thinking + bash 调用
+    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [] } }),
+    () => emitDemoAgentEvent({
       type: "message_update",
-      message: { ...response, content: [{ type: "text", text: "我已收到：" }] },
-    });
-    emitDemoAgentEvent({ type: "message_update", message: response });
-    emitDemoAgentEvent({ type: "message_end", message: response });
-    demoMessages.push(response);
-    emitDevEvent("session-stats", {
-      agentName: "demo-assistant",
-      sessionId: demoSessionId,
-      runId: demoRunId,
-      stats: {
-        input: 850,
-        output: 176,
-        cacheRead: 740,
-        cacheWrite: 0,
-        calls: 3,
-        avgTps: 51.2,
-        avgLatencyS: 1.8,
-        cacheHitPct: 87.1,
-        contextUsed: 990,
-        contextMax: 200000,
-        contextPercent: 0,
-      },
-    });
-    emitDemoAgentEvent({ type: "agent_end", messages: [response] });
-    demoRunTimer = null;
-    demoRunning = false;
-  }, 120);
+      message: { role: "assistant", content: [{ type: "thinking", thinking: thinking1 }] },
+    }),
+    () => emitDemoAgentEvent({
+      type: "message_update",
+      message: { role: "assistant", content: [{ type: "thinking", thinking: thinking1 }, toolCallBlock(call1, "ls -la")] },
+    }),
+    () => emitDemoAgentEvent({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "thinking", thinking: thinking1 }, toolCallBlock(call1, "ls -la")], stopReason: "toolUse", timestamp: Date.now() },
+    }),
+    // 第 1 次 bash：运行中 → 部分输出 → 完成
+    () => emitDemoAgentEvent({ type: "tool_execution_start", toolCallId: call1, toolName: "bash", args: { command: "ls -la" } }),
+    () => emitDemoAgentEvent({
+      type: "tool_execution_update",
+      toolCallId: call1,
+      toolName: "bash",
+      partial: { content: [{ type: "text", text: "total 24\ndrwxr-xr-x  src" }] },
+    }),
+    () => emitDemoAgentEvent({
+      type: "tool_execution_end",
+      toolCallId: call1,
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "README.md\nsrc/\ncrates/\npackage.json" }] },
+      isError: false,
+    }),
+    () => emitDemoAgentEvent({ type: "message_start", message: toolResult(call1, "README.md\nsrc/\ncrates/\npackage.json") }),
+    () => emitDemoAgentEvent({ type: "message_end", message: toolResult(call1, "README.md\nsrc/\ncrates/\npackage.json") }),
+    // 第 2 条助手消息：thinking + 再次 bash（读取失败，验证失败标红）
+    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [] } }),
+    () => emitDemoAgentEvent({
+      type: "message_update",
+      message: { role: "assistant", content: [{ type: "thinking", thinking: thinking2 }, toolCallBlock(call2, "cat CONTRIBUTING.md")] },
+    }),
+    () => emitDemoAgentEvent({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "thinking", thinking: thinking2 }, toolCallBlock(call2, "cat CONTRIBUTING.md")], stopReason: "toolUse", timestamp: Date.now() },
+    }),
+    () => emitDemoAgentEvent({ type: "tool_execution_start", toolCallId: call2, toolName: "bash", args: { command: "cat CONTRIBUTING.md" } }),
+    () => emitDemoAgentEvent({
+      type: "tool_execution_end",
+      toolCallId: call2,
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "cat: CONTRIBUTING.md: No such file or directory" }] },
+      isError: true,
+    }),
+    () => emitDemoAgentEvent({
+      type: "message_start",
+      message: { ...toolResult(call2, "cat: CONTRIBUTING.md: No such file or directory", true), isError: true },
+    }),
+    () => emitDemoAgentEvent({
+      type: "message_end",
+      message: { ...toolResult(call2, "cat: CONTRIBUTING.md: No such file or directory", true), isError: true },
+    }),
+    // 第 3 条助手消息：正文回复（正文出现即断开标签行）
+    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [] } }),
+    () => emitDemoAgentEvent({
+      type: "message_update",
+      message: { ...response, content: [{ type: "text", text: `我已收到：${prompt}\n\n` }] },
+    }),
+    () => emitDemoAgentEvent({ type: "message_update", message: response }),
+    () => emitDemoAgentEvent({ type: "message_end", message: response }),
+    () => {
+      demoMessages.push(response);
+      emitDevEvent("session-stats", {
+        agentName: "demo-assistant",
+        sessionId: demoSessionId,
+        runId: demoRunId,
+        stats: {
+          input: 850,
+          output: 176,
+          cacheRead: 740,
+          cacheWrite: 0,
+          calls: 3,
+          avgTps: 51.2,
+          avgLatencyS: 1.8,
+          cacheHitPct: 87.1,
+          contextUsed: 990,
+          contextMax: 200000,
+          contextPercent: 0,
+        },
+      });
+    },
+    () => emitDemoAgentEvent({ type: "agent_end", messages: [response] }),
+  ];
+
+  let stepIndex = 0;
+  const runNextStep = () => {
+    if (stepIndex >= steps.length) {
+      demoRunTimer = null;
+      demoRunning = false;
+      return;
+    }
+    steps[stepIndex]();
+    stepIndex += 1;
+    demoRunTimer = setTimeout(runNextStep, 240);
+  };
+  demoRunTimer = setTimeout(runNextStep, 120);
 }
 
 interface DevPlatform {

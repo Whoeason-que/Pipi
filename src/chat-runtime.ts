@@ -214,10 +214,10 @@ export function messageText(message: MessageView): string {
   if (typeof message.content === "string") {
     text = message.content;
   } else if (Array.isArray(message.content)) {
+    // toolCall 块不产出正文占位符：工具调用由正文的标签行与右栏详情承载
     text = message.content
       .map((content) => {
         if (content.type === "text" || content.type === "toolResultText") return content.text;
-        if (content.type === "toolCall") return `[工具调用 ${content.name}]`;
         return "";
       })
       .join("");
@@ -247,6 +247,15 @@ export function toolOutputText(result: ToolOutputView | undefined, fallback: str
   return text || fallback;
 }
 
+function firstToolCallId(message: MessageView): string | undefined {
+  if (Array.isArray(message.content)) {
+    for (const block of message.content) {
+      if (block.type === "toolCall") return block.id;
+    }
+  }
+  return undefined;
+}
+
 export function entryFromMessage(message: MessageView, key: string, transient = false): ChatEntry {
   const status = messageStatus(message);
   return {
@@ -255,7 +264,8 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
     text: messageText(message),
     thinking: messageThinking(message),
     toolName: message.toolName,
-    toolCallId: message.toolCallId,
+    // 纯工具调用的助手消息正文为空，用首个调用 ID 充当去重/水合匹配的判别符
+    toolCallId: message.toolCallId ?? firstToolCallId(message),
     isError: message.isError || status !== undefined,
     status,
     errorMessage: message.errorMessage ?? undefined,
@@ -307,6 +317,7 @@ function updateAssistantEntry(entry: ChatEntry, message: MessageView, streaming:
     ...entry,
     text: messageText(message),
     thinking: messageThinking(message) ?? entry.thinking,
+    toolCallId: entry.toolCallId ?? firstToolCallId(message),
     errorMessage: message.errorMessage ?? undefined,
     stopReason: message.stopReason,
     status,
@@ -370,6 +381,113 @@ function sameEntryContent(left: ChatEntry, right: ChatEntry): boolean {
     && left.text === right.text
     && left.stopReason === right.stopReason
     && left.errorMessage === right.errorMessage;
+}
+
+// ============ 渲染分组：连续的工具调用 / thinking 折叠为一行标签 ============
+
+export type ChipStatus = "running" | "error" | "ok";
+
+/** 标签组内的一次调用（工具条目或一段 thinking）。 */
+export interface ChipMember {
+  /** 成员条目 key（正文条目在 entries 中原地更新，详情面板按 key 取最新值）。 */
+  key: string;
+  /** thinking 成员的正文（工具成员为 undefined）。 */
+  thinking?: string;
+  status: ChipStatus;
+}
+
+/** 一行标签里的一个标签：同名成员合并计数（bash ×3）。 */
+export interface ChipGroup {
+  /** 标签名：工具名或 "thinking"。 */
+  name: string;
+  kind: "tool" | "thinking";
+  members: ChipMember[];
+  count: number;
+  /** 组状态取最严重者：error > running > ok。 */
+  status: ChipStatus;
+  /** 稳定身份（首个成员 key）：条目的原地更新不会改变它。 */
+  id: string;
+}
+
+export type ChatBlock =
+  | { kind: "user"; key: string; entry: ChatEntry }
+  | { kind: "body"; key: string; entry: ChatEntry }
+  | { kind: "system"; key: string; entry: ChatEntry }
+  | { kind: "chips"; key: string; groups: ChipGroup[] };
+
+function worseStatus(left: ChipStatus, right: ChipStatus): ChipStatus {
+  const rank: Record<ChipStatus, number> = { ok: 0, running: 1, error: 2 };
+  return rank[right] > rank[left] ? right : left;
+}
+
+function toolChipStatus(entry: ChatEntry): ChipStatus {
+  if (entry.toolRunning) return "running";
+  if (entry.isError || entry.status === "tool-error") return "error";
+  return "ok";
+}
+
+/**
+ * 把条目序列折叠为渲染块：
+ * - 连续的工具调用 / thinking 累积为一行标签（同名合并计数、按首次出现排序）；
+ * - 正文（assistant 文本）、用户消息、压缩系统行都会断开标签行；
+ * - 空正文且无 thinking 的助手条目（纯工具调用消息）不产出正文块。
+ */
+export function groupChatBlocks(entries: ChatEntry[]): ChatBlock[] {
+  const blocks: ChatBlock[] = [];
+  let run: ChipGroup[] = [];
+  let runKey = "";
+
+  const flushChips = () => {
+    if (run.length === 0) return;
+    blocks.push({ kind: "chips", key: runKey, groups: run });
+    run = [];
+  };
+
+  const pushChip = (name: string, kind: ChipGroup["kind"], member: ChipMember) => {
+    if (run.length === 0) runKey = `chips-${member.key}`;
+    let group = run.find((candidate) => candidate.name === name && candidate.kind === kind);
+    if (!group) {
+      group = { name, kind, members: [], count: 0, status: "ok", id: `${kind}-${member.key}` };
+      run.push(group);
+    }
+    group.members.push(member);
+    group.count = group.members.length;
+    group.status = worseStatus(group.status, member.status);
+  };
+
+  for (const entry of entries) {
+    if (entry.kind === "compaction") {
+      flushChips();
+      blocks.push({ kind: "system", key: entry.key, entry });
+      continue;
+    }
+    if (entry.role === "user") {
+      flushChips();
+      blocks.push({ kind: "user", key: entry.key, entry });
+      continue;
+    }
+    if (entry.role === "toolResult") {
+      pushChip(entry.toolName ?? "tool", "tool", {
+        key: entry.key,
+        status: toolChipStatus(entry),
+      });
+      continue;
+    }
+    // assistant：thinking 进标签行，正文单独成块（正文出现即断开标签行）
+    if (entry.thinking && entry.thinking.trim()) {
+      pushChip("thinking", "thinking", {
+        key: entry.key,
+        thinking: entry.thinking,
+        status: entry.streaming ? "running" : "ok",
+      });
+    }
+    if (entry.text && entry.text.trim()) {
+      flushChips();
+      blocks.push({ kind: "body", key: entry.key, entry });
+    }
+  }
+  flushChips();
+  return blocks;
 }
 function finishRunningEntries(entries: ChatEntry[]): ChatEntry[] {
   return entries.flatMap((entry) => {

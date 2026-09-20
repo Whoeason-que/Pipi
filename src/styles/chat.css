@@ -180,36 +180,99 @@
   font-size: 13px;
 }
 
-/* 折叠条（思考等）：ChatGPT 式无边框文字行 */
+/* 标签行：连续的工具调用 / thinking 折叠成一行（细节在右栏「调用详情」） */
 
-.fold {
+.chip-line {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.chip-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 9px 4px;
   background: transparent;
-  border: 0;
-  cursor: pointer;
-  padding: 2px 0;
-  font-family: inherit;
-  font-size: 12.5px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-full);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--muted);
-  transition: color 0.14s;
+  cursor: pointer;
+  transition: color 0.13s, border-color 0.13s, background 0.13s;
 }
 
-.fold:hover {
+.chip:hover,
+.chip:focus-visible {
   color: var(--fg);
+  border-color: var(--line-2);
+  background: var(--hover);
 }
 
-.fold .caret {
-  font-size: 9px;
+/* 选中态：悬浮预览（active）与固定（pinned）分别给不同强度的强调 */
+.chip.active {
+  color: var(--fg);
+  border-color: var(--line-2);
+  background: var(--hover);
+}
+
+.chip.pinned {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: var(--hover-2);
+}
+
+.chip-count {
+  font-size: 11px;
   color: var(--faint);
-  transition: transform 0.16s;
 }
 
-.fold.open .caret {
-  transform: rotate(90deg);
+.chip.pinned .chip-count,
+.chip.active .chip-count {
+  color: var(--muted);
+}
+
+/* 状态：运行中脉冲、失败标红（失败是在正文里唯一的持久提示） */
+.chip-running {
+  border-color: var(--ok-border);
+}
+
+.chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: chip-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes chip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.chip-error {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.chip-error:hover,
+.chip-error.active,
+.chip-error.pinned {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.chip-x {
+  font-size: 10px;
 }
 
 .thinking-body {
@@ -529,6 +592,76 @@ pre.code {
 
 .approval-actions .btn.allow:hover {
   filter: brightness(1.08);
+}
+
+/* ============ 右栏「调用详情」面板 ============ */
+
+.detail-pane {
+  padding: 12px 14px 14px;
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.detail-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.detail-name.chip-error {
+  color: var(--danger);
+}
+
+.detail-mode {
+  font-size: 10.5px;
+  color: var(--faint);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-full);
+  padding: 1px 7px 2px;
+}
+
+.detail-head .spacer {
+  flex: 1;
+}
+
+.detail-unpin {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.detail-index {
+  font-size: 10.5px;
+  letter-spacing: 1px;
+  color: var(--faint);
+}
+
+.detail-item .thinking-body {
+  margin-top: 0;
+}
+
+.detail-empty {
+  padding: 16px 14px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--faint);
 }
 
 /* ============ 右侧检查器 ============ */
