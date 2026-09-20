@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } fro
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Markdown } from "./Markdown";
 import { invoke, listen } from "./platform";
+import { useResizableWidth } from "./resizable";
 import { IconBack, IconCheck, IconCopy, IconFork, IconGrid, IconPlus, IconSend, IconStop } from "./icons";
 import {
   catalogSourceLabel,
@@ -29,7 +30,7 @@ import {
   type ApprovalDecisionValue,
   type ApprovalRequestPayload,
   type ChatEntry,
-  type ChipGroup,
+  type Chip,
   type MessageView,
   type SessionErrorPayload,
   type SessionEventMeta,
@@ -82,6 +83,14 @@ export default function ChatView({
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1100,
   );
+  // 检查器宽度可拖拽调节（窄屏抽屉模式下由媒体查询接管，见 responsive.css）
+  const inspectorResize = useResizableWidth({
+    storageKey: "inspector-width",
+    initial: 320,
+    min: 260,
+    max: 620,
+    edge: "left",
+  });
   const [narrow, setNarrow] = useState(
     () => typeof window !== "undefined" && window.innerWidth <= 1100,
   );
@@ -92,10 +101,10 @@ export default function ChatView({
   // 渲染分组：连续的工具调用 / thinking 折叠为一行标签
   const blocks = useMemo(() => groupChatBlocks(entries), [entries]);
   const chipById = useMemo(() => {
-    const map = new Map<string, ChipGroup>();
+    const map = new Map<string, Chip>();
     for (const block of blocks) {
       if (block.kind !== "chips") continue;
-      for (const group of block.groups) map.set(group.id, group);
+      for (const chip of block.chips) map.set(chip.id, chip);
     }
     return map;
   }, [blocks]);
@@ -728,7 +737,10 @@ export default function ChatView({
   };
 
   return (
-    <div className={`chat-shell${inspectorOpen ? " inspector-open" : ""}`}>
+    <div
+      className={`chat-shell${inspectorOpen ? " inspector-open" : ""}`}
+      style={{ "--inspector-width": `${inspectorResize.width}px` } as React.CSSProperties}
+    >
       <div className="chat">
         <div className="screen-bar">
           <button type="button" className="icon-btn" title="返回" aria-label="返回" onClick={onBack}>
@@ -811,7 +823,7 @@ export default function ChatView({
               return (
                 <ChipRow
                   key={block.key}
-                  groups={block.groups}
+                  chips={block.chips}
                   activeId={activeChipId}
                   pinnedId={pinnedChip}
                   onPreview={previewDetail}
@@ -951,6 +963,15 @@ export default function ChatView({
         </div>
       </div>
 
+      {inspectorOpen && (
+        <div
+          className="resize-handle inspector-resize"
+          title="拖动调整检查器宽度（←/→ 微调）"
+          aria-label="调整检查器宽度"
+          {...inspectorResize.handleProps}
+        />
+      )}
+
       <Inspector
         agent={agent}
         sessionId={sessionId}
@@ -1030,19 +1051,19 @@ function formatTokens(value: number | undefined): string {
 }
 
 /**
- * 正文里的标签行：连续的工具调用 / thinking 压成一行（同名合并计数）。
+ * 正文里的标签行：连续的工具调用 / thinking 压成一行（保持顺序、不合并）。
  * 悬浮 = 右栏临时预览，点击 = 固定（再点取消）；状态由标签自身承载：
  * 运行中脉冲、失败红色、成功低调。
  */
 function ChipRow({
-  groups,
+  chips,
   activeId,
   pinnedId,
   onPreview,
   onPreviewEnd,
   onTogglePin,
 }: {
-  groups: ChipGroup[];
+  chips: Chip[];
   activeId: string | null;
   pinnedId: string | null;
   onPreview: (id: string) => void;
@@ -1053,30 +1074,28 @@ function ChipRow({
     <div className="row chip-line">
       <div className="row-inner">
         <div className="chip-row">
-          {groups.map((group) => {
-            const classes = ["chip", `chip-${group.status}`];
-            if (group.id === activeId) classes.push("active");
-            if (group.id === pinnedId) classes.push("pinned");
-            const label = `${group.name}${group.count > 1 ? ` ×${group.count}` : ""}`;
+          {chips.map((chip) => {
+            const classes = ["chip", `chip-${chip.status}`];
+            if (chip.id === activeId) classes.push("active");
+            if (chip.id === pinnedId) classes.push("pinned");
             return (
               <button
-                key={group.id}
+                key={chip.id}
                 type="button"
                 className={classes.join(" ")}
-                onMouseEnter={() => onPreview(group.id)}
+                onMouseEnter={() => onPreview(chip.id)}
                 onMouseLeave={onPreviewEnd}
-                onFocus={() => onPreview(group.id)}
+                onFocus={() => onPreview(chip.id)}
                 onBlur={onPreviewEnd}
-                onClick={() => onTogglePin(group.id)}
-                title={`${label} · ${
-                  group.status === "running" ? "运行中" : group.status === "error" ? "有失败" : "已完成"
+                onClick={() => onTogglePin(chip.id)}
+                title={`${chip.name} · ${
+                  chip.status === "running" ? "运行中" : chip.status === "error" ? "失败" : "已完成"
                 }（悬浮预览 · 点击固定到右栏）`}
-                aria-expanded={group.id === pinnedId}
+                aria-expanded={chip.id === pinnedId}
               >
-                {group.status === "running" && <span className="chip-dot" aria-hidden="true" />}
-                {group.status === "error" && <span className="chip-x" aria-hidden="true">✕</span>}
-                <span className="chip-name">{group.name}</span>
-                {group.count > 1 && <span className="chip-count">×{group.count}</span>}
+                {chip.status === "running" && <span className="chip-dot" aria-hidden="true" />}
+                {chip.status === "error" && <span className="chip-x" aria-hidden="true">✕</span>}
+                <span className="chip-name">{chip.name}</span>
               </button>
             );
           })}
@@ -1106,7 +1125,7 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
   const summary = commandStr ?? pathStr;
 
   return (
-    <div className={`tool${running ? " running" : failed ? " error" : ""}`}>
+    <div className={`tool${running ? " tool-running" : failed ? " tool-error" : ""}`}>
       <button
         type="button"
         className="tool-head"
@@ -1178,31 +1197,29 @@ function toolOutputBody(entry: ChatEntry): string {
 }
 
 /**
- * 右栏「调用详情」面板：承载被选中标签组的完整内容。
- * - 工具组：每次调用一张可折叠卡（参数 / 输出 / diff）
- * - thinking 组：逐段展示思考正文
+ * 右栏「调用详情」面板：承载被选中标签的完整内容。
+ * - 工具标签：该次调用的可折叠卡（参数 / 输出 / diff，上下排列）
+ * - thinking 标签：该段思考正文
  * - 固定（pinned）时显示取消固定按钮；悬浮预览时标注「预览」
  */
 function ChipDetailPane({
-  group,
+  chip,
   entries,
   mode,
   canUnpin,
   onUnpin,
 }: {
-  group: ChipGroup;
+  chip: Chip;
   entries: ChatEntry[];
   mode: "preview" | "pinned";
   canUnpin: boolean;
   onUnpin: () => void;
 }) {
+  const entry = entries.find((candidate) => candidate.key === chip.entryKey);
   return (
     <div className="detail-pane">
       <div className="detail-head">
-        <span className={`detail-name chip-${group.status}`}>
-          {group.name}
-          {group.count > 1 ? ` ×${group.count}` : ""}
-        </span>
+        <span className={`detail-name chip-${chip.status}`}>{chip.name}</span>
         <span className="detail-mode">{mode === "preview" ? "预览" : "已固定"}</span>
         <span className="spacer" />
         {canUnpin && (
@@ -1218,27 +1235,13 @@ function ChipDetailPane({
         )}
       </div>
       <div className="detail-body">
-        {group.members.map((member, index) => {
-          const label = group.count > 1
-            ? (group.kind === "thinking" ? `第 ${index + 1} 段` : `第 ${index + 1} 次`)
-            : null;
-          if (group.kind === "thinking") {
-            return (
-              <div className="detail-item" key={member.key}>
-                {label && <div className="detail-index">{label}</div>}
-                <pre className="thinking-body">{member.thinking || ""}</pre>
-              </div>
-            );
-          }
-          const entry = entries.find((candidate) => candidate.key === member.key);
-          if (!entry) return null;
-          return (
-            <div className="detail-item" key={member.key}>
-              {label && <div className="detail-index">{label}</div>}
-              <ToolResultCard entry={entry} />
-            </div>
-          );
-        })}
+        {chip.kind === "thinking" ? (
+          <pre className="thinking-body">{chip.thinking ?? entry?.thinking ?? ""}</pre>
+        ) : entry ? (
+          <ToolResultCard entry={entry} />
+        ) : (
+          <div className="detail-empty">该条目的记录已不在当前会话中。</div>
+        )}
       </div>
     </div>
   );
@@ -1258,7 +1261,7 @@ interface InspectorProps {
   isCustomModel: boolean;
   blockedCount: number;
   /** 被选中的标签组（悬浮预览或固定）；null 表示没有选中项。 */
-  chipDetail: ChipGroup | null;
+  chipDetail: Chip | null;
   chipDetailMode: "preview" | "pinned";
   onUnpinChip: () => void;
 }
@@ -1414,7 +1417,7 @@ function Inspector({
         >
           {chipDetail ? (
             <ChipDetailPane
-              group={chipDetail}
+              chip={chipDetail}
               entries={entries}
               mode={chipDetailMode}
               canUnpin={chipDetailMode === "pinned"}

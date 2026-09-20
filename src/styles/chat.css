@@ -37,8 +37,6 @@
 
 .row-inner {
   width: 100%;
-  max-width: 768px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -231,16 +229,6 @@
   background: var(--hover-2);
 }
 
-.chip-count {
-  font-size: 11px;
-  color: var(--faint);
-}
-
-.chip.pinned .chip-count,
-.chip.active .chip-count {
-  color: var(--muted);
-}
-
 /* 状态：运行中脉冲、失败标红（失败是在正文里唯一的持久提示） */
 .chip-running {
   border-color: var(--ok-border);
@@ -360,9 +348,10 @@
   color: var(--danger);
 }
 
+/* 参数与输出上下排列（不并列）：长输出在窄栏里也能读 */
 .tool-body {
-  display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  display: flex;
+  flex-direction: column;
   border-top: 1px solid var(--line-soft);
 }
 
@@ -372,12 +361,7 @@
 }
 
 .tpane + .tpane {
-  border-left: 1px solid var(--line-soft);
-}
-
-.tpane.full {
-  grid-column: 1 / -1;
-  border-left: 0;
+  border-top: 1px solid var(--line-soft);
 }
 
 .plabel {
@@ -442,7 +426,6 @@ pre.code {
 
 .composer-box {
   position: relative;
-  max-width: 768px;
   margin: 0 auto;
   background: var(--chat-surface);
   border: 1px solid var(--line-soft);
@@ -527,7 +510,6 @@ pre.code {
 /* ============ 命令审批横幅：composer 上方的白名单外命令确认 ============ */
 
 .approval-bar {
-  max-width: 768px;
   margin: 0 auto 10px;
   display: flex;
   align-items: center;
@@ -640,23 +622,6 @@ pre.code {
   gap: 10px;
 }
 
-.detail-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.detail-index {
-  font-size: 10.5px;
-  letter-spacing: 1px;
-  color: var(--faint);
-}
-
-.detail-item .thinking-body {
-  margin-top: 0;
-}
-
 .detail-empty {
   padding: 16px 14px;
   font-size: 12.5px;
@@ -667,8 +632,9 @@ pre.code {
 /* ============ 右侧检查器 ============ */
 
 .inspector {
-  width: 296px;
-  min-width: 296px;
+  width: var(--inspector-width, 296px);
+  min-width: 0;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;

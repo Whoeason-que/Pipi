@@ -13,6 +13,7 @@ import {
 } from "./platform";
 import ChatView from "./Chat";
 import Login from "./Login";
+import { useResizableWidth } from "./resizable";
 import {
   IconArchive,
   IconBack,
@@ -124,6 +125,15 @@ export default function App() {
   const [chatRunning, setChatRunning] = useState(false);
   /** 核心里正在运行的会话属于哪个 Agent：用于放行「进入该 Agent 停止」。 */
   const [runningAgent, setRunningAgent] = useState<string | null>(null);
+  // 侧栏宽度可拖拽调节（窄屏抽屉模式下由媒体查询接管，见 responsive.css）
+  const sidebarResize = useResizableWidth({
+    storageKey: "sidebar-width",
+    initial: 260,
+    min: 200,
+    max: 460,
+    edge: "right",
+  });
+  const sidebarWidth = sidebarResize.width;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [connection, setConnection] = useState<ConnectionState>(getConnectionState());
@@ -760,7 +770,10 @@ export default function App() {
   }
 
   return (
-    <div className={`app${sidebarOpen ? " sidebar-open" : ""}`}>
+    <div
+      className={`app${sidebarOpen ? " sidebar-open" : ""}`}
+      style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
+    >
       <div className="app-body">
         <aside className="sidebar" id="primary-navigation" aria-label="主导航">
           <div className="sb-head">
@@ -1058,6 +1071,13 @@ export default function App() {
             </>
           )}
         </aside>
+
+        <div
+          className="resize-handle sidebar-resize"
+          title="拖动调整侧栏宽度（←/→ 微调）"
+          aria-label="调整侧栏宽度"
+          {...sidebarResize.handleProps}
+        />
 
         {sidebarOpen && (
           <button

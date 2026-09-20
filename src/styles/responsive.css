@@ -3,8 +3,12 @@
    放在最后 import：覆盖前面的基础规则。
    ============================================================ */
 
-/* 中窄屏：检查器改为抽屉（默认收起，由按钮展开） */
+/* 中窄屏：检查器改为抽屉（默认收起，由按钮展开）；抽屉模式不提供拖拽调宽 */
 @media (max-width: 1100px) {
+  .inspector-resize {
+    display: none;
+  }
+
   .inspector {
     position: fixed;
     top: 0;
@@ -29,10 +33,14 @@
   }
 }
 
-/* 窄屏：侧栏抽屉 + 移动工具栏 */
+/* 窄屏：侧栏抽屉 + 移动工具栏；抽屉模式不提供拖拽调宽 */
 @media (max-width: 860px) {
   .mobile-toolbar {
     display: flex;
+  }
+
+  .sidebar-resize {
+    display: none;
   }
 
   .sidebar {

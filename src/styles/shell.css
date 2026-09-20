@@ -22,12 +22,60 @@
 /* ============ 侧栏（与主区只靠色差分层，无边框线） ============ */
 
 .sidebar {
-  width: 260px;
-  min-width: 260px;
+  width: var(--sidebar-width, 260px);
+  min-width: 0;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: var(--panel);
   padding-top: var(--safe-top);
+}
+
+/* ============ 可拖拽调宽手柄（侧栏 / 检查器） ============ */
+
+.resize-handle {
+  flex: 0 0 6px;
+  align-self: stretch;
+  position: relative;
+  z-index: 5;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition: background 0.12s, width 0.12s;
+}
+
+/* 侧栏与主区只靠色差分层，给一条常驻细线做拖拽提示；
+   检查器自带 border-left，默认不再叠线 */
+.sidebar-resize::after {
+  background: var(--line-soft);
+}
+
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after {
+  width: 3px;
+  background: var(--accent);
+}
+
+.resize-handle:focus-visible {
+  outline: none;
+}
+
+/* 拖拽期间保持指针形态并禁止选中文本 */
+body.resizing,
+body.resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .sb-head {
