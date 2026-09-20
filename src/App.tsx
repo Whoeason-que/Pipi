@@ -70,7 +70,13 @@ const CONNECTION_LABELS: Record<ConnectionState, string> = {
   dev: "演示模式",
 };
 
-const KNOWN_TOOLS = ["read", "write", "edit", "bash", "memory", "glob", "grep"] as const;
+const DEFAULT_TOOLS = ["read", "write", "edit", "bash", "memory", "glob", "grep"] as const;
+const KNOWN_TOOLS = [
+  ...DEFAULT_TOOLS,
+  "create_agent",
+  "run_agent",
+  "read_agent",
+] as const;
 
 /** 构建时注入的版本号（vite define），未注入时留空。 */
 const APP_VERSION = typeof __PIPI_VERSION__ === "string" ? __PIPI_VERSION__ : "";
@@ -1685,7 +1691,9 @@ function CreateForm({
   const [modelId, setModelId] = useState("");
   // 目录里选的模型：用它回填 provider 的 maxTokens / contextWindow
   const [pickedModel, setPickedModel] = useState<CatalogModel | undefined>(undefined);
-  const [tools, setTools] = useState<string[]>([...KNOWN_TOOLS]);
+  // Agent 组合工具具有跨 Agent 的持久副作用，必须显式勾选；新建 Agent
+  // 继续只默认启用原来的基础工具。
+  const [tools, setTools] = useState<string[]>([...DEFAULT_TOOLS]);
   const [bashMode, setBashMode] = useState<BashMode>("allowAll");
   const [commands, setCommands] = useState("");
   const [sandbox, setSandbox] = useState<SandboxMode>("workspace-write");

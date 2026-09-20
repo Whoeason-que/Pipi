@@ -356,6 +356,19 @@ export function installDevMock(): void {
         case "send_prompt":
           startDemoRun(String(args.prompt ?? ""));
           return Promise.resolve(null);
+        case "steer":
+          // 演示桩：把插话作为用户消息回显
+          emitDemoAgentEvent({
+            type: "message_start",
+            message: { role: "user", content: String(args.message ?? ""), timestamp: Date.now() },
+          });
+          emitDemoAgentEvent({
+            type: "message_end",
+            message: { role: "user", content: String(args.message ?? ""), timestamp: Date.now() },
+          });
+          return Promise.resolve(null);
+        case "resolve_approval":
+          return Promise.resolve(null);
         case "stop_run":
           if (demoRunTimer) clearTimeout(demoRunTimer);
           demoRunTimer = null;

@@ -461,6 +461,76 @@ pre.code {
   flex: 1;
 }
 
+/* ============ 命令审批横幅：composer 上方的白名单外命令确认 ============ */
+
+.approval-bar {
+  max-width: 768px;
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--chat-surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: 0 2px 12px rgb(0 0 0 / 8%);
+}
+
+.approval-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.approval-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.approval-text code {
+  font-size: 12.5px;
+  color: var(--muted);
+  background: var(--hover);
+  border-radius: 6px;
+  padding: 4px 8px;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.approval-actions .btn {
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: var(--r);
+}
+
+.approval-actions .btn.deny {
+  background: transparent;
+  border: 1px solid var(--line-2);
+  color: var(--fg);
+}
+
+.approval-actions .btn.deny:hover {
+  background: var(--hover);
+}
+
+.approval-actions .btn.allow {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.approval-actions .btn.allow:hover {
+  filter: brightness(1.08);
+}
+
 /* ============ 右侧检查器 ============ */
 
 .inspector {

@@ -59,7 +59,9 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 
 ### 3. 小核心，组合优于配置
 
-核心只内置最小工具集（`read` / `write` / `edit` / `bash` / `memory` / `glob` / `grep`），其余能力全部来自组合：
+核心只默认启用最小工具集（`read` / `write` / `edit` / `bash` / `memory` / `glob` / `grep`）。
+跨 Agent 的 `create_agent` / `run_agent` / `read_agent` 是显式选择的组合能力，
+不会因升级或新建 Agent 而自动开启。其余能力来自组合：
 
 - **Skills** —— 用 Markdown 写的能力包，渐进式加载：只有描述常驻上下文，正文在被触发时才进入（同 pi 的做法）。
 - **MCP** —— 标准工具协议，在 `agent.json` 里声明即可接入。
@@ -78,9 +80,9 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 系统指令 | `AGENTS.md` | 人直接读写的 Markdown，每次运行注入为系统提示 |
 | 技能 | `skills/<name>/SKILL.md` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3） |
 | 记忆 | `memory/*.md` | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
-| 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查 |
+| 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查；Allowlist 模式下白名单外的非危险命令可交互审批救回（拒绝 / 允许一次 / 总是允许——按段写回白名单），黑名单命中、危险命令与沙箱约束不可审批 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、越出工作目录的写入与重定向在非完全访问下被拒绝 |
-| 工具开关 | `agent.json` → `permissions.tools` | 内置工具（read/write/edit/bash/memory/glob/grep）按需启用 |
+| 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；`create_agent` / `run_agent` / `read_agent` 必须显式开启 |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 环境契约 | `agent.toml`（项目根 / Agent 定义目录）+ `agent.local.toml` | av 标准：env 声明、工具链断言、资源覆盖；会话启动解析一次，秘密值永不内联 |
 | 会话 | `sessions/*.jsonl` | Append-only 的运行记录，一文件一会话，树状条目（id/parentId）支持分叉 |
@@ -88,11 +90,30 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 ### 默认 Agent
 
 首次启动（或 `~/.pipi/agents/Pipi/` 不存在）时，核心会自动播种一个名为 **Pipi** 的默认 Agent：
-启用全部内置工具、`workspace-write` 沙箱、工作目录为自身目录下的 `workspace/`，
+启用全部基础工具、`workspace-write` 沙箱、工作目录为自身目录下的 `workspace/`，
 与手动新建的 Agent 完全同构 —— 想改就改 `~/.pipi/agents/Pipi/agent.json`。
 
 **已存在时一律不覆盖**（哪怕文件被改坏也不动用户数据）；删掉该目录后下次启动会重新播种，
 想彻底移除它请改名而不是删除。
+
+### Agent 组合（第一阶段）
+
+Agent 可以通过三项显式工具组合已有 Agent，而不引入独立的 subagent 类型：
+
+- `create_agent`：用结构化参数创建一个普通、持久的 Agent；模型、工作目录、
+  沙箱和基础工具从调用者继承，`instructions` 写入新 Agent 的 `AGENTS.md`。
+  新 Agent 不继承三项 Agent 组合工具。
+- `run_agent`：在目标 Agent 下创建一个全新 session，使用目标自己的配置同步
+  运行，完成后把最终文本与 `sessionId` 返回调用者。单次运行有 10 分钟
+  时间上限，超时与中止一样落盘为可读取的终态；运行期间的工具调用与轮次
+  完成作为进度回流传回父会话。
+- `read_agent`：按 `sessionId` 读取目标 Agent 已落盘的最终输出；省略时读取
+  最近活跃的 session。
+
+第一阶段固定为单层、同步委派：child 运行时只注册基础工具，不支持递归、后台
+运行、所有权、消息邮箱或并行 child。完整过程仍写入目标 Agent 自己的
+`sessions/*.jsonl`，所以输出既能由 `run_agent` 直接取得，也能之后用
+`read_agent` 重读。
 
 ## 架构
 
@@ -106,8 +127,8 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 ├─────────────────────────────────────┤
 │  crates/pipi-core  Rust 核心         │  不依赖 Tauri，可独立测试
 │  ├─ agent_loop    工具调用循环        │  LLM → 工具调用 → 执行 → 回喂
-│  ├─ tools         read/write/edit/   │  最小内置集，限定于 workspace
-│  │                bash/memory/glob/grep│
+│  ├─ tools         文件工具 + Agent   │  workspace 工具默认启用；Agent
+│  │                组合工具            │  组合工具显式启用
 │  ├─ provider      anthropic +        │  流式 SSE，事件驱动
 │  │                openai-compat      │
 │  ├─ session       sessions/*.jsonl   │  append-only，崩溃安全
@@ -125,8 +146,8 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | --- | --- | --- |
 | `packages/ai` types | `types` | 消息/内容块/事件协议，JSON 字段名与上游一致 |
 | `packages/ai` api adapters | `provider` | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
-| `packages/agent` agent-loop | `agent_loop` | 事件流 + steering/follow-up + 工具批次执行 |
-| `packages/agent` harness/tools | `tools` | read/write/edit/bash + 新增 memory/glob/grep |
+| `packages/agent` agent-loop | `agent_loop` | 事件流 + steering/follow-up + 工具批次执行；steering 已接线到 UI（运行中插话，迟到消息在运行结束收割、下次运行重放，不丢失） |
+| `packages/agent` harness/tools | `tools` | read/write/edit/bash + 新增 memory/glob/grep；Pipi 增加显式的 Agent 创建、运行与输出读取工具 |
 | `packages/agent` harness/utils/truncate | `truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
 | `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_oldest` 保底裁剪、`transformContext` 钩子 |

@@ -263,6 +263,7 @@ mod tests {
             sandbox: crate::permissions::SandboxMode::WorkspaceWrite,
             resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
             abort: crate::types::AbortSignal::new(),
+            approver: None,
         };
         let result = EditTool
             .execute(

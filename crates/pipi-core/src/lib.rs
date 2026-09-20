@@ -7,7 +7,7 @@
 //! | `packages/ai` types | [`types`] | 消息 / 内容块 / 流式事件协议 |
 //! | `packages/ai` api adapters | [`provider`] | 仅移植 anthropic-messages 与 openai-completions 两个 |
 //! | `packages/agent` agent-loop | [`agent_loop`] | 主循环 + steering/follow-up + 工具批次执行 |
-//! | `packages/agent` harness/tools | [`tools`] | read / write / edit / bash / memory |
+//! | `packages/agent` harness/tools | [`tools`] | 文件工具 + Pipi 的 Agent 创建、运行与输出读取工具 |
 //! | `packages/agent` harness/utils/truncate | [`truncate`] | 2000 行 / 50KB 截断规则 |
 //! | `packages/agent` harness/session | [`session`] | 树状 JSONL 条目（append-only） |
 //! | `packages/agent` compaction（启发式部分） | [`context`] | token 估算 / 裁剪 / 环境上下文 |
@@ -25,6 +25,7 @@
 
 pub mod agent_loop;
 pub mod agents;
+pub mod approval;
 pub mod catalog;
 pub mod compaction;
 pub mod context;
@@ -41,3 +42,8 @@ pub mod stats;
 pub mod tools;
 pub mod truncate;
 pub mod types;
+
+/// HOME 环境变量是进程级的：所有涉及 `~/.pipi` 的测试（改写 HOME 或依赖
+/// 环境 HOME 下的 settings）都必须持有此锁串行执行，否则并行测试互相污染。
+#[cfg(test)]
+pub(crate) static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

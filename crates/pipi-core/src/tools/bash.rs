@@ -72,8 +72,21 @@ impl AgentTool for BashTool {
         let command = args["command"].as_str().ok_or("缺少 command")?;
         let timeout = validate_timeout(args["timeout"].as_f64())?;
 
-        // Pipi：命令权限检查（切分 → 白/黑名单 → 危险命令 → 沙箱重定向）
-        ctx.permissions.assess_bash(command, &ctx.workspace)?;
+        // Pipi：命令权限检查（切分 → 白/黑名单 → 危险命令 → 沙箱重定向）。
+        // 只有 Allowlist 未命中的非危险命令可以走交互审批救回；其余硬拒。
+        match ctx.permissions.assess_bash_classified(command, &ctx.workspace) {
+            crate::permissions::BashAssessment::Allowed => {}
+            crate::permissions::BashAssessment::HardDenied(message) => return Err(message),
+            crate::permissions::BashAssessment::NeedsApproval { .. } => match &ctx.approver {
+                Some(approver) => approver.approve(command).await?,
+                None => {
+                    return Err(
+                        "命令不在白名单中，且当前会话没有可用的交互审批通道（请在 Agent 的命令权限中加入该命令，或调整沙箱设置）"
+                            .into(),
+                    )
+                }
+            },
+        }
 
         tokio::fs::create_dir_all(&ctx.workspace)
             .await
@@ -282,6 +295,7 @@ mod tests {
             sandbox: crate::permissions::SandboxMode::DangerFullAccess,
             resolved_env: std::sync::Arc::new(resolved),
             abort: crate::types::AbortSignal::new(),
+            approver: None,
         };
         let output = BashTool
             .execute(

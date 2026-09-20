@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, State};
 
+use pipi_core::approval::ApprovalDecision;
 use pipi_core::runtime::{self, EventEmitter, RuntimeEvent, SessionInfo};
 use pipi_core::types::{Message, Model};
 
@@ -18,6 +19,7 @@ fn tauri_emitter(app: AppHandle) -> EventEmitter {
             RuntimeEvent::AgentEvent(payload) => app.emit("agent-event", &payload),
             RuntimeEvent::SessionStats(payload) => app.emit("session-stats", &payload),
             RuntimeEvent::SessionError(payload) => app.emit("session-error", &payload),
+            RuntimeEvent::ApprovalRequest(payload) => app.emit("approval-request", &payload),
         };
         let _ = result;
     })
@@ -66,6 +68,22 @@ pub fn send_prompt(
     model: Option<Model>,
 ) -> Result<(), String> {
     state.send_prompt(&agent_name, &prompt, model, tauri_emitter(app))
+}
+
+/// 运行中插话（steering）：注入当前运行的下一轮上下文。
+#[tauri::command]
+pub fn steer(state: State<ChatState>, message: String) -> Result<(), String> {
+    state.steer(&message)
+}
+
+/// 回传 bash 命令审批请求的用户决定。
+#[tauri::command]
+pub fn resolve_approval(
+    state: State<ChatState>,
+    request_id: String,
+    decision: String,
+) -> Result<(), String> {
+    state.resolve_approval(&request_id, decision.parse::<ApprovalDecision>()?)
 }
 
 #[tauri::command]

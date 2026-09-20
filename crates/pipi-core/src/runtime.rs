@@ -15,14 +15,21 @@ use crate::agent_loop::{
     run_agent_loop, AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode,
 };
 use crate::agents::{self, AgentDefinition};
+use crate::approval::{
+    ApprovalDecision, ApprovalGate, ApprovalRequestEnvelope, InteractiveApprover,
+};
 use crate::context::{prune_transform, DEFAULT_RESERVE_TOKENS};
 use crate::provider::provider_for;
 pub use crate::session::SessionSummary;
 use crate::session::{list_session_summaries, load_session, SessionWriter};
 use crate::settings::load_settings;
 use crate::stats::SessionStatsTracker;
+use crate::tools::agent::{
+    result_from_messages, AgentRunResult, AgentRunStatus, AgentRunner, ChildProgressTx,
+    CreateAgentTool, ReadAgentTool, RunAgentTool,
+};
 use crate::tools::ToolRegistry;
-use crate::types::{AbortSignal, Message, Model, StreamOptions};
+use crate::types::{AbortSignal, Message, Model, StopReason, StreamOptions};
 
 static NEXT_RUN_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -66,6 +73,8 @@ pub enum RuntimeEvent {
     SessionStats(StatsEventEnvelope),
     #[serde(rename = "session-error")]
     SessionError(SessionErrorEnvelope),
+    #[serde(rename = "approval-request")]
+    ApprovalRequest(ApprovalRequestEnvelope),
 }
 
 /// 运行时事件接收器。
@@ -152,6 +161,9 @@ struct Session {
     abort: AbortSignal,
     running: Arc<RunState>,
     model: Arc<Mutex<Option<Model>>>,
+    /// 运行中插话队列（pi 的 steering）。运行结束后仍留在队列里的消息会在
+    /// 下一次 send_prompt 开头被收割，保证不丢。
+    steering: MessageQueue,
 }
 
 /// 共享会话状态。Tauri 与 Web 服务各自持有一个实例。
@@ -162,6 +174,7 @@ pub struct RuntimeState {
     /// 上下文，直接 `tokio::spawn` 会 panic（there is no reactor running）。
     runtime: tokio::runtime::Handle,
     session: Mutex<Option<Session>>,
+    approval: Arc<ApprovalGate>,
 }
 
 /// 校验会话 ID：必须是单一、稳定的文件名（`<id>.jsonl` 的 stem）。
@@ -182,6 +195,7 @@ impl RuntimeState {
         Self {
             runtime,
             session: Mutex::new(None),
+            approval: Arc::new(ApprovalGate::new()),
         }
     }
 
@@ -532,6 +546,274 @@ fn make_emitter(
     })
 }
 
+/// 不占用 [`RuntimeState`] 当前会话槽的一次性 Agent 执行器。
+///
+/// `run_agent` 在父循环的工具调用内 await 本执行器；目标 Agent 使用独立的新
+/// session，并且只注册基础工具，所以第一阶段不会递归调用其他 Agent。
+struct RuntimeAgentRunner;
+
+#[async_trait::async_trait]
+impl AgentRunner for RuntimeAgentRunner {
+    async fn run_once(
+        &self,
+        agent_name: &str,
+        prompt: &str,
+        abort: AbortSignal,
+        progress: Option<ChildProgressTx>,
+    ) -> Result<AgentRunResult, String> {
+        run_agent_once_inner(
+            agent_name,
+            prompt,
+            abort,
+            std::time::Duration::from_secs(CHILD_RUN_TIMEOUT_SECS),
+            progress,
+        )
+        .await
+    }
+}
+
+/// child session 一旦建立，后续的配置/环境错误也要成为可读取的运行输出，
+/// 不能只给父 Agent 返回一个瞬时错误并留下空 JSONL。
+fn persist_agent_start_failure(
+    writer: &Arc<Mutex<SessionWriter>>,
+    definition: &AgentDefinition,
+    session_id: &str,
+    prompt: &str,
+    error: String,
+) -> Result<AgentRunResult, String> {
+    let user_message = Message::user_text(prompt);
+    let model_name = definition
+        .provider
+        .as_ref()
+        .map(|model| model.display_name().to_string())
+        .filter(|name| !name.is_empty())
+        .or_else(|| (!definition.model.is_empty()).then(|| definition.model.clone()))
+        .unwrap_or_else(|| "unconfigured".into());
+    let failure = Message::assistant_error(error, &model_name, StopReason::Error);
+    {
+        let mut writer = writer
+            .lock()
+            .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
+        writer
+            .append_message(&user_message)
+            .map_err(|error| format!("无法写入用户消息: {error}"))?;
+        writer
+            .append_message(&failure)
+            .map_err(|error| format!("无法写入 Agent 启动错误: {error}"))?;
+    }
+    Ok(result_from_messages(
+        &definition.name,
+        session_id,
+        &[failure],
+    ))
+}
+
+/// 在目标 Agent 下创建一个独立 session 并同步运行到结束。
+/// 不占用 UI 当前会话槽，也不向 child 注入 Agent 组合工具。
+pub async fn run_agent_once(
+    agent_name: &str,
+    prompt: &str,
+    abort: AbortSignal,
+) -> Result<AgentRunResult, String> {
+    run_agent_once_inner(
+        agent_name,
+        prompt,
+        abort,
+        std::time::Duration::from_secs(CHILD_RUN_TIMEOUT_SECS),
+        None,
+    )
+    .await
+}
+
+/// 子 Agent 单次运行的时间上限。到时终止并落盘终态，避免父会话无限阻塞。
+pub const CHILD_RUN_TIMEOUT_SECS: u64 = 600;
+
+/// `run_agent_once` 的可注入版本：`timeout` 供测试收紧，`progress` 把子运行
+/// 里程碑（工具调用、轮次完成）转发给父 Agent 的工具更新流。
+pub(crate) async fn run_agent_once_inner(
+    agent_name: &str,
+    prompt: &str,
+    abort: AbortSignal,
+    timeout: std::time::Duration,
+    progress: Option<ChildProgressTx>,
+) -> Result<AgentRunResult, String> {
+    let prompt = prompt.trim();
+    if prompt.is_empty() {
+        return Err("空消息".into());
+    }
+
+    let definition = agents::load_agent(agent_name)?;
+    let sessions_dir = definition
+        .sessions_dir()
+        .ok_or_else(|| "无法解析会话目录".to_string())?;
+    let writer = Arc::new(Mutex::new(
+        SessionWriter::create(&sessions_dir).map_err(|error| error.to_string())?,
+    ));
+    let session_id = writer_session_id(&writer)?;
+
+    let (tool_context, resolved_env) =
+        match agents::build_tool_context(&definition, Some(session_id.clone()), abort.clone()) {
+            Ok(context) => context,
+            Err(error) => {
+                return persist_agent_start_failure(
+                    &writer,
+                    &definition,
+                    &session_id,
+                    prompt,
+                    error,
+                )
+            }
+        };
+    {
+        let declared = resolved_env
+            .provenance
+            .iter()
+            .filter(|(_, source)| source.as_str() != av::resolve::PROCESS_SOURCE)
+            .map(|(key, source)| crate::session::EnvDeclared {
+                key: key.clone(),
+                source: source.clone(),
+            })
+            .collect();
+        writer
+            .lock()
+            .map_err(|error| format!("无法锁定会话写入器: {error}"))?
+            .append_env(declared)
+            .map_err(|error| format!("无法写入环境记账: {error}"))?;
+    }
+
+    let (model, api_key) = match resolve_model(&definition, None, Some(&resolved_env.vars)) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            return persist_agent_start_failure(&writer, &definition, &session_id, prompt, error)
+        }
+    };
+    // 有意只构造基础工具。即使目标 agent.json 显式启用了 Agent 组合工具，
+    // 它作为 child 运行时也不会拿到这些工具，从而把首版嵌套深度固定为 1。
+    let registry = Arc::new(ToolRegistry::for_context(&tool_context));
+    let wire_tools = registry.wire_tools();
+    let system_prompt = match agents::build_system_prompt_with_tools(&definition, &wire_tools) {
+        Ok(system_prompt) => system_prompt,
+        Err(error) => {
+            return persist_agent_start_failure(&writer, &definition, &session_id, prompt, error)
+        }
+    };
+    let user_message = Message::user_text(prompt);
+    writer
+        .lock()
+        .map_err(|error| format!("无法锁定会话写入器: {error}"))?
+        .append_message(&user_message)
+        .map_err(|error| format!("无法写入用户消息: {error}"))?;
+
+    let context = AgentContext {
+        system_prompt,
+        messages: vec![user_message],
+    };
+    let context_window = model.context_window;
+    let stats = Arc::new(Mutex::new(SessionStatsTracker::new(
+        (context_window > 0).then_some(context_window),
+    )));
+    let result_writer = writer.clone();
+    // 子运行进度：把里程碑转发给父工具的 on_update（父会话里能看到 child
+    // 在做什么）；无观察者时事件照旧丢弃。
+    let progress_sink: EventEmitter = {
+        let progress = progress.clone();
+        let turns = Arc::new(AtomicUsize::new(0));
+        Arc::new(move |event| {
+            let RuntimeEvent::AgentEvent(envelope) = event else {
+                return;
+            };
+            let Some(progress) = &progress else {
+                return;
+            };
+            match envelope.event {
+                AgentEvent::ToolExecutionStart { tool_name, .. } => {
+                    let _ = progress.send(crate::tools::ToolOutput::text(format!(
+                        "子 Agent 正在调用工具 {tool_name}"
+                    )));
+                }
+                AgentEvent::MessageEnd { message } if message.role() == "assistant" => {
+                    let turn = turns.fetch_add(1, Ordering::AcqRel) + 1;
+                    let _ = progress.send(crate::tools::ToolOutput::text(format!(
+                        "子 Agent 完成第 {turn} 轮回复"
+                    )));
+                }
+                _ => {}
+            }
+        })
+    };
+    let emitter = make_emitter(
+        progress_sink,
+        writer,
+        stats,
+        definition.name.clone(),
+        session_id.clone(),
+        NEXT_RUN_ID.fetch_add(1, Ordering::AcqRel),
+    );
+    let config = AgentLoopConfig {
+        model: model.clone(),
+        provider: provider_for(model.api),
+        tools: registry,
+        tool_context,
+        options: StreamOptions {
+            api_key: Some(api_key),
+            temperature: None,
+            max_tokens: Some(model.max_tokens),
+            timeout_secs: 300,
+            session_id: Some(session_id.clone()),
+        },
+        tool_execution: ToolExecutionMode::Parallel,
+        steering: MessageQueue::new(),
+        follow_up: MessageQueue::new(),
+        before_tool_call: None,
+        after_tool_call: None,
+        transform_context: (context_window > 0).then(|| {
+            Arc::new(prune_transform(context_window, DEFAULT_RESERVE_TOKENS))
+                as crate::agent_loop::TransformContextHook
+        }),
+    };
+    let abort_for_result = abort.clone();
+    // 超时取消整个循环 future（bash 子进程有 kill_on_drop 兜底），并落盘
+    // 可读取的终态，避免 read_agent 把超时任务永远报成 pending。
+    let new_messages = match tokio::time::timeout(
+        timeout,
+        run_agent_loop(Vec::new(), context, config, emitter, abort),
+    )
+    .await
+    {
+        Ok(new_messages) => new_messages,
+        Err(_) => {
+            let timeout_error = Message::assistant_error(
+                format!("子任务运行超时（{} 秒），已终止", timeout.as_secs()),
+                model.display_name(),
+                StopReason::Error,
+            );
+            result_writer
+                .lock()
+                .map_err(|error| format!("无法锁定会话写入器: {error}"))?
+                .append_message(&timeout_error)
+                .map_err(|error| format!("无法写入超时状态: {error}"))?;
+            return Ok(result_from_messages(
+                &definition.name,
+                &session_id,
+                &[timeout_error],
+            ));
+        }
+    };
+    let mut result = result_from_messages(&definition.name, &session_id, &new_messages);
+    // 如果取消恰好发生在一次工具调用完成之后，loop 没有机会再生成一条
+    // assistant aborted 消息。补写终态，避免 read_agent 永远把已结束任务报成 pending。
+    if abort_for_result.is_aborted() && result.status == AgentRunStatus::Pending {
+        let aborted = Message::assistant_error("已中止", model.display_name(), StopReason::Aborted);
+        result_writer
+            .lock()
+            .map_err(|error| format!("无法锁定会话写入器: {error}"))?
+            .append_message(&aborted)
+            .map_err(|error| format!("无法写入 Agent 中止状态: {error}"))?;
+        result = result_from_messages(&definition.name, &session_id, &[aborted]);
+    }
+    Ok(result)
+}
+
 /// 列出指定 Agent 的会话摘要。
 pub fn list_sessions(agent_name: &str) -> Result<Vec<SessionSummary>, String> {
     let def = agents::load_agent(agent_name)?;
@@ -591,6 +873,7 @@ impl RuntimeState {
             abort: AbortSignal::new(),
             running: Arc::new(RunState::new()),
             model: Arc::new(Mutex::new(active_model)),
+            steering: MessageQueue::new(),
         });
         Ok(())
     }
@@ -654,6 +937,7 @@ impl RuntimeState {
             abort: AbortSignal::new(),
             running: run_state.clone(),
             model: Arc::new(Mutex::new(active_model.clone())),
+            steering: MessageQueue::new(),
         });
 
         Ok(SessionInfo {
@@ -760,6 +1044,30 @@ impl RuntimeState {
         Ok(())
     }
 
+    /// 运行中插话（pi 的 steering）：消息注入当前运行的下一轮上下文。
+    /// 仅在会话正在运行时接受；消息本体由 loop 注入时经 emitter 落盘。
+    /// 运行结束瞬间提交的插话由收割逻辑接住，不会丢。
+    pub fn steer(&self, message: &str) -> Result<(), String> {
+        let message = message.trim();
+        if message.is_empty() {
+            return Err("空消息".into());
+        }
+        let slot = self.session.lock().map_err(|e| e.to_string())?;
+        let Some(session) = slot.as_ref() else {
+            return Err("当前没有打开的会话".into());
+        };
+        if !session.running.is_running() {
+            return Err("会话未在运行，请直接发送消息".into());
+        }
+        session.steering.push(Message::user_text(message));
+        Ok(())
+    }
+
+    /// 回传一次审批请求的用户决定。请求已过期（超时 / 中止）时返回 Err。
+    pub fn resolve_approval(&self, request_id: &str, decision: ApprovalDecision) -> Result<(), String> {
+        self.approval.resolve(request_id, decision)
+    }
+
     pub fn new_session(&self) -> Result<(), String> {
         let mut slot = self.session.lock().map_err(|e| e.to_string())?;
         if let Some(session) = slot.as_ref() {
@@ -842,6 +1150,7 @@ impl RuntimeState {
                 abort: AbortSignal::new(),
                 running: Arc::new(RunState::new()),
                 model: Arc::new(Mutex::new(active_model)),
+                steering: MessageQueue::new(),
             })
         };
         let session = replacement
@@ -880,9 +1189,13 @@ impl RuntimeState {
         let stats = session.stats.clone();
         let running = session.running.clone();
         let abort = session.abort.clone();
+        let steering = session.steering.clone();
+        // 收割上一轮结束后仍滞留在 steering 队列里的插话：随本轮一起送入模型
+        //（由 emitter 的 MessageEnd 落盘，不会丢）。
+        let queued = steering.drain();
 
         // av 环境契约：会话启动时解析一次（requires fail-closed + AV_* 注入）
-        let (tool_context, resolved_env) =
+        let (mut tool_context, resolved_env) =
             agents::build_tool_context(&def, writer_session_id(&writer).ok(), abort.clone())?;
         // 环境记账：每会话至多一条（writer 幂等去重）；只记声明键（非 process 来源）
         {
@@ -904,10 +1217,41 @@ impl RuntimeState {
         let (model, api_key) =
             resolve_model(&def, current_session_model.as_ref(), Some(&resolved_env.vars))?;
 
-        let registry = Arc::new(ToolRegistry::for_context(&tool_context));
+        let mut registry = ToolRegistry::for_context(&tool_context);
+        if tool_context.permissions.tool_enabled("create_agent") {
+            registry.push(Arc::new(CreateAgentTool::new(model.clone())));
+        }
+        if tool_context.permissions.tool_enabled("run_agent") {
+            registry.push(Arc::new(RunAgentTool::new(
+                def.name.clone(),
+                Arc::new(RuntimeAgentRunner),
+            )));
+        }
+        if tool_context.permissions.tool_enabled("read_agent") {
+            registry.push(Arc::new(ReadAgentTool));
+        }
+        let registry = Arc::new(registry);
         let wire_tools = registry.wire_tools();
         // api_key 随 config 被移走；压缩摘要调用还要用一份
         let compaction_api_key = api_key.clone();
+        abort.reset();
+        let running_guard = RunningGuard::new(running.clone());
+        let run_token = running_guard.token;
+        let run_id = running.current_run_id();
+        let session_id = writer_session_id(&writer)?;
+        let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools)?;
+
+        // 交互审批通道：桌面 / Web 的交互运行才接入；子 Agent 运行不注入，
+        // 白名单未命中一律拒绝（fail-closed）。
+        tool_context.approver = Some(Arc::new(InteractiveApprover::new(
+            self.approval.clone(),
+            event_sink.clone(),
+            def.name.clone(),
+            session_id.clone(),
+            run_id,
+            abort.clone(),
+        )));
+
         let config = AgentLoopConfig {
             model: model.clone(),
             provider: provider_for(model.api),
@@ -919,10 +1263,10 @@ impl RuntimeState {
                 max_tokens: Some(model.max_tokens),
                 timeout_secs: 300,
                 // 会话标识：需要它的供应商（如 OpenCode Go）据此做路由与缓存
-                session_id: writer_session_id(&writer).ok(),
+                session_id: Some(session_id.clone()),
             },
             tool_execution: ToolExecutionMode::Parallel,
-            steering: MessageQueue::new(),
+            steering: steering.clone(),
             follow_up: MessageQueue::new(),
             before_tool_call: None,
             after_tool_call: None,
@@ -943,12 +1287,6 @@ impl RuntimeState {
                 .map_err(|e| format!("无法写入用户消息: {e}"))?;
         }
 
-        abort.reset();
-        let running_guard = RunningGuard::new(running.clone());
-        let run_token = running_guard.token;
-        let run_id = running.current_run_id();
-        let session_id = writer_session_id(&writer)?;
-        let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools)?;
         let completion_sink = event_sink.clone();
         // make_emitter 会按值取走 writer；压缩阶段还要用它，先克隆
         let compaction_writer = writer.clone();
@@ -964,27 +1302,35 @@ impl RuntimeState {
         // （桌面壳的 Tauri command 跑在 GTK 主线程），此时 `tokio::spawn` 会 panic。
         self.spawn_run(async move {
             let _running_guard = running_guard;
-            let context = AgentContext {
-                system_prompt,
-                messages: {
-                    let mut messages = messages.lock().await.clone();
-                    messages.push(user_message.clone());
-                    messages
-                },
-            };
             messages.lock().await.push(user_message);
 
-            let new_messages = run_agent_loop(
-                Vec::new(), // prompts 已并入 context（会话续接语义）
-                context,
-                config,
-                emitter,
-                abort.clone(),
-            )
-            .await;
+            // 收割循环：循环结束后迟到的 steering（用户在收尾流式期间插话）
+            // 不会丢 —— 当作下一轮 prompt 自动续跑，直到队列排空或已中止。
+            let mut prompts = queued;
+            let mut completion_messages: Vec<Message> = Vec::new();
+            loop {
+                let context = AgentContext {
+                    system_prompt: system_prompt.clone(),
+                    messages: messages.lock().await.clone(),
+                };
+                let new_messages = run_agent_loop(
+                    std::mem::take(&mut prompts), // 首轮为空：用户消息已并入 context
+                    context,
+                    config.clone(),
+                    emitter.clone(),
+                    abort.clone(),
+                )
+                .await;
 
-            let completion_messages = new_messages.clone();
-            messages.lock().await.extend(new_messages);
+                completion_messages.extend(new_messages.clone());
+                messages.lock().await.extend(new_messages);
+
+                let leftover = steering.drain();
+                if leftover.is_empty() || abort.is_aborted() {
+                    break;
+                }
+                prompts = leftover;
+            }
 
             // turn 边界的摘要压缩：历史超预算时把旧轮次压成摘要并持久化。
             // 失败不阻塞会话 —— 请求前的 prune_transform 保底仍在。
@@ -1226,6 +1572,18 @@ mod tests {
 
     #[test]
     fn resolve_model_prefers_session_model_over_agent_default() {
+        // 该测试依赖「HOME 下没有 settings.json → 默认 provider 表」，
+        // 且 HOME 是进程级状态：持全局锁 + 指向空目录，保证确定性。
+        let _guard = crate::HOME_LOCK.lock().unwrap();
+        let previous_home = std::env::var("HOME").unwrap_or_default();
+        let empty_home = std::env::temp_dir().join(format!(
+            "pipi-resolve-model-home-{}-{}",
+            std::process::id(),
+            crate::session::new_id()
+        ));
+        std::fs::create_dir_all(empty_home.join(".pipi")).unwrap();
+        std::env::set_var("HOME", &empty_home);
+
         let default_model = Model {
             id: "gpt-4o".into(),
             name: "GPT-4o".into(),
@@ -1271,5 +1629,93 @@ mod tests {
         assert_eq!(resolved.id, "claude-sonnet-4-5");
         assert_eq!(key, "test-key");
         std::env::remove_var("ANTHROPIC_API_KEY");
+        std::env::set_var("HOME", &previous_home);
+        let _ = std::fs::remove_dir_all(&empty_home);
+    }
+}
+
+#[cfg(test)]
+mod child_timeout_tests {
+    use super::*;
+
+    /// 子 Agent 挂死（端点接受连接但不回包）时，运行时限必须终止本轮并把
+    /// 超时终态落盘 —— read_agent 读到 Failed 而不是永远的 pending。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn child_run_times_out_and_persists_terminal_state() {
+        let _guard = crate::HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            // 故意持有每条连接：请求悬挂，直到 tokio 超时触发
+            let mut held = Vec::new();
+            for stream in listener.incoming().flatten() {
+                held.push(stream);
+            }
+        });
+
+        let home = std::env::temp_dir().join(format!(
+            "pipi-child-timeout-{}-{}",
+            std::process::id(),
+            crate::session::new_id()
+        ));
+        let workspace = home.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::env::set_var("HOME", &home);
+
+        let base_url = format!("http://{addr}/v1");
+        crate::settings::save_settings(&crate::settings::Settings {
+            theme: crate::settings::Theme::Dark,
+            providers: vec![crate::settings::ProviderConfig {
+                id: "silent".into(),
+                name: "Silent".into(),
+                api: crate::types::Api::OpenAICompletions,
+                base_url: base_url.clone(),
+                env_key: None,
+                api_key: Some("test-key".into()),
+            }],
+            default_provider_id: None,
+        })
+        .unwrap();
+
+        agents::create_agent(
+            "timeout-worker",
+            "A worker whose endpoint never responds",
+            Some(workspace.to_str().unwrap()),
+            Some(crate::permissions::PermissionsConfig {
+                tools: vec!["read".into()],
+                bash: Default::default(),
+                sandbox: crate::permissions::SandboxMode::WorkspaceWrite,
+            }),
+            None,
+            Some(crate::types::Model {
+                id: "silent-model".into(),
+                name: "Silent Model".into(),
+                api: crate::types::Api::OpenAICompletions,
+                base_url,
+                max_tokens: 64,
+                context_window: 4096,
+            }),
+        )
+        .unwrap();
+
+        let result = run_agent_once_inner(
+            "timeout-worker",
+            "hang",
+            AbortSignal::new(),
+            std::time::Duration::from_millis(300),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.status, AgentRunStatus::Failed);
+        assert!(result.response.contains("超时"), "应报超时: {}", result.response);
+
+        // 终态已落盘：read_agent 读到 Failed 而不是 pending
+        let reread =
+            crate::tools::agent::read_agent_output("timeout-worker", Some(&result.session_id))
+                .unwrap();
+        assert_eq!(reread.status, AgentRunStatus::Failed);
+
+        let _ = std::fs::remove_dir_all(home);
     }
 }

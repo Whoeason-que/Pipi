@@ -317,7 +317,7 @@ pub fn ensure_default_agent() -> Result<Option<AgentDefinition>, String> {
     if dir.exists() {
         return Ok(None);
     }
-    // 权限沿用「新建 Agent」表单的默认：全部已知工具 + 受限沙箱（workspace-write）。
+    // 权限沿用「新建 Agent」表单的默认：全部基础工具 + 受限沙箱（workspace-write）。
     // 注意不要直接传 PermissionsConfig::default()，其沙箱默认是 DangerFullAccess。
     match create_agent(
         DEFAULT_AGENT_NAME,
@@ -396,6 +396,29 @@ pub fn create_agent(
     model: Option<&str>,
     provider: Option<Model>,
 ) -> Result<AgentDefinition, String> {
+    create_agent_with_instructions(
+        name,
+        description,
+        workspace,
+        permissions,
+        model,
+        provider,
+        None,
+    )
+}
+
+/// 创建 Agent，并允许调用方在创建时直接写入 `AGENTS.md` 的指令正文。
+/// UI 的既有创建入口继续调用 [`create_agent`]；Agent 组合工具走本入口，
+/// 两者共享完全相同的名称、路径、权限和清单校验。
+pub fn create_agent_with_instructions(
+    name: &str,
+    description: &str,
+    workspace: Option<&str>,
+    permissions: Option<PermissionsConfig>,
+    model: Option<&str>,
+    provider: Option<Model>,
+    instructions: Option<&str>,
+) -> Result<AgentDefinition, String> {
     let name = name.trim().to_string();
     validate_agent_name(&name)?;
 
@@ -456,9 +479,13 @@ pub fn create_agent(
     } else {
         &def.description
     };
+    let instructions = instructions
+        .map(str::trim)
+        .filter(|instructions| !instructions.is_empty())
+        .unwrap_or("- ");
     fs::write(
         dir.join("AGENTS.md"),
-        format!("# {name}\n\n{intro}\n\n## 指令\n\n- \n"),
+        format!("# {name}\n\n{intro}\n\n## 指令\n\n{instructions}\n"),
     )
     .map_err(|e| e.to_string())?;
 
@@ -501,6 +528,28 @@ pub fn save_agent(def: &AgentDefinition) -> Result<(), String> {
     let manifest_path = dir.join("agent.json");
     ensure_real_file(&manifest_path, "agent.json")?;
     fs::write(manifest_path, manifest + "\n").map_err(|e| e.to_string())
+}
+
+/// 交互审批「总是允许」：把命令段落追加进 Agent 的 bash 白名单并落盘。
+/// 读改写之间不做跨进程互斥（与 save_agent 同一信任级别），条目去重。
+pub fn add_bash_allowlist_entries(name: &str, entries: &[String]) -> Result<(), String> {
+    let mut def = load_agent(name)?;
+    for entry in entries {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        if !def
+            .permissions
+            .bash
+            .commands
+            .iter()
+            .any(|existing| existing == entry)
+        {
+            def.permissions.bash.commands.push(entry.to_string());
+        }
+    }
+    save_agent(&def)
 }
 
 /// 解析 Agent 目录内允许 UI 编辑的 Markdown 相对路径。
@@ -745,6 +794,7 @@ pub fn build_tool_context(
             sandbox: def.permissions.sandbox,
             resolved_env: std::sync::Arc::new(resolved.vars.clone()),
             abort,
+            approver: None,
         },
         resolved,
     ))
@@ -1080,7 +1130,6 @@ pub fn ensure_agent_dir(name: &str) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
     #[test]
     fn agent_directory_rejects_path_traversal_and_separators() {
@@ -1582,8 +1631,9 @@ only = ["wanted"]
         assert!(validate_definition(&def).is_ok());
     }
 
-    /// HOME 环境变量是进程级的：涉及 ~/.pipi 的测试互斥串行。
-    static HOME_LOCK: Mutex<()> = Mutex::new(());
+    // HOME 环境变量是进程级的：涉及 ~/.pipi 的测试互斥串行。
+    // 锁本体在 crate 根（lib.rs），runtime 等其他模块的 HOME 测试共享同一把。
+    use crate::HOME_LOCK;
 
     #[test]
     fn create_writes_file_skeleton() {
@@ -1707,7 +1757,7 @@ only = ["wanted"]
         ] {
             assert!(dir.join(entry).exists(), "{entry} 应存在");
         }
-        // 默认权限：全部工具 + 受限沙箱（PermissionsConfig::default 的沙箱是 DangerFullAccess，不能被沿用）
+        // 默认权限：全部基础工具 + 受限沙箱（PermissionsConfig::default 的沙箱是 DangerFullAccess，不能被沿用）
         assert_eq!(
             created.permissions.sandbox,
             crate::permissions::SandboxMode::WorkspaceWrite

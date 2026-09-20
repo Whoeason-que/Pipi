@@ -72,6 +72,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
                 RuntimeEvent::AgentEvent(_) => "agent-event",
                 RuntimeEvent::SessionStats(_) => "session-stats",
                 RuntimeEvent::SessionError(_) => "session-error",
+                RuntimeEvent::ApprovalRequest(_) => "approval-request",
             };
             events.lock().unwrap().push(name);
         })

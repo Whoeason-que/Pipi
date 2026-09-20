@@ -77,6 +77,15 @@ export interface SessionErrorPayload extends SessionEventMeta {
   message: string;
 }
 
+/** bash 命令审批请求（RuntimeEvent::ApprovalRequest）。 */
+export interface ApprovalRequestPayload extends SessionEventMeta {
+  requestId: string;
+  command: string;
+  missing: string[];
+}
+
+export type ApprovalDecisionValue = "allow" | "always" | "deny";
+
 export function normalizeAgentEvent(payload: AgentEventPayload): {
   event: AgentEvent;
   meta: SessionEventMeta | null;

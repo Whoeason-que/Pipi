@@ -25,6 +25,8 @@ import {
   normalizeStatsPayload,
   type AgentEvent,
   type AgentEventPayload,
+  type ApprovalDecisionValue,
+  type ApprovalRequestPayload,
   type ChatEntry,
   type MessageView,
   type SessionErrorPayload,
@@ -66,6 +68,8 @@ export default function ChatView({
   const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
   const [stopping, setStopping] = useState(false);
+  /** 待处理的 bash 命令审批请求（同时至多一个：bash 工具强制顺序执行）。 */
+  const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
   const [sessionModel, setSessionModel] = useState<ModelConfig | null>(agent.provider ?? null);
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [modelModalOpen, setModelModalOpen] = useState(false);
@@ -138,6 +142,8 @@ export default function ChatView({
     const normalized = normalizeAgentEvent(payload);
     if (!acceptMeta(normalized.meta)) return;
     if (normalized.event.type === "agent_end") {
+      // 运行已结束：残留的审批请求在核心侧必然已 fail-closed，收起横幅
+      setPendingApproval(null);
       settledRunIdRef.current = normalized.meta?.runId ?? sessionIdentityRef.current?.runId ?? null;
     }
     const action = { type: "event" as const, event: normalized.event, key: createEntryKey("event") };
@@ -183,12 +189,22 @@ export default function ChatView({
       if (!mounted || sessionInfoFailedRef.current || !acceptMeta(event.payload)) return;
       onError(event.payload.message);
     };
+    const handleApprovalEvent = (event: { payload: ApprovalRequestPayload }) => {
+      if (!mounted || sessionInfoFailedRef.current) return;
+      const request = event.payload;
+      if (request.agentName !== agent.name) return;
+      const identity = sessionIdentityRef.current;
+      // 请求属于当前打开的会话才弹窗；过期请求由核心超时兜底
+      if (identity && request.sessionId !== identity.sessionId) return;
+      setPendingApproval(request);
+    };
 
     const initialize = async () => {
       const listenerResults = await Promise.allSettled([
         listen<AgentEventPayload>("agent-event", handleAgentEvent),
         listen<SessionStatsPayload>("session-stats", handleStatsEvent),
         listen<SessionErrorPayload>("session-error", handleErrorEvent),
+        listen<ApprovalRequestPayload>("approval-request", handleApprovalEvent),
       ]);
       const listenerErrors: unknown[] = [];
       for (const result of listenerResults) {
@@ -277,6 +293,7 @@ export default function ChatView({
       pendingEventsRef.current = [];
       pendingStatsRef.current = [];
       setReady(false);
+      setPendingApproval(null);
       if (stopPollTimerRef.current) {
         clearTimeout(stopPollTimerRef.current);
         stopPollTimerRef.current = null;
@@ -353,7 +370,25 @@ export default function ChatView({
       onError("尚未确认当前会话身份，请稍后重试");
       return;
     }
-    if (!text || running || sendInFlightRef.current) return;
+    if (!text || sendInFlightRef.current) return;
+
+    // 运行中输入 = steering（插话）：注入当前运行的下一轮上下文。
+    // 消息本体由核心注入时经事件回流渲染，这里不做乐观插入。
+    if (running) {
+      sendInFlightRef.current = true;
+      setInput("");
+      try {
+        await invoke("steer", { message: text });
+      } catch (error) {
+        // 运行恰好结束等竞态：恢复输入，让用户重发
+        setInput(text);
+        onError(formatRuntimeError(error));
+      } finally {
+        sendInFlightRef.current = false;
+      }
+      return;
+    }
+
     const userKey = createEntryKey("user");
     runEpochRef.current += 1;
     awaitingRunIdRef.current = sessionIdentityRef.current?.runId ?? null;
@@ -374,6 +409,18 @@ export default function ChatView({
       onError(formatRuntimeError(error));
     } finally {
       sendInFlightRef.current = false;
+    }
+  };
+
+  /** 回传审批请求的用户决定；决定后立即收起横幅（过期请求由核心 fail-closed）。 */
+  const resolveApproval = async (decision: ApprovalDecisionValue) => {
+    const request = pendingApproval;
+    if (!request) return;
+    setPendingApproval(null);
+    try {
+      await invoke("resolve_approval", { requestId: request.requestId, decision });
+    } catch (error) {
+      onError(formatRuntimeError(error));
     }
   };
 
@@ -787,13 +834,38 @@ export default function ChatView({
         </div>
 
         <div className="composer">
+          {pendingApproval && (
+            <div className="approval-bar" role="alertdialog" aria-label="命令执行审批">
+              <div className="approval-text">
+                <span className="approval-title">Agent 请求执行白名单外的命令</span>
+                <code>{pendingApproval.command}</code>
+              </div>
+              <div className="approval-actions">
+                <button type="button" className="btn deny" onClick={() => void resolveApproval("deny")}>
+                  拒绝
+                </button>
+                <button type="button" className="btn allow" onClick={() => void resolveApproval("allow")}>
+                  允许一次
+                </button>
+                <button type="button" className="btn allow" onClick={() => void resolveApproval("always")} title="执行并把命令加入 Agent 白名单（agent.json）">
+                  总是允许
+                </button>
+              </div>
+            </div>
+          )}
           <div className="composer-box">
             <textarea
               ref={inputRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder={ready ? (running ? "Agent 正在运行…" : "输入消息，Enter 发送（Shift+Enter 换行）") : "正在连接 Agent…"}
-              disabled={!ready || running}
+              placeholder={
+                ready
+                  ? running
+                    ? "Agent 正在运行…输入内容将作为插话（steering）注入"
+                    : "输入消息，Enter 发送（Shift+Enter 换行）"
+                  : "正在连接 Agent…"
+              }
+              disabled={!ready}
               onCompositionStart={() => {
                 composingRef.current = true;
               }}
@@ -816,7 +888,7 @@ export default function ChatView({
             <div className="composer-bar">
               <span className="hint">ENTER 发送 · SHIFT+ENTER 换行</span>
               <span className="spacer" />
-              {running ? (
+              {running && (
                 <button
                   type="button"
                   className="btn stop"
@@ -827,18 +899,17 @@ export default function ChatView({
                 >
                   <IconStop />
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn send"
-                  disabled={!ready || !sessionInfoResolvedRef.current || !input.trim()}
-                  onClick={() => void send()}
-                  title="发送"
-                  aria-label="发送消息"
-                >
-                  <IconSend />
-                </button>
               )}
+              <button
+                type="button"
+                className="btn send"
+                disabled={!ready || !sessionInfoResolvedRef.current || !input.trim()}
+                onClick={() => void send()}
+                title={running ? "插话（steering）" : "发送"}
+                aria-label={running ? "插话" : "发送消息"}
+              >
+                <IconSend />
+              </button>
             </div>
           </div>
         </div>

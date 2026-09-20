@@ -121,6 +121,8 @@ pub type AfterToolCallHook = Arc<dyn Fn(&ContentBlock, &mut ToolOutput, &mut boo
 /// 做变换（裁剪、注入等）。默认恒等；见 [`crate::context::prune_transform`]。
 pub type TransformContextHook = Arc<dyn Fn(Vec<Message>) -> Vec<Message> + Send + Sync>;
 
+/// Clone 用于「一次运行结束收割迟到 steering 后再起一轮」的续跑场景。
+#[derive(Clone)]
 pub struct AgentLoopConfig {
     pub model: Model,
     pub provider: Arc<dyn Provider>,
@@ -870,6 +872,7 @@ mod tests {
                 sandbox: crate::permissions::SandboxMode::DangerFullAccess,
                 resolved_env: Arc::new(std::collections::BTreeMap::new()),
                 abort: AbortSignal::new(),
+                approver: None,
             },
             options: StreamOptions::default(),
             tool_execution: ToolExecutionMode::Sequential,

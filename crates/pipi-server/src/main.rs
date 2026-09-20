@@ -18,6 +18,7 @@ use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
+use pipi_core::approval::ApprovalDecision;
 use pipi_core::agents::{self, AgentDefinition, PermissionsConfig};
 
 use pipi_core::runtime::{self, EventEmitter, RuntimeEvent, RuntimeState};
@@ -404,6 +405,19 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
                 let _ = events.send(event);
             });
             state.runtime.send_prompt(&agent_name, &prompt, model, emitter)?;
+            Ok(Value::Null)
+        }
+        "steer" => {
+            let message = required_string(args, "message")?;
+            state.runtime.steer(&message)?;
+            Ok(Value::Null)
+        }
+        "resolve_approval" => {
+            let request_id = required_string(args, "requestId")?;
+            let decision = required_string(args, "decision")?;
+            state
+                .runtime
+                .resolve_approval(&request_id, decision.parse::<ApprovalDecision>()?)?;
             Ok(Value::Null)
         }
         "set_session_model" => {

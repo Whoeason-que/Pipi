@@ -6,6 +6,8 @@
 //! 1. **切分**：引号感知的词法扫描 + shlex 分词，复合命令按 `&&` `||` `;`
 //!    `|` 换行 `&` 拆段；引号内的连接符不拆段；无法安全解析 → 拒绝。
 //! 2. **白/黑名单**：`denylist` 命中即拒；`allowlist` 必须逐段命中。
+//!    Allowlist 未命中的**非危险**段落是唯一可交互审批的类型（见
+//!    [`crate::approval`]）：用户拒绝 / 超时 / 中止 / 通道缺失一律拒绝。
 //! 3. **危险命令**（移植自 codex，见 [`safety`]）：`rm -f` 家族、
 //!    sudo/env/trap/bash-c 包装器 —— 非 `danger-full-access` 下拒绝。
 //! 4. **沙箱**：`workspace-write` 下拒绝 shell 重定向；文件写入请使用
@@ -178,41 +180,7 @@ pub struct BashPermissions {
     pub commands: Vec<String>,
 }
 
-impl BashPermissions {
-    fn check(&self, segment: &Segment) -> Result<(), String> {
-        match self.mode {
-            BashMode::AllowAll => Ok(()),
-            BashMode::Allowlist => {
-                if self
-                    .commands
-                    .iter()
-                    .any(|c| matches_entry(c, &segment.text))
-                {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "命令「{}」不在白名单中（允许：{}）",
-                        segment.text,
-                        self.commands.join(", ")
-                    ))
-                }
-            }
-            BashMode::Denylist => {
-                if self
-                    .commands
-                    .iter()
-                    .any(|c| matches_entry(c, &segment.text))
-                {
-                    Err(format!("命令「{}」被黑名单禁止", segment.text))
-                } else {
-                    Ok(())
-                }
-            }
-        }
-    }
-}
-
-fn matches_entry(entry: &str, segment: &str) -> bool {
+pub(crate) fn matches_entry(entry: &str, segment: &str) -> bool {
     let entry = entry.trim();
     let seg = segment.trim_start();
     if entry.is_empty() || seg.is_empty() {
@@ -228,8 +196,27 @@ fn matches_entry(entry: &str, segment: &str) -> bool {
     }
 }
 
-/// Pipi 已知内置工具名。
-pub const KNOWN_TOOLS: [&str; 7] = ["read", "write", "edit", "bash", "memory", "glob", "grep"];
+/// 普通 Agent 默认启用的基础工具。Agent 组合工具不在默认集合中，避免旧的
+/// `agent.json`（缺少 `permissions.tools`）在升级后静默获得创建、运行或读取
+/// 其他 Agent 的能力。
+pub const DEFAULT_TOOLS: [&str; 7] = ["read", "write", "edit", "bash", "memory", "glob", "grep"];
+
+/// Agent 组合工具：必须在 `permissions.tools` 中显式启用。
+pub const AGENT_TOOLS: [&str; 3] = ["create_agent", "run_agent", "read_agent"];
+
+/// Pipi 已知内置工具名（基础工具 + 显式启用的 Agent 组合工具）。
+pub const KNOWN_TOOLS: [&str; 10] = [
+    "read",
+    "write",
+    "edit",
+    "bash",
+    "memory",
+    "glob",
+    "grep",
+    "create_agent",
+    "run_agent",
+    "read_agent",
+];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -245,7 +232,7 @@ pub struct PermissionsConfig {
 }
 
 fn default_tools() -> Vec<String> {
-    KNOWN_TOOLS.iter().map(|s| s.to_string()).collect()
+    DEFAULT_TOOLS.iter().map(|s| s.to_string()).collect()
 }
 
 impl Default for PermissionsConfig {
@@ -265,24 +252,74 @@ impl PermissionsConfig {
 
     /// bash 命令总闸：切分 → 白/黑名单 → 危险命令 → 沙箱策略。
     pub fn assess_bash(&self, command: &str, _workspace: &std::path::Path) -> Result<(), String> {
+        match self.assess_bash_classified(command, _workspace) {
+            BashAssessment::Allowed => Ok(()),
+            BashAssessment::HardDenied(message) => Err(message),
+            BashAssessment::NeedsApproval { missing } => Err(format!(
+                "命令「{}」不在白名单中（允许：{}）",
+                missing.join(" && "),
+                self.bash.commands.join(", ")
+            )),
+        }
+    }
+
+    /// bash 命令分类评估。只有「Allowlist 模式下白名单未命中、且不命中危险
+    /// 规则」的段落可以交给交互审批救回；黑名单命中、危险命令、沙箱约束
+    /// 一律硬拒 —— 宁可拒绝不可放行。
+    pub fn assess_bash_classified(
+        &self,
+        command: &str,
+        _workspace: &std::path::Path,
+    ) -> BashAssessment {
         if self.sandbox == SandboxMode::ReadOnly {
-            return Err(
+            return BashAssessment::HardDenied(
                 "沙箱策略为 read-only：不允许执行命令（需要执行请调整 Agent 的沙箱设置）".into(),
             );
         }
         if self.sandbox == SandboxMode::WorkspaceWrite && has_unquoted_shell_redirection(command) {
-            return Err(
+            return BashAssessment::HardDenied(
                 "沙箱策略为 workspace-write：拒绝 shell 重定向；请使用 write 或 edit 工具写入文件"
                     .into(),
             );
         }
 
-        let segments = split_segments(command)?;
+        let segments = match split_segments(command) {
+            Ok(segments) => segments,
+            Err(error) => return BashAssessment::HardDenied(error),
+        };
+
+        let mut missing: Vec<String> = Vec::new();
         for seg in &segments {
-            self.bash.check(seg)?;
+            match self.bash.mode {
+                BashMode::AllowAll => {}
+                BashMode::Allowlist => {
+                    if !self.bash.commands.iter().any(|c| matches_entry(c, &seg.text)) {
+                        // 危险段落即使等用户批准也不放行
+                        if self.sandbox != SandboxMode::DangerFullAccess
+                            && dangerous_command_match(&seg.argv).is_some()
+                        {
+                            return BashAssessment::HardDenied(format!(
+                                "「{}」命中危险命令规则，在 {} 沙箱下被拒绝（不可审批）",
+                                seg.text,
+                                self.sandbox.as_str()
+                            ));
+                        }
+                        missing.push(seg.text.clone());
+                        continue;
+                    }
+                }
+                BashMode::Denylist => {
+                    if self.bash.commands.iter().any(|c| matches_entry(c, &seg.text)) {
+                        return BashAssessment::HardDenied(format!(
+                            "命令「{}」被黑名单禁止",
+                            seg.text
+                        ));
+                    }
+                }
+            }
             if self.sandbox != SandboxMode::DangerFullAccess {
                 if let Some(matched) = dangerous_command_match(&seg.argv) {
-                    return Err(match matched {
+                    return BashAssessment::HardDenied(match matched {
                         DangerousCommandMatch::ForcedRm => format!(
                             "「{}」包含强制删除（rm -f 家族），在 {} 沙箱下被拒绝",
                             seg.text,
@@ -297,8 +334,32 @@ impl PermissionsConfig {
                 }
             }
         }
-        Ok(())
+
+        if missing.is_empty() {
+            BashAssessment::Allowed
+        } else {
+            BashAssessment::NeedsApproval { missing }
+        }
     }
+}
+
+/// bash 命令评估结论。
+#[derive(Debug, Clone, PartialEq)]
+pub enum BashAssessment {
+    Allowed,
+    /// 黑名单命中 / 危险命令 / 沙箱约束 / 解析失败 —— 不可审批。
+    HardDenied(String),
+    /// Allowlist 模式下白名单未命中（且非危险）。`missing` 是未命中的段落文本，
+    /// 「总是允许」时按段写入白名单。
+    NeedsApproval { missing: Vec<String> },
+}
+
+/// 交互审批通道。宿主（桌面壳 / Web 服务）实现传输：把请求发给用户界面，
+/// 等待用户决定。任何实现失败都必须落到 Err（fail-closed）。
+#[async_trait::async_trait]
+pub trait CommandApprover: Send + Sync {
+    /// 请求批准执行整条命令。Ok(()) = 批准；Err = 拒绝 / 超时 / 已中止 / 通道失败。
+    async fn approve(&self, command: &str) -> Result<(), String>;
 }
 
 /// 判断命令中是否存在未被引号或反斜杠保护的 shell 重定向字符。
@@ -451,15 +512,30 @@ mod tests {
 
     #[test]
     fn allowlist_matches_word_prefix() {
-        let p = BashPermissions {
-            mode: BashMode::Allowlist,
-            commands: vec!["git".into(), "npm run".into()],
+        let p = PermissionsConfig {
+            tools: default_tools(),
+            bash: BashPermissions {
+                mode: BashMode::Allowlist,
+                commands: vec!["git".into(), "npm run".into()],
+            },
+            sandbox: SandboxMode::DangerFullAccess,
         };
-        let ok = |c: &str| p.check(&split_segments(c).unwrap().remove(0));
-        assert!(ok("git status").is_ok());
-        assert!(ok("git commit -m 'x'").is_ok());
-        assert!(ok("npm run build").is_ok());
-        assert!(ok("  ls -la").is_err());
+        let allowed = |c: &str| {
+            matches!(
+                p.assess_bash_classified(c, Path::new("/tmp")),
+                BashAssessment::Allowed
+            )
+        };
+        let askable = |c: &str| {
+            matches!(
+                p.assess_bash_classified(c, Path::new("/tmp")),
+                BashAssessment::NeedsApproval { .. }
+            )
+        };
+        assert!(allowed("git status"));
+        assert!(allowed("git commit -m 'x'"));
+        assert!(allowed("npm run build"));
+        assert!(askable("  ls -la"));
     }
 
     #[test]
@@ -604,5 +680,91 @@ mod tests {
         assert!(!is_within(base, Path::new("/home/u/other")));
         assert!(!is_within(base, Path::new("/home/u/project/../..")));
         assert!(!is_within(base, Path::new("/etc/passwd")));
+    }
+
+    #[test]
+    fn agent_composition_tools_are_known_but_never_defaulted() {
+        let defaults = PermissionsConfig::default();
+        for tool in AGENT_TOOLS {
+            assert!(KNOWN_TOOLS.contains(&tool));
+            assert!(!defaults.tool_enabled(tool));
+        }
+
+        let legacy: PermissionsConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.tools, DEFAULT_TOOLS);
+    }
+
+    fn allowlist_config(commands: &[&str], sandbox: SandboxMode) -> PermissionsConfig {
+        PermissionsConfig {
+            tools: vec!["bash".into()],
+            bash: BashPermissions {
+                mode: BashMode::Allowlist,
+                commands: commands.iter().map(|c| c.to_string()).collect(),
+            },
+            sandbox,
+        }
+    }
+
+    #[test]
+    fn classification_allowlist_miss_is_askable() {
+        let cfg = allowlist_config(&["git"], SandboxMode::WorkspaceWrite);
+        assert_eq!(
+            cfg.assess_bash_classified("git status", Path::new("/tmp")),
+            BashAssessment::Allowed
+        );
+        assert_eq!(
+            cfg.assess_bash_classified("npm install", Path::new("/tmp")),
+            BashAssessment::NeedsApproval {
+                missing: vec!["npm install".into()]
+            }
+        );
+        // 复合命令：只收集未命中的段落
+        assert_eq!(
+            cfg.assess_bash_classified("git status && npm install", Path::new("/tmp")),
+            BashAssessment::NeedsApproval {
+                missing: vec!["npm install".into()]
+            }
+        );
+    }
+
+    #[test]
+    fn classification_dangerous_and_denied_are_never_askable() {
+        let cfg = allowlist_config(&["git"], SandboxMode::WorkspaceWrite);
+        // 白名单未命中 + 危险命令 → 硬拒
+        match cfg.assess_bash_classified("rm -rf /tmp/x", Path::new("/tmp")) {
+            BashAssessment::HardDenied(message) => assert!(message.contains("拒绝")),
+            other => panic!("expected HardDenied, got {other:?}"),
+        }
+        // denylist 命中 → 硬拒
+        let deny = PermissionsConfig {
+            tools: vec!["bash".into()],
+            bash: BashPermissions {
+                mode: BashMode::Denylist,
+                commands: vec!["curl".into()],
+            },
+            sandbox: SandboxMode::DangerFullAccess,
+        };
+        assert!(matches!(
+            deny.assess_bash_classified("curl example.com", Path::new("/tmp")),
+            BashAssessment::HardDenied(_)
+        ));
+        // 沙箱重定向 → 硬拒
+        assert!(matches!(
+            cfg.assess_bash_classified("git status > out.txt", Path::new("/tmp")),
+            BashAssessment::HardDenied(_)
+        ));
+        // read-only → 一律硬拒
+        let ro = allowlist_config(&["git"], SandboxMode::ReadOnly);
+        assert!(matches!(
+            ro.assess_bash_classified("git status", Path::new("/tmp")),
+            BashAssessment::HardDenied(_)
+        ));
+    }
+
+    #[test]
+    fn classification_assess_bash_maps_miss_to_error() {
+        let cfg = allowlist_config(&["git"], SandboxMode::WorkspaceWrite);
+        let error = cfg.assess_bash("npm install", Path::new("/tmp")).unwrap_err();
+        assert!(error.contains("不在白名单中"));
     }
 }

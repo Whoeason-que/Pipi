@@ -266,6 +266,7 @@ mod tests {
             sandbox: crate::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
+            approver: None,
         };
         (base, ctx, outside)
     }

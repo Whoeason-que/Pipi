@@ -2,6 +2,7 @@
 //! memory 工具。工具按 `permissions.tools` 注册；`ToolContext` 携带工作目录、
 //! 权限与中止信号。
 
+pub mod agent;
 pub mod bash;
 pub mod edit;
 pub mod glob;
@@ -45,7 +46,9 @@ impl ToolOutput {
 /// 工具执行上下文：工作目录、memory 目录、受信任读取根、权限、沙箱、中止信号。
 ///
 /// `resolved_env` 是 av 契约解析出的**完整**子进程环境（会话启动时解析一次），
-/// bash 等 spawn 点以它整体重建环境变量。
+/// bash 等 spawn 点以它整体重建环境变量。`approver` 是交互审批通道（bash 白名单
+/// 未命中时救回用）；无宿主交互能力的运行（如子 Agent）必须为 None —— 缺席即
+/// fail-closed 拒绝。
 #[derive(Clone)]
 pub struct ToolContext {
     pub workspace: PathBuf,
@@ -56,6 +59,7 @@ pub struct ToolContext {
     pub sandbox: SandboxMode,
     pub resolved_env: Arc<BTreeMap<String, String>>,
     pub abort: AbortSignal,
+    pub approver: Option<Arc<dyn crate::permissions::CommandApprover>>,
 }
 
 impl ToolContext {
@@ -188,6 +192,12 @@ pub struct ToolRegistry {
 impl ToolRegistry {
     pub fn new(tools: Vec<Arc<dyn AgentTool>>) -> ToolRegistry {
         ToolRegistry { tools }
+    }
+
+    /// 由运行时注入需要额外执行能力的工具（例如 Agent 组合工具）。基础文件
+    /// 工具仍由 [`ToolRegistry::for_context`] 按权限自动构造。
+    pub fn push(&mut self, tool: Arc<dyn AgentTool>) {
+        self.tools.push(tool);
     }
 
     /// 按 Agent 的权限配置注册内置工具。
