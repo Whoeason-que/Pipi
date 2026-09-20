@@ -78,19 +78,38 @@
   margin-bottom: 0;
 }
 
-/* 消息操作行：hover / 键盘聚焦时才浮现（窄屏常显）；
-   常驻占位（min-height）避免显隐时布局跳动 */
+/* 消息底部信息行：统计信息（tok/s · 缓存命中 · 用量）常驻左侧，
+   时间与按钮靠右、hover / 键盘聚焦时淡入（opacity 不占位，淡入不推动布局） */
 .row-meta {
   display: flex;
   align-items: center;
   gap: 6px;
   min-height: 24px;
+  min-width: 0;
+}
+
+.row-meta .spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-meta .meta-info {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-meta .time,
+.row-meta .copy-btn {
   opacity: 0;
   transition: opacity 0.15s;
 }
 
-.row:hover .row-meta,
-.row:focus-within .row-meta {
+.row:hover .row-meta .time,
+.row:hover .row-meta .copy-btn,
+.row:focus-within .row-meta .time,
+.row:focus-within .row-meta .copy-btn {
   opacity: 1;
 }
 

@@ -162,7 +162,7 @@ function startDemoRun(prompt: string): void {
   const steps: Array<() => void> = [
     () => emitDemoAgentEvent({ type: "agent_start" }),
     // 第 1 条助手消息：thinking + bash 调用
-    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [] } }),
+    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
     () => emitDemoAgentEvent({
       type: "message_update",
       message: { role: "assistant", content: [{ type: "thinking", thinking: thinking1 }] },
@@ -193,7 +193,7 @@ function startDemoRun(prompt: string): void {
     () => emitDemoAgentEvent({ type: "message_start", message: toolResult(call1, "README.md\nsrc/\ncrates/\npackage.json") }),
     () => emitDemoAgentEvent({ type: "message_end", message: toolResult(call1, "README.md\nsrc/\ncrates/\npackage.json") }),
     // 第 2 条助手消息：thinking + 再次 bash（读取失败，验证失败标红）
-    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [] } }),
+    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
     () => emitDemoAgentEvent({
       type: "message_update",
       message: { role: "assistant", content: [{ type: "thinking", thinking: thinking2 }, toolCallBlock(call2, "cat CONTRIBUTING.md")] },
@@ -219,7 +219,7 @@ function startDemoRun(prompt: string): void {
       message: { ...toolResult(call2, "cat: CONTRIBUTING.md: No such file or directory", true), isError: true },
     }),
     // 第 3 条助手消息：正文回复（正文出现即断开标签行）
-    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [] } }),
+    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
     () => emitDemoAgentEvent({
       type: "message_update",
       message: { ...response, content: [{ type: "text", text: `我已收到：${prompt}\n\n` }] },

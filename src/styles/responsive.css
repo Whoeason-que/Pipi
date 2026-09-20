@@ -83,8 +83,9 @@
     max-width: 88%;
   }
 
-  /* 触屏没有 hover：时间直接常显 */
-  .row-meta {
+  /* 触屏没有 hover：时间与按钮直接常显（opacity 挂在子元素上） */
+  .row-meta .time,
+  .row-meta .copy-btn {
     opacity: 1;
   }
 

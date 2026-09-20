@@ -318,6 +318,8 @@ function updateAssistantEntry(entry: ChatEntry, message: MessageView, streaming:
     text: messageText(message),
     thinking: messageThinking(message) ?? entry.thinking,
     toolCallId: entry.toolCallId ?? firstToolCallId(message),
+    // 首帧可能没带时间戳：后续帧补上（消息行的时间显示依赖它）
+    timestamp: entry.timestamp ?? message.timestamp,
     errorMessage: message.errorMessage ?? undefined,
     stopReason: message.stopReason,
     status,

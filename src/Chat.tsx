@@ -841,10 +841,10 @@ export default function ChatView({
                       <div className="user-text">{entry.text}</div>
                     </div>
                     <div className="row-meta">
-                      <CopyButton text={entry.text} />
                       {entry.timestamp ? (
                         <span className="time">{formatClock(entry.timestamp)}</span>
                       ) : null}
+                      <CopyButton text={entry.text} />
                     </div>
                   </div>
                 </div>
@@ -865,10 +865,12 @@ export default function ChatView({
                   <div className="content">
                     <Markdown text={entry.text} />
                     {entry.streaming && <span className="cursor" aria-hidden="true" />}
-                    {footer && <div className="hint">{footer}</div>}
                   </div>
                   {!entry.streaming && (
+                    // 统计信息与时间、按钮同一行；时间与按钮靠右（hover 时淡入）
                     <div className="row-meta">
+                      {footer && <span className="hint meta-info">{footer}</span>}
+                      <span className="spacer" />
                       {entry.timestamp ? (
                         <span className="time">{formatClock(entry.timestamp)}</span>
                       ) : null}
