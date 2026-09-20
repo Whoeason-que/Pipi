@@ -22,7 +22,7 @@ const initialDemoMessages: Array<Record<string, unknown>> = [
   {
     role: "assistant",
     content: [{ type: "text", text: "我先用 bash 看一下目录。" }],
-    usage: { input: 320, output: 48, cacheRead: 280, cacheWrite: 0, totalTokens: 648 },
+    usage: { input: 40, output: 48, cacheRead: 280, cacheWrite: 0, totalTokens: 368 },
     stopReason: "toolUse",
     timestamp: Date.now() - 240000,
     durationMs: 1900,
@@ -54,7 +54,7 @@ let messages = run_agent_loop(
 | provider | rig 适配层 |
 
 > 一切皆文件，配置即代码。详见 README。` }],
-    usage: { input: 410, output: 96, cacheRead: 380, cacheWrite: 0, totalTokens: 886 },
+    usage: { input: 30, output: 96, cacheRead: 380, cacheWrite: 0, totalTokens: 506 },
     stopReason: "stop",
     timestamp: Date.now() - 230000,
     durationMs: 2600,
@@ -153,7 +153,7 @@ function startDemoRun(prompt: string): void {
       type: "text",
       text: `我已收到：${prompt}\n\n演示模式：工具调用与思考已折叠为正文上方的标签，悬浮可预览、点击固定到右侧「调用详情」。`,
     }],
-    usage: { input: 120, output: 32, cacheRead: 80, cacheWrite: 0, totalTokens: 232 },
+    usage: { input: 60, output: 32, cacheRead: 440, cacheWrite: 0, totalTokens: 532 },
     stopReason: "stop",
     timestamp: Date.now(),
     durationMs: 320,
@@ -233,15 +233,15 @@ function startDemoRun(prompt: string): void {
         sessionId: demoSessionId,
         runId: demoRunId,
         stats: {
-          input: 850,
+          input: 130,
           output: 176,
-          cacheRead: 740,
+          cacheRead: 1100,
           cacheWrite: 0,
           calls: 3,
           avgTps: 51.2,
           avgLatencyS: 1.8,
-          cacheHitPct: 87.1,
-          contextUsed: 990,
+          cacheHitPct: 88.0,
+          contextUsed: 500,
           contextMax: 200000,
           contextPercent: 0,
         },
@@ -435,15 +435,15 @@ export function installDevMock(): void {
           return Promise.resolve(demoMessages);
         case "session_stats":
           return Promise.resolve({
-            input: 730,
+            input: 70,
             output: 144,
             cacheRead: 660,
             cacheWrite: 0,
             calls: 2,
             avgTps: 53.8,
             avgLatencyS: 2.25,
-            cacheHitPct: 62.9,
-            contextUsed: 814,
+            cacheHitPct: 92.7,
+            contextUsed: 410,
             contextMax: 200000,
             contextPercent: 0,
           });

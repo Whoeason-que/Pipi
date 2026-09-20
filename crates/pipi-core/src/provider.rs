@@ -215,14 +215,31 @@ pub fn to_rig_tools(context: &Context) -> Vec<rig::completion::ToolDefinition> {
 // 响应映射：rig 流 → Pipi StreamEvent
 // ---------------------------------------------------------------------------
 
-fn from_rig_usage(u: &RigUsage) -> Usage {
+/// rig 的用量 → Pipi（pi 口径）的 [`Usage`]。
+///
+/// rig 不统一口径：OpenAI 兼容路径把 `prompt_tokens` 原样塞进 `input_tokens`
+/// （**已含**缓存命中部分），Anthropic 路径的 `input_tokens` 则不含缓存。若照抄，
+/// `input` 与 `cache_read` 就重叠了 —— 上层按 `cache_read / (input + cache_read)`
+/// 算命中率会永远得到 50%，上下文占用也翻倍。这里按协议归一化成 pi 的口径：
+/// `input` 只计未命中部分，`input + cache_read + cache_write` 才是提示词总量。
+fn from_rig_usage(u: &RigUsage, api: Api) -> Usage {
+    let cache_read = u.cached_input_tokens;
+    let cache_write = u.cache_creation_input_tokens;
+    let input = if api.prompt_tokens_include_cache() {
+        u.input_tokens
+            .saturating_sub(cache_read)
+            .saturating_sub(cache_write)
+    } else {
+        u.input_tokens
+    };
     let mut usage = Usage {
-        input: u.input_tokens,
+        input,
         output: u.output_tokens,
-        cache_read: u.cached_input_tokens,
-        cache_write: u.cache_creation_input_tokens,
+        cache_read,
+        cache_write,
         total_tokens: u.total_tokens,
     };
+    // 端点没报总数时自行汇总（归一化之后才等于 wire 上的 prompt + completion）
     if usage.total_tokens == 0 {
         usage.total_tokens = usage.total();
     }
@@ -471,7 +488,7 @@ macro_rules! run_with_model {
             .iter()
             .any(|b| matches!(b, ContentBlock::ToolCall { .. }));
         let reason = map_finish_reason(finish.as_ref(), has_tools);
-        let usage_mapped = from_rig_usage(&usage);
+        let usage_mapped = from_rig_usage(&usage, model.api);
         let message = acc.finalize(&model.id, usage_mapped, reason, duration_ms);
         let _ = tx
             .send(StreamEvent::Done {
@@ -638,6 +655,7 @@ mod tests {
 
     #[test]
     fn maps_usage_with_cache() {
+        // Anthropic 口径：input_tokens 不含缓存，原样透传
         let u = RigUsage {
             input_tokens: 100,
             output_tokens: 20,
@@ -647,11 +665,74 @@ mod tests {
             tool_use_prompt_tokens: 0,
             reasoning_tokens: 0,
         };
-        let mapped = from_rig_usage(&u);
+        let mapped = from_rig_usage(&u, Api::AnthropicMessages);
+        assert_eq!(mapped.input, 100);
         assert_eq!(mapped.cache_read, 80);
         assert_eq!(mapped.cache_write, 5);
         // total 未上报时自行汇总
         assert_eq!(mapped.total_tokens, 205);
+    }
+
+    #[test]
+    fn openai_usage_subtracts_cached_tokens_from_input() {
+        // OpenAI 兼容口径：prompt_tokens 已含 cached_tokens，必须扣掉，
+        // 否则 input 与 cache_read 重叠 —— 命中率会恒为 50%
+        let u = RigUsage {
+            input_tokens: 1000,
+            output_tokens: 50,
+            total_tokens: 1050,
+            cached_input_tokens: 900,
+            cache_creation_input_tokens: 0,
+            tool_use_prompt_tokens: 0,
+            reasoning_tokens: 0,
+        };
+        let mapped = from_rig_usage(&u, Api::OpenAICompletions);
+        assert_eq!(mapped.input, 100);
+        assert_eq!(mapped.cache_read, 900);
+        // 提示词总量回到 wire 上的 prompt_tokens，总数不变
+        assert_eq!(mapped.prompt_tokens(), 1000);
+        assert_eq!(mapped.total_tokens, 1050);
+        assert_eq!(mapped.total(), 1050);
+        // 命中率：900 / 1000 = 90%
+        let hit = mapped.cache_read as f64 / mapped.prompt_tokens() as f64;
+        assert!((hit - 0.9).abs() < 1e-9, "hit={hit}");
+    }
+
+    #[test]
+    fn openai_usage_without_total_stays_consistent() {
+        // 端点不报 total_tokens：汇总值也要等于 prompt + completion（不能把命中算两遍）
+        let u = RigUsage {
+            input_tokens: 610_566,
+            output_tokens: 165,
+            total_tokens: 0,
+            cached_input_tokens: 610_432,
+            cache_creation_input_tokens: 0,
+            tool_use_prompt_tokens: 0,
+            reasoning_tokens: 0,
+        };
+        let mapped = from_rig_usage(&u, Api::OpenAICompletions);
+        assert_eq!(mapped.input, 134);
+        assert_eq!(mapped.total_tokens, 610_731);
+        assert_eq!(mapped.total_tokens, mapped.total());
+        // 真实会话的命中率：610432 / 610566 ≈ 99.98%，而不是 50%
+        let pct = mapped.cache_read as f64 / mapped.prompt_tokens() as f64 * 100.0;
+        assert!((pct - 99.98).abs() < 0.01, "pct={pct}");
+    }
+
+    #[test]
+    fn openai_usage_saturates_when_cache_exceeds_prompt() {
+        // 端点口径混乱（cached > prompt）时不能下溢成天文数字
+        let u = RigUsage {
+            input_tokens: 10,
+            output_tokens: 1,
+            total_tokens: 11,
+            cached_input_tokens: 500,
+            cache_creation_input_tokens: 0,
+            tool_use_prompt_tokens: 0,
+            reasoning_tokens: 0,
+        };
+        let mapped = from_rig_usage(&u, Api::OpenAICompletions);
+        assert_eq!(mapped.input, 0);
     }
 
     #[test]

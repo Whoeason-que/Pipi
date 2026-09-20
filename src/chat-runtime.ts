@@ -277,6 +277,14 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
   };
 }
 
+/** 提示词总量（未命中 + 命中 + 写入）。
+ *
+ * `usage.input` 只计未命中部分 —— provider 适配层已按 pi 口径归一化
+ * （见 Rust 侧 types::Usage 与 provider::from_rig_usage），这里不要再自行相加。 */
+export function promptTokens(usage: UsageView): number {
+  return usage.input + usage.cacheRead + usage.cacheWrite;
+}
+
 export function assistantFooter(message: MessageView): string | null {
   if (message.role !== "assistant" || !message.usage) return null;
   const parts: string[] = [];
@@ -284,7 +292,7 @@ export function assistantFooter(message: MessageView): string | null {
     const tokensPerSecond = message.usage.output / (message.durationMs / 1000);
     parts.push(`${tokensPerSecond.toFixed(1)} tok/s`);
   }
-  const promptTotal = message.usage.input + message.usage.cacheRead + message.usage.cacheWrite;
+  const promptTotal = promptTokens(message.usage);
   if (promptTotal > 0 && message.usage.cacheRead > 0) {
     parts.push(`缓存命中 ${((message.usage.cacheRead / promptTotal) * 100).toFixed(0)}%`);
   }

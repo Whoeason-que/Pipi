@@ -63,7 +63,10 @@ src/                React + TypeScript 前端
 - provider 协议层用 rig（`rig` crate，依赖重命名自 rig-core）：新增 provider
   能力优先看 rig 是否已支持，不要回退到手写 SSE；映射偏差记录在 provider.rs。
 - 统计口径（stats.rs，移植自 hermes）：滚动窗口 N=10、命中率 = cache_read/prompt、
-  数据不足时省略而非显示 0 —— 改统计先对齐这三个语义。
+  数据不足时省略而非显示 0 —— 改统计先对齐这三个语义。用量口径同 pi：`Usage.input`
+  只计未命中缓存的提示词 token（OpenAI 兼容端点的 `prompt_tokens` 已含缓存，拆分在
+  `provider::from_rig_usage` 完成）；读用量一律用 `Usage::prompt_tokens()`，不要再自行
+  相加 —— 相加会把命中量算两遍，命中率恒为 50%。
 - 权限是安全边界：bash 命令检查在 `pipi-core/src/tools/bash.rs` 执行前发生，
   改权限逻辑（`permissions/`）必须带测试，且宁可拒绝不可放行 —— 无法静态
   分析的命令一律视为危险。

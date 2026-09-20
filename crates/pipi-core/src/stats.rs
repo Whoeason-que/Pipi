@@ -4,7 +4,9 @@
 //! 语义与上游一致：
 //! - **滚动平均**：tok/s 与延迟取最近 N 次 API 调用的聚合
 //!   （sum(output)/sum(latency)，N=10），不是逐次平均
-//! - **缓存命中率** = cache_read / (input + cache_read + cache_write)
+//! - **缓存命中率** = cache_read / prompt 总量（prompt = input + cache_read +
+//!   cache_write，其中 `input` 只计未命中部分 —— 口径由 provider 适配层归一化，
+//!   见 `types::Usage`）
 //! - **数据不足时省略而不是编造 0**（上游的原话：omitted, not fabricated）
 //! - **上下文占用**用最近一次请求的实际 token，不是累计值
 
@@ -116,7 +118,7 @@ impl SessionStatsTracker {
         }
 
         // 最近一次请求的实际窗口占用：input + cache_read + cache_write
-        let prompt = usage.input + usage.cache_read + usage.cache_write;
+        let prompt = usage.prompt_tokens();
         self.last = Some(CallObservation {
             output_tokens: usage.output,
             latency_s: latency_s.unwrap_or(0.0),
@@ -184,7 +186,7 @@ pub fn message_stats(message: &Message) -> (Option<f64>, Option<f64>) {
     let tps = duration_ms
         .filter(|ms| *ms > 0)
         .map(|ms| usage.output as f64 / (ms as f64 / 1000.0));
-    let prompt_total = usage.input + usage.cache_read + usage.cache_write;
+    let prompt_total = usage.prompt_tokens();
     let cache_hit = if prompt_total > 0 && usage.cache_read > 0 {
         Some((usage.cache_read as f64 / prompt_total as f64 * 100.0).min(100.0))
     } else {
@@ -294,6 +296,39 @@ mod tests {
         // 非 assistant 消息不计入
         tracker.record(&Message::user_text("hi"));
         assert_eq!(tracker.snapshot().calls, 1);
+    }
+
+    #[test]
+    fn cache_hit_uses_uncached_input_only() {
+        // 回归：OpenAI 兼容端点上报的 prompt_tokens 已含缓存部分，适配层扣掉之后
+        // `input` 只剩未命中量。命中率必须按 input + cache_read 算 —— 若哪天又把
+        // cache_read 加回 input（重复计数），这里会掉回 50%。
+        let mut tracker = SessionStatsTracker::new(Some(1_000_000));
+        tracker.record(&assistant(
+            Usage {
+                input: 134,
+                output: 165,
+                cache_read: 610_432,
+                cache_write: 0,
+                total_tokens: 610_731,
+            },
+            1_000,
+        ));
+        let stats = tracker.snapshot();
+        let hit = stats.cache_hit_pct.unwrap();
+        assert!((hit - 99.98).abs() < 0.01, "hit={hit}");
+        assert_eq!(stats.context_used, Some(610_566));
+        let (_, per_message) = message_stats(&assistant(
+            Usage {
+                input: 134,
+                output: 165,
+                cache_read: 610_432,
+                cache_write: 0,
+                total_tokens: 610_731,
+            },
+            1_000,
+        ));
+        assert!((per_message.unwrap() - 99.98).abs() < 0.01);
     }
 
     #[test]

@@ -32,6 +32,22 @@ impl Api {
             Api::OpenAICompletions => "openai-completions",
         }
     }
+
+    /// 该协议的用量上报是否把缓存 token 算在提示词总数里。
+    ///
+    /// OpenAI 兼容协议的 `prompt_tokens` **已包含** `prompt_tokens_details.cached_tokens`
+    /// （DeepSeek 的 `prompt_cache_hit_tokens`、Kimi 的顶层 `cached_tokens` 同理）；
+    /// Anthropic 的 `input_tokens` 与 `cache_read_input_tokens` /
+    /// `cache_creation_input_tokens` 并列，**不含**缓存部分。
+    ///
+    /// rig 对两种口径都原样透传，所以归一化必须在适配层按本方法完成（provider.rs 的
+    /// `from_rig_usage`），上层一律按 pi 的口径读取。
+    pub fn prompt_tokens_include_cache(&self) -> bool {
+        match self {
+            Api::OpenAICompletions => true,
+            Api::AnthropicMessages => false,
+        }
+    }
 }
 
 /// 助手消息的内容块。对应 pi 的 `TextContent | ThinkingContent | ToolCall`。
@@ -67,6 +83,13 @@ pub enum ToolResultContent {
     },
 }
 
+/// 单次调用的 token 用量。对应 pi 的 `Usage`。
+///
+/// 口径与 pi（`packages/ai` 的 `AssistantMessage["usage"]`）一致：`input` 只计
+/// **未命中缓存**的提示词 token，缓存命中 / 写入分别落在 `cache_read` /
+/// `cache_write`，`total_tokens` 是四者之和。各协议的上报口径不同（见
+/// [`Api::prompt_tokens_include_cache`]），归一化由 provider 适配层负责 ——
+/// 凡是读用量（统计、上下文占用、前端脚注）都要按本口径理解，不要再自行相加。
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
@@ -78,8 +101,14 @@ pub struct Usage {
 }
 
 impl Usage {
+    /// 本次请求的提示词总量（未命中 + 命中 + 写入）。
+    pub fn prompt_tokens(&self) -> u64 {
+        self.input + self.cache_read + self.cache_write
+    }
+
+    /// 本次请求的全部 token（提示词总量 + 输出）。
     pub fn total(&self) -> u64 {
-        self.input + self.output + self.cache_read + self.cache_write
+        self.prompt_tokens() + self.output
     }
 }
 

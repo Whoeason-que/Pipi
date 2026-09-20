@@ -159,12 +159,23 @@ prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`permissi
 （命令权限）、`agents`（Agent 注册表）、`catalog`（模型目录，models.dev）、
 memory 工具（含渐进召回注入）、glob/grep 检索工具。
 
+**用量口径**（`types::Usage`，与 pi 的 `AssistantMessage["usage"]` 一致）：`input`
+只计**未命中缓存**的提示词 token，命中/写入分别落在 `cache_read` / `cache_write`，
+于是「提示词总量 = input + cache_read + cache_write」、「命中率 = cache_read / 提示词
+总量」这两条算式在各协议下都成立。各协议的上报口径不同 —— OpenAI 兼容的
+`prompt_tokens` **已含** `prompt_tokens_details.cached_tokens`（DeepSeek 的
+`prompt_cache_hit_tokens` 同理），Anthropic 的 `input_tokens` 则不含 —— rig 两种都原样
+透传，所以拆分在 `provider::from_rig_usage` 按 `Api::prompt_tokens_include_cache`
+完成（对齐 pi `openai-completions.ts` 的 `Math.max(0, promptTokens - cacheRead - cacheWrite)`）。
+上层（stats / 前端脚注）只读归一化后的值，不再自行相加。
+
 ### 与 opencode / hermes 的关系
 
 - **opencode**（[anomalyco/opencode](https://github.com/anomalyco/opencode)，原 sst/opencode）：
   「provider 层用第三方库」的架构决策来自它
   （它用 Vercel AI SDK，我们用 rig）；`session.ts` 里 usage 的归一化口径
-  （cache read/write 从输入中拆分）与我们的 Usage 字段一致。glob/grep 检索
+  （cache read/write 从输入中拆分）与我们的 Usage 字段一致（拆分位置见上文
+  「用量口径」）。glob/grep 检索
   工具对齐它的结果上限约定：单次 100 条 + "use a more specific pattern"
   注释，`include` 支持 `*.{ts,tsx}` 花括号展开。
 - **工具配对不变量**（pi + opencode）：OpenAI / Anthropic 都要求「带
@@ -182,8 +193,8 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
   `https://api.deepseek.com`（无版本段），而 rig 的 OpenAI 兼容客户端会往后拼路径。
 - **hermes**（NousResearch/hermes-agent）：会话统计面板整套语义来自它 ——
   滚动 N 次调用的平均 tok/s（sum(output)/sum(latency)）、缓存命中率
-  （cache_read / prompt 总量）、上下文占用用最近一次请求的实际值而非累计值，
-  以及「数据不足时省略而不是编造 0」的原则。见 `stats.rs`。
+  （cache_read / prompt 总量，prompt 口径见上）、上下文占用用最近一次请求的实际值
+  而非累计值，以及「数据不足时省略而不是编造 0」的原则。见 `stats.rs`。
 
 ### 与 codex 的关系
 
