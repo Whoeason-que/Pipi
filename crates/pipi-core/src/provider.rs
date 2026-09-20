@@ -55,6 +55,9 @@ pub fn provider_for(api: Api) -> std::sync::Arc<dyn Provider> {
 /// 这样它才能做路由优化与 prompt 缓存。Hermes、Claude Code 等客户端都按此实现。
 const SESSION_HEADER_PROVIDERS: &[(&str, &str)] = &[("opencode.ai/zen/go", "x-opencode-session")];
 
+/// `StreamOptions.timeout_secs` 为 0 时的请求时限（秒）：无进展即中止。
+const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
+
 /// 我们自己的 User-Agent。供应商文档普遍要求客户端别用通用 SDK / HTTP 库的名字。
 fn pipi_user_agent() -> String {
     format!("pipi/{}", env!("CARGO_PKG_VERSION"))
@@ -366,20 +369,38 @@ macro_rules! run_with_model {
             builder = builder.tools(to_rig_tools(context));
         }
 
-        let mut stream = builder
-            .stream()
-            .await
-            .map_err(|e| format!("请求失败: {e}"))?;
+        // 请求级时限（无进展超时）：从发起请求到首个事件、以及相邻事件之间，
+        // 超过时限没有任何数据即中止 —— 挂死的连接变成可见错误，而不是让会话
+        // 无限期停在「运行中」。持续有增量的长响应不受影响。
+        let idle_secs = if options.timeout_secs == 0 {
+            DEFAULT_REQUEST_TIMEOUT_SECS
+        } else {
+            options.timeout_secs
+        };
+        let idle = std::time::Duration::from_secs(idle_secs);
+
+        let mut stream = match tokio::time::timeout(idle, builder.stream()).await {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(e)) => return Err(format!("请求失败: {e}")),
+            Err(_) => {
+                return Err(format!(
+                    "请求超时：{idle_secs} 秒内未开始响应（端点无响应或网络不可达）"
+                ))
+            }
+        };
 
         let mut acc = Accumulator::default();
         let mut finish: Option<FinishReason> = None;
         let mut usage = RigUsage::default();
         let mut saw_final = false;
+        let mut timed_out = false;
 
         loop {
             let item = tokio::select! {
                 _ = $abort.wait_aborted() => None,
                 item = stream.next() => item,
+                // 每个事件到达都会重开计时：这是「无进展」超时，不是总时长超时
+                _ = tokio::time::sleep(idle) => { timed_out = true; None }
             };
             let Some(item) = item else { break };
             match item.map_err(|e| format!("流错误: {e}"))? {
@@ -431,6 +452,12 @@ macro_rules! run_with_model {
                 }
                 StreamedAssistantContent::Unknown(_) => {}
             }
+        }
+
+        if timed_out {
+            return Err(format!(
+                "请求超时：{idle_secs} 秒内没有新的响应数据，已中止本轮请求"
+            ));
         }
 
         if !saw_final || $abort.is_aborted() {

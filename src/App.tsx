@@ -122,6 +122,8 @@ export default function App() {
   const [sessionsByAgent, setSessionsByAgent] = useState<Record<string, SessionSummaryView[]>>({});
   const [activeSession, setActiveSession] = useState<SessionInfoView | null>(null);
   const [chatRunning, setChatRunning] = useState(false);
+  /** 核心里正在运行的会话属于哪个 Agent：用于放行「进入该 Agent 停止」。 */
+  const [runningAgent, setRunningAgent] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [connection, setConnection] = useState<ConnectionState>(getConnectionState());
@@ -157,8 +159,56 @@ export default function App() {
       return;
     }
     if (msg.includes("需要 PIPI_AUTH_TOKEN")) return;
+    // 核心的「运行中」拒绝：前端状态可能滞后于核心（例如界面刚重载），
+    // 换成可执行的指引而不是把核心原文丢给用户。
+    if (msg.includes("当前会话仍在运行")) {
+      setError("Agent 正在运行：请进入该 Agent 的会话停止，或等它完成后再操作");
+      return;
+    }
     setError(msg);
   }, []);
+
+  // 身份必须保持稳定：ChatView 的卸载清理以它为依赖，变化会被误判为卸载而中止运行
+  const handleRunningChange = useCallback((running: boolean) => {
+    setChatRunning(running);
+    setRunningAgent(running ? selectedRef.current : null);
+  }, []);
+
+  // 运行态以核心为准：前端可能整体重载（HMR / 刷新）而核心里的运行还在继续，
+  // 只靠 ChatView 的 onRunningChange 会让界面自认空闲、守卫放行后撞上核心拒绝。
+  useEffect(() => {
+    let active = true;
+    void invoke<SessionInfoView | null>("session_info")
+      .then((info) => {
+        if (!active || !info?.running) return;
+        setChatRunning(true);
+        setRunningAgent(info.agentName);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // 未打开会话视图时，运行结束的信号不会到达前端：轮询到它结束为止
+  //（仅在有已知运行且对话未打开时生效，开销为一次本地 IPC）。
+  useEffect(() => {
+    if (!chatRunning || chatOpen) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void invoke<SessionInfoView | null>("session_info")
+        .then((info) => {
+          if (!active || info?.running) return;
+          setChatRunning(false);
+          setRunningAgent(null);
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [chatRunning, chatOpen]);
 
   useEffect(() => {
     let active = true;
@@ -401,7 +451,23 @@ export default function App() {
 
   const startNewSession = async (agentName: string) => {
     if (chatRunning) {
-      setError("Agent 正在运行，请先停止后再新建会话");
+      // 运行中的就是本 Agent：允许进入它的会话（那里有停止按钮），
+      // 但不新建会话——核心的槽位被运行占用，new_session 也会被拒。
+      if (agentName === runningAgent) {
+        invalidateNavigation();
+        setSelected(agentName);
+        setCreating(false);
+        setChatOpen(true);
+        setSidebarOpen(false);
+        setActiveSession(null);
+        setChatKey((key) => key + 1);
+        return;
+      }
+      setError(
+        runningAgent
+          ? `Agent「${runningAgent}」正在运行，请进入它的会话停止后再新建`
+          : "Agent 正在运行，请先停止后再新建会话",
+      );
       return;
     }
     const requestId = ++navigationRequestRef.current;
@@ -622,12 +688,21 @@ export default function App() {
   };
 
   const selectAgent = (agentName: string) => {
-    if (chatRunning) {
-      setError("Agent 正在运行，请先停止后再切换");
+    // 运行中唯一放行的路径：从外部进入那个正在跑的 Agent（前端重载后核心
+    // 仍在运行时，用户需要一个入口进到它的会话里点停止）。对话已打开时
+    // 仍然拦住 —— 放行会卸载 ChatView 并静默中止运行。
+    const enterRunningAgent = chatRunning && runningAgent === agentName && !chatOpen;
+    if (chatRunning && !enterRunningAgent) {
+      setError(
+        runningAgent
+          ? `Agent「${runningAgent}」正在运行，请进入它的会话停止后再切换`
+          : "Agent 正在运行，请先停止后再切换",
+      );
       return;
     }
     invalidateNavigation();
-    // 释放后端会话槽（new_session 仅清空槽、不落盘），避免该 Agent 被占用检查锁住
+    // 释放后端会话槽（new_session 仅清空槽、不落盘），避免该 Agent 被占用检查锁住。
+    // 运行中的会话会被核心拒绝（无害）：进入它只是为了能点停止。
     void invoke("new_session").catch(() => {});
     setSelected(agentName);
     setCreating(false);
@@ -1058,7 +1133,7 @@ export default function App() {
                   }}
                   onError={safeSetError}
                   onNewSession={createSessionFromChat}
-                  onRunningChange={setChatRunning}
+                  onRunningChange={handleRunningChange}
                   onSessionReset={(info) => {
                     setActiveSession(info ?? null);
                     void refreshSessions([current.name]);

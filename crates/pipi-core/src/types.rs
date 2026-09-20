@@ -288,7 +288,9 @@ pub struct StreamOptions {
     pub api_key: Option<String>,
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
-    /// 单次请求的整体超时（秒）；0 表示使用默认 300 秒。
+    /// 请求时限（秒），**无进展超时**语义：从发起请求到首个响应事件、以及
+    /// 相邻事件之间，超过该时长没有任何数据即中止本轮（挂死的连接变成可见
+    /// 错误，而不是无限等待）。持续有增量的长响应不受影响。0 表示默认 300 秒。
     pub timeout_secs: u64,
     /// 当前会话 ID。少数供应商要求客户端自带会话标识才肯路由
     /// （如 OpenCode Go 的 `x-opencode-session`），见 provider::extra_headers。
