@@ -269,6 +269,9 @@ async fn stream_assistant_response(
         Some(hook) => hook(context.messages.clone()),
         None => context.messages.clone(),
     };
+    // 发送前最后一道闸：修复工具配对（缺失结果补合成错误、孤儿结果丢弃）。
+    // 破损历史无论来自进程中断、批次中止还是手工编辑，都会让端点按协议 400。
+    let effective_messages = crate::context::repair_tool_pairing(effective_messages);
     let wire = Context {
         system_prompt: (!context.system_prompt.is_empty()).then(|| context.system_prompt.clone()),
         messages: effective_messages,
@@ -655,10 +658,10 @@ async fn execute_sequential(
         };
         terminates.push(finalized.result.terminate);
         messages.push(emit_finalized(call, &finalized, emit));
-
-        if abort.is_aborted() {
-            break;
-        }
+        // 中止不变量：批次里每个调用都必须留下结果。abort 之后的调用由
+        // prepare_call 直接判为「Operation aborted」，继续走完循环即可 ——
+        // 静默丢弃会让会话历史留下无主的 tool_call，供应商按协议 400
+        //（与 pi 一致：abort 也产出错误结果，见 createErrorToolResult）。
     }
 
     Batch {
@@ -685,9 +688,7 @@ async fn execute_parallel(
             args,
         });
         prepared.push((call.clone(), prepare_call(call, config, abort)));
-        if abort.is_aborted() {
-            break;
-        }
+        // 同 execute_sequential：abort 不丢弃剩余调用，每个调用都要有结果
     }
 
     let mut futures = Vec::new();
@@ -1155,5 +1156,208 @@ mod tests {
             Message::User { content, .. } => assert!(content.contains("also do X")),
             other => panic!("expected steering user message, got {other:?}"),
         }
+    }
+
+    // ----- 中止不变量：批次里每个调用都必须留下结果 -----
+
+    fn two_call_turn(id1: &str, id2: &str) -> Vec<StreamEvent> {
+        let call1 = ContentBlock::ToolCall {
+            id: id1.into(),
+            name: "count".into(),
+            arguments: json!({"n": 1}),
+        };
+        let call2 = ContentBlock::ToolCall {
+            id: id2.into(),
+            name: "count".into(),
+            arguments: json!({"n": 2}),
+        };
+        vec![
+            StreamEvent::Start,
+            StreamEvent::ToolCallEnd {
+                content_index: 0,
+                call: call1.clone(),
+            },
+            StreamEvent::ToolCallEnd {
+                content_index: 1,
+                call: call2.clone(),
+            },
+            StreamEvent::Done {
+                reason: StopReason::ToolUse,
+                usage: Usage::default(),
+                message: Box::new(assistant_message(
+                    vec![call1, call2],
+                    StopReason::ToolUse,
+                )),
+            },
+        ]
+    }
+
+    /// 在交付助手消息前触发中止的 provider：模拟「模型已产出工具调用，
+    /// 但批次执行前用户按了停止」。
+    struct AbortingProvider {
+        inner: ScriptedProvider,
+        abort: AbortSignal,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for AbortingProvider {
+        async fn stream(
+            &self,
+            model: &Model,
+            context: &Context,
+            options: &StreamOptions,
+            abort: AbortSignal,
+        ) -> crate::provider::EventStream {
+            self.abort.abort();
+            self.inner.stream(model, context, options, abort).await
+        }
+    }
+
+    async fn aborted_batch_yields_results_for_every_call(mode: ToolExecutionMode) {
+        let registry = Arc::new(ToolRegistry::new(vec![Arc::new(CountTool {
+            calls: Arc::new(Mutex::new(Vec::new())),
+        })]));
+        let abort = AbortSignal::new();
+        let provider = Arc::new(AbortingProvider {
+            inner: ScriptedProvider {
+                turns: vec![two_call_turn("a1", "a2"), stop_turn("never")],
+                call: AtomicUsize::new(0),
+            },
+            abort: abort.clone(),
+        });
+        let mut config = test_config(provider, registry, None);
+        config.tool_execution = mode;
+        let emit: Emitter = Arc::new(|_| {});
+
+        let new_messages = run_agent_loop(
+            vec![Message::user_text("go")],
+            AgentContext::default(),
+            config,
+            emit,
+            abort,
+        )
+        .await;
+
+        let answered: Vec<(&str, bool)> = new_messages
+            .iter()
+            .filter_map(|message| match message {
+                Message::ToolResult {
+                    tool_call_id,
+                    is_error,
+                    ..
+                } => Some((tool_call_id.as_str(), *is_error)),
+                _ => None,
+            })
+            .collect();
+        // 每个工具调用都要有结果（否则历史留下无主 tool_call，端点按协议 400）
+        assert_eq!(
+            answered,
+            vec![("a1", true), ("a2", true)],
+            "中止后仍应为每个调用产出错误结果"
+        );
+    }
+
+    #[tokio::test]
+    async fn aborted_sequential_batch_answers_every_call() {
+        aborted_batch_yields_results_for_every_call(ToolExecutionMode::Sequential).await;
+    }
+
+    #[tokio::test]
+    async fn aborted_parallel_batch_answers_every_call() {
+        aborted_batch_yields_results_for_every_call(ToolExecutionMode::Parallel).await;
+    }
+
+    // ----- 发送前配对修复：provider 实际收到的历史必须合法 -----
+
+    /// 记录 provider 每次请求看到的消息角色/toolCallId 的 provider。
+    struct CaptureProvider {
+        inner: ScriptedProvider,
+        seen: Arc<Mutex<Vec<Vec<(String, String)>>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for CaptureProvider {
+        async fn stream(
+            &self,
+            model: &Model,
+            context: &Context,
+            options: &StreamOptions,
+            abort: AbortSignal,
+        ) -> crate::provider::EventStream {
+            let roles = context
+                .messages
+                .iter()
+                .map(|message| match message {
+                    Message::User { .. } => ("user".to_string(), String::new()),
+                    Message::Assistant { .. } => ("assistant".to_string(), String::new()),
+                    Message::ToolResult {
+                        tool_call_id,
+                        is_error,
+                        ..
+                    } => (
+                        if *is_error { "tool-error" } else { "tool" }.to_string(),
+                        tool_call_id.clone(),
+                    ),
+                })
+                .collect();
+            self.seen.lock().unwrap().push(roles);
+            self.inner.stream(model, context, options, abort).await
+        }
+    }
+
+    #[tokio::test]
+    async fn wire_history_repairs_dangling_tool_call_before_send() {
+        let registry = Arc::new(ToolRegistry::new(vec![]));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(CaptureProvider {
+            inner: ScriptedProvider {
+                turns: vec![stop_turn("ok")],
+                call: AtomicUsize::new(0),
+            },
+            seen: seen.clone(),
+        });
+        let config = test_config(provider, registry, None);
+        let emit: Emitter = Arc::new(|_| {});
+
+        // 历史里的破损（进程中断留下的中段悬挂）：assistant 带 tool_calls
+        // 之后直接跟 user 消息，没有任何 tool 结果。
+        let dangling = Message::Assistant {
+            content: vec![ContentBlock::ToolCall {
+                id: "c1".into(),
+                name: "bash".into(),
+                arguments: json!({"command": "sleep 300"}),
+            }],
+            api: String::new(),
+            provider: String::new(),
+            model: "m".into(),
+            usage: Usage::default(),
+            stop_reason: StopReason::ToolUse,
+            error_message: None,
+            timestamp: 0,
+            duration_ms: None,
+        };
+        let context = AgentContext {
+            system_prompt: String::new(),
+            messages: vec![
+                Message::user_text("hi"),
+                dangling,
+                Message::user_text("继续"),
+            ],
+        };
+
+        run_agent_loop(Vec::new(), context, config, emit, AbortSignal::new()).await;
+
+        let seen = seen.lock().unwrap();
+        let first_request = &seen[0];
+        assert_eq!(
+            first_request.clone(),
+            vec![
+                ("user".to_string(), String::new()),
+                ("assistant".to_string(), String::new()),
+                ("tool-error".to_string(), "c1".to_string()),
+                ("user".to_string(), String::new()),
+            ],
+            "发出去的历史里，悬挂的 tool_calls 必须被补上结果"
+        );
     }
 }

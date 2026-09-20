@@ -481,6 +481,45 @@ fn writer_session_id(writer: &Arc<Mutex<SessionWriter>>) -> Result<String, Strin
         .ok_or_else(|| "无法解析会话 ID".to_string())
 }
 
+/// 载入自愈：会话尾部若留下未被回答的工具调用（上一次运行被进程中断 ——
+/// 应用重启、强杀，结果没来得及落盘），追加合成的失败结果条目。
+///
+/// 只处理**尾部**：悬挂的 assistant 消息此时就是文件 tip，追加的 tool 结果
+/// 成为它的子节点，消息顺序天然正确，会话记录被修复成合法状态（append-only，
+/// 不重写任何已有条目）。历史中段的悬挂无法原地修复（树的顺序不可变），
+/// 由发送前的 [`crate::context::repair_tool_pairing`] 兜底 —— 对齐 pi 的
+/// post-tools / recovery 在回合结束时结算「orphaned / aborted」调用的做法。
+fn settle_unanswered_tail(
+    writer: &mut SessionWriter,
+    messages: &[Message],
+) -> Result<Vec<Message>, String> {
+    let Some(last) = messages.last() else {
+        return Ok(Vec::new());
+    };
+    let calls: Vec<(String, String)> = last
+        .tool_calls()
+        .iter()
+        .filter_map(|call| match call {
+            crate::types::ContentBlock::ToolCall { id, name, .. } => {
+                Some((id.clone(), name.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    if calls.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut appended = Vec::with_capacity(calls.len());
+    for (id, name) in calls {
+        let result = crate::context::missing_tool_result(&id, &name);
+        writer
+            .append_message(&result)
+            .map_err(|error| error.to_string())?;
+        appended.push(result);
+    }
+    Ok(appended)
+}
+
 fn make_emitter(
     sink: EventEmitter,
     writer: Arc<Mutex<SessionWriter>>,
@@ -852,12 +891,19 @@ impl RuntimeState {
 
         let entries = load_session(&path).map_err(|e| e.to_string())?;
         let active = crate::session::active_path(&entries);
-        let messages = crate::session::rebuild_messages(&active);
+        let mut messages = crate::session::rebuild_messages(&active);
         let active_model = crate::session::active_model_from_entries(&entries);
         let effective_model = active_model.as_ref().or(def.provider.as_ref());
         let context_max = effective_model
             .map(|provider| provider.context_window)
             .filter(|window| *window > 0);
+        // 载入自愈：上次运行被进程中断时，尾部会留下无人回答的工具调用 ——
+        // 补上合成的失败结果并落盘，否则之后每次请求都会被端点按协议拒绝。
+        let mut writer = SessionWriter::open(&path).map_err(|e| e.to_string())?;
+        match settle_unanswered_tail(&mut writer, &messages) {
+            Ok(appended) => messages.extend(appended),
+            Err(error) => eprintln!("pipi: 会话尾部修复失败（继续载入）: {error}"),
+        }
         let mut tracker = SessionStatsTracker::new(context_max);
         for message in &messages {
             tracker.record(message);
@@ -866,9 +912,7 @@ impl RuntimeState {
         *slot = Some(Session {
             agent: def,
             messages: Arc::new(tokio::sync::Mutex::new(messages)),
-            writer: Arc::new(Mutex::new(
-                SessionWriter::open(&path).map_err(|e| e.to_string())?,
-            )),
+            writer: Arc::new(Mutex::new(writer)),
             stats: Arc::new(Mutex::new(tracker)),
             abort: AbortSignal::new(),
             running: Arc::new(RunState::new()),
@@ -916,13 +960,20 @@ impl RuntimeState {
 
         let entries = load_session(&new_session_path).map_err(|e| e.to_string())?;
         let active = crate::session::active_path(&entries);
-        let messages = crate::session::rebuild_messages(&active);
+        let mut messages = crate::session::rebuild_messages(&active);
         let active_model = crate::session::active_model_from_entries(&entries);
         let effective_model = active_model.clone().or_else(|| def.provider.clone());
         let context_max = effective_model
             .as_ref()
             .map(|provider| provider.context_window)
             .filter(|window| *window > 0);
+        // 分叉出的会话同样载入自愈：源会话尾部若留下无主工具调用，分叉会
+        // 把它原样复制过来（见 settle_unanswered_tail 的说明）。
+        let mut writer = writer;
+        match settle_unanswered_tail(&mut writer, &messages) {
+            Ok(appended) => messages.extend(appended),
+            Err(error) => eprintln!("pipi: 会话尾部修复失败（继续载入）: {error}"),
+        }
         let mut tracker = SessionStatsTracker::new(context_max);
         for message in &messages {
             tracker.record(message);

@@ -161,11 +161,20 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
 
 ### 与 opencode / hermes 的关系
 
-- **opencode**（sst/opencode）：「provider 层用第三方库」的架构决策来自它
+- **opencode**（[anomalyco/opencode](https://github.com/anomalyco/opencode)，原 sst/opencode）：
+  「provider 层用第三方库」的架构决策来自它
   （它用 Vercel AI SDK，我们用 rig）；`session.ts` 里 usage 的归一化口径
   （cache read/write 从输入中拆分）与我们的 Usage 字段一致。glob/grep 检索
   工具对齐它的结果上限约定：单次 100 条 + "use a more specific pattern"
   注释，`include` 支持 `*.{ts,tsx}` 花括号展开。
+- **工具配对不变量**（pi + opencode）：OpenAI / Anthropic 都要求「带
+  `tool_calls` 的 assistant 消息后面必须紧跟回答每个 `tool_call_id` 的 tool
+  消息」，历史里任何破损（进程中断、批次中止、手工编辑）都会让请求被 400
+  拒绝。Pipi 三层保证：批次中止时仍为每个调用产出错误结果（对齐 pi 的
+  post-tools 不变量与 `createErrorToolResult`）；打开会话时修复被中断的
+  **尾部回合**并落盘（对齐 pi recovery 对 orphaned 任务的结算）；发送前
+  `context::repair_tool_pairing` 兜底（对齐 opencode `session/message-v2.ts`
+  给 pending/running 调用补 `output-error` 的做法）。
 - **模型目录**：运行时从 [models.dev](https://models.dev)（MIT，opencode 用的模型目录）
   拉取并缓存到 `~/.pipi/cache/models.json`；Pipi 只保留「收录哪些家 + 端点/协议的人工
   核实」这一张 `CURATION` 表（`crates/pipi-core/src/catalog.rs`）。上游给的是 AI SDK

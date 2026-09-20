@@ -101,6 +101,86 @@ pub fn prune_transform(
     move |messages| prune_oldest(&messages, context_window, reserve_tokens).0
 }
 
+/// 结果缺失时写给模型看的合成 tool 结果文案（发送前修复与载入自愈共用）。
+pub const MISSING_TOOL_RESULT_TEXT: &str =
+    "工具结果缺失：这一轮执行被中断（应用重启 / 强制停止），该调用没有产出结果。";
+
+/// 合成一条「结果缺失」的失败 tool 结果。
+pub fn missing_tool_result(tool_call_id: &str, tool_name: &str) -> Message {
+    Message::ToolResult {
+        tool_call_id: tool_call_id.to_string(),
+        tool_name: tool_name.to_string(),
+        content: vec![ToolResultContent::Text {
+            text: MISSING_TOOL_RESULT_TEXT.into(),
+        }],
+        is_error: true,
+        details: None,
+        timestamp: crate::types::now_millis(),
+    }
+}
+
+/// 工具配对修复：保证「带 tool_calls 的 assistant 消息」后面紧跟回答每个
+/// `tool_call_id` 的 tool 结果 —— 缺失的补一条合成错误结果，不回答任何前置
+/// 调用的孤儿结果丢弃。
+///
+/// 协议硬校验这对配对（OpenAI：「An assistant message with 'tool_calls' must
+/// be followed by tool messages responding to each 'tool_call_id'」；Anthropic
+/// 同理），历史里任何来源的破损（进程中断、批次中止、手工编辑）都会让整个
+/// 会话无法继续。这里是**发送前**的最后一道闸（对齐 opencode
+/// `session/message-v2.ts` 对 pending/running 工具调用补 output-error 的做法）：
+/// 不写盘、不改变会话记录，只保证发出去的请求合法。
+pub fn repair_tool_pairing(messages: Vec<Message>) -> Vec<Message> {
+    let needs_repair = messages.iter().any(|message| {
+        matches!(message, Message::ToolResult { .. }) || !message.tool_calls().is_empty()
+    });
+    if !needs_repair {
+        return messages;
+    }
+
+    let mut out: Vec<Message> = Vec::with_capacity(messages.len());
+    // 尚未被回答的调用：(id, 工具名)
+    let mut pending: Vec<(String, String)> = Vec::new();
+    for message in messages {
+        match &message {
+            Message::ToolResult { tool_call_id, .. } => {
+                // 只保留回答前置调用的结果（顺带保证每个调用只被回答一次）；
+                // 找不到对应调用的孤儿结果丢弃 —— 协议同样会拒绝。
+                if let Some(position) = pending.iter().position(|(id, _)| id == tool_call_id) {
+                    pending.remove(position);
+                    out.push(message);
+                }
+            }
+            Message::Assistant { .. } => {
+                flush_pending(&mut out, &mut pending);
+                pending = message
+                    .tool_calls()
+                    .iter()
+                    .filter_map(|call| match call {
+                        ContentBlock::ToolCall { id, name, .. } => {
+                            Some((id.clone(), name.clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                out.push(message);
+            }
+            Message::User { .. } => {
+                // 用户消息也要先封口：tool 结果必须紧跟它回答的 assistant 消息
+                flush_pending(&mut out, &mut pending);
+                out.push(message);
+            }
+        }
+    }
+    flush_pending(&mut out, &mut pending);
+    out
+}
+
+fn flush_pending(out: &mut Vec<Message>, pending: &mut Vec<(String, String)>) {
+    for (id, name) in pending.drain(..) {
+        out.push(missing_tool_result(&id, &name));
+    }
+}
+
 /// 将文件系统路径安全地渲染进 prompt：规范化分隔符、可见化控制字符并
 /// 转义 XML 特殊字符，避免路径破坏上下文标签或注入额外行。
 pub(crate) fn escape_path_for_prompt(value: &str) -> String {
@@ -262,5 +342,142 @@ mod tests {
         );
         assert!(ctx.contains("<cwd>/tmp/a&lt;&amp;&gt;&quot;&apos;\\nnext</cwd>"));
         assert!(!ctx.contains("<cwd>/tmp/a<&>\"'"));
+    }
+}
+
+#[cfg(test)]
+mod pairing_tests {
+    use super::*;
+    use crate::types::{ContentBlock, StopReason, Usage};
+
+    fn assistant_with_calls(calls: &[(&str, &str)]) -> Message {
+        Message::Assistant {
+            content: calls
+                .iter()
+                .map(|(id, name)| ContentBlock::ToolCall {
+                    id: (*id).into(),
+                    name: (*name).into(),
+                    arguments: serde_json::json!({}),
+                })
+                .collect(),
+            api: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            usage: Usage::default(),
+            stop_reason: StopReason::ToolUse,
+            error_message: None,
+            timestamp: 0,
+            duration_ms: None,
+        }
+    }
+
+    fn tool_result(id: &str, name: &str) -> Message {
+        Message::ToolResult {
+            tool_call_id: id.into(),
+            tool_name: name.into(),
+            content: vec![ToolResultContent::Text { text: "out".into() }],
+            is_error: false,
+            details: None,
+            timestamp: 0,
+        }
+    }
+
+    fn role_ids(messages: &[Message]) -> Vec<(String, String)> {
+        messages
+            .iter()
+            .map(|message| match message {
+                Message::User { .. } => ("user".into(), String::new()),
+                Message::Assistant { .. } => ("assistant".into(), String::new()),
+                Message::ToolResult {
+                    tool_call_id,
+                    is_error,
+                    ..
+                } => (
+                    if *is_error { "tool-error" } else { "tool" }.into(),
+                    tool_call_id.clone(),
+                ),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn healthy_history_is_unchanged() {
+        let messages = vec![
+            Message::user_text("hi"),
+            assistant_with_calls(&[("c1", "bash"), ("c2", "read")]),
+            tool_result("c1", "bash"),
+            tool_result("c2", "read"),
+            Message::assistant_text("done", "m"),
+        ];
+        let repaired = repair_tool_pairing(messages.clone());
+        assert_eq!(repaired, messages);
+    }
+
+    #[test]
+    fn missing_results_are_synthesized_right_after_the_assistant() {
+        let messages = vec![
+            Message::user_text("hi"),
+            assistant_with_calls(&[("c1", "bash")]),
+            Message::user_text("继续"),
+            Message::assistant_text("ok", "m"),
+        ];
+        let repaired = repair_tool_pairing(messages);
+        assert_eq!(
+            role_ids(&repaired),
+            vec![
+                ("user".to_string(), String::new()),
+                ("assistant".to_string(), String::new()),
+                ("tool-error".to_string(), "c1".to_string()),
+                ("user".to_string(), String::new()),
+                ("assistant".to_string(), String::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn partial_batch_is_completed_in_order() {
+        let messages = vec![
+            assistant_with_calls(&[("c1", "bash"), ("c2", "read"), ("c3", "grep")]),
+            tool_result("c1", "bash"),
+        ];
+        let repaired = repair_tool_pairing(messages);
+        assert_eq!(
+            role_ids(&repaired),
+            vec![
+                ("assistant".to_string(), String::new()),
+                ("tool".to_string(), "c1".to_string()),
+                ("tool-error".to_string(), "c2".to_string()),
+                ("tool-error".to_string(), "c3".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn orphan_tool_results_are_dropped() {
+        let messages = vec![
+            Message::user_text("hi"),
+            tool_result("ghost", "bash"),
+            assistant_with_calls(&[("c1", "bash")]),
+            tool_result("c1", "bash"),
+        ];
+        let repaired = repair_tool_pairing(messages);
+        assert_eq!(
+            role_ids(&repaired),
+            vec![
+                ("user".to_string(), String::new()),
+                ("assistant".to_string(), String::new()),
+                ("tool".to_string(), "c1".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn histories_without_tools_pass_through() {
+        let messages = vec![
+            Message::user_text("a"),
+            Message::assistant_text("b", "m"),
+            Message::user_text("c"),
+        ];
+        assert_eq!(repair_tool_pairing(messages.clone()), messages);
     }
 }
