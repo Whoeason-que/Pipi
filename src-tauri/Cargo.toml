@@ -1,6 +1,6 @@
 [package]
 name = "pipi"
-version = "0.1.0"
+version = "26.9.3"
 description = "一个以 Agent 为中心的本地优先桌面应用"
 edition = "2021"
 

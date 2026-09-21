@@ -1,6 +1,6 @@
 [package]
 name = "pipi-server"
-version = "0.1.0"
+version = "26.9.3"
 description = "Pipi 的 Web/远程运行时服务"
 edition = "2021"
 

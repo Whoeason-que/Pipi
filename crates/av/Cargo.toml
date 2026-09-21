@@ -1,6 +1,6 @@
 [package]
 name = "av"
-version = "0.1.0"
+version = "26.9.3"
 description = "Agent 运行时环境契约：agent.toml 的解析、发现、合并与环境解析"
 edition = "2021"
 

@@ -1,6 +1,6 @@
 [package]
 name = "pipi-core"
-version = "0.1.0"
+version = "26.9.3"
 description = "Pipi 核心：从 pi 移植的 agent 循环、工具与 LLM provider 层"
 edition = "2021"
 
