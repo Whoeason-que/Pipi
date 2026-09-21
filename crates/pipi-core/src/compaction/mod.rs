@@ -89,7 +89,9 @@ impl Budget {
     /// 这是压缩**唯一**的触发口径 —— 投影式（清理 / 硬裁）、替换式（摘要）
     /// 与手动压缩的预检都读它，不要再各算一套。
     pub fn trigger_tokens(&self) -> u64 {
-        self.context_window.saturating_mul(self.threshold_percent as u64) / 100
+        self.context_window
+            .saturating_mul(self.threshold_percent as u64)
+            / 100
     }
 
     /// 保留尾部的预算：先给摘要自身与模型回复留位置，再收敛到 `keep_recent` 以内。
@@ -685,7 +687,13 @@ mod tests {
             tool_result(&"x".repeat(20_000)),
         ];
         // 窗口足够大：既不清理也不裁剪（细节保留到真需要时）
-        assert_eq!(project(messages.clone(), Budget::from_window(1_000_000, DEFAULT_THRESHOLD_PERCENT)), messages);
+        assert_eq!(
+            project(
+                messages.clone(),
+                Budget::from_window(1_000_000, DEFAULT_THRESHOLD_PERCENT)
+            ),
+            messages
+        );
     }
 
     #[test]

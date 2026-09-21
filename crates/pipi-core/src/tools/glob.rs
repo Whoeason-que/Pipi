@@ -106,15 +106,14 @@ impl AgentTool for GlobTool {
         }
         // pattern 里的反斜杠统一按分隔符处理（Windows 路径输入也友好）
         let pattern = pattern.replace('\\', "/");
-        let compiled = Pattern::new(&pattern)
-            .map_err(|e| format!("非法 glob 模式 {pattern:?}：{e}"))?;
+        let compiled =
+            Pattern::new(&pattern).map_err(|e| format!("非法 glob 模式 {pattern:?}：{e}"))?;
 
         // 搜索根：显式 path 或 workspace，两者都必须在受信任根集合内
         let root = match args["path"].as_str() {
             Some(p) if !p.is_empty() => resolve_read_path(&ctx.workspace, &ctx.read_roots, p)?,
-            _ => std::fs::canonicalize(&ctx.workspace).map_err(|e| {
-                format!("无法解析工作目录 {}：{e}", ctx.workspace.display())
-            })?,
+            _ => std::fs::canonicalize(&ctx.workspace)
+                .map_err(|e| format!("无法解析工作目录 {}：{e}", ctx.workspace.display()))?,
         };
         if !root.is_dir() {
             return Err(format!("搜索根 {} 不是目录", root.display()));
@@ -166,17 +165,26 @@ mod tests {
     use std::sync::Arc;
 
     async fn glob_fixture() -> (PathBuf, ToolContext, PathBuf) {
-        let base = std::env::temp_dir().join(format!(
-            "pipi-glob-{}",
-            crate::session::new_id()
-        ));
+        let base = std::env::temp_dir().join(format!("pipi-glob-{}", crate::session::new_id()));
         let workspace = base.join("workspace");
-        tokio::fs::create_dir_all(workspace.join("src/deep")).await.unwrap();
-        tokio::fs::create_dir_all(workspace.join(".hidden")).await.unwrap();
-        tokio::fs::write(workspace.join("src/a.rs"), "a").await.unwrap();
-        tokio::fs::write(workspace.join("src/deep/b.rs"), "b").await.unwrap();
-        tokio::fs::write(workspace.join("README.md"), "r").await.unwrap();
-        tokio::fs::write(workspace.join(".hidden/secret.rs"), "s").await.unwrap();
+        tokio::fs::create_dir_all(workspace.join("src/deep"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(workspace.join(".hidden"))
+            .await
+            .unwrap();
+        tokio::fs::write(workspace.join("src/a.rs"), "a")
+            .await
+            .unwrap();
+        tokio::fs::write(workspace.join("src/deep/b.rs"), "b")
+            .await
+            .unwrap();
+        tokio::fs::write(workspace.join("README.md"), "r")
+            .await
+            .unwrap();
+        tokio::fs::write(workspace.join(".hidden/secret.rs"), "s")
+            .await
+            .unwrap();
         let outside = base.join("outside.rs");
         tokio::fs::write(&outside, "o").await.unwrap();
 
@@ -246,7 +254,9 @@ mod tests {
     #[tokio::test]
     async fn glob_no_match_reports_cleanly() {
         let (base, ctx, _outside) = glob_fixture().await;
-        let out = glob(&ctx, json!({ "pattern": "**/*.nonexistent" })).await.unwrap();
+        let out = glob(&ctx, json!({ "pattern": "**/*.nonexistent" }))
+            .await
+            .unwrap();
         let ToolResultContent::Text { text } = &out.content[0] else {
             panic!("expected text");
         };
@@ -257,13 +267,17 @@ mod tests {
     // collect_matches 的修改时间排序（纯同步逻辑直接测）
     #[test]
     fn collect_matches_sorts_by_mtime_desc() {
-        let dir = std::env::temp_dir().join(format!("pipi-glob-mtime-{}", crate::session::new_id()));
+        let dir =
+            std::env::temp_dir().join(format!("pipi-glob-mtime-{}", crate::session::new_id()));
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("src/old.rs"), "o").unwrap();
         std::fs::write(dir.join("src/new.rs"), "n").unwrap();
         // 保证 mtime 有差异
         let old = SystemTime::now() - std::time::Duration::from_secs(60);
-        let file = std::fs::File::options().append(true).open(dir.join("src/old.rs")).unwrap();
+        let file = std::fs::File::options()
+            .append(true)
+            .open(dir.join("src/old.rs"))
+            .unwrap();
         file.set_modified(old).unwrap();
         let pattern = Pattern::new("src/*.rs").unwrap();
         let matches = collect_matches(&dir, &pattern);

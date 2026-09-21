@@ -118,7 +118,6 @@ pub fn diff_summary(base: &str, new: &str) -> (String, Option<usize>) {
     (unified, first_changed)
 }
 
-
 fn parse_edits(value: &Value) -> Result<Vec<Edit>, String> {
     let arr = value["edits"].as_array().ok_or("缺少 edits 数组")?;
     arr.iter()

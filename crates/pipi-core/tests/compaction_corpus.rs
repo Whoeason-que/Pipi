@@ -258,10 +258,7 @@ fn synthetic_session_projection_shrinks_when_budget_is_tight() {
     let budget = Budget::from_window(before / 4, DEFAULT_THRESHOLD_PERCENT);
     let projected = project(messages, budget);
     let after = estimate_context_tokens(&projected);
-    assert!(
-        after < before,
-        "预算收紧后应当变小：{before} → {after}"
-    );
+    assert!(after < before, "预算收紧后应当变小：{before} → {after}");
     assert_eq!(damage(&projected), (0, 0), "压缩不得破坏配对");
 }
 

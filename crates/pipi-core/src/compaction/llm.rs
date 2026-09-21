@@ -205,7 +205,9 @@ async fn summarize(
         match event {
             StreamEvent::TextDelta { delta, .. } => summary_text.push_str(&delta),
             StreamEvent::Done {
-                message, usage: done_usage, ..
+                message,
+                usage: done_usage,
+                ..
             } => {
                 usage = Some(done_usage);
                 // 以最终消息为准（Thinking 等非文本块被排除）
@@ -254,7 +256,9 @@ mod tests {
         assert!(transcript.contains("[user]"));
         assert!(transcript.contains("fix the bug"));
         assert!(transcript.contains("[assistant]"));
-        assert!(transcript.contains("[assistant tool call:") || transcript.contains("let me check"));
+        assert!(
+            transcript.contains("[assistant tool call:") || transcript.contains("let me check")
+        );
         assert!(transcript.contains("[tool result: bash (ok)]"));
         assert!(transcript.contains("<conversation>"));
         assert!(transcript.contains("## Goal"));

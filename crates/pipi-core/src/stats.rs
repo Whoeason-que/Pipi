@@ -92,9 +92,7 @@ impl SessionStatsTracker {
     /// 记录一次助手响应（从消息里取 usage 与耗时）。
     pub fn record(&mut self, message: &Message) {
         let Message::Assistant {
-            usage,
-            duration_ms,
-            ..
+            usage, duration_ms, ..
         } = message
         else {
             return;
@@ -177,7 +175,8 @@ impl SessionStatsTracker {
         stats.context_max = self.context_max;
         if let (Some(used), Some(max)) = (stats.context_used, self.context_max) {
             if max > 0 {
-                stats.context_percent = Some(((used as f64 / max as f64) * 100.0).min(100.0) as u64);
+                stats.context_percent =
+                    Some(((used as f64 / max as f64) * 100.0).min(100.0) as u64);
             }
         }
         stats
@@ -188,9 +187,7 @@ impl SessionStatsTracker {
 /// 返回 (tok/s, 缓存命中率%)。
 pub fn message_stats(message: &Message) -> (Option<f64>, Option<f64>) {
     let Message::Assistant {
-        usage,
-        duration_ms,
-        ..
+        usage, duration_ms, ..
     } = message
     else {
         return (None, None);

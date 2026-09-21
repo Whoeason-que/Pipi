@@ -384,7 +384,12 @@ pub fn validate_definition(def: &AgentDefinition) -> Result<(), String> {
             ));
         }
     }
-    if let Some(workspace) = def.workspace.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
+    if let Some(workspace) = def
+        .workspace
+        .as_deref()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+    {
         let expanded = expand_tilde(workspace);
         if !PathBuf::from(&expanded).is_absolute() {
             return Err(format!("工作目录必须是绝对路径: {workspace}"));
@@ -649,7 +654,8 @@ pub fn write_agent_file(agent_name: &str, rel_path: &str, content: &str) -> Resu
         return Err("AGENTS.md 不存在（不应删除 Agent 的系统指令文件）".into());
     }
     if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("无法创建目录 {}: {e}", parent.display()))?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("无法创建目录 {}: {e}", parent.display()))?;
     }
     fs::write(&target, content).map_err(|e| format!("无法写入 {rel_path}: {e}"))
 }
@@ -721,8 +727,7 @@ pub fn memory_index(def: &AgentDefinition) -> Vec<crate::harness::MemoryFileMeta
     let mut rels = Vec::new();
     crate::tools::memory::collect_markdown(&dir, 0, &mut rels);
     rels.sort();
-    rels
-        .into_iter()
+    rels.into_iter()
         .map(|rel| {
             let summary = fs::read_to_string(dir.join(&rel))
                 .map(|content| memory_summary(&content))
@@ -909,7 +914,10 @@ fn load_declared_context_files(
         }
         let content = fs::read_to_string(&canonical)
             .map_err(|e| format!("无法读取 {}: {e}", canonical.display()))?;
-        let content = content.strip_prefix('\u{feff}').unwrap_or(&content).to_string();
+        let content = content
+            .strip_prefix('\u{feff}')
+            .unwrap_or(&content)
+            .to_string();
         if content.trim().is_empty() {
             return Err(format!("上下文文件为空：{}", canonical.display()));
         }
@@ -967,10 +975,14 @@ pub fn build_system_prompt_with_tools(
             Some(list) => {
                 let layer = agent_layer.as_ref().expect("instructions 存在");
                 let base = layer_path_dir(layer);
-                let containment = fs::canonicalize(layer.path.parent().expect("契约文件必有父目录"))
-                    .map_err(|e| format!("无法规范化 Agent 目录：{e}"))?;
+                let containment =
+                    fs::canonicalize(layer.path.parent().expect("契约文件必有父目录"))
+                        .map_err(|e| format!("无法规范化 Agent 目录：{e}"))?;
                 context_files.extend(load_declared_context_files(
-                    list, &base, &containment, None,
+                    list,
+                    &base,
+                    &containment,
+                    None,
                 )?);
             }
             None => context_files.extend(crate::harness::resources::load_agent_context_files(
@@ -984,23 +996,20 @@ pub fn build_system_prompt_with_tools(
             .as_ref()
             .and_then(|resources| resources.max_bytes)
             .unwrap_or(crate::project_doc::DEFAULT_PROJECT_DOC_MAX_BYTES);
-        match project_layers
-            .iter()
-            .rev()
-            .find_map(|layer| {
-                layer
-                    .config
-                    .resources
-                    .as_ref()
-                    .and_then(|resources| resources.instructions.as_ref())
-                    .map(|list| (list, layer))
-            })
-        {
+        match project_layers.iter().rev().find_map(|layer| {
+            layer
+                .config
+                .resources
+                .as_ref()
+                .and_then(|resources| resources.instructions.as_ref())
+                .map(|list| (list, layer))
+        }) {
             Some((list, layer)) => {
                 let base = layer_path_dir(layer);
-                let containment =
-                    fs::canonicalize(av::find_project_root(workspace).unwrap_or_else(|| workspace.to_path_buf()))
-                        .map_err(|e| format!("无法规范化项目根：{e}"))?;
+                let containment = fs::canonicalize(
+                    av::find_project_root(workspace).unwrap_or_else(|| workspace.to_path_buf()),
+                )
+                .map_err(|e| format!("无法规范化项目根：{e}"))?;
                 context_files.extend(load_declared_context_files(
                     list,
                     &base,
@@ -1040,25 +1049,22 @@ pub fn build_system_prompt_with_tools(
             }
             None => Vec::new(),
         };
-        let project_skills = match project_layers
-            .iter()
-            .rev()
-            .find_map(|layer| {
-                layer
-                    .config
-                    .resources
-                    .as_ref()
-                    .and_then(|resources| resources.skills.as_ref())
-                    .and_then(|skills| skills.sources.as_ref())
-                    .map(|sources| (sources, layer))
-            })
-        {
+        let project_skills = match project_layers.iter().rev().find_map(|layer| {
+            layer
+                .config
+                .resources
+                .as_ref()
+                .and_then(|resources| resources.skills.as_ref())
+                .and_then(|skills| skills.sources.as_ref())
+                .map(|sources| (sources, layer))
+        }) {
             Some((sources, layer)) => {
                 let base = layer_path_dir(layer);
                 let resolved = resolve_declared_sources(sources, &base);
-                let containment =
-                    fs::canonicalize(av::find_project_root(workspace).unwrap_or_else(|| workspace.to_path_buf()))
-                        .map_err(|e| format!("无法规范化项目根：{e}"))?;
+                let containment = fs::canonicalize(
+                    av::find_project_root(workspace).unwrap_or_else(|| workspace.to_path_buf()),
+                )
+                .map_err(|e| format!("无法规范化项目根：{e}"))?;
                 crate::skills::load_skill_sources(&resolved, &containment)
             }
             None => {
@@ -1098,22 +1104,25 @@ pub fn build_system_prompt_with_tools(
     } else {
         // 无 workspace：agent 层 instructions 三态仍生效（无项目层，技能沿用现状）
         let (agent_layer, _) = collect_contract_layers(def, None)?;
-        match agent_layer
-            .as_ref()
-            .and_then(|layer| {
-                layer
-                    .config
-                    .resources
-                    .as_ref()
-                    .and_then(|resources| resources.instructions.clone())
-            })
-        {
+        match agent_layer.as_ref().and_then(|layer| {
+            layer
+                .config
+                .resources
+                .as_ref()
+                .and_then(|resources| resources.instructions.clone())
+        }) {
             Some(list) => {
                 let layer = agent_layer.as_ref().expect("instructions 存在");
                 let base = layer_path_dir(layer);
-                let containment = fs::canonicalize(layer.path.parent().expect("契约文件必有父目录"))
-                    .map_err(|e| format!("无法规范化 Agent 目录：{e}"))?;
-                context_files.extend(load_declared_context_files(&list, &base, &containment, None)?);
+                let containment =
+                    fs::canonicalize(layer.path.parent().expect("契约文件必有父目录"))
+                        .map_err(|e| format!("无法规范化 Agent 目录：{e}"))?;
+                context_files.extend(load_declared_context_files(
+                    &list,
+                    &base,
+                    &containment,
+                    None,
+                )?);
             }
             None => context_files.extend(crate::harness::resources::load_agent_context_files(
                 dir.as_deref(),
@@ -1122,19 +1131,21 @@ pub fn build_system_prompt_with_tools(
         (String::new(), None)
     };
 
-    Ok(crate::harness::build_system_prompt(crate::harness::BuildSystemPromptOptions {
-        selected_tools: Some(def.permissions.tools.clone()),
-        tool_snippets: tools
-            .iter()
-            .map(|tool| (tool.name.clone(), tool.description.clone()))
-            .collect(),
-        cwd,
-        context_files,
-        skills,
-        memory_files: memory_index(def),
-        append_system_prompt,
-        ..Default::default()
-    }))
+    Ok(crate::harness::build_system_prompt(
+        crate::harness::BuildSystemPromptOptions {
+            selected_tools: Some(def.permissions.tools.clone()),
+            tool_snippets: tools
+                .iter()
+                .map(|tool| (tool.name.clone(), tool.description.clone()))
+                .collect(),
+            cwd,
+            context_files,
+            skills,
+            memory_files: memory_index(def),
+            append_system_prompt,
+            ..Default::default()
+        },
+    ))
 }
 
 /// 确保路径里的 agent 目录存在（从文件系统恢复定义时用）。
@@ -1299,7 +1310,8 @@ mod tests {
     }
 
     #[test]
-    fn system_prompt_includes_wire_tool_descriptions() {        let def = AgentDefinition {
+    fn system_prompt_includes_wire_tool_descriptions() {
+        let def = AgentDefinition {
             name: "__pipi_harness_wire_test__".into(),
             description: String::new(),
             model: String::new(),
@@ -1332,10 +1344,8 @@ mod tests {
     /// skills 按名过滤、env 解析注入 AV_*，以及包含约束 fail-closed。
     #[test]
     fn agent_contract_drives_instructions_skills_and_env() {
-        let root = std::env::temp_dir().join(format!(
-            "pipi-contract-e2e-{}",
-            crate::session::new_id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("pipi-contract-e2e-{}", crate::session::new_id()));
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join("AGENTS.md"), "CONVENTION-AGENTS-ROOT-RULES").unwrap();
         fs::write(root.join("PROMPT.md"), "DECLARED-PROMPT-BODY").unwrap();
@@ -1393,11 +1403,16 @@ only = ["wanted"]
         assert!(!prompt.contains("noisy"));
 
         // env：声明 set + AV_* 注入 + 默认继承 all
-        let (ctx, _) =
-            build_tool_context(&def, Some("sess-1".into()), crate::types::AbortSignal::new())
-                .unwrap();
+        let (ctx, _) = build_tool_context(
+            &def,
+            Some("sess-1".into()),
+            crate::types::AbortSignal::new(),
+        )
+        .unwrap();
         assert_eq!(
-            ctx.resolved_env.get("CONTRACT_E2E_MARKER").map(String::as_str),
+            ctx.resolved_env
+                .get("CONTRACT_E2E_MARKER")
+                .map(String::as_str),
             Some("on")
         );
         assert_eq!(
@@ -1435,10 +1450,8 @@ only = ["wanted"]
     /// （多仓库工作区用 `.agents/skills` 这种既有约定），不必改造成 `.pi/skills`。
     #[test]
     fn project_contract_skills_sources_point_into_the_repo() {
-        let root = std::env::temp_dir().join(format!(
-            "pipi-skills-sources-{}",
-            crate::session::new_id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("pipi-skills-sources-{}", crate::session::new_id()));
         fs::create_dir_all(root.join(".git")).unwrap();
         let pack = root.join(".agents").join("skills").join("workspace-guide");
         fs::create_dir_all(&pack).unwrap();
@@ -1489,8 +1502,7 @@ only = ["wanted"]
         let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
         assert!(prompt.contains("<persistent_memory>"));
         assert!(prompt.contains("<path>"));
-        assert!(prompt
-            .contains(&memory_dir.join("user-prefs.md").display().to_string()));
+        assert!(prompt.contains(&memory_dir.join("user-prefs.md").display().to_string()));
         assert!(prompt.contains("用户偏好"));
         // 渐进披露：只注入摘要，不注入正文
         assert!(prompt.contains("简洁回答") || !prompt.contains("中文优先"));
@@ -1586,7 +1598,8 @@ only = ["wanted"]
     }
 
     #[test]
-    fn agent_file_editor_is_restricted_to_agents_md_and_memory() {        let _guard = HOME_LOCK.lock().unwrap();
+    fn agent_file_editor_is_restricted_to_agents_md_and_memory() {
+        let _guard = HOME_LOCK.lock().unwrap();
         let home = std::env::temp_dir().join(format!("pipi-edit-{}", crate::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
@@ -1595,7 +1608,10 @@ only = ["wanted"]
 
         // AGENTS.md 可读写
         write_agent_file("editor", "AGENTS.md", "# 新指令\n").unwrap();
-        assert_eq!(read_agent_file("editor", "AGENTS.md").unwrap(), "# 新指令\n");
+        assert_eq!(
+            read_agent_file("editor", "AGENTS.md").unwrap(),
+            "# 新指令\n"
+        );
 
         // memory 新文件可创建并读写
         write_agent_file("editor", "memory/user-prefs.md", "偏好： concise\n").unwrap();
@@ -1807,7 +1823,8 @@ only = ["wanted"]
         assert_eq!(def.compact_threshold_percent(), 75);
 
         // 显式值生效（含边界）
-        let custom = r#"{"name":"t","permissions":{"tools":["read"]},"compactThresholdPercent":40}"#;
+        let custom =
+            r#"{"name":"t","permissions":{"tools":["read"]},"compactThresholdPercent":40}"#;
         let def: AgentDefinition = serde_json::from_str(custom).unwrap();
         assert_eq!(def.compact_threshold_percent(), 40);
 
@@ -1817,7 +1834,11 @@ only = ["wanted"]
                 r#"{{"name":"t","permissions":{{"tools":["read"]}},"compactThresholdPercent":{value}}}"#
             );
             let def: AgentDefinition = serde_json::from_str(&text).unwrap();
-            assert_eq!(def.compact_threshold_percent(), 75, "值 {value} 应兜底成默认");
+            assert_eq!(
+                def.compact_threshold_percent(),
+                75,
+                "值 {value} 应兜底成默认"
+            );
         }
 
         // 序列化键名与前端类型对齐（此刻 def 是上面那个 40 的）
@@ -1925,7 +1946,10 @@ only = ["wanted"]
         // 归档：活跃列表消失、归档列表出现、目录真的移动了
         archive_agent(name).unwrap();
         assert!(!list_agents().unwrap().iter().any(|a| a.name == name));
-        assert!(list_archived_agents().unwrap().iter().any(|a| a.name == name));
+        assert!(list_archived_agents()
+            .unwrap()
+            .iter()
+            .any(|a| a.name == name));
         let dir = agents_dir().unwrap();
         assert!(dir.join(ARCHIVE_DIR).join(name).is_dir());
         assert!(!dir.join(name).exists());
@@ -1936,7 +1960,10 @@ only = ["wanted"]
         // 恢复：回到活跃区
         restore_agent(name).unwrap();
         assert!(list_agents().unwrap().iter().any(|a| a.name == name));
-        assert!(!list_archived_agents().unwrap().iter().any(|a| a.name == name));
+        assert!(!list_archived_agents()
+            .unwrap()
+            .iter()
+            .any(|a| a.name == name));
 
         // 恢复一个不存在的归档 Agent → 报错
         assert!(restore_agent("no-such-archived-agent").is_err());
@@ -1952,7 +1979,10 @@ only = ["wanted"]
         });
         // 上一步用 create+archive 保证该名字存在
         delete_archived_agent("arch-lifecycle-2").unwrap();
-        assert!(!list_archived_agents().unwrap().iter().any(|a| a.name == "arch-lifecycle-2"));
+        assert!(!list_archived_agents()
+            .unwrap()
+            .iter()
+            .any(|a| a.name == "arch-lifecycle-2"));
 
         // 删除不存在的 Agent → 报错
         assert!(delete_agent("no-such-agent").is_err());
@@ -1965,8 +1995,7 @@ only = ["wanted"]
     fn archive_scan_skips_dot_dir_with_manifest() {
         // 归档区里即使意外出现 agent.json，活跃列表也不得扫到（点目录硬跳过）
         let _guard = HOME_LOCK.lock().unwrap();
-        let home =
-            std::env::temp_dir().join(format!("pipi-home-dot-{}", crate::session::new_id()));
+        let home = std::env::temp_dir().join(format!("pipi-home-dot-{}", crate::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         std::env::set_var("HOME", &home);

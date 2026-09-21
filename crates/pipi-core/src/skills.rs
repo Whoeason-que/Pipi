@@ -261,10 +261,7 @@ pub fn scan_skills(skills_dir: &Path) -> Vec<SkillMeta> {
 ///
 /// 每个 source 独立做包含检查（canonical 路径必须落在 containment_root 内），
 /// 跨源按 canonical 路径与技能名去重（先发现者赢，与约定目录加载一致）。
-pub fn load_skill_sources(
-    sources: &[PathBuf],
-    containment_root: &Path,
-) -> Vec<SkillMeta> {
+pub fn load_skill_sources(sources: &[PathBuf], containment_root: &Path) -> Vec<SkillMeta> {
     let mut skills = Vec::new();
     let mut seen_paths = HashSet::new();
     let mut seen_names = HashSet::new();
@@ -303,10 +300,16 @@ pub fn filter_skills_by_name(
     Ok(skills
         .into_iter()
         .filter(|skill| {
-            if exclude_patterns.iter().any(|pattern| pattern.matches(&skill.name)) {
+            if exclude_patterns
+                .iter()
+                .any(|pattern| pattern.matches(&skill.name))
+            {
                 return false;
             }
-            only_patterns.is_empty() || only_patterns.iter().any(|pattern| pattern.matches(&skill.name))
+            only_patterns.is_empty()
+                || only_patterns
+                    .iter()
+                    .any(|pattern| pattern.matches(&skill.name))
         })
         .collect())
 }
@@ -578,9 +581,21 @@ mod tests {
             std::env::temp_dir().join(format!("pipi-skill-sources-{}", crate::session::new_id()));
         let a = root.join("pack-a");
         let b = root.join("pack-b");
-        make_skill(&a, "alpha", "---\nname: alpha\ndescription: from a\n---\nbody");
-        make_skill(&b, "beta", "---\nname: beta\ndescription: from b\n---\nbody");
-        make_skill(&b, "alpha-dup", "---\nname: alpha\ndescription: dup\n---\nbody");
+        make_skill(
+            &a,
+            "alpha",
+            "---\nname: alpha\ndescription: from a\n---\nbody",
+        );
+        make_skill(
+            &b,
+            "beta",
+            "---\nname: beta\ndescription: from b\n---\nbody",
+        );
+        make_skill(
+            &b,
+            "alpha-dup",
+            "---\nname: alpha\ndescription: dup\n---\nbody",
+        );
 
         let skills = load_skill_sources(&[a.clone(), b.clone()], &root);
         assert_eq!(skills.len(), 2, "同名技能先发现者赢：{:?}", skills);
@@ -588,8 +603,13 @@ mod tests {
         assert_eq!(skills[0].description.as_deref(), Some("from a"));
 
         // source 逃逸包含根：拒绝加载
-        let outside = std::env::temp_dir().join(format!("pipi-skill-outside-{}", crate::session::new_id()));
-        make_skill(&outside, "escaped", "---\nname: escaped\ndescription: x\n---\nbody");
+        let outside =
+            std::env::temp_dir().join(format!("pipi-skill-outside-{}", crate::session::new_id()));
+        make_skill(
+            &outside,
+            "escaped",
+            "---\nname: escaped\ndescription: x\n---\nbody",
+        );
         let skills = load_skill_sources(std::slice::from_ref(&outside), &root);
         assert!(skills.is_empty());
         let _ = fs::remove_dir_all(root);
@@ -604,7 +624,11 @@ mod tests {
             disable_model_invocation: false,
             path: PathBuf::from(format!("/x/{name}/SKILL.md")),
         };
-        let skills = vec![make("git-safety"), make("review-pr"), make("experimental-x")];
+        let skills = vec![
+            make("git-safety"),
+            make("review-pr"),
+            make("experimental-x"),
+        ];
 
         // exclude 优先
         let filtered =
@@ -619,9 +643,12 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name, "git-safety");
         // 同时命中：exclude 赢
-        let filtered =
-            filter_skills_by_name(skills, Some(&["git-*".into()]), Some(&["git-safety".into()]))
-                .unwrap();
+        let filtered = filter_skills_by_name(
+            skills,
+            Some(&["git-*".into()]),
+            Some(&["git-safety".into()]),
+        )
+        .unwrap();
         assert!(filtered.is_empty());
         // 模式非法 fail-closed
         assert!(filter_skills_by_name(vec![], None, Some(&["[".into()])).is_err());

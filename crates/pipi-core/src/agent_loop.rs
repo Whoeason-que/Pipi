@@ -1189,10 +1189,7 @@ mod tests {
             StreamEvent::Done {
                 reason: StopReason::ToolUse,
                 usage: Usage::default(),
-                message: Box::new(assistant_message(
-                    vec![call1, call2],
-                    StopReason::ToolUse,
-                )),
+                message: Box::new(assistant_message(vec![call1, call2], StopReason::ToolUse)),
             },
         ]
     }

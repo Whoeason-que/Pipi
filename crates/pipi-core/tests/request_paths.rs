@@ -76,7 +76,11 @@ fn send_and_collect(agent: &str, home: &Path) -> String {
         .send_prompt(agent, None, "hello", None, sink)
         .expect("send_prompt 应能启动这一轮");
 
-    let sessions = home.join(".pipi").join("agents").join(agent).join("sessions");
+    let sessions = home
+        .join(".pipi")
+        .join("agents")
+        .join(agent)
+        .join("sessions");
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut text = String::new();
     while Instant::now() < deadline {
@@ -84,7 +88,13 @@ fn send_and_collect(agent: &str, home: &Path) -> String {
             .into_iter()
             .flatten()
             .flatten()
-            .filter(|entry| entry.path().extension().map(|e| e == "jsonl").unwrap_or(false))
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .map(|e| e == "jsonl")
+                    .unwrap_or(false)
+            })
             .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
             .collect::<Vec<_>>()
             .join("\n");
@@ -109,7 +119,11 @@ fn 两种协议各自打到兼容端点() {
     let home = temp_home();
 
     // ---- openai-completions → /chat/completions（不是 /responses）----
-    fixture("path-openai", Api::OpenAICompletions, "http://127.0.0.1:1/v1");
+    fixture(
+        "path-openai",
+        Api::OpenAICompletions,
+        "http://127.0.0.1:1/v1",
+    );
     let openai_text = send_and_collect("path-openai", &home);
     let url = request_url(&openai_text).unwrap_or_default();
     assert!(
@@ -122,7 +136,11 @@ fn 两种协议各自打到兼容端点() {
     );
 
     // ---- anthropic-messages → /v1/messages ----
-    fixture("path-anthropic", Api::AnthropicMessages, "http://127.0.0.1:1");
+    fixture(
+        "path-anthropic",
+        Api::AnthropicMessages,
+        "http://127.0.0.1:1",
+    );
     let anthropic_text = send_and_collect("path-anthropic", &home);
     let url = request_url(&anthropic_text).unwrap_or_default();
     assert!(

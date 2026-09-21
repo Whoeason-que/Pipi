@@ -41,7 +41,9 @@ fn any_session_running(state: &RuntimeState, agent_name: &str) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn create_run_and_read_agent_output() {
-    let _home_guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _home_guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = std::env::temp_dir().join(format!(
         "pipi-agent-composition-{}-{}",
         std::process::id(),
@@ -302,7 +304,9 @@ fn spawn_scripted_mock(script: Vec<String>) -> (std::net::SocketAddr, Arc<Atomic
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn parent_runs_child_agent_through_real_provider_stack() {
-    let _home_guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _home_guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = std::env::temp_dir().join(format!(
         "pipi-agent-e2e-{}-{}",
         std::process::id(),
@@ -313,7 +317,10 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     std::env::set_var("HOME", &home);
 
     let (addr, counter) = spawn_scripted_mock(vec![
-        sse_tool_call("run_agent", &json!({"name": "mock-worker", "prompt": "计算 6x7"})),
+        sse_tool_call(
+            "run_agent",
+            &json!({"name": "mock-worker", "prompt": "计算 6x7"}),
+        ),
         sse_text("子任务完成：42"),
         sse_text("最终：42"),
     ]);
@@ -374,7 +381,13 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         tokio::runtime::Handle::current(),
     ));
     runtime
-        .send_prompt("mock-parent", None, "让 worker 计算 6x7 并汇报", None, Arc::new(|_| {}))
+        .send_prompt(
+            "mock-parent",
+            None,
+            "让 worker 计算 6x7 并汇报",
+            None,
+            Arc::new(|_| {}),
+        )
         .unwrap();
 
     // 等待运行结束（上限 30 秒）
@@ -384,7 +397,10 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
-    assert!(!any_session_running(&runtime, "mock-parent"), "运行应在超时前结束");
+    assert!(
+        !any_session_running(&runtime, "mock-parent"),
+        "运行应在超时前结束"
+    );
 
     let messages = runtime
         .session_messages("mock-parent", &open_session_id(&runtime, "mock-parent"))
@@ -432,7 +448,10 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
             _ => None,
         })
         .unwrap_or_default();
-    assert!(final_text.contains("最终：42"), "父最终回复异常: {final_text}");
+    assert!(
+        final_text.contains("最终：42"),
+        "父最终回复异常: {final_text}"
+    );
 
     // 恰好 3 次 LLM 调用：父两轮 + 子一轮
     assert_eq!(counter.load(Ordering::SeqCst), 3);

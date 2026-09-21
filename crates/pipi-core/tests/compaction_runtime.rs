@@ -57,7 +57,10 @@ fn read_request(stream: &mut std::net::TcpStream) -> String {
 fn sse_frame(text: &str, usage: (u64, u64)) -> String {
     let (input, output) = usage;
     let total = input + output;
-    let escaped = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+    let escaped = text
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
     format!(
         "{}\n{}\n{}",
         format_args!(
@@ -267,7 +270,10 @@ fn collect_events() -> (EventEmitter, Arc<Mutex<Vec<RuntimeEvent>>>) {
     (sink, seen)
 }
 
-fn wait_for<F: Fn(&[RuntimeEvent]) -> bool>(seen: &Arc<Mutex<Vec<RuntimeEvent>>>, done: F) -> Vec<String> {
+fn wait_for<F: Fn(&[RuntimeEvent]) -> bool>(
+    seen: &Arc<Mutex<Vec<RuntimeEvent>>>,
+    done: F,
+) -> Vec<String> {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let snapshot = seen.lock().unwrap();
@@ -275,9 +281,12 @@ fn wait_for<F: Fn(&[RuntimeEvent]) -> bool>(seen: &Arc<Mutex<Vec<RuntimeEvent>>>
             return snapshot
                 .iter()
                 .filter_map(|event| match event {
-                    RuntimeEvent::AgentEvent(envelope) => {
-                        Some(format!("{:?}", envelope.event).chars().take(60).collect::<String>())
-                    }
+                    RuntimeEvent::AgentEvent(envelope) => Some(
+                        format!("{:?}", envelope.event)
+                            .chars()
+                            .take(60)
+                            .collect::<String>(),
+                    ),
                     _ => None,
                 })
                 .collect();
@@ -374,21 +383,20 @@ impl Case {
 
     /// 事件里 SessionSwitched 的目标 id（没有则为 None）。
     fn switched_to(&self) -> Option<String> {
-        self.events.lock().unwrap().iter().find_map(|event| match event {
-            RuntimeEvent::SessionSwitched(envelope) => Some(envelope.to_session_id.clone()),
-            _ => None,
-        })
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .find_map(|event| match event {
+                RuntimeEvent::SessionSwitched(envelope) => Some(envelope.to_session_id.clone()),
+                _ => None,
+            })
     }
 
     /// 压缩条目里的（keep_from_entry, strategy, usage, summary）。
     fn compaction_entry(
         path: &std::path::Path,
-    ) -> (
-        String,
-        String,
-        Option<pipi_core::types::Usage>,
-        String,
-    ) {
+    ) -> (String, String, Option<pipi_core::types::Usage>, String) {
         let entries = load_session(path).expect("读回会话");
         entries
             .iter()
@@ -419,7 +427,9 @@ impl Drop for Case {
 
 #[test]
 fn compaction_forks_to_new_session_and_archives_original() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let case = Case::run(pipi_core::settings::CompactionSettings {
         fork_before_compact: true,
         archive_original: true,
@@ -437,7 +447,10 @@ fn compaction_forks_to_new_session_and_archives_original() {
     assert!(new_path.is_file(), "新会话文件应当存在");
     let (keep_from_entry, strategy, usage, summary) = Case::compaction_entry(&new_path);
     assert_eq!(strategy, "llm-summarize");
-    assert!(!keep_from_entry.is_empty(), "尾部有 user 边界时必须记录保留区间");
+    assert!(
+        !keep_from_entry.is_empty(),
+        "尾部有 user 边界时必须记录保留区间"
+    );
     assert_eq!(usage.expect("摘要用量必须落盘").input, SUMMARY_INPUT);
     assert!(summary.contains("## Goal"));
     let new_entries = load_session(&new_path).expect("读回新会话");
@@ -463,9 +476,8 @@ fn compaction_forks_to_new_session_and_archives_original() {
             .any(|entry| matches!(entry.kind, EntryKind::Compaction { .. })),
         "归档的原会话应当是压缩前的完整记录"
     );
-    let archived_messages = pipi_core::session::rebuild_messages(
-        &pipi_core::session::active_path(&archived_entries),
-    );
+    let archived_messages =
+        pipi_core::session::rebuild_messages(&pipi_core::session::active_path(&archived_entries));
     assert!(
         archived_messages.len() >= 121,
         "归档记录应当保留全部 40 轮 + 本轮新消息，实际 {}",
@@ -475,7 +487,10 @@ fn compaction_forks_to_new_session_and_archives_original() {
     // 当前会话是压缩后的视图：摘要在前，长度明显变短
     let messages = case
         .runtime
-        .block_on(case.state.session_messages("compaction-e2e", &case.new_session_id()))
+        .block_on(
+            case.state
+                .session_messages("compaction-e2e", &case.new_session_id()),
+        )
         .expect("读取消息");
     assert_eq!(
         pipi_core::session::summary_text(&messages[0]),
@@ -524,7 +539,9 @@ fn compaction_forks_to_new_session_and_archives_original() {
 
 #[test]
 fn compaction_keeps_original_in_place_when_archive_is_off() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let case = Case::run(pipi_core::settings::CompactionSettings {
         fork_before_compact: true,
         archive_original: false,
@@ -542,9 +559,7 @@ fn compaction_keeps_original_in_place_when_archive_is_off() {
         "关闭归档后不应出现在归档区"
     );
     assert!(
-        case.sessions_dir
-            .join(format!("{new_id}.jsonl"))
-            .is_file(),
+        case.sessions_dir.join(format!("{new_id}.jsonl")).is_file(),
         "新会话仍然照常创建"
     );
     let events = case.events.lock().unwrap();
@@ -557,13 +572,18 @@ fn compaction_keeps_original_in_place_when_archive_is_off() {
 
 #[test]
 fn compaction_stays_in_place_when_fork_is_off() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let case = Case::run(pipi_core::settings::CompactionSettings {
         fork_before_compact: false,
         archive_original: true,
     });
     assert_eq!(case.new_session_id(), case.old_id, "关闭分叉时会话身份不变");
-    assert!(case.switched_to().is_none(), "关闭分叉时不应发 SessionSwitched");
+    assert!(
+        case.switched_to().is_none(),
+        "关闭分叉时不应发 SessionSwitched"
+    );
     assert!(case.old_path.is_file(), "原文件就地写入压缩条目");
     // 压缩条目落在原文件上（原地压缩的既有行为）
     let (_, strategy, _, _) = Case::compaction_entry(&case.old_path);
@@ -574,7 +594,9 @@ fn compaction_stays_in_place_when_fork_is_off() {
 /// 分叉 + 归档路径；界面靠一对 Agent 事件收尾（否则 running 卡住）。
 #[test]
 fn manual_compaction_ignores_threshold_and_switches_session() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = temp_home();
     let (addr, _, summaries) = spawn_endpoint();
     let base_url = format!("http://{addr}/v1");
@@ -619,7 +641,11 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
             )
         })
     });
-    assert_eq!(summaries.load(Ordering::SeqCst), 1, "手动压缩要真的调一次摘要");
+    assert_eq!(
+        summaries.load(Ordering::SeqCst),
+        1,
+        "手动压缩要真的调一次摘要"
+    );
 
     // 事件序列：AgentStart 开头、AgentEnd 收尾（前端靠它把 running 落下）
     let kinds: Vec<&'static str> = seen
@@ -658,7 +684,9 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
 /// 会话正在运行时手动压缩被拒（UI 会禁用按钮，核心也必须挡住）。
 #[test]
 fn manual_compaction_refused_while_running() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = temp_home();
     let addr = spawn_stalling_endpoint();
     let base_url = format!("http://{addr}/v1");
@@ -681,11 +709,19 @@ fn manual_compaction_refused_while_running() {
         .build()
         .expect("构建注入运行时");
     let state = RuntimeState::new(runtime.handle().clone());
-    state.open_session("compaction-e2e", &session_id).expect("打开会话");
+    state
+        .open_session("compaction-e2e", &session_id)
+        .expect("打开会话");
     let (sink, _seen) = collect_events();
     // 这一轮会停在半途（收到一个分片后静默）
     state
-        .send_prompt("compaction-e2e", Some(&session_id), "跑一下", None, sink.clone())
+        .send_prompt(
+            "compaction-e2e",
+            Some(&session_id),
+            "跑一下",
+            None,
+            sink.clone(),
+        )
         .expect("启动一轮");
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline && !state.session_running("compaction-e2e", &session_id) {
@@ -702,9 +738,7 @@ fn manual_compaction_refused_while_running() {
     assert!(error.contains("正在运行"), "{error}");
 
     // 收尾：停止这一轮，别把测试挂在半路
-    state
-        .stop_run("compaction-e2e", &session_id)
-        .expect("停止");
+    state.stop_run("compaction-e2e", &session_id).expect("停止");
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline && state.session_running("compaction-e2e", &session_id) {
         std::thread::sleep(Duration::from_millis(20));
@@ -719,7 +753,9 @@ fn manual_compaction_refused_while_running() {
 /// 历史太短（都在保留预算内）时手动压缩返回可读错误，并如实报给前端。
 #[test]
 fn manual_compaction_reports_when_nothing_to_compress() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = temp_home();
     let (addr, _, summaries) = spawn_endpoint();
     let base_url = format!("http://{addr}/v1");
@@ -742,7 +778,9 @@ fn manual_compaction_reports_when_nothing_to_compress() {
         .build()
         .expect("构建注入运行时");
     let state = RuntimeState::new(runtime.handle().clone());
-    state.open_session("compaction-e2e", &session_id).expect("打开会话");
+    state
+        .open_session("compaction-e2e", &session_id)
+        .expect("打开会话");
     let (sink, seen) = collect_events();
     state
         .compact_now("compaction-e2e", &session_id, sink)
@@ -767,7 +805,11 @@ fn manual_compaction_reports_when_nothing_to_compress() {
         })
         .expect("应当通过会话错误通道说明原因");
     assert!(error.contains("压缩"), "{error}");
-    assert_eq!(summaries.load(Ordering::SeqCst), 0, "没有可压的就不该调摘要");
+    assert_eq!(
+        summaries.load(Ordering::SeqCst),
+        0,
+        "没有可压的就不该调摘要"
+    );
     // 会话没有被换掉、文件还在原地
     assert_eq!(
         state
@@ -784,7 +826,9 @@ fn manual_compaction_reports_when_nothing_to_compress() {
 
 #[test]
 fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = temp_home();
     let (addr, chats, summaries) = spawn_endpoint();
     let base_url = format!("http://{addr}/v1");
@@ -861,13 +905,14 @@ fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
     );
     let usage = usage.expect("摘要调用的用量必须落盘");
     assert_eq!(usage.input, SUMMARY_INPUT);
-    assert!(summary.contains("## Goal"), "摘要正文应为模型返回的内容：{summary}");
+    assert!(
+        summary.contains("## Goal"),
+        "摘要正文应为模型返回的内容：{summary}"
+    );
 
     // 2) 重开会话：摘要 + 保留区间的原文都还在
     //    （先释放再重开：否则拿的是内存里那份，验证不到回放）
-    state
-        .new_session("compaction-e2e")
-        .expect("释放会话槽");
+    state.new_session("compaction-e2e").expect("释放会话槽");
     state
         .open_session("compaction-e2e", &session_id)
         .expect("重开会话");

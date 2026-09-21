@@ -405,7 +405,10 @@ fn multiple_agents_run_at_the_same_time_and_stop_independently() {
     // 各写各的文件：每个 Agent 的会话文件只含自己的输入
     for (index, name) in agents.iter().enumerate() {
         let text = read_session_file(name, &session_ids[index]);
-        assert!(text.contains(prompts[index]), "{name} 的文件应当有自己的输入");
+        assert!(
+            text.contains(prompts[index]),
+            "{name} 的文件应当有自己的输入"
+        );
         for (other_index, prompt) in prompts.iter().enumerate() {
             if other_index != index {
                 assert!(
@@ -435,7 +438,9 @@ fn same_agent_runs_two_sessions_in_parallel() {
 
     let first = seed_session("agent-solo", "第一条：历史里的输入");
     let second = seed_session("agent-solo", "第二条：历史里的输入");
-    state.open_session("agent-solo", &first).expect("打开第一条");
+    state
+        .open_session("agent-solo", &first)
+        .expect("打开第一条");
     state
         .open_session("agent-solo", &second)
         .expect("打开第二条");
@@ -533,10 +538,11 @@ fn same_agent_runs_two_sessions_in_parallel() {
         "{labels:?}"
     );
 
-    state
-        .stop_run("agent-solo", &second)
-        .expect("停止第二条");
-    assert!(wait_until(5_000, || !any_session_running(&state, "agent-solo")));
+    state.stop_run("agent-solo", &second).expect("停止第二条");
+    assert!(wait_until(5_000, || !any_session_running(
+        &state,
+        "agent-solo"
+    )));
 
     let _ = std::fs::remove_dir_all(home);
 }
@@ -575,7 +581,8 @@ fn new_session_releases_idle_sessions_only() {
         )
         .expect("应当被接受");
     assert!(
-        wait_until(5_000, || state.session_running("agent-idle", &running_session)),
+        wait_until(5_000, || state
+            .session_running("agent-idle", &running_session)),
         "应当进入运行中"
     );
 
@@ -592,7 +599,10 @@ fn new_session_releases_idle_sessions_only() {
     state
         .send_prompt("agent-other", None, "别人的任务", None, sink.clone())
         .expect("应当被接受");
-    assert!(wait_until(5_000, || any_session_running(&state, "agent-other")));
+    assert!(wait_until(5_000, || any_session_running(
+        &state,
+        "agent-other"
+    )));
     let other_id = open_session_ids(&state, "agent-other")[0].clone();
     state.new_session("agent-idle").expect("再释放一次");
     assert_eq!(
@@ -611,7 +621,10 @@ fn new_session_releases_idle_sessions_only() {
     state
         .stop_run("agent-idle", &running_session)
         .expect("停止");
-    assert!(wait_until(5_000, || !any_session_running(&state, "agent-idle")));
+    assert!(wait_until(5_000, || !any_session_running(
+        &state,
+        "agent-idle"
+    )));
     state.new_session("agent-idle").expect("释放剩余的");
     assert!(
         open_session_ids(&state, "agent-idle").is_empty(),
@@ -630,7 +643,10 @@ fn new_session_releases_idle_sessions_only() {
     state
         .stop_run("agent-other", &other_id)
         .expect("停止 agent-other");
-    assert!(wait_until(5_000, || !any_session_running(&state, "agent-other")));
+    assert!(wait_until(5_000, || !any_session_running(
+        &state,
+        "agent-other"
+    )));
 
     let _ = std::fs::remove_dir_all(home);
 }

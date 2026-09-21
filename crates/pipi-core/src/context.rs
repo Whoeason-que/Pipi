@@ -153,9 +153,7 @@ pub fn repair_tool_pairing(messages: Vec<Message>) -> Vec<Message> {
                     .tool_calls()
                     .iter()
                     .filter_map(|call| match call {
-                        ContentBlock::ToolCall { id, name, .. } => {
-                            Some((id.clone(), name.clone()))
-                        }
+                        ContentBlock::ToolCall { id, name, .. } => Some((id.clone(), name.clone())),
                         _ => None,
                     })
                     .collect();

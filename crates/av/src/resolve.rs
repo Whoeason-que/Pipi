@@ -88,7 +88,11 @@ pub fn resolve_env(
         Inherit::All => process_env.clone(),
         Inherit::Core => CORE_INHERIT_KEYS
             .iter()
-            .filter_map(|key| process_env.get(*key).map(|v| ((*key).to_string(), v.clone())))
+            .filter_map(|key| {
+                process_env
+                    .get(*key)
+                    .map(|v| ((*key).to_string(), v.clone()))
+            })
             .collect(),
         Inherit::None => BTreeMap::new(),
     };
@@ -103,8 +107,7 @@ pub fn resolve_env(
         .ignore
         .iter()
         .map(|pattern| {
-            glob::Pattern::new(pattern)
-                .map_err(|e| format!("ignore 模式 {pattern:?} 无效：{e}"))
+            glob::Pattern::new(pattern).map_err(|e| format!("ignore 模式 {pattern:?} 无效：{e}"))
         })
         .collect::<Result<Vec<_>, _>>()?;
     let ignored = vars
@@ -159,8 +162,8 @@ pub fn resolve_env(
         if let Some(existing) = vars.get("PATH") {
             paths.extend(std::env::split_paths(existing));
         }
-        let joined = std::env::join_paths(&paths)
-            .map_err(|e| format!("path-prepend 合并失败：{e}"))?;
+        let joined =
+            std::env::join_paths(&paths).map_err(|e| format!("path-prepend 合并失败：{e}"))?;
         vars.insert("PATH".to_string(), joined.to_string_lossy().into_owned());
     }
 
@@ -169,9 +172,9 @@ pub fn resolve_env(
         let (value, source) = match reference {
             SecretRef::Env(name) => {
                 validate_env_key(name)?;
-                let value = process_env.get(name).ok_or_else(|| {
-                    format!("秘密引用失败：进程环境不存在 {name:?}（{key}）")
-                })?;
+                let value = process_env
+                    .get(name)
+                    .ok_or_else(|| format!("秘密引用失败：进程环境不存在 {name:?}（{key}）"))?;
                 if value.is_empty() {
                     return Err(format!("秘密引用失败：{name:?} 的值为空"));
                 }
@@ -207,12 +210,7 @@ pub fn resolve_env(
         provenance.insert(key.clone(), RUNTIME_SOURCE.to_string());
     }
 
-    let secret_keys = merged
-        .env
-        .secrets
-        .keys()
-        .cloned()
-        .collect::<BTreeSet<_>>();
+    let secret_keys = merged.env.secrets.keys().cloned().collect::<BTreeSet<_>>();
 
     Ok(ResolvedEnv {
         vars,
@@ -236,8 +234,8 @@ fn read_secret_file(path: &Path) -> Result<String, String> {
             ));
         }
     }
-    let content =
-        std::fs::read_to_string(path).map_err(|e| format!("无法读取秘密文件 {}: {e}", path.display()))?;
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("无法读取秘密文件 {}: {e}", path.display()))?;
     let value = content.trim_end_matches(['\r', '\n']).to_string();
     if value.is_empty() {
         return Err(format!("秘密文件为空：{}", path.display()));
@@ -302,7 +300,10 @@ mod tests {
     fn inherit_none_discards_process_env() {
         let process = process_env(&[("HOME", "/home/u"), ("KEEP", "x")]);
         let runtime = process_env(&[]);
-        let layers = [layer("agent.toml", "schema = 1\n[env]\ninherit = \"none\"\nset = { K = \"v\" }")];
+        let layers = [layer(
+            "agent.toml",
+            "schema = 1\n[env]\ninherit = \"none\"\nset = { K = \"v\" }",
+        )];
 
         let resolved = resolve_env(&layers, &process, &runtime).unwrap();
         assert!(!resolved.vars.contains_key("HOME"));
@@ -492,7 +493,8 @@ mod tests {
         .unwrap();
 
         let discovered = crate::discover(&dir).unwrap();
-        let resolved = resolve_env(&discovered.layers, &process_env(&[]), &process_env(&[])).unwrap();
+        let resolved =
+            resolve_env(&discovered.layers, &process_env(&[]), &process_env(&[])).unwrap();
         assert_eq!(resolved.vars["FROM"], "local");
         assert_eq!(resolved.provenance["FROM"], "agent.local.toml");
         std::fs::remove_dir_all(dir).unwrap();

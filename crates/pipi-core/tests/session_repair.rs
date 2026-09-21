@@ -29,7 +29,9 @@ fn assistant_with_call(id: &str, name: &str) -> Message {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn opening_a_session_repairs_interrupted_tail_once() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = std::env::temp_dir().join(format!(
         "pipi-session-repair-{}-{}",
         std::process::id(),
@@ -58,7 +60,9 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     // 被中断的会话：user → assistant(tool_calls)，结果没落盘（进程被杀）
     let session_id = {
         let mut writer = pipi_core::session::SessionWriter::create(&sessions_dir).unwrap();
-        writer.append_message(&Message::user_text("跑一下")).unwrap();
+        writer
+            .append_message(&Message::user_text("跑一下"))
+            .unwrap();
         writer
             .append_message(&assistant_with_call("call-1", "bash"))
             .unwrap();
@@ -73,7 +77,10 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     let runtime = pipi_core::runtime::RuntimeState::new(tokio::runtime::Handle::current());
     runtime.open_session("repair-worker", &session_id).unwrap();
 
-    let messages = runtime.session_messages("repair-worker", &session_id).await.unwrap();
+    let messages = runtime
+        .session_messages("repair-worker", &session_id)
+        .await
+        .unwrap();
     let roles: Vec<&str> = messages.iter().map(|message| message.role()).collect();
     assert_eq!(
         roles,
@@ -102,14 +109,20 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     let entries = pipi_core::session::load_session(&path).unwrap();
     let rebuilt = pipi_core::session::rebuild_messages(&pipi_core::session::active_path(&entries));
     assert_eq!(
-        rebuilt.iter().map(|message| message.role()).collect::<Vec<_>>(),
+        rebuilt
+            .iter()
+            .map(|message| message.role())
+            .collect::<Vec<_>>(),
         vec!["user", "assistant", "toolResult"],
     );
 
     // 幂等：重复打开不会重复追加
     runtime.new_session("repair-worker").unwrap();
     runtime.open_session("repair-worker", &session_id).unwrap();
-    let again = runtime.session_messages("repair-worker", &session_id).await.unwrap();
+    let again = runtime
+        .session_messages("repair-worker", &session_id)
+        .await
+        .unwrap();
     assert_eq!(again.len(), 3, "重复打开不应重复补结果：{again:?}");
 
     let _ = std::fs::remove_dir_all(home);
@@ -119,7 +132,9 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
 /// 后者由发送前修复兜底（见 agent_loop 的 wire 测试）。
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completed_tail_is_left_untouched() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = std::env::temp_dir().join(format!(
         "pipi-session-intact-{}-{}",
         std::process::id(),
@@ -163,9 +178,15 @@ async fn completed_tail_is_left_untouched() {
         tokio::runtime::Handle::current(),
     ));
     runtime.open_session("intact-worker", &session_id).unwrap();
-    let messages = runtime.session_messages("intact-worker", &session_id).await.unwrap();
+    let messages = runtime
+        .session_messages("intact-worker", &session_id)
+        .await
+        .unwrap();
     assert_eq!(
-        messages.iter().map(|message| message.role()).collect::<Vec<_>>(),
+        messages
+            .iter()
+            .map(|message| message.role())
+            .collect::<Vec<_>>(),
         vec!["user", "assistant"],
         "完整历史不应被改动"
     );

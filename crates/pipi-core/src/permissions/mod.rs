@@ -318,7 +318,12 @@ impl PermissionsConfig {
             match self.bash.mode {
                 BashMode::AllowAll => {}
                 BashMode::Allowlist => {
-                    if !self.bash.commands.iter().any(|c| matches_entry(c, &seg.text)) {
+                    if !self
+                        .bash
+                        .commands
+                        .iter()
+                        .any(|c| matches_entry(c, &seg.text))
+                    {
                         // 危险段落即使等用户批准也不放行
                         if self.sandbox != SandboxMode::DangerFullAccess
                             && dangerous_command_match(&seg.argv).is_some()
@@ -334,7 +339,12 @@ impl PermissionsConfig {
                     }
                 }
                 BashMode::Denylist => {
-                    if self.bash.commands.iter().any(|c| matches_entry(c, &seg.text)) {
+                    if self
+                        .bash
+                        .commands
+                        .iter()
+                        .any(|c| matches_entry(c, &seg.text))
+                    {
                         return BashAssessment::HardDenied(format!(
                             "命令「{}」被黑名单禁止",
                             seg.text
@@ -384,7 +394,9 @@ pub enum BashAssessment {
     HardDenied(String),
     /// Allowlist 模式下白名单未命中（且非危险）。`missing` 是未命中的段落文本，
     /// 「总是允许」时按段写入白名单。
-    NeedsApproval { missing: Vec<String> },
+    NeedsApproval {
+        missing: Vec<String>,
+    },
 }
 
 /// 交互审批通道。宿主（桌面壳 / Web 服务）实现传输：把请求发给用户界面，
@@ -1226,7 +1238,9 @@ mod tests {
     #[test]
     fn classification_assess_bash_maps_miss_to_error() {
         let cfg = allowlist_config(&["git"], SandboxMode::WorkspaceWrite);
-        let error = cfg.assess_bash("npm install", Path::new("/tmp")).unwrap_err();
+        let error = cfg
+            .assess_bash("npm install", Path::new("/tmp"))
+            .unwrap_err();
         assert!(error.contains("不在白名单中"));
     }
 

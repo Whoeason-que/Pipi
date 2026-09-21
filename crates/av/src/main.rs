@@ -52,11 +52,7 @@ struct Resolved {
 fn resolve(path: &std::path::Path) -> Result<Resolved, String> {
     let discovered = discover(path)?;
     let merged = merge_layers(&discovered.layers)?;
-    let resolved = resolve_env(
-        &discovered.layers,
-        &collect_process_env(),
-        &runtime_vars(),
-    )?;
+    let resolved = resolve_env(&discovered.layers, &collect_process_env(), &runtime_vars())?;
     Ok(Resolved {
         layers: discovered.layers.len(),
         merged,
@@ -90,8 +86,11 @@ fn run(args: &[String]) -> Result<(), String> {
             let resolved = resolve(&path)?;
             let mut missing = 0;
             for entry in &resolved.merged.requires {
-                if lookup_command(&entry.command, resolved.env.vars.get("PATH").map(String::as_str))
-                    .is_none()
+                if lookup_command(
+                    &entry.command,
+                    resolved.env.vars.get("PATH").map(String::as_str),
+                )
+                .is_none()
                 {
                     eprintln!("✗ {}：不在 PATH 中", entry.command);
                     missing += 1;
@@ -133,8 +132,8 @@ fn run(args: &[String]) -> Result<(), String> {
                 match &entry.version {
                     None => println!("✓ {}（存在）", entry.command),
                     Some(required) => {
-                        let outcome = probe_version(&entry.command, &resolved.env.vars)
-                            .and_then(|line| {
+                        let outcome =
+                            probe_version(&entry.command, &resolved.env.vars).and_then(|line| {
                                 version_satisfies(&line, required).map(|ok| (ok, line))
                             });
                         match outcome {

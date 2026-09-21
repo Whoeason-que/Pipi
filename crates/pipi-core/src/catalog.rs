@@ -152,7 +152,11 @@ struct ManualEntry {
 /// ③ 本地运行时（手写条目）。**不要凭记忆填**。
 const CURATION: &[Curated] = &[
     // ---- 聚合网关 ----
-    curated!("openrouter", "聚合网关", note = "聚合 300+ 模型；模型 ID 形如 anthropic/claude-sonnet-4.5"),
+    curated!(
+        "openrouter",
+        "聚合网关",
+        note = "聚合 300+ 模型；模型 ID 形如 anthropic/claude-sonnet-4.5"
+    ),
     curated!("requesty", "聚合网关"),
     // 上游没有 baseUrl → 按官方文档（/v1/chat/completions）核实
     curated!(
@@ -163,7 +167,12 @@ const CURATION: &[Curated] = &[
     ),
     curated!("llmgateway", "聚合网关"),
     curated!("poe", "聚合网关"),
-    curated!("opencode", "聚合网关", id = "opencode-zen", name = "OpenCode Zen"),
+    curated!(
+        "opencode",
+        "聚合网关",
+        id = "opencode-zen",
+        name = "OpenCode Zen"
+    ),
     curated!("opencode-go", "聚合网关", name = "OpenCode Go"),
     curated!(
         "302ai",
@@ -211,20 +220,39 @@ const CURATION: &[Curated] = &[
         env_key = "GEMINI_API_KEY",
         note = "走 Gemini 的 OpenAI 兼容端点（原生协议不支持）"
     ),
-    curated!("xai", "国际", name = "xAI Grok", base_url = "https://api.x.ai/v1"),
+    curated!(
+        "xai",
+        "国际",
+        name = "xAI Grok",
+        base_url = "https://api.x.ai/v1"
+    ),
     curated!("groq", "国际", base_url = "https://api.groq.com/openai/v1"),
     curated!("mistral", "国际", base_url = "https://api.mistral.ai/v1"),
-    curated!("togetherai", "国际", base_url = "https://api.together.xyz/v1"),
-    curated!("deepinfra", "国际", base_url = "https://api.deepinfra.com/v1/openai"),
+    curated!(
+        "togetherai",
+        "国际",
+        base_url = "https://api.together.xyz/v1"
+    ),
+    curated!(
+        "deepinfra",
+        "国际",
+        base_url = "https://api.deepinfra.com/v1/openai"
+    ),
     curated!("cerebras", "国际", base_url = "https://api.cerebras.ai/v1"),
     curated!("fireworks-ai", "国际", name = "Fireworks AI"),
     curated!(
         "novita-ai",
         "国际",
-        base_url_note = "官方 llms.txt 明写 OpenAI 兼容端点为 https://api.novita.ai/openai（无版本段）"
+        base_url_note =
+            "官方 llms.txt 明写 OpenAI 兼容端点为 https://api.novita.ai/openai（无版本段）"
     ),
     curated!("nvidia", "国际", name = "NVIDIA NIM"),
-    curated!("huggingface", "国际", name = "Hugging Face Router", env_key = "HF_TOKEN"),
+    curated!(
+        "huggingface",
+        "国际",
+        name = "Hugging Face Router",
+        env_key = "HF_TOKEN"
+    ),
     curated!("upstage", "国际"),
     curated!("inception", "国际"),
     curated!("chutes", "国际"),
@@ -374,7 +402,9 @@ fn validate_endpoint(
         return Ok(());
     }
     if !base_url.starts_with("https://") {
-        return Err(format!("{pid} 的端点既不是本地地址也不是 https：{base_url}"));
+        return Err(format!(
+            "{pid} 的端点既不是本地地址也不是 https：{base_url}"
+        ));
     }
     if api == Api::OpenAICompletions && !has_version_segment(base_url) && base_url_note.is_none() {
         return Err(format!(
@@ -405,10 +435,16 @@ fn assert_invariants(catalog: &ModelCatalog, min_providers: usize) -> Result<(),
             ));
         }
         if !GROUPS.contains(&provider.group.as_str()) {
-            return Err(format!("{} 的分组 {} 不在 GROUPS 里", provider.id, provider.group));
+            return Err(format!(
+                "{} 的分组 {} 不在 GROUPS 里",
+                provider.id, provider.group
+            ));
         }
         if !provider.local && provider.models.is_empty() {
-            return Err(format!("{} 没有任何支持工具调用的模型，应移出 CURATION", provider.id));
+            return Err(format!(
+                "{} 没有任何支持工具调用的模型，应移出 CURATION",
+                provider.id
+            ));
         }
         if let Some(env_key) = &provider.env_key {
             let first_ok = env_key
@@ -459,7 +495,9 @@ fn models_of(provider: &serde_json::Value) -> Vec<CatalogModel> {
                 .filter(|name| !name.trim().is_empty())
                 .unwrap_or(id)
                 .to_string(),
-            context: limit.and_then(|l| l.get("context")).and_then(|v| v.as_u64()),
+            context: limit
+                .and_then(|l| l.get("context"))
+                .and_then(|v| v.as_u64()),
             output: limit.and_then(|l| l.get("output")).and_then(|v| v.as_u64()),
             reasoning: model.get("reasoning").and_then(|v| v.as_bool()) == Some(true),
         });
@@ -486,7 +524,10 @@ fn build_with(
         let provider = match map.get(entry.pid) {
             Some(provider) => provider,
             None => {
-                skipped.push(format!("{} 已不在 models.dev 目录（上游改名或下线）", entry.pid));
+                skipped.push(format!(
+                    "{} 已不在 models.dev 目录（上游改名或下线）",
+                    entry.pid
+                ));
                 continue;
             }
         };
@@ -501,14 +542,18 @@ fn build_with(
                 continue;
             }
         };
-        let base_url = match entry
-            .base_url
-            .map(str::to_string)
-            .or_else(|| provider.get("api").and_then(|v| v.as_str()).map(str::to_string))
-        {
+        let base_url = match entry.base_url.map(str::to_string).or_else(|| {
+            provider
+                .get("api")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        }) {
             Some(base_url) => strip_slash(&base_url),
             None => {
-                skipped.push(format!("{} 既没有 baseUrl 覆盖也没有上游 api 字段", entry.pid));
+                skipped.push(format!(
+                    "{} 既没有 baseUrl 覆盖也没有上游 api 字段",
+                    entry.pid
+                ));
                 continue;
             }
         };
@@ -538,17 +583,24 @@ fn build_with(
             name: entry
                 .name
                 .map(str::to_string)
-                .or_else(|| provider.get("name").and_then(|v| v.as_str()).map(str::to_string))
+                .or_else(|| {
+                    provider
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
                 .unwrap_or_else(|| entry.pid.to_string()),
             api,
             local: is_local_endpoint(&base_url),
             base_url,
             env_key,
             group: entry.group.to_string(),
-            doc: entry
-                .doc
-                .map(str::to_string)
-                .or_else(|| provider.get("doc").and_then(|v| v.as_str()).map(str::to_string)),
+            doc: entry.doc.map(str::to_string).or_else(|| {
+                provider
+                    .get("doc")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            }),
             note: entry.note.map(str::to_string),
             base_url_note: entry.base_url_note.map(str::to_string),
             models,
@@ -592,7 +644,10 @@ fn build_with(
 }
 
 /// 把上游 JSON 与 CURATION 合成我们的目录。纯函数（不联网），便于测试。
-pub fn build_catalog(upstream: &serde_json::Value, fetched_at: i64) -> Result<ModelCatalog, String> {
+pub fn build_catalog(
+    upstream: &serde_json::Value,
+    fetched_at: i64,
+) -> Result<ModelCatalog, String> {
     build_with(CURATION, MANUAL, upstream, fetched_at, MIN_PROVIDERS)
 }
 
@@ -748,7 +803,10 @@ mod tests {
         let ids: Vec<_> = deepseek.models.iter().map(|m| m.id.as_str()).collect();
         assert!(ids.contains(&"deepseek-chat"));
         assert!(ids.contains(&"deepseek-reasoner"));
-        assert!(!ids.contains(&"deepseek-no-tools"), "不能工具调用的模型不入列");
+        assert!(
+            !ids.contains(&"deepseek-no-tools"),
+            "不能工具调用的模型不入列"
+        );
         let reasoner = deepseek
             .models
             .iter()
@@ -802,15 +860,31 @@ mod tests {
         )
         .is_ok());
         // anthropic 协议不看版本段
-        assert!(validate_endpoint("anthropic", Api::AnthropicMessages, "https://api.anthropic.com", None).is_ok());
+        assert!(validate_endpoint(
+            "anthropic",
+            Api::AnthropicMessages,
+            "https://api.anthropic.com",
+            None
+        )
+        .is_ok());
     }
 
     #[test]
     fn 非本地端点必须是_https() {
-        assert!(
-            validate_endpoint("x", Api::OpenAICompletions, "http://api.example.com/v1", None).is_err()
-        );
-        assert!(validate_endpoint("x", Api::OpenAICompletions, "https://api.example.com/v1", None).is_ok());
+        assert!(validate_endpoint(
+            "x",
+            Api::OpenAICompletions,
+            "http://api.example.com/v1",
+            None
+        )
+        .is_err());
+        assert!(validate_endpoint(
+            "x",
+            Api::OpenAICompletions,
+            "https://api.example.com/v1",
+            None
+        )
+        .is_ok());
     }
 
     #[test]
@@ -862,7 +936,11 @@ mod tests {
             "anthropic": upstream_fixture()["anthropic"].clone(),
         });
         let curation = &[
-            curated!("google", "国际", base_url = "https://generativelanguage.googleapis.com/v1beta/openai"),
+            curated!(
+                "google",
+                "国际",
+                base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+            ),
             curated!("anthropic", "国际", base_url = "https://api.anthropic.com"),
         ];
         let catalog = build_with(curation, &[], &empty, 0, 1).expect("不该整体失败");
@@ -881,7 +959,11 @@ mod tests {
         assert!(err.contains("版本段"), "{err}");
 
         // 分组写错 → 不变量拦截
-        let curation = &[curated!("deepseek", "海外", base_url = "https://api.deepseek.com/v1")];
+        let curation = &[curated!(
+            "deepseek",
+            "海外",
+            base_url = "https://api.deepseek.com/v1"
+        )];
         let err = build_with(curation, &[], &upstream_fixture(), 0, 1).unwrap_err();
         assert!(err.contains("不在 GROUPS"), "{err}");
     }
@@ -918,7 +1000,11 @@ mod tests {
         assert!(err.contains("重复"), "{err}");
 
         // 分组写错
-        let bad_group = &[curated!("deepseek", "海外", base_url = "https://api.deepseek.com/v1")];
+        let bad_group = &[curated!(
+            "deepseek",
+            "海外",
+            base_url = "https://api.deepseek.com/v1"
+        )];
         let err = build_with(bad_group, &[], &upstream_fixture(), 0, 1).unwrap_err();
         assert!(err.contains("不在 GROUPS"), "{err}");
     }
@@ -977,23 +1063,78 @@ mod tests {
         // 钉住几家关键 provider 的协议与端点：上游静默漂移（改名/换协议/换端点）时
         // 这个测试会红，而不是让用户少看到几家。
         let pinned: &[(&str, Api, &str, bool)] = &[
-            ("deepseek", Api::OpenAICompletions, "https://api.deepseek.com/v1", false),
-            ("deepseek-anthropic", Api::AnthropicMessages, "https://api.deepseek.com/anthropic", false),
-            ("anthropic", Api::AnthropicMessages, "https://api.anthropic.com", false),
-            ("openai", Api::OpenAICompletions, "https://api.openai.com/v1", false),
+            (
+                "deepseek",
+                Api::OpenAICompletions,
+                "https://api.deepseek.com/v1",
+                false,
+            ),
+            (
+                "deepseek-anthropic",
+                Api::AnthropicMessages,
+                "https://api.deepseek.com/anthropic",
+                false,
+            ),
+            (
+                "anthropic",
+                Api::AnthropicMessages,
+                "https://api.anthropic.com",
+                false,
+            ),
+            (
+                "openai",
+                Api::OpenAICompletions,
+                "https://api.openai.com/v1",
+                false,
+            ),
             (
                 "google",
                 Api::OpenAICompletions,
                 "https://generativelanguage.googleapis.com/v1beta/openai",
                 false,
             ),
-            ("kimi-for-coding", Api::AnthropicMessages, "https://api.kimi.com/coding/v1", false),
-            ("minimax-cn", Api::AnthropicMessages, "https://api.minimaxi.com/anthropic/v1", false),
-            ("zhipuai", Api::OpenAICompletions, "https://open.bigmodel.cn/api/paas/v4", false),
-            ("novita-ai", Api::OpenAICompletions, "https://api.novita.ai/openai", false),
-            ("ollama", Api::OpenAICompletions, "http://localhost:11434/v1", true),
-            ("vllm", Api::OpenAICompletions, "http://localhost:8000/v1", true),
-            ("lmstudio", Api::OpenAICompletions, "http://127.0.0.1:1234/v1", true),
+            (
+                "kimi-for-coding",
+                Api::AnthropicMessages,
+                "https://api.kimi.com/coding/v1",
+                false,
+            ),
+            (
+                "minimax-cn",
+                Api::AnthropicMessages,
+                "https://api.minimaxi.com/anthropic/v1",
+                false,
+            ),
+            (
+                "zhipuai",
+                Api::OpenAICompletions,
+                "https://open.bigmodel.cn/api/paas/v4",
+                false,
+            ),
+            (
+                "novita-ai",
+                Api::OpenAICompletions,
+                "https://api.novita.ai/openai",
+                false,
+            ),
+            (
+                "ollama",
+                Api::OpenAICompletions,
+                "http://localhost:11434/v1",
+                true,
+            ),
+            (
+                "vllm",
+                Api::OpenAICompletions,
+                "http://localhost:8000/v1",
+                true,
+            ),
+            (
+                "lmstudio",
+                Api::OpenAICompletions,
+                "http://127.0.0.1:1234/v1",
+                true,
+            ),
         ];
         for (id, api, base_url, local) in pinned {
             let provider = catalog
@@ -1006,7 +1147,14 @@ mod tests {
             assert_eq!(provider.local, *local, "{id} 的本地标记变了");
         }
         // 无版本段的例外必须有出处说明
-        let novita = catalog.providers.iter().find(|p| p.id == "novita-ai").unwrap();
-        assert!(novita.base_url_note.is_some(), "novita-ai 的无版本段端点必须带 baseUrlNote");
+        let novita = catalog
+            .providers
+            .iter()
+            .find(|p| p.id == "novita-ai")
+            .unwrap();
+        assert!(
+            novita.base_url_note.is_some(),
+            "novita-ai 的无版本段端点必须带 baseUrlNote"
+        );
     }
 }

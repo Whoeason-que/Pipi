@@ -255,9 +255,15 @@ impl RuntimeState {
         self.runtime.spawn(task);
     }
 
-    fn session_file_path(&self, agent_name: &str, session_id: &str) -> Result<std::path::PathBuf, String> {
+    fn session_file_path(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+    ) -> Result<std::path::PathBuf, String> {
         let def = agents::load_agent(agent_name)?;
-        let dir = def.sessions_dir().ok_or_else(|| "无法解析会话目录".to_string())?;
+        let dir = def
+            .sessions_dir()
+            .ok_or_else(|| "无法解析会话目录".to_string())?;
         // 会话目录必须是真实目录（非符号链接），否则 rename/remove 会沿链接波及外部文件
         agents::ensure_real_directory(&dir, "sessions 目录")?;
         Ok(dir.join(format!("{session_id}.jsonl")))
@@ -334,7 +340,11 @@ impl RuntimeState {
     }
 
     /// 删除已归档会话（`sessions/.archive/<id>.jsonl`）。不可恢复。
-    pub fn delete_archived_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
+    pub fn delete_archived_session(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+    ) -> Result<(), String> {
         validate_session_id(session_id)?;
         let _sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         let def = agents::load_agent(agent_name)?;
@@ -378,9 +388,10 @@ impl RuntimeState {
         }) {
             return Err(format!("Agent「{name}」的临时测试仍在运行，请先停止再归档"));
         }
-        if sessions.iter().any(|(key, session)| {
-            key.agent_name == name && !session.temporary
-        }) {
+        if sessions
+            .iter()
+            .any(|(key, session)| key.agent_name == name && !session.temporary)
+        {
             return Err(format!(
                 "Agent「{name}」仍有会话打开，请先打开其他会话或新建会话，再归档"
             ));
@@ -404,9 +415,10 @@ impl RuntimeState {
         }) {
             return Err(format!("Agent「{name}」的临时测试仍在运行，请先停止再删除"));
         }
-        if sessions.iter().any(|(key, session)| {
-            key.agent_name == name && !session.temporary
-        }) {
+        if sessions
+            .iter()
+            .any(|(key, session)| key.agent_name == name && !session.temporary)
+        {
             return Err(format!(
                 "Agent「{name}」仍有会话打开，请先打开其他会话或新建会话，再删除"
             ));
@@ -546,7 +558,9 @@ fn settle_unanswered_tail(
 }
 
 /// 投影式压缩流水线的 transform 钩子（组装请求时应用，不落盘）。
-fn projection_transform(budget: crate::compaction::Budget) -> crate::agent_loop::TransformContextHook {
+fn projection_transform(
+    budget: crate::compaction::Budget,
+) -> crate::agent_loop::TransformContextHook {
     Arc::new(move |messages: Vec<Message>| crate::compaction::project(messages, budget))
 }
 
@@ -616,10 +630,7 @@ fn make_rekey(sessions: Arc<Mutex<HashMap<SessionKey, Session>>>) -> SessionReke
             return;
         };
         if let Some(session) = map.remove(old) {
-            map.insert(
-                SessionKey::new(&old.agent_name, new_session_id),
-                session,
-            );
+            map.insert(SessionKey::new(&old.agent_name, new_session_id), session);
         }
     })
 }
@@ -704,10 +715,7 @@ async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
         // 先把 map 里的条目搬到新键（同一条会话、新 id），再让前端与后续事件跟上 ——
         // 否则键会指向旧 id：归档/删除的占用检查与 session_infos 会各说各话。
         if let Some(rekey) = &ctx.rekey {
-            rekey(
-                &SessionKey::new(ctx.agent_name, ctx.session_id),
-                new_id,
-            );
+            rekey(&SessionKey::new(ctx.agent_name, ctx.session_id), new_id);
         }
         (ctx.sink)(RuntimeEvent::SessionSwitched(SessionSwitchedEnvelope {
             agent_name: ctx.agent_name.to_string(),
@@ -718,13 +726,16 @@ async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
         }));
         *ctx.session_id = new_id.clone();
     }
-    (ctx.sink)(envelope(ctx.session_id, AgentEvent::CompactionEnd {
-        summary,
-        replaced: compacted.replaced as u64,
-        strategy: compacted.strategy.to_string(),
-        tokens_before,
-        tokens_after,
-    }));
+    (ctx.sink)(envelope(
+        ctx.session_id,
+        AgentEvent::CompactionEnd {
+            summary,
+            replaced: compacted.replaced as u64,
+            strategy: compacted.strategy.to_string(),
+            tokens_before,
+            tokens_after,
+        },
+    ));
     Ok(true)
 }
 
@@ -1193,7 +1204,10 @@ pub struct SessionInfo {
 impl RuntimeState {
     /// 从会话文件载入一条会话（含尾部自愈与账本重建）。不插入 map —— 调用方
     /// 在全部前置步骤成功后再插入。
-    fn load_session_object(def: &AgentDefinition, path: &std::path::Path) -> Result<Session, String> {
+    fn load_session_object(
+        def: &AgentDefinition,
+        path: &std::path::Path,
+    ) -> Result<Session, String> {
         let entries = load_session(path).map_err(|e| e.to_string())?;
         let active = crate::session::active_path(&entries);
         let mut messages = crate::session::rebuild_messages(&active);
@@ -1482,7 +1496,9 @@ impl RuntimeState {
             .map_err(|error| format!("无法读取会话路径: {error}"))?;
         let session_id = writer.session_id().to_string();
         let custom_model = session.model.lock().ok().and_then(|m| m.clone());
-        let effective_model = custom_model.clone().or_else(|| session.agent.provider.clone());
+        let effective_model = custom_model
+            .clone()
+            .or_else(|| session.agent.provider.clone());
         let is_custom_model = custom_model.is_some();
         Ok(SessionInfo {
             agent_name: session.agent.name.clone(),
@@ -1653,7 +1669,9 @@ impl RuntimeState {
                 agent_name: def.name.clone(),
                 session_id,
                 run_id,
-                event: AgentEvent::AgentEnd { messages: Vec::new() },
+                event: AgentEvent::AgentEnd {
+                    messages: Vec::new(),
+                },
             }));
         });
         Ok(())
@@ -1679,7 +1697,11 @@ impl RuntimeState {
     }
 
     /// 回传一次审批请求的用户决定。请求已过期（超时 / 中止）时返回 Err。
-    pub fn resolve_approval(&self, request_id: &str, decision: ApprovalDecision) -> Result<(), String> {
+    pub fn resolve_approval(
+        &self,
+        request_id: &str,
+        decision: ApprovalDecision,
+    ) -> Result<(), String> {
         self.approval.resolve(request_id, decision)
     }
 
@@ -1838,14 +1860,19 @@ impl RuntimeState {
                     source: source.clone(),
                 })
                 .collect();
-            let mut writer = writer.lock().map_err(|e| format!("无法锁定会话写入器: {e}"))?;
+            let mut writer = writer
+                .lock()
+                .map_err(|e| format!("无法锁定会话写入器: {e}"))?;
             writer
                 .append_env(declared)
                 .map_err(|e| format!("无法写入环境记账: {e}"))?;
         }
         // provider key 与工具子进程消费同一份 resolved env
-        let (model, api_key) =
-            resolve_model(&def, current_session_model.as_ref(), Some(&resolved_env.vars))?;
+        let (model, api_key) = resolve_model(
+            &def,
+            current_session_model.as_ref(),
+            Some(&resolved_env.vars),
+        )?;
 
         let mut registry = ToolRegistry::for_context(&tool_context);
         if tool_context.permissions.tool_enabled("create_agent") {
@@ -1914,8 +1941,7 @@ impl RuntimeState {
             // 工具输出，仍超预算再硬裁剪 —— 便宜的先用尽，摘要留到 turn 边界。
             // 投影是确定性的、不落盘，回放时重算即可，所以这里改历史不会造成
             // 「live 与重开不一致」。
-            transform_context: (model.context_window > 0)
-                .then(|| projection_transform(budget)),
+            transform_context: (model.context_window > 0).then(|| projection_transform(budget)),
         };
 
         // 首条消息先落盘（崩溃也会留下用户输入）；写入失败必须阻止启动本轮。
@@ -2172,7 +2198,10 @@ mod tests {
         runtime.block_on(async {
             tokio::task::yield_now().await;
         });
-        assert!(done.load(Ordering::SeqCst), "任务必须落在注入的运行时上执行");
+        assert!(
+            done.load(Ordering::SeqCst),
+            "任务必须落在注入的运行时上执行"
+        );
     }
 
     #[test]
@@ -2248,7 +2277,9 @@ mod child_timeout_tests {
     /// 超时终态落盘 —— read_agent 读到 Failed 而不是永远的 pending。
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn child_run_times_out_and_persists_terminal_state() {
-        let _guard = crate::HOME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = crate::HOME_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
@@ -2315,7 +2346,11 @@ mod child_timeout_tests {
         .await
         .unwrap();
         assert_eq!(result.status, AgentRunStatus::Failed);
-        assert!(result.response.contains("超时"), "应报超时: {}", result.response);
+        assert!(
+            result.response.contains("超时"),
+            "应报超时: {}",
+            result.response
+        );
 
         // 终态已落盘：read_agent 读到 Failed 而不是 pending
         let reread =

@@ -92,8 +92,8 @@ pub fn discover(cwd: &Path) -> Result<Discovered, String> {
 /// 供宿主直接读取已知路径的契约 —— 例如 Agent 定义目录里的 `agent.toml`
 /// （该目录不属于 cwd 发现范围）。
 pub fn load_contract_file(path: &Path) -> Result<AgentToml, String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("无法读取 {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("无法读取 {}: {e}", path.display()))?;
     let config: AgentToml =
         toml::from_str(&text).map_err(|e| format!("解析 {} 失败：{e}", path.display()))?;
     config
@@ -104,8 +104,8 @@ pub fn load_contract_file(path: &Path) -> Result<AgentToml, String> {
 
 fn load_layer(path: &Path, label: &str) -> Result<Layer, String> {
     // symlink 逃逸 fail-closed：契约文件必须真实存在于所在目录内
-    let canonical = std::fs::canonicalize(path)
-        .map_err(|e| format!("无法读取 {}: {e}", path.display()))?;
+    let canonical =
+        std::fs::canonicalize(path).map_err(|e| format!("无法读取 {}: {e}", path.display()))?;
     if let Some(parent) = path.parent() {
         let parent = std::fs::canonicalize(parent)
             .map_err(|e| format!("无法规范化 {}: {e}", parent.display()))?;
@@ -189,7 +189,14 @@ mod tests {
         let discovered = discover(&deep).unwrap();
         assert_eq!(discovered.layers.len(), 1);
         assert_eq!(
-            discovered.layers[0].config.env.as_ref().unwrap().set.as_ref().unwrap()["FROM"],
+            discovered.layers[0]
+                .config
+                .env
+                .as_ref()
+                .unwrap()
+                .set
+                .as_ref()
+                .unwrap()["FROM"],
             "deep"
         );
         std::fs::remove_dir_all(root).unwrap();
@@ -250,7 +257,11 @@ mod tests {
         )
         .unwrap();
         #[cfg(windows)]
-        std::fs::copy(external.join(AGENT_TOML_FILENAME), dir.join(AGENT_TOML_FILENAME)).unwrap();
+        std::fs::copy(
+            external.join(AGENT_TOML_FILENAME),
+            dir.join(AGENT_TOML_FILENAME),
+        )
+        .unwrap();
 
         #[cfg(unix)]
         assert!(discover(&dir).is_err());
@@ -276,7 +287,8 @@ mod tests {
     }
 
     #[test]
-    fn tilde_and_relative_resolution() {        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    fn tilde_and_relative_resolution() {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
         assert_eq!(expand_tilde("~"), home);
         assert_eq!(expand_tilde("~/x"), home.join("x"));
         assert_eq!(expand_tilde("/abs/x"), PathBuf::from("/abs/x"));
@@ -285,9 +297,6 @@ mod tests {
             resolve_path(Path::new("/base"), "rel"),
             PathBuf::from("/base/rel")
         );
-        assert_eq!(
-            resolve_path(Path::new("/base"), "~/x"),
-            home.join("x")
-        );
+        assert_eq!(resolve_path(Path::new("/base"), "~/x"), home.join("x"));
     }
 }

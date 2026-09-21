@@ -290,10 +290,8 @@ mod tests {
         let workspace =
             std::env::temp_dir().join(format!("pipi-bash-env-{}", crate::session::new_id()));
         tokio::fs::create_dir_all(&workspace).await.unwrap();
-        let resolved = std::collections::BTreeMap::from([(
-            "AV_MARKER".to_string(),
-            "from-av".to_string(),
-        )]);
+        let resolved =
+            std::collections::BTreeMap::from([("AV_MARKER".to_string(), "from-av".to_string())]);
         let ctx = ToolContext {
             workspace,
             memory_dir: None,

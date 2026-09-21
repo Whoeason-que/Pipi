@@ -18,8 +18,12 @@ use crate::types::{now_millis, Message, Model, Usage};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EntryKind {
-    Message { message: Message },
-    Custom { custom_type: String },
+    Message {
+        message: Message,
+    },
+    Custom {
+        custom_type: String,
+    },
     #[serde(rename = "model_change")]
     ModelChange {
         #[serde(alias = "model")]
@@ -48,7 +52,9 @@ pub enum EntryKind {
     /// 键 + 来源层。只记 `declared`（非 process 来源的键）——继承基线不记，
     /// 秘密值永不落盘（契约文件本身在磁盘上，键+来源足以还原语义）。
     /// 回放时只作审计信息，不影响消息流。
-    Env { declared: Vec<EnvDeclared> },
+    Env {
+        declared: Vec<EnvDeclared>,
+    },
 }
 
 /// 环境记账单条：变量键 + 来源层标签（"runtime" 或契约层 label）。
@@ -386,10 +392,7 @@ pub fn fork_session(
 /// 纯移动、无标记（文件即真相，见 `agents::ARCHIVE_DIR`）。自由函数形式是为了
 /// 让运行任务（压缩换会话后归档原文件）也能调用 —— `RuntimeState::archive_session`
 /// 在其上加了「会话正打开时拒绝」的占用检查。
-pub fn archive_session_file(
-    sessions_dir: &Path,
-    session_id: &str,
-) -> Result<PathBuf, String> {
+pub fn archive_session_file(sessions_dir: &Path, session_id: &str) -> Result<PathBuf, String> {
     if session_id.is_empty()
         || !session_id
             .chars()
@@ -726,12 +729,17 @@ mod tests {
         // 重新打开：tip/seq 恢复，新条目接在后面
         let mut resumed = SessionWriter::open(&path).unwrap();
         assert_eq!(resumed.tip_id().is_some(), true);
-        resumed.append_message(&Message::user_text("second")).unwrap();
+        resumed
+            .append_message(&Message::user_text("second"))
+            .unwrap();
 
         let entries = load_session(&path).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[1].seq, 1);
-        assert_eq!(entries[1].parent_id.as_deref(), Some(entries[0].id.as_str()));
+        assert_eq!(
+            entries[1].parent_id.as_deref(),
+            Some(entries[0].id.as_str())
+        );
     }
 
     #[test]
@@ -786,7 +794,9 @@ mod tests {
                 usage: None,
             })
             .unwrap();
-        writer.append_message(&Message::user_text("new turn")).unwrap();
+        writer
+            .append_message(&Message::user_text("new turn"))
+            .unwrap();
 
         let entries = load_session(writer.path()).unwrap();
         // Compaction 条目随 load 原样往返（serde snake_case 兼容）
@@ -816,10 +826,18 @@ mod tests {
     fn replay_keeps_messages_from_first_kept_entry() {
         let dir = temp_dir();
         let mut writer = SessionWriter::create(&dir).unwrap();
-        writer.append_message(&Message::user_text("turn 1")).unwrap();
-        writer.append_message(&Message::user_text("turn 2")).unwrap();
-        let kept = writer.append_message(&Message::user_text("turn 3")).unwrap();
-        writer.append_message(&Message::user_text("turn 4")).unwrap();
+        writer
+            .append_message(&Message::user_text("turn 1"))
+            .unwrap();
+        writer
+            .append_message(&Message::user_text("turn 2"))
+            .unwrap();
+        let kept = writer
+            .append_message(&Message::user_text("turn 3"))
+            .unwrap();
+        writer
+            .append_message(&Message::user_text("turn 4"))
+            .unwrap();
         let tip = writer.tip_id().unwrap().to_string();
         // 内存历史：[1,2,3,4]，保留区间从 index 2（turn 3）开始
         assert_eq!(writer.message_ids().len(), 4);
@@ -833,7 +851,9 @@ mod tests {
                 usage: None,
             })
             .unwrap();
-        writer.append_message(&Message::user_text("turn 5")).unwrap();
+        writer
+            .append_message(&Message::user_text("turn 5"))
+            .unwrap();
 
         let entries = load_session(writer.path()).unwrap();
         let active = active_path(&entries);
@@ -939,7 +959,9 @@ mod tests {
         assert!(writer.append_env(declared.clone()).unwrap().is_some());
         // 幂等：同一会话再次记账不追加
         assert!(writer.append_env(declared.clone()).unwrap().is_none());
-        writer.append_message(&Message::user_text("second")).unwrap();
+        writer
+            .append_message(&Message::user_text("second"))
+            .unwrap();
 
         let entries = load_session(writer.path()).unwrap();
         assert!(matches!(
@@ -970,15 +992,16 @@ mod tests {
         let mut writer = SessionWriter::create(&dir).unwrap();
         writer.append_message(&Message::user_text("a")).unwrap();
         writer.append_custom("bookmark").unwrap();
-        writer.append_model_change(&Model {
-            id: "m".into(),
-            name: "m".into(),
-            api: crate::types::Api::AnthropicMessages,
-            base_url: String::new(),
-            max_tokens: 4096,
-            context_window: 100_000,
-        })
-        .unwrap();
+        writer
+            .append_model_change(&Model {
+                id: "m".into(),
+                name: "m".into(),
+                api: crate::types::Api::AnthropicMessages,
+                base_url: String::new(),
+                max_tokens: 4096,
+                context_window: 100_000,
+            })
+            .unwrap();
 
         let entries = load_session(writer.path()).unwrap();
         let active = active_path(&entries);
@@ -998,7 +1021,10 @@ mod tests {
         let archived = archive_session_file(&dir, &id).unwrap();
         assert!(!path.exists(), "原文件应当已经移走");
         assert!(archived.is_file(), "归档区应当有该文件");
-        assert_eq!(archived.file_name().unwrap().to_str().unwrap(), format!("{id}.jsonl"));
+        assert_eq!(
+            archived.file_name().unwrap().to_str().unwrap(),
+            format!("{id}.jsonl")
+        );
         // 归档后活跃区查不到
         assert!(!dir.join(format!("{id}.jsonl")).exists());
 
@@ -1050,7 +1076,9 @@ mod tests {
         // 分叉到 id1
         let mut forked = fork_session(&source_path, &dir, Some(&id1)).unwrap();
         assert_eq!(forked.tip_id(), Some(id1.as_str()));
-        let id3 = forked.append_message(&Message::user_text("msg 3 branch")).unwrap();
+        let id3 = forked
+            .append_message(&Message::user_text("msg 3 branch"))
+            .unwrap();
         let forked_entries = load_session(forked.path()).unwrap();
         assert_eq!(forked_entries.len(), 2);
         assert_eq!(forked_entries[1].parent_id.as_deref(), Some(id1.as_str()));
@@ -1080,9 +1108,13 @@ mod tests {
 
         writer.append_message(&Message::user_text("hello")).unwrap();
         writer.append_model_change(&model1).unwrap();
-        let id_mid = writer.append_message(&Message::user_text("with gpt-4o")).unwrap();
+        let id_mid = writer
+            .append_message(&Message::user_text("with gpt-4o"))
+            .unwrap();
         writer.append_model_change(&model2).unwrap();
-        writer.append_message(&Message::user_text("with claude")).unwrap();
+        writer
+            .append_message(&Message::user_text("with claude"))
+            .unwrap();
 
         let entries = load_session(writer.path()).unwrap();
         assert_eq!(entries.len(), 5);
@@ -1098,7 +1130,10 @@ mod tests {
         assert_eq!(forked_active.id, "gpt-4o");
 
         let summaries = list_session_summaries(&dir);
-        let current_summary = summaries.iter().find(|s| s.id == writer.path().file_stem().unwrap().to_str().unwrap()).unwrap();
+        let current_summary = summaries
+            .iter()
+            .find(|s| s.id == writer.path().file_stem().unwrap().to_str().unwrap())
+            .unwrap();
         assert_eq!(current_summary.model.as_deref(), Some("Claude Sonnet"));
     }
 }

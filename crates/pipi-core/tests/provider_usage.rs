@@ -135,7 +135,10 @@ async fn openai_cache_usage_is_normalized_to_pi_semantics() {
     assert_eq!(usage.total_tokens, usage.total());
 
     // 消息上带的用量与 Done 事件一致（会话文件持久化的就是它）
-    let Message::Assistant { usage: persisted, .. } = &message else {
+    let Message::Assistant {
+        usage: persisted, ..
+    } = &message
+    else {
         panic!("Done 应当携带 assistant 消息");
     };
     assert_eq!(*persisted, usage);

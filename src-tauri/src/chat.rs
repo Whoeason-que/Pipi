@@ -74,11 +74,7 @@ pub fn reset_test_session(
 }
 
 #[tauri::command]
-pub fn session_running(
-    state: State<ChatState>,
-    agent_name: String,
-    session_id: String,
-) -> bool {
+pub fn session_running(state: State<ChatState>, agent_name: String, session_id: String) -> bool {
     state.session_running(&agent_name, &session_id)
 }
 

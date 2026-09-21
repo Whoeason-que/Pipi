@@ -113,7 +113,10 @@ async fn drain_stream(addr: std::net::SocketAddr, timeout_secs: u64) -> (bool, O
 }
 
 /// 外层兜底：实现若真的挂死，测试会在 8 秒内失败而不是无限等待。
-async fn drain_with_deadline(addr: std::net::SocketAddr, timeout_secs: u64) -> (bool, Option<String>) {
+async fn drain_with_deadline(
+    addr: std::net::SocketAddr,
+    timeout_secs: u64,
+) -> (bool, Option<String>) {
     tokio::time::timeout(Duration::from_secs(8), drain_stream(addr, timeout_secs))
         .await
         .expect("请求时限未生效：provider 流没有产生任何事件也没有结束")

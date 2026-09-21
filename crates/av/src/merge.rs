@@ -155,7 +155,10 @@ mod tests {
             "agent.toml",
             "schema = 1\n[[requires]]\ncommand = \"git\"\n[[requires]]\ncommand = \"node\"",
         );
-        let high = layer("agent.local.toml", "schema = 1\n[[requires]]\ncommand = \"rg\"");
+        let high = layer(
+            "agent.local.toml",
+            "schema = 1\n[[requires]]\ncommand = \"rg\"",
+        );
 
         let merged = merge_layers(&[low, high]).unwrap();
         assert_eq!(merged.requires.len(), 1);
@@ -190,7 +193,10 @@ mod tests {
         let resources = merged.resources.as_ref().unwrap();
         assert_eq!(resources.max_bytes, Some(100));
         let skills = resources.skills.as_ref().unwrap();
-        assert_eq!(skills.sources.as_deref(), Some(&["agent-skills".to_string()][..]));
+        assert_eq!(
+            skills.sources.as_deref(),
+            Some(&["agent-skills".to_string()][..])
+        );
         assert_eq!(skills.only.as_deref(), Some(&["a".to_string()][..]));
         assert_eq!(skills.exclude.as_deref(), Some(&["b".to_string()][..]));
     }

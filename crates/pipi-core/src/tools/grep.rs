@@ -81,11 +81,7 @@ fn expand_braces(spec: &str) -> Vec<String> {
 }
 
 /// 在单文件中搜索，返回 `相对路径:行号: 行内容` 行列表与是否被跳过。
-fn search_file(
-    abs: &Path,
-    display: &str,
-    regex: &Regex,
-) -> Result<(Vec<String>, usize), String> {
+fn search_file(abs: &Path, display: &str, regex: &Regex) -> Result<(Vec<String>, usize), String> {
     let bytes = std::fs::read(abs).map_err(|e| format!("无法读取 {}: {e}", display))?;
     if looks_like_binary(&bytes) {
         return Ok((Vec::new(), 0));
@@ -195,25 +191,23 @@ impl AgentTool for GrepTool {
 
         let root = match args["path"].as_str() {
             Some(p) if !p.is_empty() => resolve_read_path(&ctx.workspace, &ctx.read_roots, p)?,
-            _ => std::fs::canonicalize(&ctx.workspace).map_err(|e| {
-                format!("无法解析工作目录 {}：{e}", ctx.workspace.display())
-            })?,
+            _ => std::fs::canonicalize(&ctx.workspace)
+                .map_err(|e| format!("无法解析工作目录 {}：{e}", ctx.workspace.display()))?,
         };
         if !root.is_dir() {
             return Err(format!("搜索根 {} 不是目录", root.display()));
         }
 
         let workspace = ctx.workspace.clone();
-        let (output, searched) =
-            tokio::task::spawn_blocking(move || search_tree(&root, &workspace, &regex, include.as_deref()))
-                .await
-                .map_err(|e| format!("grep 搜索失败：{e}"))?;
+        let (output, searched) = tokio::task::spawn_blocking(move || {
+            search_tree(&root, &workspace, &regex, include.as_deref())
+        })
+        .await
+        .map_err(|e| format!("grep 搜索失败：{e}"))?;
 
         let total_matches = output.len();
         let mut text = if total_matches == 0 {
-            format!(
-                "No matches found for \"{pattern}\" (searched {searched} file(s))."
-            )
+            format!("No matches found for \"{pattern}\" (searched {searched} file(s)).")
         } else {
             output.join("\n")
         };
@@ -247,16 +241,32 @@ mod tests {
     async fn grep_fixture() -> (PathBuf, ToolContext, PathBuf) {
         let base = std::env::temp_dir().join(format!("pipi-grep-{}", crate::session::new_id()));
         let workspace = base.join("workspace");
-        tokio::fs::create_dir_all(workspace.join("src")).await.unwrap();
-        tokio::fs::create_dir_all(workspace.join(".hidden")).await.unwrap();
-        tokio::fs::write(workspace.join("src/a.rs"), "fn main() {}\nlet x = 42;\n").await.unwrap();
-        tokio::fs::write(workspace.join("src/b.ts"), "const answer = 42;\n").await.unwrap();
-        tokio::fs::write(workspace.join("README.md"), "# Readme\nanswer is 42\n").await.unwrap();
-        tokio::fs::write(workspace.join(".hidden/secret.rs"), "let secret = 42;\n").await.unwrap();
+        tokio::fs::create_dir_all(workspace.join("src"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(workspace.join(".hidden"))
+            .await
+            .unwrap();
+        tokio::fs::write(workspace.join("src/a.rs"), "fn main() {}\nlet x = 42;\n")
+            .await
+            .unwrap();
+        tokio::fs::write(workspace.join("src/b.ts"), "const answer = 42;\n")
+            .await
+            .unwrap();
+        tokio::fs::write(workspace.join("README.md"), "# Readme\nanswer is 42\n")
+            .await
+            .unwrap();
+        tokio::fs::write(workspace.join(".hidden/secret.rs"), "let secret = 42;\n")
+            .await
+            .unwrap();
         // 二进制文件（含 NUL）
-        tokio::fs::write(workspace.join("bin.dat"), b"\x00\x01binary\x00").await.unwrap();
+        tokio::fs::write(workspace.join("bin.dat"), b"\x00\x01binary\x00")
+            .await
+            .unwrap();
         let outside = base.join("outside.rs");
-        tokio::fs::write(&outside, "let outside = 42;\n").await.unwrap();
+        tokio::fs::write(&outside, "let outside = 42;\n")
+            .await
+            .unwrap();
 
         let ctx = ToolContext {
             workspace: workspace.clone(),
@@ -295,12 +305,9 @@ mod tests {
     #[tokio::test]
     async fn grep_include_filters_by_filename() {
         let (base, ctx, _outside) = grep_fixture().await;
-        let out = grep(
-            &ctx,
-            json!({ "pattern": "42", "include": "*.rs" }),
-        )
-        .await
-        .unwrap();
+        let out = grep(&ctx, json!({ "pattern": "42", "include": "*.rs" }))
+            .await
+            .unwrap();
         let ToolResultContent::Text { text } = &out.content[0] else {
             panic!("expected text");
         };
@@ -320,9 +327,12 @@ mod tests {
         };
         assert!(text.contains("No matches found"));
         // 忽略大小写后命中 answer / Answer
-        let out = grep(&ctx, json!({ "pattern": "ANSWER", "case_insensitive": true }))
-            .await
-            .unwrap();
+        let out = grep(
+            &ctx,
+            json!({ "pattern": "ANSWER", "case_insensitive": true }),
+        )
+        .await
+        .unwrap();
         let ToolResultContent::Text { text } = &out.content[0] else {
             panic!("expected text");
         };
@@ -356,12 +366,9 @@ mod tests {
         .await;
         assert!(err.is_err());
         // 工作目录内的子目录正常
-        let out = grep(
-            &ctx,
-            json!({ "pattern": "42", "path": "src" }),
-        )
-        .await
-        .unwrap();
+        let out = grep(&ctx, json!({ "pattern": "42", "path": "src" }))
+            .await
+            .unwrap();
         let ToolResultContent::Text { text } = &out.content[0] else {
             panic!("expected text");
         };

@@ -18,8 +18,8 @@ use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
-use pipi_core::approval::ApprovalDecision;
 use pipi_core::agents::{self, AgentDefinition, PermissionsConfig};
+use pipi_core::approval::ApprovalDecision;
 
 use pipi_core::runtime::{self, EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::settings::{self, Settings};
@@ -53,7 +53,11 @@ struct LoginRequest {
     token: String,
 }
 
-fn check_request_authorized(headers: &header::HeaderMap, uri: &axum::http::Uri, expected: &str) -> bool {
+fn check_request_authorized(
+    headers: &header::HeaderMap,
+    uri: &axum::http::Uri,
+    expected: &str,
+) -> bool {
     let header_token = headers
         .get(PIPI_TOKEN_HEADER)
         .and_then(|value| value.to_str().ok());
@@ -84,7 +88,8 @@ fn check_request_authorized(headers: &header::HeaderMap, uri: &axum::http::Uri, 
 
 fn build_app(state: AppState) -> Router {
     let index_file = state.web_root.join("index.html");
-    let static_service = ServeDir::new(&state.web_root).not_found_service(ServeFile::new(index_file));
+    let static_service =
+        ServeDir::new(&state.web_root).not_found_service(ServeFile::new(index_file));
 
     let protected_api_routes = Router::new()
         .route("/events", get(ws_events))
@@ -183,7 +188,10 @@ async fn auth_status_handler(
 }
 
 fn is_https_request(headers: &header::HeaderMap) -> bool {
-    if let Some(proto) = headers.get("x-forwarded-proto").and_then(|v| v.to_str().ok()) {
+    if let Some(proto) = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+    {
         if proto.eq_ignore_ascii_case("https") {
             return true;
         }
@@ -204,11 +212,17 @@ async fn auth_login_handler(
     if let Some(expected) = state.auth_token.as_deref() {
         if payload.token.trim() == expected {
             let mut response = Json(json!({ "ok": true })).into_response();
-            let secure = if is_https_request(&headers) { "; Secure" } else { "" };
+            let secure = if is_https_request(&headers) {
+                "; Secure"
+            } else {
+                ""
+            };
             if let Ok(cookie_val) = HeaderValue::from_str(&format!(
                 "pipi_token={expected}; HttpOnly; Path=/; SameSite=Lax{secure}"
             )) {
-                response.headers_mut().insert(header::SET_COOKIE, cookie_val);
+                response
+                    .headers_mut()
+                    .insert(header::SET_COOKIE, cookie_val);
             }
             response
         } else {
@@ -225,11 +239,17 @@ async fn auth_login_handler(
 
 async fn auth_logout_handler(headers: header::HeaderMap) -> Response {
     let mut response = Json(json!({ "ok": true })).into_response();
-    let secure = if is_https_request(&headers) { "; Secure" } else { "" };
+    let secure = if is_https_request(&headers) {
+        "; Secure"
+    } else {
+        ""
+    };
     if let Ok(cookie_val) = HeaderValue::from_str(&format!(
         "pipi_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax{secure}"
     )) {
-        response.headers_mut().insert(header::SET_COOKIE, cookie_val);
+        response
+            .headers_mut()
+            .insert(header::SET_COOKIE, cookie_val);
     }
     response
 }
@@ -270,7 +290,9 @@ async fn auth_middleware(
         if let Ok(cookie_val) = HeaderValue::from_str(&format!(
             "pipi_token={expected}; HttpOnly; Path=/; SameSite=Lax{secure}"
         )) {
-            response.headers_mut().insert(header::SET_COOKIE, cookie_val);
+            response
+                .headers_mut()
+                .insert(header::SET_COOKIE, cookie_val);
         }
     }
     response
@@ -425,9 +447,13 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             let emitter: EventEmitter = Arc::new(move |event| {
                 let _ = events.send(event);
             });
-            state
-                .runtime
-                .send_prompt(&agent_name, session_id.as_deref(), &prompt, model, emitter)?;
+            state.runtime.send_prompt(
+                &agent_name,
+                session_id.as_deref(),
+                &prompt,
+                model,
+                emitter,
+            )?;
             Ok(Value::Null)
         }
         "compact_now" => {
@@ -437,7 +463,9 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             let emitter: EventEmitter = Arc::new(move |event| {
                 let _ = events.send(event);
             });
-            state.runtime.compact_now(&agent_name, &session_id, emitter)?;
+            state
+                .runtime
+                .compact_now(&agent_name, &session_id, emitter)?;
             Ok(Value::Null)
         }
         "steer" => {
@@ -467,7 +495,12 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
         "session_messages" => {
             let agent_name = required_string(args, "agentName")?;
             let session_id = required_string(args, "sessionId")?;
-            to_value(state.runtime.session_messages(&agent_name, &session_id).await?)
+            to_value(
+                state
+                    .runtime
+                    .session_messages(&agent_name, &session_id)
+                    .await?,
+            )
         }
         "session_stats" => {
             let agent_name = required_string(args, "agentName")?;
@@ -538,7 +571,9 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
         "delete_archived_session" => {
             let agent_name = required_string(args, "agentName")?;
             let session_id = required_string(args, "sessionId")?;
-            state.runtime.delete_archived_session(&agent_name, &session_id)?;
+            state
+                .runtime
+                .delete_archived_session(&agent_name, &session_id)?;
             Ok(Value::Null)
         }
         _ => Err(format!("未知命令: {command}")),
@@ -606,7 +641,9 @@ mod tests {
             .unwrap();
         let res = app.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["authRequired"], false);
         assert_eq!(json["authenticated"], true);
@@ -621,7 +658,9 @@ mod tests {
             .unwrap();
         let res = app.clone().oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["authRequired"], true);
         assert_eq!(json["authenticated"], false);
@@ -634,7 +673,9 @@ mod tests {
             .unwrap();
         let res2 = app.oneshot(req2).await.unwrap();
         assert_eq!(res2.status(), StatusCode::OK);
-        let body2 = axum::body::to_bytes(res2.into_body(), usize::MAX).await.unwrap();
+        let body2 = axum::body::to_bytes(res2.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json2: Value = serde_json::from_slice(&body2).unwrap();
         assert_eq!(json2["authRequired"], true);
         assert_eq!(json2["authenticated"], true);
@@ -663,7 +704,12 @@ mod tests {
             .unwrap();
         let res_correct = app.clone().oneshot(req_correct).await.unwrap();
         assert_eq!(res_correct.status(), StatusCode::OK);
-        let cookie = res_correct.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap();
+        let cookie = res_correct
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert!(cookie.contains("pipi_token=my-secret-token"));
 
         // Logout
@@ -674,7 +720,12 @@ mod tests {
             .unwrap();
         let res_logout = app.oneshot(req_logout).await.unwrap();
         assert_eq!(res_logout.status(), StatusCode::OK);
-        let clear_cookie = res_logout.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap();
+        let clear_cookie = res_logout
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert!(clear_cookie.contains("Max-Age=0"));
     }
 
@@ -693,10 +744,7 @@ mod tests {
         assert_eq!(res_invoke.status(), StatusCode::UNAUTHORIZED);
 
         // Root path is not blocked by auth (does not return 401)
-        let req_root = Request::builder()
-            .uri("/")
-            .body(Body::empty())
-            .unwrap();
+        let req_root = Request::builder().uri("/").body(Body::empty()).unwrap();
         let res_root = app.oneshot(req_root).await.unwrap();
         assert_ne!(res_root.status(), StatusCode::UNAUTHORIZED);
     }

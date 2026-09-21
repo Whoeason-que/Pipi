@@ -153,9 +153,7 @@ impl EnvConfig {
             for pattern in ignore {
                 validate_env_key(pattern)?;
                 if pattern == "AV" || pattern.starts_with(RESERVED_PREFIX) {
-                    return Err(format!(
-                        "ignore 不能作用于保留命名空间：{pattern:?}"
-                    ));
+                    return Err(format!("ignore 不能作用于保留命名空间：{pattern:?}"));
                 }
             }
         }

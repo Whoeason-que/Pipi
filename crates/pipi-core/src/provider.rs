@@ -152,7 +152,10 @@ pub fn to_rig_messages(context: &Context) -> Vec<RigMessage> {
                     })
                     .collect();
                 if !blocks.is_empty() {
-                    out.push(RigMessage::Assistant { id: None, content: blocks });
+                    out.push(RigMessage::Assistant {
+                        id: None,
+                        content: blocks,
+                    });
                 }
             }
             Message::ToolResult {
@@ -274,7 +277,9 @@ impl Accumulator {
     fn text_delta(&mut self, delta: &str) {
         match self.blocks.last_mut() {
             Some(ContentBlock::Text { text }) => text.push_str(delta),
-            _ => self.blocks.push(ContentBlock::Text { text: delta.to_string() }),
+            _ => self.blocks.push(ContentBlock::Text {
+                text: delta.to_string(),
+            }),
         }
     }
 
@@ -324,12 +329,22 @@ impl Accumulator {
         }
     }
 
-    fn finalize(&self, model_id: &str, usage: Usage, reason: StopReason, duration_ms: u64) -> Message {
+    fn finalize(
+        &self,
+        model_id: &str,
+        usage: Usage,
+        reason: StopReason,
+        duration_ms: u64,
+    ) -> Message {
         let content = self
             .blocks
             .iter()
             .map(|b| match b {
-                ContentBlock::ToolCall { id, name, arguments } => {
+                ContentBlock::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                } => {
                     let arguments = if let Some(raw) = arguments.as_str() {
                         serde_json::from_str(raw).unwrap_or(json!({}))
                     } else {
@@ -526,45 +541,52 @@ impl Provider for RigProvider {
                 tx: &Sender<StreamEvent>,
             ) -> Result<(), String> {
                 match api {
-                Api::AnthropicMessages => {
-                    let key = options.api_key.clone().unwrap_or_default();
-                    let mut cb = rig::providers::anthropic::Client::builder().api_key(key);
-                    if !model.base_url.is_empty() {
-                        cb = cb.base_url(model.base_url.clone());
+                    Api::AnthropicMessages => {
+                        let key = options.api_key.clone().unwrap_or_default();
+                        let mut cb = rig::providers::anthropic::Client::builder().api_key(key);
+                        if !model.base_url.is_empty() {
+                            cb = cb.base_url(model.base_url.clone());
+                        }
+                        if let Some(headers) =
+                            extra_headers(&model.base_url, options.session_id.as_deref())
+                        {
+                            cb = cb.http_headers(headers);
+                        }
+                        let client = cb.build().map_err(|e| format!("Client 初始化失败: {e}"))?;
+                        run_with_model!(
+                            tx,
+                            abort,
+                            model,
+                            context,
+                            options,
+                            client.completion_model(&model.id)
+                        )
                     }
-                    if let Some(headers) =
-                        extra_headers(&model.base_url, options.session_id.as_deref())
-                    {
-                        cb = cb.http_headers(headers);
+                    Api::OpenAICompletions => {
+                        let key = options.api_key.clone().unwrap_or_default();
+                        let mut cb = rig::providers::openai::Client::builder().api_key(key);
+                        if !model.base_url.is_empty() {
+                            cb = cb.base_url(model.base_url.clone());
+                        }
+                        if let Some(headers) =
+                            extra_headers(&model.base_url, options.session_id.as_deref())
+                        {
+                            cb = cb.http_headers(headers);
+                        }
+                        let client = cb.build().map_err(|e| format!("Client 初始化失败: {e}"))?;
+                        // 统一走 Chat Completions（`/chat/completions`）：rig 0.42 的 openai 客户端
+                        // 默认是 Responses API（`/responses`），而「openai-completions」协议在中转商、
+                        // 本地运行时那里就是 Chat Completions 的兼容层 —— 只有官方 OpenAI 才认
+                        // /responses。协议名与实现必须一致，否则绝大多数兼容端点直接 404。
+                        run_with_model!(
+                            tx,
+                            abort,
+                            model,
+                            context,
+                            options,
+                            client.completions_api().completion_model(&model.id)
+                        )
                     }
-                    let client = cb.build().map_err(|e| format!("Client 初始化失败: {e}"))?;
-                    run_with_model!(tx, abort, model, context, options, client.completion_model(&model.id))
-                }
-                Api::OpenAICompletions => {
-                    let key = options.api_key.clone().unwrap_or_default();
-                    let mut cb = rig::providers::openai::Client::builder().api_key(key);
-                    if !model.base_url.is_empty() {
-                        cb = cb.base_url(model.base_url.clone());
-                    }
-                    if let Some(headers) =
-                        extra_headers(&model.base_url, options.session_id.as_deref())
-                    {
-                        cb = cb.http_headers(headers);
-                    }
-                    let client = cb.build().map_err(|e| format!("Client 初始化失败: {e}"))?;
-                    // 统一走 Chat Completions（`/chat/completions`）：rig 0.42 的 openai 客户端
-                    // 默认是 Responses API（`/responses`），而「openai-completions」协议在中转商、
-                    // 本地运行时那里就是 Chat Completions 的兼容层 —— 只有官方 OpenAI 才认
-                    // /responses。协议名与实现必须一致，否则绝大多数兼容端点直接 404。
-                    run_with_model!(
-                        tx,
-                        abort,
-                        model,
-                        context,
-                        options,
-                        client.completions_api().completion_model(&model.id)
-                    )
-                }
                 }
             }
             if let Err(e) = stream_impl(api, model, context, options, abort, &tx).await {
@@ -646,9 +668,18 @@ mod tests {
 
     #[test]
     fn maps_finish_reasons() {
-        assert_eq!(map_finish_reason(Some(&FinishReason::ToolCalls), false), StopReason::ToolUse);
-        assert_eq!(map_finish_reason(Some(&FinishReason::Length), false), StopReason::Length);
-        assert_eq!(map_finish_reason(Some(&FinishReason::Stop), false), StopReason::Stop);
+        assert_eq!(
+            map_finish_reason(Some(&FinishReason::ToolCalls), false),
+            StopReason::ToolUse
+        );
+        assert_eq!(
+            map_finish_reason(Some(&FinishReason::Length), false),
+            StopReason::Length
+        );
+        assert_eq!(
+            map_finish_reason(Some(&FinishReason::Stop), false),
+            StopReason::Stop
+        );
         assert_eq!(map_finish_reason(None, true), StopReason::ToolUse);
         assert_eq!(map_finish_reason(None, false), StopReason::Stop);
     }
@@ -744,7 +775,12 @@ mod tests {
         acc.tool_call_delta("md\":\"ls\"}");
         acc.tool_call_end("t1", "bash", json!({"cmd": "ls"}));
         let msg = acc.finalize("m", Usage::default(), StopReason::ToolUse, 1234);
-        let Message::Assistant { content, duration_ms, .. } = msg else {
+        let Message::Assistant {
+            content,
+            duration_ms,
+            ..
+        } = msg
+        else {
             panic!("expected assistant");
         };
         assert_eq!(duration_ms, Some(1234));
@@ -770,20 +806,25 @@ mod tests {
         let headers = extra_headers("https://opencode.ai/zen/go/v1", Some("1789230239133-abc"))
             .expect("opencode-go 应带额外请求头");
         assert_eq!(
-            headers.get("x-opencode-session").and_then(|v| v.to_str().ok()),
+            headers
+                .get("x-opencode-session")
+                .and_then(|v| v.to_str().ok()),
             Some("1789230239133-abc"),
         );
         let user_agent = headers
             .get("user-agent")
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default();
-        assert!(user_agent.starts_with("pipi/"), "UA 应为 pipi/<版本>，实际 {user_agent}");
+        assert!(
+            user_agent.starts_with("pipi/"),
+            "UA 应为 pipi/<版本>，实际 {user_agent}"
+        );
     }
 
     #[test]
     fn extra_headers_without_session_id_still_identifies_client() {
-        let headers = extra_headers("https://opencode.ai/zen/go/v1", None)
-            .expect("命中供应商时至少应带 UA");
+        let headers =
+            extra_headers("https://opencode.ai/zen/go/v1", None).expect("命中供应商时至少应带 UA");
         assert!(headers.get("x-opencode-session").is_none());
         assert!(headers.get("user-agent").is_some());
 
