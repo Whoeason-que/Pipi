@@ -722,12 +722,14 @@ export default function App() {
     setSelected(agentName);
     setCreating(false);
     setChatOpen(false);
+    setSettingsOpen(false);
     setSidebarOpen(false);
   };
 
   const startCreating = () => {
     invalidateNavigation();
     setCreating(true);
+    setSettingsOpen(false);
     setSidebarOpen(false);
   };
 
@@ -783,12 +785,14 @@ export default function App() {
             <span className="spacer" />
             <button
               type="button"
-              className="icon-btn"
-              title="设置"
-              aria-label="打开设置"
+              className={`icon-btn${settingsOpen ? " active" : ""}`}
+              title={settingsOpen ? "关闭设置" : "设置"}
+              aria-label={settingsOpen ? "关闭设置" : "打开设置"}
+              aria-current={settingsOpen ? "page" : undefined}
               onClick={() => {
                 setSidebarOpen(false);
-                setSettingsOpen(true);
+                // 再点一次即返回设置前的界面（与返回按钮同义）
+                setSettingsOpen((open) => !open);
               }}
             >
               <IconGear />
@@ -1115,7 +1119,7 @@ export default function App() {
               <IconMenu />
             </button>
             <span className="mobile-toolbar-title">
-              {current?.name ?? (creating ? "新建 Agent" : "Pipi")}
+              {settingsOpen ? "设置" : current?.name ?? (creating ? "新建 Agent" : "Pipi")}
             </span>
           </div>
 
@@ -1133,7 +1137,14 @@ export default function App() {
             </div>
           )}
 
-          {creating ? (
+          {settingsOpen && settings ? (
+            <SettingsView
+              settings={settings}
+              onChange={updateSettings}
+              onClose={() => setSettingsOpen(false)}
+              showLogout={!isTauriRuntime() && authStatus.authRequired}
+            />
+          ) : creating ? (
             <CreateForm
               providers={settings?.providers ?? []}
               defaultProviderId={settings?.defaultProviderId ?? null}
@@ -1231,15 +1242,6 @@ export default function App() {
           </>
         )}
       </footer>
-
-      {settingsOpen && settings && (
-        <SettingsModal
-          settings={settings}
-          onChange={updateSettings}
-          onClose={() => setSettingsOpen(false)}
-          showLogout={!isTauriRuntime() && authStatus.authRequired}
-        />
-      )}
 
       {confirmState && (
         <ConfirmModal
@@ -2152,16 +2154,39 @@ function CreateForm({
   );
 }
 
-// ============ 设置弹窗 ============
+// ============ 设置（主区 tab，与对话界面同构：顶栏 + 左导航 + 内容） ============
 
-interface SettingsModalProps {
+/** 设置分组：导航用它划分不同类别。 */
+type SettingsSection = "appearance" | "context" | "providers" | "account";
+
+const SETTINGS_SECTIONS: Record<SettingsSection, { label: string; description: string }> = {
+  appearance: {
+    label: "外观",
+    description: "界面主题，只影响本机显示，不改动 Agent 配置。",
+  },
+  context: {
+    label: "上下文",
+    description: "长会话触碰窗口上限时的压缩方式：分叉出新会话，或原地替换旧轮次。",
+  },
+  providers: {
+    label: "模型提供商",
+    description: "端点与密钥。Agent 绑定其中一个提供商，再选具体模型。",
+  },
+  account: {
+    label: "账户",
+    description: "Web 访问保护凭据。",
+  },
+};
+
+interface SettingsViewProps {
   settings: Settings;
   onChange: (next: Settings) => void | Promise<void>;
   onClose: () => void;
   showLogout?: boolean;
 }
 
-function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModalProps) {
+function SettingsView({ settings, onChange, onClose, showLogout }: SettingsViewProps) {
+  const [section, setSection] = useState<SettingsSection>("appearance");
   const [editing, setEditing] = useState<ProviderConfig | "new" | null>(null);
   const [preset, setPreset] = useState<CatalogProvider | null>(null);
   const [picking, setPicking] = useState(false);
@@ -2232,207 +2257,265 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
     }));
   };
 
+  const sections: SettingsSection[] = showLogout
+    ? ["appearance", "context", "providers", "account"]
+    : ["appearance", "context", "providers"];
+
+  /** 导航项右侧的一行状态摘要，让分组一眼可辨。 */
+  const sectionMeta = (id: SettingsSection): string => {
+    switch (id) {
+      case "appearance":
+        return draft.theme === "dark" ? "深色" : "浅色";
+      case "context":
+        return draft.compaction.forkBeforeCompact ? "压缩前分叉" : "原地压缩";
+      case "providers": {
+        const fallback = draft.providers.find((item) => item.id === draft.defaultProviderId);
+        return `${draft.providers.length} 家 · 默认 ${fallback?.name ?? "未设置"}`;
+      }
+      case "account":
+        return "Web 访问保护";
+    }
+  };
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="modal-header">
-          <h2 id="settings-title">设置</h2>
-          <button type="button" className="icon-btn close-btn" onClick={onClose} title="关闭">
-            <IconClose />
-          </button>
-        </div>
+    <div className="screen settings-view">
+      <div className="screen-bar">
+        <button
+          type="button"
+          className="icon-btn"
+          title="返回"
+          aria-label="返回设置前的界面"
+          onClick={onClose}
+        >
+          <IconBack />
+        </button>
+        <span className="crumb">
+          设置 · <b>{SETTINGS_SECTIONS[section].label}</b>
+        </span>
+        <span className="spacer" />
+        <span className="hint">改动即时保存</span>
+      </div>
 
-        <div className="modal-section">
-          <span className="label">主题</span>
-          <div className="theme-row">
-            <ThemeOption
-              active={draft.theme === "dark"}
-              name="深色"
-              swatch={["#171717", "#212121", "#0169CC", "#ececec"]}
-              onClick={() => commit((previous) => ({ ...previous, theme: "dark" }))}
-            />
-            <ThemeOption
-              active={draft.theme === "light"}
-              name="浅色"
-              swatch={["#f9f9f9", "#ffffff", "#0169CC", "#0d0d0d"]}
-              onClick={() => commit((previous) => ({ ...previous, theme: "light" }))}
-            />
-          </div>
-        </div>
+      <div className="settings-body">
+        <nav
+          className="settings-nav"
+          role="tablist"
+          aria-label="设置分组"
+          aria-orientation="vertical"
+        >
+          {sections.map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={section === id}
+              className={`settings-nav-item${section === id ? " active" : ""}`}
+              onClick={() => setSection(id)}
+            >
+              <span className="name">{SETTINGS_SECTIONS[id].label}</span>
+              <span className="meta">{sectionMeta(id)}</span>
+            </button>
+          ))}
+        </nav>
 
-        <div className="modal-section">
-          <span className="label">上下文压缩</span>
-          <div className="setting-checks">
-          <label className="tool-check">
-            <input
-              type="checkbox"
-              checked={draft.compaction.forkBeforeCompact}
-              onChange={() =>
-                commit((previous) => ({
-                  ...previous,
-                  compaction: {
-                    ...previous.compaction,
-                    forkBeforeCompact: !previous.compaction.forkBeforeCompact,
-                  },
-                }))
-              }
-            />
-            <span>压缩前分叉新会话（原会话保留为完整记录）</span>
-          </label>
-          <label className="tool-check">
-            <input
-              type="checkbox"
-              checked={draft.compaction.archiveOriginal}
-              disabled={!draft.compaction.forkBeforeCompact}
-              onChange={() =>
-                commit((previous) => ({
-                  ...previous,
-                  compaction: {
-                    ...previous.compaction,
-                    archiveOriginal: !previous.compaction.archiveOriginal,
-                  },
-                }))
-              }
-            />
-            <span>分叉后归档原会话</span>
-          </label>
-          <div className="hint">
-            关闭分叉即回到原地压缩：摘要会替换当前会话里被压缩的旧轮次。
+        <div className="settings-main">
+          <div className="settings-main-head">
+            <h2>{SETTINGS_SECTIONS[section].label}</h2>
+            <p>{SETTINGS_SECTIONS[section].description}</p>
           </div>
-          </div>
-        </div>
 
-        <div className="modal-section">
-          <span className="label">模型提供商</span>
-          {draft.providers.map((provider) => {
-            const status = keyStatus(provider);
-            return (
-              <div className="provider-row" key={provider.id}>
-                <div className="info">
-                  <div className="p-name">
-                    {provider.name}
-                    <span className="badge neutral">{API_LABELS[provider.api]}</span>
-                    <span className={`badge ${status.warn ? "warn" : "neutral"}`}>
-                      {status.label}
-                    </span>
-                    {draft.defaultProviderId === provider.id && (
-                      <span className="badge">默认</span>
-                    )}
-                  </div>
-                  <div className="p-url mono">{provider.baseUrl}</div>
+          <div className="settings-main-body">
+            {section === "appearance" && (
+              <section className="settings-block">
+                <span className="label">主题</span>
+                <div className="theme-row">
+                  <ThemeOption
+                    active={draft.theme === "dark"}
+                    name="深色"
+                    swatch={["#171717", "#212121", "#0169CC", "#ececec"]}
+                    onClick={() => commit((previous) => ({ ...previous, theme: "dark" }))}
+                  />
+                  <ThemeOption
+                    active={draft.theme === "light"}
+                    name="浅色"
+                    swatch={["#f9f9f9", "#ffffff", "#0169CC", "#0d0d0d"]}
+                    onClick={() => commit((previous) => ({ ...previous, theme: "light" }))}
+                  />
                 </div>
-                <div className="p-actions">
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => {
-                      setPreset(null);
-                      setPicking(false);
-                      setEditing(provider);
-                    }}
-                  >
-                    编辑
-                  </button>
-                  {draft.defaultProviderId !== provider.id && (
+              </section>
+            )}
+
+            {section === "context" && (
+              <section className="settings-block">
+                <span className="label">上下文压缩</span>
+                <div className="setting-checks">
+                  <label className="tool-check">
+                    <input
+                      type="checkbox"
+                      checked={draft.compaction.forkBeforeCompact}
+                      onChange={() =>
+                        commit((previous) => ({
+                          ...previous,
+                          compaction: {
+                            ...previous.compaction,
+                            forkBeforeCompact: !previous.compaction.forkBeforeCompact,
+                          },
+                        }))
+                      }
+                    />
+                    <span>压缩前分叉新会话（原会话保留为完整记录）</span>
+                  </label>
+                  <label className="tool-check">
+                    <input
+                      type="checkbox"
+                      checked={draft.compaction.archiveOriginal}
+                      disabled={!draft.compaction.forkBeforeCompact}
+                      onChange={() =>
+                        commit((previous) => ({
+                          ...previous,
+                          compaction: {
+                            ...previous.compaction,
+                            archiveOriginal: !previous.compaction.archiveOriginal,
+                          },
+                        }))
+                      }
+                    />
+                    <span>分叉后归档原会话</span>
+                  </label>
+                  <div className="hint">关闭分叉即回到原地压缩：摘要会替换当前会话里被压缩的旧轮次。</div>
+                </div>
+              </section>
+            )}
+
+            {section === "providers" && (
+              <section className="settings-block">
+                <span className="label">模型提供商</span>
+                {draft.providers.map((provider) => {
+                  const status = keyStatus(provider);
+                  return (
+                    <div className="provider-row" key={provider.id}>
+                      <div className="info">
+                        <div className="p-name">
+                          {provider.name}
+                          <span className="badge neutral">{API_LABELS[provider.api]}</span>
+                          <span className={`badge ${status.warn ? "warn" : "neutral"}`}>
+                            {status.label}
+                          </span>
+                          {draft.defaultProviderId === provider.id && (
+                            <span className="badge">默认</span>
+                          )}
+                        </div>
+                        <div className="p-url mono">{provider.baseUrl}</div>
+                      </div>
+                      <div className="p-actions">
+                        <button
+                          type="button"
+                          className="link"
+                          onClick={() => {
+                            setPreset(null);
+                            setPicking(false);
+                            setEditing(provider);
+                          }}
+                        >
+                          编辑
+                        </button>
+                        {draft.defaultProviderId !== provider.id && (
+                          <button
+                            type="button"
+                            className="link"
+                            onClick={() => commit((previous) => ({ ...previous, defaultProviderId: provider.id }))}
+                          >
+                            设为默认
+                          </button>
+                        )}
+                        <button type="button" className="link danger" onClick={() => deleteProvider(provider.id)}>
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {editing === null && !picking && (
+                  <div className="preset-actions">
+                    <button type="button" className="btn ghost" onClick={() => setPicking(true)}>
+                      ＋ 从预设添加
+                    </button>
                     <button
                       type="button"
                       className="link"
-                      onClick={() => commit((previous) => ({ ...previous, defaultProviderId: provider.id }))}
+                      onClick={() => {
+                        setPreset(null);
+                        setEditing("new");
+                      }}
                     >
-                      设为默认
+                      手动配置端点
                     </button>
-                  )}
-                  <button type="button" className="link danger" onClick={() => deleteProvider(provider.id)}>
-                    删除
-                  </button>
+                    <span className="spacer" />
+                    <button
+                      type="button"
+                      className="link"
+                      disabled={refreshingCatalog}
+                      onClick={() => void refreshCatalog()}
+                    >
+                      {refreshingCatalog ? "刷新中…" : "刷新模型目录"}
+                    </button>
+                    {catalogNote && <span className="hint">{catalogNote}</span>}
+                  </div>
+                )}
+
+                {editing === null && picking && (
+                  <PresetPicker
+                    existingIds={draft.providers.map((provider) => provider.id)}
+                    onPick={(next) => {
+                      setPreset(next);
+                      setPicking(false);
+                      setEditing("new");
+                    }}
+                    onCancel={() => setPicking(false)}
+                  />
+                )}
+
+                {editing !== null && (
+                  <ProviderForm
+                    initial={editing === "new" ? null : editing}
+                    preset={editing === "new" ? preset : null}
+                    existingIds={draft.providers.map((provider) => provider.id)}
+                    onSave={saveProvider}
+                    onCancel={closeEditor}
+                  />
+                )}
+              </section>
+            )}
+
+            {section === "account" && showLogout && (
+              <section className="settings-block">
+                <span className="label">远程访问凭据</span>
+                <div className="provider-row">
+                  <div className="info">
+                    <div className="p-name">
+                      Web 访问保护
+                      <span className="badge neutral">已认证</span>
+                    </div>
+                    <div className="p-url mono">PIPI_AUTH_TOKEN 已验证</div>
+                  </div>
+                  <div className="p-actions">
+                    <button
+                      type="button"
+                      className="link danger"
+                      onClick={async () => {
+                        await logout();
+                        onClose();
+                      }}
+                    >
+                      退出登录
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-
-          {editing === null && !picking && (
-            <div className="preset-actions">
-              <button type="button" className="btn ghost" onClick={() => setPicking(true)}>
-                ＋ 从预设添加
-              </button>
-              <button
-                type="button"
-                className="link"
-                onClick={() => {
-                  setPreset(null);
-                  setEditing("new");
-                }}
-              >
-                手动配置端点
-              </button>
-              <span className="spacer" />
-              <button
-                type="button"
-                className="link"
-                disabled={refreshingCatalog}
-                onClick={() => void refreshCatalog()}
-              >
-                {refreshingCatalog ? "刷新中…" : "刷新模型目录"}
-              </button>
-              {catalogNote && <span className="hint">{catalogNote}</span>}
-            </div>
-          )}
-
-          {editing === null && picking && (
-            <PresetPicker
-              existingIds={draft.providers.map((provider) => provider.id)}
-              onPick={(next) => {
-                setPreset(next);
-                setPicking(false);
-                setEditing("new");
-              }}
-              onCancel={() => setPicking(false)}
-            />
-          )}
-
-          {editing !== null && (
-            <ProviderForm
-              initial={editing === "new" ? null : editing}
-              preset={editing === "new" ? preset : null}
-              existingIds={draft.providers.map((provider) => provider.id)}
-              onSave={saveProvider}
-              onCancel={closeEditor}
-            />
-          )}
-        </div>
-
-        {showLogout && (
-          <div className="modal-section">
-            <span className="label">远程访问凭据</span>
-            <div className="provider-row">
-              <div className="info">
-                <div className="p-name">
-                  Web 访问保护
-                  <span className="badge neutral">已认证</span>
-                </div>
-                <div className="p-url mono">PIPI_AUTH_TOKEN 已验证</div>
-              </div>
-              <div className="p-actions">
-                <button
-                  type="button"
-                  className="link danger"
-                  onClick={async () => {
-                    await logout();
-                    onClose();
-                  }}
-                >
-                  退出登录
-                </button>
-              </div>
-            </div>
+              </section>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

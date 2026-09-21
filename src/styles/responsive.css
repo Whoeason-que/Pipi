@@ -79,6 +79,42 @@
     max-width: 22ch;
   }
 
+  /* 设置视图：窄屏把左导航压成横向标签条，只留分组名 */
+  .settings-body {
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    gap: 4px;
+    width: auto;
+    padding: 6px 12px 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .settings-nav-item {
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  .settings-nav-item .meta {
+    display: none;
+  }
+
+  .settings-main-head {
+    padding: 12px 14px 12px;
+  }
+
+  .settings-main-body {
+    padding: 0 14px 24px;
+  }
+
   .row {
     padding: 6px 14px;
   }
