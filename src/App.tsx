@@ -39,6 +39,7 @@ import { loadCatalog, peekCatalog, resetCatalog } from "./catalog-client";
 import { ModelPicker } from "./ModelPicker";
 import { ChoiceSelect } from "./Select";
 import {
+  formatRetryDelay,
   formatRuntimeError,
   normalizeAgentEvent,
   type AgentEventPayload,
@@ -2157,7 +2158,7 @@ function CreateForm({
 // ============ 设置（主区 tab，与对话界面同构：顶栏 + 左导航 + 内容） ============
 
 /** 设置分组：导航用它划分不同类别。 */
-type SettingsSection = "appearance" | "context" | "providers" | "account";
+type SettingsSection = "appearance" | "context" | "retry" | "providers" | "account";
 
 const SETTINGS_SECTIONS: Record<SettingsSection, { label: string; description: string }> = {
   appearance: {
@@ -2167,6 +2168,12 @@ const SETTINGS_SECTIONS: Record<SettingsSection, { label: string; description: s
   context: {
     label: "上下文",
     description: "长会话触碰窗口上限时的压缩方式：分叉出新会话，或原地替换旧轮次。",
+  },
+  retry: {
+    label: "重试",
+    description:
+      "请求失败后的重发策略。只重发可重试的错误（限流、5xx、连接中断、流被截断）；"
+      + "请求不合法、鉴权失败、上下文超限、配额耗尽一律不重发。已经输出正文的那一轮也不会重放。",
   },
   providers: {
     label: "模型提供商",
@@ -2258,8 +2265,8 @@ function SettingsView({ settings, onChange, onClose, showLogout }: SettingsViewP
   };
 
   const sections: SettingsSection[] = showLogout
-    ? ["appearance", "context", "providers", "account"]
-    : ["appearance", "context", "providers"];
+    ? ["appearance", "context", "retry", "providers", "account"]
+    : ["appearance", "context", "retry", "providers"];
 
   /** 导航项右侧的一行状态摘要，让分组一眼可辨。 */
   const sectionMeta = (id: SettingsSection): string => {
@@ -2268,6 +2275,8 @@ function SettingsView({ settings, onChange, onClose, showLogout }: SettingsViewP
         return draft.theme === "dark" ? "深色" : "浅色";
       case "context":
         return draft.compaction.forkBeforeCompact ? "压缩前分叉" : "原地压缩";
+      case "retry":
+        return `${draft.retry.maxAttempts} 次尝试 · ${formatRetryDelay(draft.retry.baseDelayMs)}起`;
       case "providers": {
         const fallback = draft.providers.find((item) => item.id === draft.defaultProviderId);
         return `${draft.providers.length} 家 · 默认 ${fallback?.name ?? "未设置"}`;
@@ -2383,6 +2392,88 @@ function SettingsView({ settings, onChange, onClose, showLogout }: SettingsViewP
                     <span>分叉后归档原会话</span>
                   </label>
                   <div className="hint">关闭分叉即回到原地压缩：摘要会替换当前会话里被压缩的旧轮次。</div>
+                </div>
+              </section>
+            )}
+
+            {section === "retry" && (
+              <section className="settings-block">
+                <span className="label">请求重试</span>
+                <div className="settings-field compact-threshold-field">
+                  <label htmlFor="retry-max-attempts">最大尝试次数</label>
+                  <div className="inline-value">
+                    <input
+                      id="retry-max-attempts"
+                      className="mono"
+                      type="number"
+                      min={1}
+                      max={5}
+                      value={draft.retry.maxAttempts}
+                      onChange={(event) =>
+                        commit((previous) => ({
+                          ...previous,
+                          retry: {
+                            ...previous.retry,
+                            maxAttempts: Number(event.target.value) || 1,
+                          },
+                        }))
+                      }
+                    />
+                    <span className="unit">次（含首次）</span>
+                  </div>
+                  <span className="hint">1 = 不重试；上限 5。</span>
+                </div>
+
+                <div className="settings-field compact-threshold-field">
+                  <label htmlFor="retry-base-delay">起始退避</label>
+                  <div className="inline-value">
+                    <input
+                      id="retry-base-delay"
+                      className="mono"
+                      type="number"
+                      min={100}
+                      step={100}
+                      value={draft.retry.baseDelayMs}
+                      onChange={(event) =>
+                        commit((previous) => ({
+                          ...previous,
+                          retry: {
+                            ...previous.retry,
+                            baseDelayMs: Number(event.target.value) || 100,
+                          },
+                        }))
+                      }
+                    />
+                    <span className="unit">毫秒</span>
+                  </div>
+                  <span className="hint">第 n 次失败后等待 起始退避 × 2ⁿ⁻¹（带抖动）。</span>
+                </div>
+
+                <div className="settings-field compact-threshold-field">
+                  <label htmlFor="retry-max-delay">退避上限</label>
+                  <div className="inline-value">
+                    <input
+                      id="retry-max-delay"
+                      className="mono"
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      value={draft.retry.maxDelayMs}
+                      onChange={(event) =>
+                        commit((previous) => ({
+                          ...previous,
+                          retry: {
+                            ...previous.retry,
+                            maxDelayMs: Number(event.target.value) || 1000,
+                          },
+                        }))
+                      }
+                    />
+                    <span className="unit">毫秒</span>
+                  </div>
+                  <span className="hint">
+                    服务端要求等待更久时直接放弃（不会静默等待）；无进展超时最多额外重试 1 次。
+                  </span>
                 </div>
               </section>
             )}

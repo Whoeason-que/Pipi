@@ -77,11 +77,22 @@ export interface CompactionSettings {
   archiveOriginal: boolean;
 }
 
+/** 请求失败重发策略（Rust 侧 settings::RetrySettings，可重试错误的分类见核心 retry 模块）。 */
+export interface RetrySettings {
+  /** 总尝试次数（含首次）：1 = 不重试。 */
+  maxAttempts: number;
+  /** 退避基数（毫秒）。 */
+  baseDelayMs: number;
+  /** 退避上限（毫秒）。 */
+  maxDelayMs: number;
+}
+
 export interface Settings {
   theme: Theme;
   providers: ProviderConfig[];
   defaultProviderId: string | null;
   compaction: CompactionSettings;
+  retry: RetrySettings;
 }
 
 // ---- 会话统计（hermes 设计，Rust stats::SessionStats 的序列化）----

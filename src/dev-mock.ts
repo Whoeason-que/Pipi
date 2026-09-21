@@ -361,6 +361,23 @@ function startDemoRun(conversation: DemoConversation, prompt: string): void {
       type: "message_end",
       message: { ...toolResult(call2, "cat: CONTRIBUTING.md: No such file or directory", true), isError: true },
     }),
+    // 重试演示：助手刚开始吐工具调用就断流 → 核心重发整轮（前端丢弃半截条目、
+    // 只留一行「重试中」提示，正是 Q 会话里实测的那种故障形态）
+    () => emitDemoAgentEvent(conversation, { type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
+    () => emitDemoAgentEvent(conversation, {
+      type: "message_update",
+      message: {
+        role: "assistant",
+        content: [toolCallBlock(`call-demo-${conversation.runId}-3`, "cat CONTRIBUTING.md")],
+      },
+    }),
+    () => emitDemoAgentEvent(conversation, {
+      type: "retry_start",
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 2000,
+      cause: "流错误: tool call `bash` arrived with malformed JSON input（参数被截断）",
+    }),
     // 第 3 条助手消息：正文回复（正文出现即断开标签行）
     () => emitDemoAgentEvent(conversation, { type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
     () => emitDemoAgentEvent(conversation, {
@@ -507,6 +524,7 @@ const settings: Settings = {
   ],
   defaultProviderId: "anthropic",
   compaction: { forkBeforeCompact: true, archiveOriginal: true },
+  retry: { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 30000 },
 };
 
 function listDemoSessions(agentName: string): Array<Record<string, unknown>> {

@@ -56,6 +56,17 @@ export type AgentEvent =
       result: ToolOutputView;
       isError: boolean;
     }
+  | {
+      type: "retry_start";
+      /** 第几次尝试（从 1 起，含首次）。 */
+      attempt: number;
+      /** 策略允许的总尝试次数（含首次）。 */
+      maxAttempts: number;
+      /** 即将等待的退避时长（毫秒）。 */
+      delayMs: number;
+      /** 触发重发的原因（核心侧的错误文案）。 */
+      cause: string;
+    }
   | { type: "compaction_start" }
   | {
       type: "compaction_end";
@@ -178,8 +189,8 @@ export interface ChatEntry {
   timestamp?: number;
   /** 尚未被后端历史快照确认的本地/实时条目。 */
   transient?: boolean;
-  /** 系统级条目（如上下文压缩标记），不走常规 assistant 渲染。 */
-  kind?: "compaction";
+  /** 系统级条目（上下文压缩 / 请求重试提示），不走常规 assistant 渲染。 */
+  kind?: "compaction" | "retry";
   /** compaction 摘要正文（折叠展示）。 */
   summary?: string;
 }
@@ -318,6 +329,16 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
     timestamp: message.timestamp,
     transient,
   };
+}
+
+/** 重试退避时长的可读显示（850 毫秒 / 2 秒 / 1 分 5 秒）。 */
+export function formatRetryDelay(delayMs: number): string {
+  if (delayMs < 1000) return `${Math.round(delayMs)} 毫秒`;
+  const seconds = delayMs / 1000;
+  if (seconds < 60) return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return rest > 0 ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`;
 }
 
 /** token 数量的紧凑显示（1.2M / 34.5k / 812）。 */
@@ -497,7 +518,7 @@ export function groupChatBlocks(entries: ChatEntry[]): ChatBlock[] {
   };
 
   for (const entry of entries) {
-    if (entry.kind === "compaction") {
+    if (entry.kind === "compaction" || entry.kind === "retry") {
       flushChips();
       blocks.push({ kind: "system", key: entry.key, entry });
       continue;
@@ -767,6 +788,29 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             entries: existing
               ? state.entries.map((entry) => (entry.key === key ? { ...entry, ...nextEntry } : entry))
               : [...state.entries, nextEntry],
+          };
+        }
+
+        case "retry_start": {
+          // 失败的那次尝试只会渲染出工具调用块（正文一旦出现核心侧就不会重发），
+          // 所以这里把流式条目整条丢掉，再补一行「重试中」提示。
+          const dropped = state.activeAssistantKey;
+          const retries = Math.max(0, event.maxAttempts - 1);
+          return {
+            ...state,
+            entries: [
+              ...state.entries.filter((entry) => entry.key !== dropped),
+              {
+                key: action.key,
+                role: "assistant",
+                kind: "retry",
+                text: `↻ ${formatRetryDelay(event.delayMs)}后重试（${event.attempt}/${retries}）· ${event.cause}`,
+                timestamp: Date.now(),
+              },
+            ],
+            activeAssistantKey: null,
+            activeCompactionKey: state.activeCompactionKey,
+            running: true,
           };
         }
 

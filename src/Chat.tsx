@@ -897,6 +897,16 @@ export default function ChatView({
           {blocks.map((block) => {
             if (block.kind === "system") {
               const entry = block.entry;
+              // 重试提示是单行通知：不折叠，也没有摘要正文
+              if (entry.kind === "retry") {
+                return (
+                  <div key={entry.key} className="row system-row">
+                    <div className="row-inner">
+                      <div className="retry-note">{entry.text}</div>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <div key={entry.key} className="row system-row">
                   <div className="row-inner">
