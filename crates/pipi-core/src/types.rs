@@ -307,8 +307,12 @@ pub enum StreamEvent {
         usage: Usage,
         message: Box<Message>,
     },
+    /// 请求失败。`retry` 为 `Some` 表示这一轮可以重发（可带上服务端要求的等待），
+    /// `None` 表示终态 —— 分类由 provider 层完成，重试决定在 agent_loop（见
+    /// [`crate::retry`]）。
     Error {
         message: String,
+        retry: Option<crate::retry::RetryHint>,
     },
 }
 

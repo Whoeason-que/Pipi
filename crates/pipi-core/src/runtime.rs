@@ -617,6 +617,8 @@ struct CompactionContext<'a> {
     abort: AbortSignal,
     sessions_dir: Option<&'a std::path::Path>,
     settings: crate::settings::CompactionSettings,
+    /// 摘要调用失败重发策略（与对话共用，见 `retry` 模块）。
+    retry: crate::retry::RetryPolicy,
     sink: &'a EventEmitter,
     trigger: CompactionTrigger,
     /// 压缩分叉换了会话 id 后，把 map 里的条目搬到新键（None = 不需要，如子 Agent）。
@@ -674,6 +676,7 @@ async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
         model: ctx.model,
         options: &summary_options,
         abort: ctx.abort.clone(),
+        retry: ctx.retry,
     };
     let compacted = crate::compaction::compact(&history, ctx.budget, &strategy_env).await?;
 
@@ -1124,6 +1127,7 @@ pub(crate) async fn run_agent_once_inner(
             timeout_secs: 300,
             session_id: Some(session_id.clone()),
         },
+        retry: load_settings().retry.policy(),
         tool_execution: ToolExecutionMode::Parallel,
         steering: MessageQueue::new(),
         follow_up: MessageQueue::new(),
@@ -1610,7 +1614,9 @@ impl RuntimeState {
             def.compact_threshold_percent(),
         );
         let sessions_dir = def.sessions_dir();
-        let settings = load_settings().compaction;
+        let runtime_settings = load_settings();
+        let settings = runtime_settings.compaction;
+        let retry = runtime_settings.retry.policy();
         let messages = session.messages.clone();
         let writer = session.writer.clone();
         let stats = session.stats.clone();
@@ -1650,6 +1656,7 @@ impl RuntimeState {
                 abort: abort.clone(),
                 sessions_dir: sessions_dir.as_deref(),
                 settings,
+                retry,
                 sink: &sink,
                 trigger: CompactionTrigger::Manual,
                 rekey: Some(rekey),
@@ -1900,7 +1907,9 @@ impl RuntimeState {
         let mut session_id = writer_session_id(&writer)?;
         // 压缩时的分叉 / 归档需要会话目录与设置（都在同步段取好，move 进任务）
         let sessions_dir = def.sessions_dir();
-        let compaction_settings = load_settings().compaction;
+        let runtime_settings = load_settings();
+        let compaction_settings = runtime_settings.compaction;
+        let retry_policy = runtime_settings.retry.policy();
         let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools)?;
 
         // 交互审批通道：桌面 / Web 的交互运行才接入；子 Agent 运行不注入，
@@ -1932,6 +1941,7 @@ impl RuntimeState {
                 // 会话标识：需要它的供应商（如 OpenCode Go）据此做路由与缓存
                 session_id: Some(session_id.clone()),
             },
+            retry: retry_policy,
             tool_execution: ToolExecutionMode::Parallel,
             steering: steering.clone(),
             follow_up: MessageQueue::new(),
@@ -2020,6 +2030,7 @@ impl RuntimeState {
                 abort: abort.clone(),
                 sessions_dir: sessions_dir.as_deref(),
                 settings: compaction_settings,
+                retry: retry_policy,
                 sink: &completion_sink,
                 trigger: CompactionTrigger::Auto,
                 rekey: Some(rekey),
@@ -2312,6 +2323,7 @@ mod child_timeout_tests {
             }],
             default_provider_id: None,
             compaction: Default::default(),
+            retry: Default::default(),
         })
         .unwrap();
 

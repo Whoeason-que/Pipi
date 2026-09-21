@@ -98,6 +98,60 @@ impl Default for CompactionSettings {
     }
 }
 
+/// 请求失败重发策略（可重试错误的分类见 [`crate::retry`]）。
+///
+/// 每次取值都夹到安全区间：配置可能来自旧文件或手工编辑，越界值不该让重试变成
+/// 「几乎无限重试」或「永不重试」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrySettings {
+    /// 总尝试次数（含首次）：1 = 不重试，上限 5。
+    #[serde(default = "default_retry_max_attempts")]
+    pub max_attempts: u32,
+    /// 退避基数（毫秒）：第 n 次失败后等 `base * 2^(n-1)`。
+    #[serde(default = "default_retry_base_delay_ms")]
+    pub base_delay_ms: u64,
+    /// 退避上限（毫秒）；服务端要求的等待超过它时直接放弃并说明原因。
+    #[serde(default = "default_retry_max_delay_ms")]
+    pub max_delay_ms: u64,
+}
+
+fn default_retry_max_attempts() -> u32 {
+    crate::retry::RetryPolicy::default().max_attempts
+}
+
+fn default_retry_base_delay_ms() -> u64 {
+    crate::retry::RetryPolicy::default().base_delay_ms
+}
+
+fn default_retry_max_delay_ms() -> u64 {
+    crate::retry::RetryPolicy::default().max_delay_ms
+}
+
+impl Default for RetrySettings {
+    fn default() -> Self {
+        let policy = crate::retry::RetryPolicy::default();
+        RetrySettings {
+            max_attempts: policy.max_attempts,
+            base_delay_ms: policy.base_delay_ms,
+            max_delay_ms: policy.max_delay_ms,
+        }
+    }
+}
+
+impl RetrySettings {
+    /// 夹到安全区间后转成运行时策略。
+    pub fn policy(&self) -> crate::retry::RetryPolicy {
+        let base_delay_ms = self.base_delay_ms.clamp(100, 10_000);
+        let max_delay_ms = self.max_delay_ms.clamp(1_000, 120_000).max(base_delay_ms);
+        crate::retry::RetryPolicy {
+            max_attempts: self.max_attempts.clamp(1, 5),
+            base_delay_ms,
+            max_delay_ms,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -108,6 +162,9 @@ pub struct Settings {
     /// 压缩行为（字段级 default：旧 settings.json 缺这一段也能读）。
     #[serde(default)]
     pub compaction: CompactionSettings,
+    /// 请求失败重发策略（字段级 default：旧 settings.json 缺这一段也能读）。
+    #[serde(default)]
+    pub retry: RetrySettings,
 }
 
 impl Default for Settings {
@@ -134,6 +191,7 @@ impl Default for Settings {
             ],
             default_provider_id: None,
             compaction: CompactionSettings::default(),
+            retry: RetrySettings::default(),
         }
     }
 }
@@ -214,6 +272,62 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("\"forkBeforeCompact\":true"), "{json}");
         assert!(json.contains("\"archiveOriginal\":false"), "{json}");
+    }
+
+    #[test]
+    fn retry_settings_partial_object_keeps_defaults() {
+        // 旧 settings.json 完全没有 retry 段 → 全默认（3 次尝试 / 1s / 30s）
+        let legacy: Settings =
+            serde_json::from_str(r#"{"theme":"dark","providers":[]}"#).unwrap();
+        assert_eq!(legacy.retry, RetrySettings::default());
+        let policy = legacy.retry.policy();
+        assert_eq!(policy.max_attempts, 3);
+        assert_eq!(policy.base_delay_ms, 1_000);
+        assert_eq!(policy.max_delay_ms, 30_000);
+
+        // 只写一项 → 其余取默认；序列化字段是 camelCase
+        let partial: Settings = serde_json::from_str(
+            r#"{"theme":"dark","providers":[],"retry":{"maxAttempts":1}}"#,
+        )
+        .unwrap();
+        assert_eq!(partial.retry.max_attempts, 1);
+        assert_eq!(partial.retry.base_delay_ms, 1_000);
+        let json = serde_json::to_string(&partial).unwrap();
+        assert!(json.contains("\"maxAttempts\":1"), "{json}");
+        assert!(json.contains("\"baseDelayMs\":1000"), "{json}");
+    }
+
+    #[test]
+    fn retry_settings_are_clamped() {
+        // 越界值不应变成「几乎无限重试」或「永不重试」
+        let wild = RetrySettings {
+            max_attempts: 99,
+            base_delay_ms: 0,
+            max_delay_ms: 10_000_000,
+        }
+        .policy();
+        assert_eq!(wild.max_attempts, 5);
+        assert_eq!(wild.base_delay_ms, 100);
+        assert_eq!(wild.max_delay_ms, 120_000);
+
+        let zero = RetrySettings {
+            max_attempts: 0,
+            base_delay_ms: 0,
+            max_delay_ms: 0,
+        }
+        .policy();
+        assert_eq!(zero.max_attempts, 1, "0 次尝试没有意义，夹到「不重试」");
+        assert_eq!(zero.base_delay_ms, 100);
+        assert_eq!(zero.max_delay_ms, 1_000);
+
+        // 上限不得低于基数（否则退避序列会自我矛盾）
+        let inverted = RetrySettings {
+            max_attempts: 3,
+            base_delay_ms: 10_000,
+            max_delay_ms: 1_000,
+        }
+        .policy();
+        assert_eq!(inverted.max_delay_ms, 10_000);
     }
 
     #[test]

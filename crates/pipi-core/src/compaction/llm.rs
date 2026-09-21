@@ -6,7 +6,7 @@
 //! usage 带回上层（计入会话账本）。
 
 use super::{file_operations, Plan, Preparation, Replacement, StrategyEnv};
-use crate::types::{AbortSignal, Context, Message, StreamEvent, Usage};
+use crate::types::{AbortSignal, Context, Message, StreamEvent, StreamOptions, Usage};
 
 /// 摘要调用的系统提示：限定为总结者角色，禁止把对话接下去（对齐 pi）。
 const SUMMARY_SYSTEM_PROMPT: &str = "You are a context summarization assistant. \
@@ -175,8 +175,11 @@ fn message_text(message: &Message) -> String {
     }
 }
 
-/// 发一次摘要请求（空 tools 的纯文本请求，复用 provider 流式路径）。
-/// 返回（摘要正文, 本次调用的用量）。
+/// 发一次摘要请求（空 tools 的纯文本请求，复用 provider 流式路径），
+/// 失败按 [`crate::retry`] 重发。返回（摘要正文, 本次调用的用量）。
+///
+/// 与对话路径的差别：摘要文本攒在本地、没有任何增量发给用户，所以**重放永远安全**
+/// ——不适用「已输出正文不重试」那条规则。
 async fn summarize(
     messages: &[Message],
     previous_summary: Option<&str>,
@@ -192,15 +195,77 @@ async fn summarize(
     };
     let mut options = env.options.clone();
     options.max_tokens = Some(env.model.max_tokens.min(super::SUMMARY_MAX_TOKENS));
-    let abort: AbortSignal = env.abort.clone();
 
+    let mut failures: u32 = 0;
+    loop {
+        match summarize_once(env, &context, &options).await {
+            Ok(value) => return Ok(value),
+            Err(SummarizeFailure::Fatal(message)) => return Err(message),
+            Err(SummarizeFailure::Retryable { message, hint }) => {
+                failures += 1;
+                match crate::retry::retry_decision(&env.retry, failures, hint) {
+                    crate::retry::RetryDecision::Retry { delay } => {
+                        tokio::select! {
+                            _ = env.abort.wait_aborted() => {
+                                return Err("摘要调用已中止".into());
+                            }
+                            _ = tokio::time::sleep(delay) => {}
+                        }
+                    }
+                    crate::retry::RetryDecision::GiveUp(reason) => {
+                        return Err(summarize_give_up(&message, failures, reason));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 单次摘要尝试的失败：终态 或 可重试（带等待提示）。
+enum SummarizeFailure {
+    Fatal(String),
+    Retryable {
+        message: String,
+        hint: Option<crate::retry::RetryHint>,
+    },
+}
+
+/// 放弃重试后的文案。
+fn summarize_give_up(
+    cause: &str,
+    failures: u32,
+    reason: crate::retry::GiveUpReason,
+) -> String {
+    match reason {
+        crate::retry::GiveUpReason::PolicyExhausted => {
+            format!("摘要调用失败（已重试 {failures} 次）：{cause}")
+        }
+        crate::retry::GiveUpReason::TimeoutBudget => {
+            format!("摘要调用连续超时（{failures} 次）：{cause}")
+        }
+        crate::retry::GiveUpReason::ServerDelayTooLong(after_ms) => format!(
+            "摘要调用失败：服务端要求 {} 秒后再试，超过重试上限：{cause}",
+            after_ms / 1_000
+        ),
+    }
+}
+
+/// 单次尝试：发请求并把文本攒起来。
+async fn summarize_once(
+    env: &StrategyEnv<'_>,
+    context: &Context,
+    options: &StreamOptions,
+) -> Result<(String, Option<Usage>), SummarizeFailure> {
+    let abort: AbortSignal = env.abort.clone();
     let mut rx = env
         .provider
-        .stream(env.model, &context, &options, env.abort.clone())
+        .stream(env.model, context, options, env.abort.clone())
         .await;
     let mut summary_text = String::new();
     let mut usage: Option<Usage> = None;
-    let mut stream_error: Option<String> = None;
+    let mut failure: Option<SummarizeFailure> = None;
+    // 流必须走到终态事件才算成功：干净 EOF 会把半截摘要当成功返回（曾经的缺口）
+    let mut saw_done = false;
     while let Some(event) = rx.recv().await {
         match event {
             StreamEvent::TextDelta { delta, .. } => summary_text.push_str(&delta),
@@ -215,25 +280,40 @@ async fn summarize(
                 if !text.trim().is_empty() {
                     summary_text = text;
                 }
+                saw_done = true;
             }
-            StreamEvent::Error { message } => {
-                stream_error = Some(message);
+            StreamEvent::Error { message, retry } => {
+                failure = Some(match retry {
+                    Some(hint) => SummarizeFailure::Retryable {
+                        message,
+                        hint: Some(hint),
+                    },
+                    None => SummarizeFailure::Fatal(format!("摘要调用失败：{message}")),
+                });
                 break;
             }
             _ => {}
         }
         if abort.is_aborted() {
-            return Err("摘要调用已中止".into());
+            return Err(SummarizeFailure::Fatal("摘要调用已中止".into()));
         }
     }
     if abort.is_aborted() {
-        return Err("摘要调用已中止".into());
+        return Err(SummarizeFailure::Fatal("摘要调用已中止".into()));
     }
-    if let Some(error) = stream_error {
-        return Err(format!("摘要调用失败：{error}"));
+    if let Some(failure) = failure {
+        return Err(failure);
+    }
+    if !saw_done {
+        return Err(SummarizeFailure::Retryable {
+            message: "流提前结束：未收到结束帧".into(),
+            hint: Some(crate::retry::RetryHint::plain()),
+        });
     }
     if summary_text.trim().is_empty() {
-        return Err("摘要调用失败：模型未返回摘要内容".into());
+        return Err(SummarizeFailure::Fatal(
+            "摘要调用失败：模型未返回摘要内容".into(),
+        ));
     }
     Ok((summary_text, usage))
 }

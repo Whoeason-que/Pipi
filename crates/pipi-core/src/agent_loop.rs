@@ -50,6 +50,15 @@ pub enum AgentEvent {
     MessageEnd {
         message: Message,
     },
+    /// 可重试错误触发了重发：`attempt` 是第几次尝试（从 1 起），
+    /// `delay_ms` 是即将等待的退避时长，`cause` 触发原因。
+    /// 前端据此丢弃本条已渲染的半截助手消息（只可能是工具调用块，不会是正文）。
+    RetryStart {
+        attempt: u32,
+        max_attempts: u32,
+        delay_ms: u64,
+        cause: String,
+    },
     ToolExecutionStart {
         tool_call_id: String,
         tool_name: String,
@@ -67,8 +76,7 @@ pub enum AgentEvent {
         is_error: bool,
     },
     /// 摘要式上下文压缩开始（runtime 在 turn 边界触发）。
-    CompactionStart,
-    /// 压缩完成；`summary` 为摘要正文，`replaced` 为被替换的消息条数，
+    CompactionStart,    /// 压缩完成；`summary` 为摘要正文，`replaced` 为被替换的消息条数，
     /// `strategy` 为产出它的策略名，`tokens_before/after` 是整段历史的
     /// token 估算（UI 用它显示省了多少）。
     CompactionEnd {
@@ -134,6 +142,8 @@ pub struct AgentLoopConfig {
     pub tools: Arc<ToolRegistry>,
     pub tool_context: ToolContext,
     pub options: StreamOptions,
+    /// 失败重发策略（全局设置 `retry` 段；分类见 [`crate::retry`]）。
+    pub retry: crate::retry::RetryPolicy,
     pub tool_execution: ToolExecutionMode,
     pub steering: MessageQueue,
     pub follow_up: MessageQueue,
@@ -262,6 +272,14 @@ fn stop_reason_of(message: &Message) -> Option<StopReason> {
 }
 
 /// 从 provider 事件流构建一条助手消息（对应 pi 的 streamAssistantResponse）。
+///
+/// 失败的可重试错误在这里重发整轮请求（分类与退避见 [`crate::retry`]，判定规则：
+/// - 终态错误（请求不合法、鉴权、上下文超限、配额耗尽……）直接收尾；
+/// - **已经向用户输出过正文（文本 / 思维链增量）就不再重放** —— 重复文本比失败更糟，
+///   这条对齐 hermes 的「已吐过 delta 不重试」；
+/// - 例外：只有工具调用块（参数被打断）时允许重放 —— 半截参数绝不交给工具执行；
+/// - 无进展超时最多额外重试 1 次（每次尝试都要花掉整个 timeout 预算）；
+/// - 用户中止永远不重试。
 async fn stream_assistant_response(
     context: &AgentContext,
     config: &AgentLoopConfig,
@@ -282,112 +300,183 @@ async fn stream_assistant_response(
         messages: effective_messages,
         tools: config.tools.wire_tools(),
     };
-    let mut rx = config
-        .provider
-        .stream(&config.model, &wire, &config.options, abort.clone())
-        .await;
 
-    // 部分消息累积：Text/Thinking 增量填充；工具调用参数以 Value::String
-    // （原始 JSON 片段）暂存，ToolCallEnd 时替换为解析后的块。
-    let mut blocks: Vec<ContentBlock> = Vec::new();
-    let partial = |blocks: &[ContentBlock]| -> Message {
-        Message::Assistant {
-            content: blocks.to_vec(),
-            api: config.model.api.as_str().to_string(),
-            provider: "pending".into(),
-            model: config.model.display_name().to_string(),
-            usage: Default::default(),
-            stop_reason: StopReason::Pending,
-            error_message: None,
-            timestamp: crate::types::now_millis(),
-            duration_ms: None,
-        }
+    let finish = |emit: &Emitter, message: Message| -> Message {
+        emit(AgentEvent::MessageEnd {
+            message: message.clone(),
+        });
+        message
+    };
+    let aborted = |emit: &Emitter| -> Message {
+        finish(
+            emit,
+            Message::assistant_error("已中止", config.model.display_name(), StopReason::Aborted),
+        )
+    };
+    let failed = |emit: &Emitter, message: String| -> Message {
+        finish(
+            emit,
+            Message::assistant_error(message, config.model.display_name(), StopReason::Error),
+        )
     };
 
+    let mut failures: u32 = 0;
     loop {
-        match rx.recv().await {
-            None => {
-                let message = Message::assistant_error(
-                    "已中止",
-                    config.model.display_name(),
-                    StopReason::Aborted,
-                );
-                emit(AgentEvent::MessageEnd {
-                    message: message.clone(),
-                });
-                return message;
+        let mut rx = config
+            .provider
+            .stream(&config.model, &wire, &config.options, abort.clone())
+            .await;
+
+        // 部分消息累积：Text/Thinking 增量填充；工具调用参数以 Value::String
+        // （原始 JSON 片段）暂存，ToolCallEnd 时替换为解析后的块。
+        let mut blocks: Vec<ContentBlock> = Vec::new();
+        // 本次尝试是否已经向用户输出过正文 —— 决定失败后能不能重放。
+        let mut prose_visible = false;
+        let partial = |blocks: &[ContentBlock]| -> Message {
+            Message::Assistant {
+                content: blocks.to_vec(),
+                api: config.model.api.as_str().to_string(),
+                provider: "pending".into(),
+                model: config.model.display_name().to_string(),
+                usage: Default::default(),
+                stop_reason: StopReason::Pending,
+                error_message: None,
+                timestamp: crate::types::now_millis(),
+                duration_ms: None,
             }
-            Some(StreamEvent::Start) => {
-                emit(AgentEvent::MessageStart {
-                    message: partial(&blocks),
-                });
-            }
-            Some(StreamEvent::TextDelta { delta, .. }) => {
-                match blocks.last_mut() {
-                    Some(ContentBlock::Text { text }) => text.push_str(&delta),
-                    _ => blocks.push(ContentBlock::Text { text: delta }),
+        };
+
+        let failure: (String, Option<crate::retry::RetryHint>) = loop {
+            match rx.recv().await {
+                None => {
+                    if abort.is_aborted() {
+                        return aborted(emit);
+                    }
+                    // channel 关闭且用户没中止：流被截断（provider 侧的
+                    // `流提前结束` 会走上面的 Error 分支，这里是兜底）
+                    break (STREAM_TRUNCATED.into(), Some(crate::retry::RetryHint::plain()));
                 }
-                emit(AgentEvent::MessageUpdate {
-                    message: partial(&blocks),
-                });
-            }
-            Some(StreamEvent::ThinkingDelta { delta, .. }) => {
-                match blocks.last_mut() {
-                    Some(ContentBlock::Thinking { thinking, .. }) => thinking.push_str(&delta),
-                    _ => blocks.push(ContentBlock::Thinking {
-                        thinking: delta,
-                        thinking_signature: None,
-                    }),
+                Some(StreamEvent::Start) => {
+                    emit(AgentEvent::MessageStart {
+                        message: partial(&blocks),
+                    });
                 }
-                emit(AgentEvent::MessageUpdate {
-                    message: partial(&blocks),
-                });
+                Some(StreamEvent::TextDelta { delta, .. }) => {
+                    match blocks.last_mut() {
+                        Some(ContentBlock::Text { text }) => text.push_str(&delta),
+                        _ => blocks.push(ContentBlock::Text { text: delta }),
+                    }
+                    prose_visible = true;
+                    emit(AgentEvent::MessageUpdate {
+                        message: partial(&blocks),
+                    });
+                }
+                Some(StreamEvent::ThinkingDelta { delta, .. }) => {
+                    match blocks.last_mut() {
+                        Some(ContentBlock::Thinking { thinking, .. }) => thinking.push_str(&delta),
+                        _ => blocks.push(ContentBlock::Thinking {
+                            thinking: delta,
+                            thinking_signature: None,
+                        }),
+                    }
+                    prose_visible = true;
+                    emit(AgentEvent::MessageUpdate {
+                        message: partial(&blocks),
+                    });
+                }
+                Some(StreamEvent::ToolCallStart { id, name, .. }) => {
+                    blocks.push(ContentBlock::ToolCall {
+                        id,
+                        name,
+                        arguments: json!({}),
+                    });
+                    emit(AgentEvent::MessageUpdate {
+                        message: partial(&blocks),
+                    });
+                }
+                Some(StreamEvent::ToolCallDelta { delta, .. }) => {
+                    if let Some(ContentBlock::ToolCall { arguments, .. }) = blocks.last_mut() {
+                        let raw = arguments.as_str().map(str::to_string).unwrap_or_default();
+                        *arguments = Value::String(format!("{raw}{delta}"));
+                    }
+                }
+                Some(StreamEvent::ToolCallEnd { call, .. }) => {
+                    if let Some(pos) = blocks
+                        .iter()
+                        .rposition(|b| matches!(b, ContentBlock::ToolCall { .. }))
+                    {
+                        blocks[pos] = call;
+                    } else {
+                        blocks.push(call);
+                    }
+                    emit(AgentEvent::MessageUpdate {
+                        message: partial(&blocks),
+                    });
+                }
+                Some(StreamEvent::Done { message, .. }) => {
+                    return finish(emit, *message);
+                }
+                Some(StreamEvent::Error { message, retry }) => break (message, retry),
             }
-            Some(StreamEvent::ToolCallStart { id, name, .. }) => {
-                blocks.push(ContentBlock::ToolCall {
-                    id,
-                    name,
-                    arguments: json!({}),
+        };
+
+        // —— 失败收尾：先判终态，再判能不能重放 ——
+        let (message, hint) = failure;
+        let Some(hint) = hint else {
+            return failed(emit, message);
+        };
+        if abort.is_aborted() {
+            return aborted(emit);
+        }
+        if prose_visible {
+            // 已经输出过正文：重放会让用户看到重复内容，按终态报错（用户可手动继续）
+            return failed(emit, format!("{message}（已输出部分内容，未自动重试）"));
+        }
+
+        failures += 1;
+        match crate::retry::retry_decision(&config.retry, failures, Some(hint)) {
+            crate::retry::RetryDecision::Retry { delay } => {
+                emit(AgentEvent::RetryStart {
+                    attempt: failures,
+                    max_attempts: config.retry.max_attempts,
+                    delay_ms: delay.as_millis() as u64,
+                    cause: message,
                 });
-                emit(AgentEvent::MessageUpdate {
-                    message: partial(&blocks),
-                });
-            }
-            Some(StreamEvent::ToolCallDelta { delta, .. }) => {
-                if let Some(ContentBlock::ToolCall { arguments, .. }) = blocks.last_mut() {
-                    let raw = arguments.as_str().map(str::to_string).unwrap_or_default();
-                    *arguments = Value::String(format!("{raw}{delta}"));
+                if sleep_or_abort(delay, abort).await {
+                    return aborted(emit);
                 }
             }
-            Some(StreamEvent::ToolCallEnd { call, .. }) => {
-                if let Some(pos) = blocks
-                    .iter()
-                    .rposition(|b| matches!(b, ContentBlock::ToolCall { .. }))
-                {
-                    blocks[pos] = call;
-                } else {
-                    blocks.push(call);
-                }
-                emit(AgentEvent::MessageUpdate {
-                    message: partial(&blocks),
-                });
-            }
-            Some(StreamEvent::Done { message, .. }) => {
-                emit(AgentEvent::MessageEnd {
-                    message: *message.clone(),
-                });
-                return *message;
-            }
-            Some(StreamEvent::Error { message }) => {
-                let m = Message::assistant_error(
-                    message,
-                    config.model.display_name(),
-                    StopReason::Error,
-                );
-                emit(AgentEvent::MessageEnd { message: m.clone() });
-                return m;
+            crate::retry::RetryDecision::GiveUp(reason) => {
+                return failed(emit, give_up_message(&message, failures, reason));
             }
         }
+    }
+}
+
+/// 流被截断（没等到结束帧）时的兜底说明。
+const STREAM_TRUNCATED: &str = "流提前结束：未收到结束帧（连接被中断或代理截断）";
+
+/// 退避等待，期间响应中止。返回 `true` = 被中止。
+async fn sleep_or_abort(delay: std::time::Duration, abort: &AbortSignal) -> bool {
+    tokio::select! {
+        _ = abort.wait_aborted() => true,
+        _ = tokio::time::sleep(delay) => false,
+    }
+}
+
+/// 放弃重试后的错误文案：说清「试了几次」与「为什么不再试」。
+fn give_up_message(cause: &str, failures: u32, reason: crate::retry::GiveUpReason) -> String {
+    match reason {
+        crate::retry::GiveUpReason::PolicyExhausted => {
+            format!("已重试 {failures} 次仍失败：{cause}")
+        }
+        crate::retry::GiveUpReason::TimeoutBudget => {
+            format!("请求连续超时（{failures} 次），不再重试：{cause}")
+        }
+        crate::retry::GiveUpReason::ServerDelayTooLong(after_ms) => format!(
+            "服务端要求 {} 秒后再试，超过重试上限，已停止：{cause}",
+            after_ms / 1_000
+        ),
     }
 }
 
@@ -861,6 +950,80 @@ mod tests {
         ]
     }
 
+    /// 可重试 / 终态错误的一轮（只发一个 Error 事件）。
+    fn error_turn(message: &str, retryable: bool) -> Vec<StreamEvent> {
+        vec![StreamEvent::Error {
+            message: message.into(),
+            retry: retryable.then(crate::retry::RetryHint::plain),
+        }]
+    }
+
+    /// 已吐出正文增量、随后失败的一轮（验证「已输出正文不重放」）。
+    fn prose_then_error_turn(text: &str, message: &str) -> Vec<StreamEvent> {
+        vec![
+            StreamEvent::TextDelta {
+                content_index: 0,
+                delta: text.into(),
+            },
+            StreamEvent::Error {
+                message: message.into(),
+                retry: Some(crate::retry::RetryHint::plain()),
+            },
+        ]
+    }
+
+    /// 工具调用参数只吐了一半就失败的一轮（Q 会话里实测的故障形态）。
+    fn truncated_tool_turn(message: &str) -> Vec<StreamEvent> {
+        vec![
+            StreamEvent::ToolCallStart {
+                content_index: 0,
+                id: "t1".into(),
+                name: "count".into(),
+            },
+            StreamEvent::ToolCallDelta {
+                content_index: 0,
+                delta: "{\"n\": 1".into(),
+            },
+            StreamEvent::Error {
+                message: message.into(),
+                retry: Some(crate::retry::RetryHint::plain()),
+            },
+        ]
+    }
+
+    /// 快速重试策略：次数按用例给，退避压到 1ms 让测试不等待。
+    fn fast_retry(max_attempts: u32) -> crate::retry::RetryPolicy {
+        crate::retry::RetryPolicy {
+            max_attempts,
+            base_delay_ms: 1,
+            max_delay_ms: 5,
+        }
+    }
+
+    /// 收集事件的 sink：返回（事件列表, Emitter）。
+    fn event_sink() -> (Arc<Mutex<Vec<AgentEvent>>>, Emitter) {
+        let sink: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink2 = sink.clone();
+        let emit: Emitter = Arc::new(move |event: AgentEvent| {
+            sink2.lock().unwrap().push(event);
+        });
+        (sink, emit)
+    }
+
+    fn retry_events(events: &[AgentEvent]) -> Vec<(u32, u32)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                AgentEvent::RetryStart {
+                    attempt,
+                    max_attempts,
+                    ..
+                } => Some((*attempt, *max_attempts)),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn test_config(
         provider: Arc<dyn Provider>,
         tools: Arc<ToolRegistry>,
@@ -881,6 +1044,9 @@ mod tests {
                 approver: None,
             },
             options: StreamOptions::default(),
+            // 既有用例都是单次尝试的脚本化 provider：默认关掉重试，
+            // 需要重试的用例自己指定策略
+            retry: crate::retry::RetryPolicy::NONE,
             tool_execution: ToolExecutionMode::Sequential,
             steering: MessageQueue::new(),
             follow_up: MessageQueue::new(),
@@ -951,6 +1117,260 @@ mod tests {
         assert!(events
             .iter()
             .any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
+    }
+
+    // ----- 可重试错误的重发 -----
+
+    #[tokio::test]
+    async fn retryable_error_is_retried_until_success() {
+        let provider = Arc::new(ScriptedProvider {
+            turns: vec![
+                error_turn("流错误: status 429 Too Many Requests", true),
+                stop_turn("恢复后的回复"),
+            ],
+            call: AtomicUsize::new(0),
+        });
+        let (sink, emit) = event_sink();
+        let mut config = test_config(
+            provider.clone(),
+            Arc::new(ToolRegistry::new(vec![])),
+            None,
+        );
+        config.retry = fast_retry(3);
+
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        assert_eq!(provider.call.load(Ordering::SeqCst), 2, "应重发一次");
+        let last = messages.last().expect("至少一条消息");
+        match last {
+            Message::Assistant {
+                content,
+                stop_reason,
+                error_message,
+                ..
+            } => {
+                assert_eq!(*stop_reason, StopReason::Stop);
+                assert!(error_message.is_none());
+                assert!(matches!(&content[0], ContentBlock::Text { text } if text == "恢复后的回复"));
+            }
+            other => panic!("期望成功的助手消息，得到 {other:?}"),
+        }
+        let events = sink.lock().unwrap();
+        assert_eq!(retry_events(&events), vec![(1, 3)], "应发出一次 retry_start");
+    }
+
+    #[tokio::test]
+    async fn terminal_error_is_not_retried() {
+        let provider = Arc::new(ScriptedProvider {
+            turns: vec![
+                error_turn("流错误: status 400 Bad Request", false),
+                stop_turn("不该走到这里"),
+            ],
+            call: AtomicUsize::new(0),
+        });
+        let (sink, emit) = event_sink();
+        let mut config = test_config(
+            provider.clone(),
+            Arc::new(ToolRegistry::new(vec![])),
+            None,
+        );
+        config.retry = fast_retry(3);
+
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        assert_eq!(provider.call.load(Ordering::SeqCst), 1, "终态错误不应重发");
+        match messages.last().expect("至少一条消息") {
+            Message::Assistant {
+                stop_reason,
+                error_message,
+                ..
+            } => {
+                assert_eq!(*stop_reason, StopReason::Error);
+                assert!(error_message.as_deref().unwrap_or_default().contains("400"));
+            }
+            other => panic!("期望错误消息，得到 {other:?}"),
+        }
+        assert!(retry_events(&sink.lock().unwrap()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn exhausted_retries_say_how_many_attempts() {
+        let provider = Arc::new(ScriptedProvider {
+            turns: vec![error_turn("流错误: 连接重置", true)],
+            call: AtomicUsize::new(0),
+        });
+        let (_sink, emit) = event_sink();
+        let mut config = test_config(
+            provider.clone(),
+            Arc::new(ToolRegistry::new(vec![])),
+            None,
+        );
+        config.retry = fast_retry(3);
+
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        assert_eq!(provider.call.load(Ordering::SeqCst), 3, "3 次尝试后放弃");
+        match messages.last().expect("至少一条消息") {
+            Message::Assistant { error_message, .. } => {
+                let message = error_message.clone().unwrap_or_default();
+                assert!(message.contains("已重试 3 次仍失败"), "{message}");
+            }
+            other => panic!("期望错误消息，得到 {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn prose_output_blocks_retry() {
+        let provider = Arc::new(ScriptedProvider {
+            turns: vec![
+                prose_then_error_turn("半截正文", "流错误: 连接重置"),
+                stop_turn("重放会产生重复文本"),
+            ],
+            call: AtomicUsize::new(0),
+        });
+        let (sink, emit) = event_sink();
+        let mut config = test_config(
+            provider.clone(),
+            Arc::new(ToolRegistry::new(vec![])),
+            None,
+        );
+        config.retry = fast_retry(3);
+
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        assert_eq!(
+            provider.call.load(Ordering::SeqCst),
+            1,
+            "已经输出过正文就不该重放"
+        );
+        match messages.last().expect("至少一条消息") {
+            Message::Assistant { error_message, .. } => {
+                let message = error_message.clone().unwrap_or_default();
+                assert!(message.contains("已输出部分内容，未自动重试"), "{message}");
+            }
+            other => panic!("期望错误消息，得到 {other:?}"),
+        }
+        assert!(retry_events(&sink.lock().unwrap()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn truncated_tool_call_without_prose_is_retried() {
+        let provider = Arc::new(ScriptedProvider {
+            turns: vec![
+                truncated_tool_turn("流错误: tool call `count` arrived with malformed JSON input"),
+                stop_turn("重发后的回复"),
+            ],
+            call: AtomicUsize::new(0),
+        });
+        let (sink, emit) = event_sink();
+        let mut config = test_config(
+            provider.clone(),
+            Arc::new(ToolRegistry::new(vec![])),
+            None,
+        );
+        config.retry = fast_retry(3);
+
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        assert_eq!(provider.call.load(Ordering::SeqCst), 2, "工具参数截断应重发");
+        match messages.last().expect("至少一条消息") {
+            Message::Assistant { stop_reason, .. } => assert_eq!(*stop_reason, StopReason::Stop),
+            other => panic!("期望成功的助手消息，得到 {other:?}"),
+        }
+        let events = sink.lock().unwrap();
+        assert_eq!(retry_events(&events), vec![(1, 3)]);
+        // 半截参数绝不交给工具执行
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::ToolExecutionStart { .. })),
+            "被截断的工具调用不应执行"
+        );
+    }
+
+    #[tokio::test]
+    async fn abort_during_backoff_stops_immediately() {
+        let provider = Arc::new(ScriptedProvider {
+            turns: vec![error_turn("流错误: 连接重置", true)],
+            call: AtomicUsize::new(0),
+        });
+        let (sink, emit) = event_sink();
+        let mut config = test_config(
+            provider.clone(),
+            Arc::new(ToolRegistry::new(vec![])),
+            None,
+        );
+        // 退避 5 秒：若不与 abort 竞速，这个用例会一直等下去
+        config.retry = crate::retry::RetryPolicy {
+            max_attempts: 5,
+            base_delay_ms: 5_000,
+            max_delay_ms: 5_000,
+        };
+
+        let abort = AbortSignal::new();
+        let abort2 = abort.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            abort2.abort();
+        });
+
+        let started = std::time::Instant::now();
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            abort,
+        )
+        .await;
+
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "退避期间中止应立刻生效，实际等了 {:?}",
+            started.elapsed()
+        );
+        match messages.last().expect("至少一条消息") {
+            Message::Assistant { stop_reason, .. } => {
+                assert_eq!(*stop_reason, StopReason::Aborted)
+            }
+            other => panic!("期望中止消息，得到 {other:?}"),
+        }
+        assert_eq!(retry_events(&sink.lock().unwrap()), vec![(1, 5)]);
     }
 
     #[tokio::test]

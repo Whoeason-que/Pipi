@@ -58,6 +58,7 @@ fn fixture(agent: &str, api: Api, base_url: &str) {
         }],
         default_provider_id: None,
         compaction: Default::default(),
+        retry: Default::default(),
     })
     .expect("写入测试设置");
 }

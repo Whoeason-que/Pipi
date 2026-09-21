@@ -182,6 +182,7 @@ fn write_settings(base_urls: &[String]) {
         providers,
         default_provider_id: None,
         compaction: Default::default(),
+        retry: Default::default(),
     })
     .expect("写入测试设置");
 }

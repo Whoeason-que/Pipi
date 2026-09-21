@@ -173,6 +173,7 @@ fn fixture(
             api_key: Some("test-key".into()),
         }],
         default_provider_id: None,
+        retry: Default::default(),
         compaction,
     })
     .expect("写入测试设置");
@@ -187,15 +188,6 @@ fn open_session_id(state: &RuntimeState, agent_name: &str) -> String {
         .find(|info| info.agent_name == agent_name)
         .unwrap_or_else(|| panic!("{agent_name} 应当有打开的会话"))
         .session_id
-}
-
-/// 该 Agent 是否有一条会话正在跑。
-fn any_session_running(state: &RuntimeState, agent_name: &str) -> bool {
-    state
-        .session_infos()
-        .expect("读取会话列表")
-        .iter()
-        .any(|info| info.agent_name == agent_name && info.running)
 }
 
 /// 往会话里预置一段历史（每轮：user + assistant(tool_call) + toolResult）。

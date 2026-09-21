@@ -73,6 +73,7 @@ async fn create_run_and_read_agent_output() {
         }],
         default_provider_id: None,
         compaction: Default::default(),
+        retry: Default::default(),
     })
     .unwrap();
 
@@ -347,6 +348,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         }],
         default_provider_id: None,
         compaction: Default::default(),
+        retry: Default::default(),
     })
     .unwrap();
 

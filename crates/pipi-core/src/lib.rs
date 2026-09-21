@@ -33,6 +33,7 @@ pub mod harness;
 pub mod permissions;
 pub mod project_doc;
 pub mod provider;
+pub mod retry;
 pub mod runtime;
 pub mod session;
 

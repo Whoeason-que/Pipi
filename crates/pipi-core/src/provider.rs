@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use http::{HeaderMap, HeaderName, HeaderValue};
 use rig::client::CompletionClient;
-use rig::completion::{CompletionRequestBuilder, FinishReason, Usage as RigUsage};
+use rig::completion::{CompletionError, CompletionRequestBuilder, FinishReason, Usage as RigUsage};
 use rig::message::{
     AssistantContent, Message as RigMessage, ReasoningContent,
     ToolResultContent as RigToolResultContent,
@@ -23,6 +23,7 @@ use rig::streaming::StreamedAssistantContent;
 use serde_json::{json, Value};
 use tokio::sync::mpsc::{self, Sender};
 
+use crate::retry::StreamError;
 use crate::types::{
     AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
     StreamOptions, ToolResultContent, Usage,
@@ -94,8 +95,21 @@ impl RigProvider {
     }
 }
 
-fn send_error(tx: &Sender<StreamEvent>, message: String) {
-    let _ = tx.try_send(StreamEvent::Error { message });
+fn send_error(tx: &Sender<StreamEvent>, error: StreamError) {
+    let _ = tx.try_send(StreamEvent::Error {
+        message: error.message,
+        retry: error.retry,
+    });
+}
+
+/// 把 rig 错误转成带分类的 [`StreamError`]：分类表见 [`crate::retry`]。
+fn classify_with(prefix: &str, error: CompletionError) -> StreamError {
+    let (verdict, hint) = crate::retry::classify_rig_error(&error);
+    let message = format!("{prefix}: {error}");
+    match verdict {
+        crate::retry::RetryVerdict::Retryable => StreamError::retryable_with(message, hint),
+        crate::retry::RetryVerdict::Terminal => StreamError::terminal(message),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -386,7 +400,7 @@ macro_rules! run_with_model {
         // rig 语义：builder 的 prompt 是最后一条消息，messages 是它之前的历史
         let mut msgs = to_rig_messages(context);
         let Some(prompt) = msgs.pop() else {
-            return Err("空消息历史".into());
+            return Err(StreamError::terminal("空消息历史"));
         };
         let mut builder = CompletionRequestBuilder::new($completion_model, prompt)
             .messages(msgs)
@@ -411,14 +425,19 @@ macro_rules! run_with_model {
         };
         let idle = std::time::Duration::from_secs(idle_secs);
 
-        let mut stream = match tokio::time::timeout(idle, builder.stream()).await {
-            Ok(Ok(stream)) => stream,
-            Ok(Err(e)) => return Err(format!("请求失败: {e}")),
-            Err(_) => {
-                return Err(format!(
-                    "请求超时：{idle_secs} 秒内未开始响应（端点无响应或网络不可达）"
-                ))
-            }
+        // 建连阶段同样与中止竞速：点停止不必等连接建立或超时
+        let mut stream = tokio::select! {
+            _ = $abort.wait_aborted() => return Ok(()),
+            connected = tokio::time::timeout(idle, builder.stream()) => match connected {
+                Ok(Ok(stream)) => stream,
+                Ok(Err(e)) => return Err(classify_with("请求失败", e)),
+                Err(_) => {
+                    return Err(StreamError::retryable_with(
+                        format!("请求超时：{idle_secs} 秒内未开始响应（端点无响应或网络不可达）"),
+                        Some(crate::retry::RetryHint::timeout()),
+                    ))
+                }
+            },
         };
 
         let mut acc = Accumulator::default();
@@ -435,7 +454,7 @@ macro_rules! run_with_model {
                 _ = tokio::time::sleep(idle) => { timed_out = true; None }
             };
             let Some(item) = item else { break };
-            match item.map_err(|e| format!("流错误: {e}"))? {
+            match item.map_err(|e| classify_with("流错误", e))? {
                 StreamedAssistantContent::Text(t) => {
                     acc.text_delta(&t.text);
                     let _ = tx
@@ -487,14 +506,25 @@ macro_rules! run_with_model {
         }
 
         if timed_out {
-            return Err(format!(
-                "请求超时：{idle_secs} 秒内没有新的响应数据，已中止本轮请求"
+            // 无进展超时：可重试，但每次尝试都要花掉整个 timeout 预算，
+            // 所以带上 RetryHint::timeout()（重试层据此最多再试一次）。
+            return Err(StreamError::retryable_with(
+                format!("请求超时：{idle_secs} 秒内没有新的响应数据，已中止本轮请求"),
+                Some(crate::retry::RetryHint::timeout()),
             ));
         }
 
-        if !saw_final || $abort.is_aborted() {
-            // 流异常断开或已中止：不发 Done，loop 按 aborted 处理
+        if $abort.is_aborted() {
+            // 用户中止：静默收尾，agent_loop 按 aborted 处理（不可重试）
             return Ok(());
+        }
+
+        if !saw_final {
+            // 流在终态事件之前结束（干净 EOF、代理掐断等）：过去这里静默结束，
+            // 被上层误报成「已中止」；现在明确报成可重试的中断。
+            return Err(StreamError::retryable(
+                "流提前结束：未收到结束帧（连接被中断或代理截断）",
+            ));
         }
 
         let duration_ms = started.elapsed().as_millis() as u64;
@@ -539,7 +569,7 @@ impl Provider for RigProvider {
                 options: StreamOptions,
                 abort: AbortSignal,
                 tx: &Sender<StreamEvent>,
-            ) -> Result<(), String> {
+            ) -> Result<(), StreamError> {
                 match api {
                     Api::AnthropicMessages => {
                         let key = options.api_key.clone().unwrap_or_default();
@@ -552,7 +582,9 @@ impl Provider for RigProvider {
                         {
                             cb = cb.http_headers(headers);
                         }
-                        let client = cb.build().map_err(|e| format!("Client 初始化失败: {e}"))?;
+                        let client = cb
+                            .build()
+                            .map_err(|e| StreamError::terminal(format!("Client 初始化失败: {e}")))?;
                         run_with_model!(
                             tx,
                             abort,
@@ -573,7 +605,9 @@ impl Provider for RigProvider {
                         {
                             cb = cb.http_headers(headers);
                         }
-                        let client = cb.build().map_err(|e| format!("Client 初始化失败: {e}"))?;
+                        let client = cb
+                            .build()
+                            .map_err(|e| StreamError::terminal(format!("Client 初始化失败: {e}")))?;
                         // 统一走 Chat Completions（`/chat/completions`）：rig 0.42 的 openai 客户端
                         // 默认是 Responses API（`/responses`），而「openai-completions」协议在中转商、
                         // 本地运行时那里就是 Chat Completions 的兼容层 —— 只有官方 OpenAI 才认

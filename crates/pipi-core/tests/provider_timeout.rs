@@ -102,7 +102,7 @@ async fn drain_stream(addr: std::net::SocketAddr, timeout_secs: u64) -> (bool, O
     while let Some(event) = rx.recv().await {
         match event {
             StreamEvent::TextDelta { .. } => saw_text = true,
-            StreamEvent::Error { message } => {
+            StreamEvent::Error { message, .. } => {
                 error = Some(message);
                 break;
             }

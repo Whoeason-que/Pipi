@@ -55,6 +55,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
         }],
         default_provider_id: None,
         compaction: Default::default(),
+        retry: Default::default(),
     };
     save_settings(&settings).expect("写入测试设置");
 

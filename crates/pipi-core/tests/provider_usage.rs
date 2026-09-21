@@ -106,7 +106,7 @@ async fn run_once(addr: std::net::SocketAddr) -> (Usage, Message) {
     while let Some(event) = rx.recv().await {
         match event {
             StreamEvent::Done { usage, message, .. } => return (usage, *message),
-            StreamEvent::Error { message } => panic!("provider 报错：{message}"),
+            StreamEvent::Error { message, .. } => panic!("provider 报错：{message}"),
             _ => {}
         }
     }

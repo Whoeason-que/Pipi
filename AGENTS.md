@@ -107,6 +107,13 @@ src/                React + TypeScript 前端
   **`rm -f` 家族**只放行工作区内、非仓库根 / 工作区根的字面量绝对路径，
   包装调用（sudo/env/bash -c）、变量与通配符目标必须拒绝 —— 见
   `permissions::forced_rm_inside_workspace`。这两条改判据都要更新表驱动测试。
+- 请求重试分两层，别把重试加到 provider 层：**provider 只分类**（rig 的结构化错误
+  → 可重试 / 终态 + `Retry-After`，见 `retry::classify_rig_error`），**重发只在
+  agent_loop 一处做**（`stream_assistant_response` 的尝试循环；摘要调用在
+  `compaction::llm` 自己那层共用同一策略）—— 双层重试会放大成 N×M 次请求。
+  三条不变量：**用户中止永远不可重试**；**已经输出过正文的那一轮不重放**（例外是
+  只有工具调用块，半截参数绝不交给工具执行）；**无进展超时最多额外重试 1 次**。
+  改分类表或判定规则必须更新 `retry.rs` 的表驱动测试与 `tests/retry_runtime.rs`。
 - agent.toml 契约（`crates/av`，README「agent.toml 契约（av 标准）」一节）：
   未知键/未知段一律拒绝、秘密值只许引用式（永不内联）、`AV_*` 是运行时
   保留命名空间、项目层文件不得声明身份与权限段 —— 改 schema/合并/解析

@@ -137,6 +137,8 @@ pub struct StrategyEnv<'a> {
     pub model: &'a Model,
     pub options: &'a StreamOptions,
     pub abort: AbortSignal,
+    /// 摘要调用失败重发策略（与对话共用同一份，见 [`crate::retry`]）。
+    pub retry: crate::retry::RetryPolicy,
 }
 
 /// 策略产出的「改写计划」。
