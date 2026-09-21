@@ -1123,6 +1123,17 @@ body.resizing * {
   accent-color: var(--accent);
 }
 
+/* 设置弹窗里的多行开关（压缩行为等）：竖排 + 说明文字 */
+.setting-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setting-checks .hint {
+  margin-top: 2px;
+}
+
 .perm-editor {
   display: flex;
   flex-direction: column;

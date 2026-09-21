@@ -23,6 +23,7 @@ import {
   formatRuntimeError,
   groupChatBlocks,
   INITIAL_CHAT_STATE,
+  formatTokens,
   normalizeAgentEvent,
   normalizeStatsPayload,
   type AgentEvent,
@@ -35,6 +36,7 @@ import {
   type SessionErrorPayload,
   type SessionEventMeta,
   type SessionStatsPayload,
+  type SessionSwitchedPayload,
 } from "./chat-runtime";
 import type { AgentDefinition, ModelConfig, ProviderConfig, SessionInfoView, SessionStatsView } from "./types";
 
@@ -221,6 +223,27 @@ export default function ChatView({
       if (!mounted || sessionInfoFailedRef.current || !acceptMeta(event.payload)) return;
       onError(event.payload.message);
     };
+    const handleSessionSwitchedEvent = async (event: { payload: SessionSwitchedPayload }) => {
+      if (!mounted || sessionInfoFailedRef.current) return;
+      const payload = event.payload;
+      if (payload.agentName !== agent.name) return;
+      // 此刻前端身份还是旧 id（envelope 就是旧 id），先按既有规则校验再切
+      if (!acceptMeta(payload)) return;
+      sessionIdentityRef.current = {
+        sessionId: payload.toSessionId,
+        runId: payload.runId,
+      };
+      setSessionId(payload.toSessionId);
+      // 不重新 hydrate 消息：时间线保留当前视图（压缩本体由紧随其后的
+      // compaction_end 落成折叠条目），这里只把身份与侧栏同步过去。
+      try {
+        const info = await invoke<SessionInfoView>("session_info");
+        onSessionReset(info);
+      } catch (err) {
+        onError(formatRuntimeError(err));
+      }
+    };
+
     const handleApprovalEvent = (event: { payload: ApprovalRequestPayload }) => {
       if (!mounted || sessionInfoFailedRef.current) return;
       const request = event.payload;
@@ -237,6 +260,7 @@ export default function ChatView({
         listen<SessionStatsPayload>("session-stats", handleStatsEvent),
         listen<SessionErrorPayload>("session-error", handleErrorEvent),
         listen<ApprovalRequestPayload>("approval-request", handleApprovalEvent),
+        listen<SessionSwitchedPayload>("session-switched", handleSessionSwitchedEvent),
       ]);
       const listenerErrors: unknown[] = [];
       for (const result of listenerResults) {
@@ -692,6 +716,14 @@ export default function ChatView({
     }
   };
 
+  /// 手动压缩：核心异步执行（占住 running 位），结果通过事件回流 ——
+  /// compaction_start/end 出折叠条目、session-switched 切会话、出错走 session-error。
+  const compactNow = () => {
+    void invoke("compact_now", { agentName: agent.name }).catch((err: unknown) => {
+      onError(formatRuntimeError(err));
+    });
+  };
+
   const forkSession = async () => {
     if (!ready || running) return;
     const currentId = sessionIdentityRef.current?.sessionId;
@@ -986,6 +1018,7 @@ export default function ChatView({
         chipDetail={activeChip}
         chipDetailMode={previewChip ? "preview" : "pinned"}
         onUnpinChip={() => setPinnedChip(null)}
+        onCompact={compactNow}
       />
 
       {narrow && inspectorOpen && (
@@ -1043,13 +1076,6 @@ function CopyButton({ text }: { text: string }) {
       {copied ? <IconCheck /> : <IconCopy />}
     </button>
   );
-}
-
-function formatTokens(value: number | undefined): string {
-  if (value == null) return "—";
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
-  return String(value);
 }
 
 /**
@@ -1266,6 +1292,8 @@ interface InspectorProps {
   chipDetail: Chip | null;
   chipDetailMode: "preview" | "pinned";
   onUnpinChip: () => void;
+  /** 手动压缩当前会话（「状态」tab 的「立即压缩」按钮）。 */
+  onCompact: () => void;
 }
 
 const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
@@ -1293,8 +1321,12 @@ function Inspector({
   chipDetail,
   chipDetailMode,
   onUnpinChip,
+  onCompact,
 }: InspectorProps) {
   const [tab, setTab] = useState<InspectorTab>("stats");
+  // 正在压缩：压缩条目在收尾前是 transient（见 chat-runtime 的 compaction_start）
+  const compacting = entries.some((entry) => entry.kind === "compaction" && entry.transient);
+  const canCompact = Boolean(sessionId) && !running && !compacting;
   // 选中标签时自动切到「调用详情」，取消选中后回到之前的 tab
   const tabRef = useRef(tab);
   tabRef.current = tab;
@@ -1605,6 +1637,15 @@ function Inspector({
                   ) : (
                     <span className="dim">—</span>
                   )}
+                  <button
+                    type="button"
+                    className="compact-now"
+                    onClick={onCompact}
+                    disabled={!canCompact}
+                    title="立即压缩当前会话（跳过阈值；走与自动压缩相同的分叉/归档设置）"
+                  >
+                    {compacting ? "压缩中…" : "立即压缩"}
+                  </button>
                 </span>
               </div>
               <div className="kv-row">

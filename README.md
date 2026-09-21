@@ -38,7 +38,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 ~/.pipi/
 ├── settings.json       # 全局设置：主题、模型提供商（密钥支持环境变量引用）
 └── agents/my-agent/
-    ├── agent.json          # Agent 清单：模型、工作目录、权限、沙箱、MCP 服务器等
+    ├── agent.json          # Agent 清单：模型、工作目录、权限、沙箱、压缩阈值、MCP 服务器等
     ├── agent.toml          # 环境契约（av 标准）：env 声明、工具链断言、资源覆盖（可选）
     ├── AGENTS.md           # 系统级指令，每次运行注入上下文
     ├── skills/             # 技能包（SKILL.md + 随附文件）
@@ -83,6 +83,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查；Allowlist 模式下白名单外的非危险命令可交互审批救回（拒绝 / 允许一次 / 总是允许——按段写回白名单），黑名单命中、危险命令与沙箱约束不可审批 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、越出工作目录的写入与重定向在非完全访问下被拒绝 |
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；`create_agent` / `run_agent` / `read_agent` 必须显式开启 |
+| 压缩阈值 | `agent.json` → `compactThresholdPercent` | 上下文占用达到模型窗口的这个百分比时自动压缩（默认 75）；窗口未知（0）时不压缩 |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 环境契约 | `agent.toml`（项目根 / Agent 定义目录）+ `agent.local.toml` | av 标准：env 声明、工具链断言、资源覆盖；会话启动解析一次，秘密值永不内联 |
 | 会话 | `sessions/*.jsonl` | Append-only 的运行记录，一文件一会话，树状条目（id/parentId）支持分叉 |
@@ -132,11 +133,53 @@ Agent 可以通过三项显式工具组合已有 Agent，而不引入独立的 s
 │  ├─ provider      anthropic +        │  流式 SSE，事件驱动
 │  │                openai-compat      │
 │  ├─ session       sessions/*.jsonl   │  append-only，崩溃安全
-│  ├─ compaction    LLM 摘要式上下文压缩│  turn 边界触发，摘要落盘可回放
+│  ├─ compaction    上下文压缩策略流水线  │  投影式（不落盘）+ 替换式（落盘）
 │  ├─ permissions   bash 白/黑名单      │
 │  └─ agents        扫描 ~/.pipi/agents │  一切皆文件
 └──────────────────────────────────────┘
 ```
+
+### 上下文压缩（策略与流水线）
+
+把「一次压缩」拆成 **计划 → 校验 → 应用/落盘**，
+策略只产出 `Plan`、不直接改历史 —— 不变量统一校验、UI 能观测（事件带策略名与
+前后 token）、落盘能回放，都只依赖这一层。策略按**能否从原始历史重算**分两类，
+这条线决定扩展成本：
+
+| 类别 | 例子 | 持久化 | 应用位置 |
+| --- | --- | --- | --- |
+| `Projection`（投影式，纯函数、确定性） | 旧工具输出清理、边界硬裁 | **不落盘**（回放时重算） | `transform_context`（组装请求时） |
+| `Replacement`（替换式，信息已丢失） | LLM 摘要 | 必须落盘为 `compaction` 条目 | turn 边界（runtime 触发） |
+
+- 「何时压」由 runtime 决定，策略只回答「我能不能压」。触发口径只有一处
+  （`Budget::trigger_tokens` = **窗口 × 百分比**，默认 75%，按 Agent 在
+  `agent.json` 的 `compactThresholdPercent` 调；窗口未知时为 0 → 不压缩）；
+  **手动压缩**（右栏「状态」→ 上下文行的「立即压缩」）跳过阈值 —— 用户点了就压，
+  其余路径完全相同（同一个 `run_compaction`，因此同样分叉/归档/换会话）；
+- 投影式流水线按成本从低到高跑：**先清旧工具输出**（不花 LLM 调用、不动对话
+  结构，对齐 Claude Code 的「先清旧工具输出再摘要」与 Anthropic context editing
+  的 `clear_tool_uses_*`），仍超预算才硬裁；因为不落盘，改这一档不动会话格式；
+- 替换式目前只有摘要一档，落盘字段对齐 pi：`keep_from_entry`（= 上游
+  `firstKeptEntryId`，回放时保住这段原文）、`strategy`、`usage`（摘要调用的用量
+  计入会话账本，但不改写「当前上下文占用」口径，见 `stats::record_ledger`）；
+- 硬不变量集中在 `compaction::validate` / `validate_result`：切点不得孤立
+  toolResult、就地改写不得改角色、压缩后破损度不得增加（历史里本来就有的中段
+  悬挂不算在压缩头上）；
+- 参数集中在 `Budget::from_window`，加一档投影式压缩 = 一个纯函数 + 流水线里
+  一行登记。
+
+**压缩不原地改写会话**（可关）：摘要成功后先**分叉**出新会话（活跃路径完整拷贝 +
+压缩条目 + 溯源标记 `compaction-fork:<原 id>`），把 writer 换过去，再把原会话移入
+归档 —— 于是原会话始终是一份**完整记录**，新会话是压缩后的继续。归档链是嵌套的：
+第二次压缩归档的是第一次的压缩产物，完整历史永远在最外层的归档里。
+
+- 设置（`~/.pipi/settings.json` 的 `compaction` 段）：`forkBeforeCompact`（关掉即回到
+  原地压缩）与 `archiveOriginal`（关掉则原会话留在活跃列表），默认都为 `true`。
+- 失败降级：摘要调用失败 → 本轮不压缩；分叉失败 → 退回原地压缩；写新文件失败 →
+  删掉半成品再退回原地；归档失败 → 记日志继续（原会话留在活跃列表）。
+- 会话身份变了要通知前端：切完 writer 先发 `session-switched`（envelope 用**旧 id**，
+  因为此刻前端身份还是旧的），再让后续事件带新 id —— 顺序反了前端会收不到切换、
+  `running` 卡在 true。
 
 ### 与 pi 的关系
 
@@ -150,8 +193,8 @@ Agent 可以通过三项显式工具组合已有 Agent，而不引入独立的 s
 | `packages/agent` harness/tools | `tools` | read/write/edit/bash + 新增 memory/glob/grep；Pipi 增加显式的 Agent 创建、运行与输出读取工具 |
 | `packages/agent` harness/utils/truncate | `truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
-| `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_oldest` 保底裁剪、`transformContext` 钩子 |
-| `packages/agent` compaction（LLM 摘要替换） | `compaction` | turn 边界触发：摘要替换旧轮次 + 保留近期轮次（keepRecentTokens=20000，对齐上游默认）；摘要用上游的固定骨架 prompt，重复压缩时旧摘要经 `<previous-summary>` 交回 update 版指令避免措辞漂移；文件操作清单（read/modified）追加在摘要末尾。摘要落盘为 `compaction` 条目，重开/分叉会话时回放 |
+| `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
+| `packages/agent` compaction（LLM 摘要替换） | `compaction` | 见下文「上下文压缩」：摘要替换旧轮次 + 保留近期原文（keepRecentTokens=20000）；摘要骨架 prompt、旧摘要经 `<previous-summary>` 交回 update 版指令、文件操作清单追加在摘要末尾；落盘为 `compaction` 条目（含 `keep_from_entry`），重开/分叉时回放 |
 | `packages/agent` skills（frontmatter） | `skills` | 渐进式披露：索引常驻上下文，全文模型按需 read |
 
 有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/

@@ -18,10 +18,9 @@ use crate::agents::{self, AgentDefinition};
 use crate::approval::{
     ApprovalDecision, ApprovalGate, ApprovalRequestEnvelope, InteractiveApprover,
 };
-use crate::context::{prune_transform, DEFAULT_RESERVE_TOKENS};
 use crate::provider::provider_for;
 pub use crate::session::SessionSummary;
-use crate::session::{list_session_summaries, load_session, SessionWriter};
+use crate::session::{list_session_summaries, load_session, EntryKind, SessionWriter};
 use crate::settings::load_settings;
 use crate::stats::SessionStatsTracker;
 use crate::tools::agent::{
@@ -63,6 +62,22 @@ pub struct SessionErrorEnvelope {
     pub message: String,
 }
 
+/// 压缩换会话后发给宿主：当前会话已切到新 id（原会话可能已归档）。
+///
+/// **envelope 用的是切换前的 session_id** —— 前端此刻的身份还是旧的，
+/// 用新 id 会先被 `eventMatchesSession` 丢掉；新 id 放在 payload 里。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSwitchedEnvelope {
+    pub agent_name: String,
+    pub session_id: String,
+    pub run_id: usize,
+    /// 切换后的会话 id（前端应把身份更新为它）。
+    pub to_session_id: String,
+    /// 原会话是否已移入归档。
+    pub archived: bool,
+}
+
 /// 宿主只需将这个协议映射为 Tauri event 或 WebSocket frame。
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "payload")]
@@ -75,6 +90,8 @@ pub enum RuntimeEvent {
     SessionError(SessionErrorEnvelope),
     #[serde(rename = "approval-request")]
     ApprovalRequest(ApprovalRequestEnvelope),
+    #[serde(rename = "session-switched")]
+    SessionSwitched(SessionSwitchedEnvelope),
 }
 
 /// 运行时事件接收器。
@@ -243,6 +260,10 @@ impl RuntimeState {
     // 并发打开不在本锁覆盖范围内 —— 产品形态是二选一，已知限制。）
 
     /// 归档会话：移动到 `sessions/.archive/`。
+    ///
+    /// 占用检查留在这一层（会话正打开时拒绝）；实际移动是
+    /// [`crate::session::archive_session_file`] —— 压缩换会话后的内部归档
+    /// 走那个自由函数（那时旧 id 已不再是打开的会话）。
     pub fn archive_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
         let slot = self.session.lock().map_err(|e| e.to_string())?;
@@ -255,22 +276,10 @@ impl RuntimeState {
         if !Self::ensure_real_session_file(&src)? {
             return Err("会话不存在".into());
         }
-        let archive_dir = src
-            .parent()
-            .ok_or_else(|| "无法解析会话目录".to_string())?
-            .join(agents::ARCHIVE_DIR);
-        // 归档目录：不存在则创建；存在必须是真实目录（防符号链接）
-        if agents::ensure_real_directory(&archive_dir, "归档目录")? {
-            // 已存在，检查目标是否会覆盖
-            let dst = archive_dir.join(format!("{session_id}.jsonl"));
-            if dst.exists() {
-                return Err("归档区已存在同名会话".into());
-            }
-        } else {
-            std::fs::create_dir_all(&archive_dir).map_err(|e| format!("无法创建归档目录: {e}"))?;
-        }
-        let dst = archive_dir.join(format!("{session_id}.jsonl"));
-        std::fs::rename(&src, &dst).map_err(|e| format!("归档会话失败: {e}"))
+        let Some(dir) = src.parent() else {
+            return Err("无法解析会话目录".into());
+        };
+        crate::session::archive_session_file(dir, session_id).map(|_| ())
     }
 
     /// 恢复归档会话：移回 `sessions/`。
@@ -518,6 +527,256 @@ fn settle_unanswered_tail(
         appended.push(result);
     }
     Ok(appended)
+}
+
+/// 投影式压缩流水线的 transform 钩子（组装请求时应用，不落盘）。
+fn projection_transform(budget: crate::compaction::Budget) -> crate::agent_loop::TransformContextHook {
+    Arc::new(move |messages: Vec<Message>| crate::compaction::project(messages, budget))
+}
+
+/// 把「保留区间下标」换算成条目 id（compaction 条目的 `keep_from_entry`）。
+///
+/// 内存历史与落盘条目必须一一对应（见 `session::replay` 的 id 语义）。两边
+/// 长度不一致说明二者脱节 —— 此时退回空 id：宁可只留摘要，也不让回放去猜
+/// 一个错误的位置（猜错会让保留段整体错位）。
+fn keep_from_entry_id(
+    writer: &Arc<Mutex<SessionWriter>>,
+    history: &[Message],
+    keep_from: Option<usize>,
+) -> String {
+    let Some(index) = keep_from else {
+        return String::new();
+    };
+    let Ok(writer) = writer.lock() else {
+        return String::new();
+    };
+    let ids = writer.message_ids();
+    if ids.len() != history.len() {
+        eprintln!(
+            "pipi: 压缩时内存历史（{} 条）与落盘条目（{} 条）不一致，本轮只保留摘要",
+            history.len(),
+            ids.len()
+        );
+        return String::new();
+    }
+    ids.get(index).cloned().unwrap_or_default()
+}
+
+/// 压缩的触发方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompactionTrigger {
+    /// turn 边界：历史达到触发线才压。
+    Auto,
+    /// 用户手动点：不管阈值都压（历史太短时返回可读错误）。
+    Manual,
+}
+
+/// 跑一次压缩所需的全部素材 —— 自动（turn 边界）与手动（UI 按钮）共用，
+/// 保证「摘要 → 分叉/归档 → 换会话 → 落事件」只有一条实现。
+struct CompactionContext<'a> {
+    agent_name: &'a str,
+    /// 换会话后就地改成新 id，后续事件才会带新身份。
+    session_id: &'a mut String,
+    run_id: usize,
+    model: &'a Model,
+    api_key: &'a str,
+    budget: crate::compaction::Budget,
+    messages: &'a Arc<tokio::sync::Mutex<Vec<Message>>>,
+    writer: &'a Arc<Mutex<SessionWriter>>,
+    stats: &'a Arc<Mutex<SessionStatsTracker>>,
+    abort: AbortSignal,
+    sessions_dir: Option<&'a std::path::Path>,
+    settings: crate::settings::CompactionSettings,
+    sink: &'a EventEmitter,
+    trigger: CompactionTrigger,
+}
+
+/// 压缩本体。`Ok(false)` 表示按触发方式判断「无需压缩」（自动且未达触发线）——
+/// 调用方不应把它当失败；`Err` 才是真的没压成（手动时的「历史还不用压」也走这里）。
+async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
+    let history = ctx.messages.lock().await.clone();
+    if ctx.trigger == CompactionTrigger::Auto
+        && !crate::compaction::needs_compaction(&history, ctx.budget)
+    {
+        return Ok(false);
+    }
+    // session_id 显式传入：换会话后就地改写它，之后的 envelope 才会带新身份
+    let agent_name = ctx.agent_name.to_string();
+    let run_id = ctx.run_id;
+    let envelope = |session_id: &str, event: AgentEvent| {
+        RuntimeEvent::AgentEvent(AgentEventEnvelope {
+            agent_name: agent_name.clone(),
+            session_id: session_id.to_string(),
+            run_id,
+            event,
+        })
+    };
+    (ctx.sink)(envelope(ctx.session_id, AgentEvent::CompactionStart));
+    let tokens_before = crate::context::estimate_context_tokens(&history);
+
+    // 摘要是一次性提示词：不带会话标识（供应商按会话做缓存写入，这份 prompt
+    // 不会被复用），用量另计入会话账本。
+    let summary_options = StreamOptions {
+        api_key: Some(ctx.api_key.to_string()),
+        temperature: None,
+        max_tokens: None,
+        timeout_secs: 300,
+        session_id: None,
+    };
+    // provider 实例要活到 compact 调用结束（provider_for 返回 Arc）
+    let summarizer = provider_for(ctx.model.api);
+    let strategy_env = crate::compaction::StrategyEnv {
+        provider: summarizer.as_ref(),
+        model: ctx.model,
+        options: &summary_options,
+        abort: ctx.abort.clone(),
+    };
+    let compacted = crate::compaction::compact(&history, ctx.budget, &strategy_env).await?;
+
+    // 落盘的摘要正文是**未包裹**的原文（回放时统一包裹，见 session::summary_message）。
+    let summary = compacted
+        .messages
+        .first()
+        .and_then(crate::session::summary_text)
+        .unwrap_or_default()
+        .to_string();
+    // 保留区间的起点条目 id：回放据此留住这段原文（缺了它就退回旧行为）。
+    let keep_from_entry = keep_from_entry_id(ctx.writer, &history, compacted.keep_from);
+    let source_tip = ctx
+        .writer
+        .lock()
+        .ok()
+        .and_then(|writer| writer.tip_id().map(str::to_string))
+        .unwrap_or_default();
+    let record = crate::session::CompactionRecord {
+        summary: &summary,
+        strategy: compacted.strategy,
+        keep_from_entry: &keep_from_entry,
+        source_tip: &source_tip,
+        usage: compacted.usage,
+    };
+    // 落盘（分叉 / 原地由设置决定）。失败则内存历史不动 —— live 与落盘必须
+    // 一致，否则重开会话会退回未压缩。
+    let switched = persist_compaction(ctx.writer, ctx.sessions_dir, &record, ctx.settings)?;
+    *ctx.messages.lock().await = compacted.messages;
+    if let Some(usage) = compacted.usage {
+        if let Ok(mut tracker) = ctx.stats.lock() {
+            tracker.record_ledger(&usage);
+        }
+    }
+    let tokens_after = crate::context::estimate_context_tokens(&ctx.messages.lock().await);
+    // 换会话：先发 SessionSwitched（envelope 用旧 id，前端此刻身份还是旧的），
+    // 把身份切到新 id，再发后续事件 —— 顺序反了会导致前端收不到切换、running 卡住。
+    if let Some(new_id) = &switched {
+        (ctx.sink)(RuntimeEvent::SessionSwitched(SessionSwitchedEnvelope {
+            agent_name: ctx.agent_name.to_string(),
+            session_id: ctx.session_id.clone(),
+            run_id: ctx.run_id,
+            to_session_id: new_id.clone(),
+            archived: ctx.settings.archive_original,
+        }));
+        *ctx.session_id = new_id.clone();
+    }
+    (ctx.sink)(envelope(ctx.session_id, AgentEvent::CompactionEnd {
+        summary,
+        replaced: compacted.replaced as u64,
+        strategy: compacted.strategy.to_string(),
+        tokens_before,
+        tokens_after,
+    }));
+    Ok(true)
+}
+
+/// 把压缩结果落盘，返回 `Some(new_session_id)` 表示已换到新会话。
+///
+/// 两条路径：
+/// - **分叉**（`fork_before_compact`）：新会话文件 = 原文件活跃路径的完整拷贝 +
+///   压缩条目；随后把 writer 换过去（旧文件在这时关闭），最后按设置归档原文件。
+/// - **原地**（关闭分叉，或分叉失败时的回退）：在当前文件上追加压缩条目。
+///
+/// 分叉失败不是致命错误（回退原地）；原地追加失败才是 `Err`，此时调用方不得
+/// 替换内存历史 —— live 与落盘必须一致。
+fn persist_compaction(
+    writer: &Arc<Mutex<SessionWriter>>,
+    sessions_dir: Option<&std::path::Path>,
+    record: &crate::session::CompactionRecord<'_>,
+    settings: crate::settings::CompactionSettings,
+) -> Result<Option<String>, String> {
+    let mut fork_error: Option<String> = None;
+    if settings.fork_before_compact {
+        match fork_and_write_compaction(writer, sessions_dir, record, settings.archive_original) {
+            Ok(new_id) => return Ok(Some(new_id)),
+            Err(error) => fork_error = Some(error),
+        }
+    }
+    let mut guard = writer
+        .lock()
+        .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
+    guard
+        .append_compaction(record)
+        .map_err(|error| format!("无法写入压缩条目: {error}"))?;
+    if let Some(error) = fork_error {
+        eprintln!("pipi: 压缩分叉失败，已改为原地压缩: {error}");
+    }
+    Ok(None)
+}
+
+/// 分叉出新会话并把压缩条目写进去，然后归档原会话（可关）。
+///
+/// 顺序很关键：**先在内存外写好新文件，再换 writer**（换的那一刻旧文件句柄关闭），
+/// 最后才 rename 归档 —— 否则 Linux 上仍打开的 fd 会继续往被移动的文件追加。
+fn fork_and_write_compaction(
+    writer: &Arc<Mutex<SessionWriter>>,
+    sessions_dir: Option<&std::path::Path>,
+    record: &crate::session::CompactionRecord<'_>,
+    archive_original: bool,
+) -> Result<String, String> {
+    let sessions_dir = sessions_dir.ok_or_else(|| "无法解析会话目录".to_string())?;
+    let (source_path, source_id) = {
+        let guard = writer
+            .lock()
+            .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
+        let path = guard.path().to_path_buf();
+        let id = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| "无法解析会话 ID".to_string())?
+            .to_string();
+        (path, id)
+    };
+
+    let mut forked = crate::session::fork_session(&source_path, sessions_dir, None)?;
+    let new_id = forked
+        .path()
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| "无法解析新会话 ID".to_string())?
+        .to_string();
+    if let Err(error) = forked.append_compaction(record) {
+        // 写失败就删掉半成品，别在会话列表里留下空壳
+        let path = forked.path().to_path_buf();
+        drop(forked);
+        let _ = std::fs::remove_file(&path);
+        return Err(format!("无法把压缩条目写入新会话: {error}"));
+    }
+    // 溯源标记：回答「这个会话从哪来」（回放中性，见 EntryKind::Custom）
+    let _ = forked.append_custom(&format!("compaction-fork:{source_id}"));
+
+    {
+        let mut guard = writer
+            .lock()
+            .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
+        let previous = std::mem::replace(&mut *guard, forked);
+        drop(previous); // 关闭原文件句柄 —— 归档前必须做到
+    }
+
+    if archive_original {
+        if let Err(error) = crate::session::archive_session_file(sessions_dir, &source_id) {
+            // 归档失败不回滚：新会话已经可用，原会话留在活跃列表里即可
+            eprintln!("pipi: 原会话归档失败（保留在活跃列表）: {error}");
+        }
+    }
+    Ok(new_id)
 }
 
 fn make_emitter(
@@ -805,9 +1064,13 @@ pub(crate) async fn run_agent_once_inner(
         follow_up: MessageQueue::new(),
         before_tool_call: None,
         after_tool_call: None,
+        // 子 Agent 运行同样走投影式压缩流水线（清旧工具输出 → 硬裁），
+        // 阈值用子 Agent 自己的 agent.json 配置
         transform_context: (context_window > 0).then(|| {
-            Arc::new(prune_transform(context_window, DEFAULT_RESERVE_TOKENS))
-                as crate::agent_loop::TransformContextHook
+            projection_transform(crate::compaction::Budget::from_window(
+                context_window,
+                definition.compact_threshold_percent(),
+            ))
         }),
     };
     let abort_for_result = abort.clone();
@@ -908,6 +1171,16 @@ impl RuntimeState {
         for message in &messages {
             tracker.record(message);
         }
+        // 摘要压缩的用量也进账本（pi 把摘要成本计入会话总量）：只加累计值，
+        // 不改写「最近一次调用」口径 —— 摘要 prompt 不是当前上下文占用。
+        for entry in &active {
+            if let EntryKind::Compaction {
+                usage: Some(usage), ..
+            } = &entry.kind
+            {
+                tracker.record_ledger(usage);
+            }
+        }
 
         *slot = Some(Session {
             agent: def,
@@ -977,6 +1250,15 @@ impl RuntimeState {
         let mut tracker = SessionStatsTracker::new(context_max);
         for message in &messages {
             tracker.record(message);
+        }
+        // 摘要压缩的用量也进账本（分叉同样继承）
+        for entry in &active {
+            if let EntryKind::Compaction {
+                usage: Some(usage), ..
+            } = &entry.kind
+            {
+                tracker.record_ledger(usage);
+            }
         }
 
         let run_state = Arc::new(RunState::new());
@@ -1092,6 +1374,94 @@ impl RuntimeState {
         if let Some(session) = session.as_ref() {
             session.abort.abort();
         }
+        Ok(())
+    }
+
+    /// 手动压缩当前会话（UI「立即压缩」）：跳过阈值预检，其余与自动压缩完全
+    /// 同一条路径（摘要 → 分叉/归档 → 换会话）。
+    ///
+    /// 工作交给注入的运行时异步执行，结果通过事件回报 —— 前端据
+    /// `compaction_start/end`、`session-switched`、`session-error` 更新界面。
+    /// 这里会占住 running 位：与正在跑的一轮互斥，且 `stop_run` 能中止摘要调用。
+    pub fn compact_now(&self, agent_name: &str, event_sink: EventEmitter) -> Result<(), String> {
+        let slot = self.session.lock().map_err(|e| e.to_string())?;
+        let Some(session) = slot.as_ref() else {
+            return Err("当前没有打开的会话".into());
+        };
+        if session.agent.name != agent_name {
+            return Err("当前会话不属于该 Agent".into());
+        }
+        if session.running.is_running() {
+            return Err("会话正在运行，请先停止再压缩".into());
+        }
+        let def = session.agent.clone();
+        let current_model = session.model.lock().ok().and_then(|model| model.clone());
+        // 与发送消息同一套解析：会话模型优先，回退 Agent 默认
+        let (model, api_key) = resolve_model(&def, current_model.as_ref(), None)?;
+        let budget = crate::compaction::Budget::from_window(
+            model.context_window,
+            def.compact_threshold_percent(),
+        );
+        let sessions_dir = def.sessions_dir();
+        let settings = load_settings().compaction;
+        let messages = session.messages.clone();
+        let writer = session.writer.clone();
+        let stats = session.stats.clone();
+        let abort = session.abort.clone();
+        let running = session.running.clone();
+        abort.reset();
+        // 锁内占位：避免释放锁后与新一轮 send_prompt 抢跑
+        let running_guard = RunningGuard::new(running.clone());
+        let run_token = running_guard.token;
+        let run_id = running.current_run_id();
+        let sink = event_sink.clone();
+
+        self.spawn_run(async move {
+            let _running_guard = running_guard;
+            let mut session_id = writer_session_id(&writer).unwrap_or_default();
+            // 发一对 Agent 事件：前端在 compaction_start 会把 running 置 true，
+            // 而只有 agent_end 会清 —— 手动压缩没有 agent loop，缺了它界面会
+            // 永久停在「运行中」（停止按钮、模型切换、新会话全被禁）。
+            sink(RuntimeEvent::AgentEvent(AgentEventEnvelope {
+                agent_name: def.name.clone(),
+                session_id: session_id.clone(),
+                run_id,
+                event: AgentEvent::AgentStart,
+            }));
+            let outcome = run_compaction(CompactionContext {
+                agent_name: &def.name,
+                session_id: &mut session_id,
+                run_id,
+                model: &model,
+                api_key: &api_key,
+                budget,
+                messages: &messages,
+                writer: &writer,
+                stats: &stats,
+                abort: abort.clone(),
+                sessions_dir: sessions_dir.as_deref(),
+                settings,
+                sink: &sink,
+                trigger: CompactionTrigger::Manual,
+            })
+            .await;
+            if let Err(error) = outcome {
+                // 手动路径要让人看到原因（例如「历史还不用压」），走会话错误通道
+                sink(RuntimeEvent::SessionError(SessionErrorEnvelope {
+                    agent_name: def.name.clone(),
+                    session_id: session_id.clone(),
+                    run_id,
+                    message: format!("压缩未执行：{error}"),
+                }));
+            }
+            running.finish(run_token);
+            sink(RuntimeEvent::AgentEvent(AgentEventEnvelope {
+                agent_name: def.name.clone(),
+                session_id,
+                run_id,
+                event: AgentEvent::AgentEnd { messages: Vec::new() },
+            }));
+        });
         Ok(())
     }
 
@@ -1289,7 +1659,12 @@ impl RuntimeState {
         let running_guard = RunningGuard::new(running.clone());
         let run_token = running_guard.token;
         let run_id = running.current_run_id();
-        let session_id = writer_session_id(&writer)?;
+        // 可变：压缩换会话后要改成新 id，随后的 CompactionEnd / AgentEnd 才能
+        // 被前端按新身份收下（见 SessionSwitched 事件）
+        let mut session_id = writer_session_id(&writer)?;
+        // 压缩时的分叉 / 归档需要会话目录与设置（都在同步段取好，move 进任务）
+        let sessions_dir = def.sessions_dir();
+        let compaction_settings = load_settings().compaction;
         let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools)?;
 
         // 交互审批通道：桌面 / Web 的交互运行才接入；子 Agent 运行不注入，
@@ -1303,6 +1678,11 @@ impl RuntimeState {
             abort.clone(),
         )));
 
+        // 压缩预算集中一处（窗口 × Agent 的阈值百分比）：投影式与替换式共用
+        let budget = crate::compaction::Budget::from_window(
+            model.context_window,
+            def.compact_threshold_percent(),
+        );
         let config = AgentLoopConfig {
             model: model.clone(),
             provider: provider_for(model.api),
@@ -1321,11 +1701,12 @@ impl RuntimeState {
             follow_up: MessageQueue::new(),
             before_tool_call: None,
             after_tool_call: None,
-            // 请求前保底裁剪（pi 的 transformContext）：摘要压缩失败或
-            // 压缩后仍超限时，从这里硬裁剪兜底，避免直接撞 provider 上限。
+            // 请求前的投影式压缩流水线（pi 的 transformContext 位置）：先清旧
+            // 工具输出，仍超预算再硬裁剪 —— 便宜的先用尽，摘要留到 turn 边界。
+            // 投影是确定性的、不落盘，回放时重算即可，所以这里改历史不会造成
+            // 「live 与重开不一致」。
             transform_context: (model.context_window > 0)
-                .then(|| Arc::new(prune_transform(model.context_window, DEFAULT_RESERVE_TOKENS))
-                    as crate::agent_loop::TransformContextHook),
+                .then(|| projection_transform(budget)),
         };
 
         // 首条消息先落盘（崩溃也会留下用户输入）；写入失败必须阻止启动本轮。
@@ -1341,6 +1722,8 @@ impl RuntimeState {
         let completion_sink = event_sink.clone();
         // make_emitter 会按值取走 writer；压缩阶段还要用它，先克隆
         let compaction_writer = writer.clone();
+        // 摘要调用的用量要进会话账本；make_emitter 会按值取走 stats，先克隆
+        let ledger_stats = stats.clone();
         let emitter = make_emitter(
             event_sink,
             writer,
@@ -1383,78 +1766,29 @@ impl RuntimeState {
                 prompts = leftover;
             }
 
-            // turn 边界的摘要压缩：历史超预算时把旧轮次压成摘要并持久化。
-            // 失败不阻塞会话 —— 请求前的 prune_transform 保底仍在。
-            // 注意：压缩完成前会话仍处于 running 状态（见下方 finish），
-            // 避免压缩期间新请求读到未压缩历史。
-            let history = messages.lock().await.clone();
-            if crate::compaction::needs_compaction(&history, model.context_window) {
-                completion_sink(RuntimeEvent::AgentEvent(AgentEventEnvelope {
-                    agent_name: def.name.clone(),
-                    session_id: session_id.clone(),
-                    run_id,
-                    event: AgentEvent::CompactionStart,
-                }));
-                match crate::compaction::compact(
-                    provider_for(model.api).as_ref(),
-                    &model,
-                    &StreamOptions {
-                        api_key: Some(compaction_api_key.clone()),
-                        temperature: None,
-                        max_tokens: None,
-                        timeout_secs: 300,
-                        session_id: None,
-                    },
-                    &history,
-                    model.context_window,
-                    DEFAULT_RESERVE_TOKENS,
-                    abort.clone(),
-                )
-                .await
-                {
-                    Ok(compacted) => {
-                        let summary = compacted
-                            .messages
-                            .first()
-                            .map(|m| match m {
-                                Message::User { content, .. } => content.clone(),
-                                _ => String::new(),
-                            })
-                            .unwrap_or_default();
-                        let source_tip = compaction_writer
-                            .lock()
-                            .ok()
-                            .and_then(|writer| writer.tip_id().map(str::to_string))
-                            .unwrap_or_default();
-                        let appended = {
-                            match compaction_writer.lock() {
-                                Ok(mut writer) => writer
-                                    .append_compaction(&summary, &source_tip)
-                                    .map_err(|e| format!("无法写入压缩条目: {e}")),
-                                Err(e) => Err(format!("无法锁定会话写入器: {e}")),
-                            }
-                        };
-                        // 落盘成功才替换内存历史 —— 两者必须一致，否则重开
-                        // 会话时会回到未压缩状态。
-                        if let Err(error) = appended {
-                            eprintln!("pipi: 上下文压缩失败（本轮跳过）: {error}");
-                        } else {
-                            *messages.lock().await = compacted.messages;
-                            completion_sink(RuntimeEvent::AgentEvent(AgentEventEnvelope {
-                                agent_name: def.name.clone(),
-                                session_id: session_id.clone(),
-                                run_id,
-                                event: AgentEvent::CompactionEnd {
-                                    summary,
-                                    replaced: compacted.replaced as u64,
-                                },
-                            }));
-                        }
-                    }
-                    Err(error) => {
-                        eprintln!("pipi: 上下文压缩失败（本轮跳过）: {error}");
-                    }
-                }
+            // turn 边界的摘要压缩（自动）：历史达到触发线时把旧轮次压成摘要并
+            // 持久化。失败不阻塞会话 —— 请求前的投影流水线（清旧工具输出 + 硬裁）
+            // 仍在；压缩完成前会话保持 running（见下方 finish），避免压缩期间
+            // 新请求读到未压缩历史。
+            let outcome = run_compaction(CompactionContext {
+                agent_name: &def.name,
+                session_id: &mut session_id,
+                run_id,
+                model: &model,
+                api_key: &compaction_api_key,
+                budget,
+                messages: &messages,
+                writer: &compaction_writer,
+                stats: &ledger_stats,
+                abort: abort.clone(),
+                sessions_dir: sessions_dir.as_deref(),
+                settings: compaction_settings,
+                sink: &completion_sink,
+                trigger: CompactionTrigger::Auto,
+            })
+            .await;
+            if let Err(error) = outcome {
+                eprintln!("pipi: 上下文压缩失败（本轮跳过）: {error}");
             }
 
             running.finish(run_token);
@@ -1660,6 +1994,7 @@ mod tests {
             workspace: None,
             permissions: Default::default(),
             mcp_servers: Vec::new(),
+            compact_threshold_percent: 75,
         };
 
         // 未配置 key 时的校验
@@ -1725,6 +2060,7 @@ mod child_timeout_tests {
                 api_key: Some("test-key".into()),
             }],
             default_provider_id: None,
+            compaction: Default::default(),
         })
         .unwrap();
 

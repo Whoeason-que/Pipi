@@ -66,6 +66,35 @@ impl ProviderConfig {
     }
 }
 
+/// 上下文压缩的行为开关。
+///
+/// 默认「分叉 + 归档」：压缩不再原地改写当前会话，而是把压缩结果写进一个
+/// 分叉出的新会话，原会话作为**完整记录**保留（可选移入归档）。
+/// 关掉 `fork_before_compact` 即回到原地压缩。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionSettings {
+    /// 压缩前分叉出新会话（原会话保留为完整记录）。
+    #[serde(default = "default_true")]
+    pub fork_before_compact: bool,
+    /// 分叉后把原会话移入归档（`sessions/.archive/`）。
+    #[serde(default = "default_true")]
+    pub archive_original: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for CompactionSettings {
+    fn default() -> Self {
+        CompactionSettings {
+            fork_before_compact: true,
+            archive_original: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -73,6 +102,9 @@ pub struct Settings {
     pub providers: Vec<ProviderConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_provider_id: Option<String>,
+    /// 压缩行为（字段级 default：旧 settings.json 缺这一段也能读）。
+    #[serde(default)]
+    pub compaction: CompactionSettings,
 }
 
 impl Default for Settings {
@@ -98,6 +130,7 @@ impl Default for Settings {
                 },
             ],
             default_provider_id: None,
+            compaction: CompactionSettings::default(),
         }
     }
 }
@@ -161,6 +194,23 @@ mod tests {
         assert_eq!(back.theme, Theme::Light);
         assert!(back.providers.is_empty());
         assert_eq!(back.default_provider_id, None);
+        // 压缩段缺失 → 默认「分叉 + 归档」都开
+        assert_eq!(back.compaction, CompactionSettings::default());
+        assert!(back.compaction.fork_before_compact);
+        assert!(back.compaction.archive_original);
+    }
+
+    #[test]
+    fn compaction_settings_partial_object_keeps_defaults() {
+        // 只写了 archiveOriginal：forkBeforeCompact 取默认 true
+        let text = r#"{"theme":"dark","providers":[],"compaction":{"archiveOriginal":false}}"#;
+        let settings: Settings = serde_json::from_str(text).unwrap();
+        assert!(!settings.compaction.archive_original);
+        assert!(settings.compaction.fork_before_compact);
+        // 往返后字段名是 camelCase
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("\"forkBeforeCompact\":true"), "{json}");
+        assert!(json.contains("\"archiveOriginal\":false"), "{json}");
     }
 
     #[test]

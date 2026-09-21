@@ -54,6 +54,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
             api_key: Some("test-key".into()),
         }],
         default_provider_id: None,
+        compaction: Default::default(),
     };
     save_settings(&settings).expect("写入测试设置");
 
@@ -73,6 +74,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
                 RuntimeEvent::SessionStats(_) => "session-stats",
                 RuntimeEvent::SessionError(_) => "session-error",
                 RuntimeEvent::ApprovalRequest(_) => "approval-request",
+                RuntimeEvent::SessionSwitched(_) => "session-switched",
             };
             events.lock().unwrap().push(name);
         })

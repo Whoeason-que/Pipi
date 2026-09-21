@@ -37,6 +37,22 @@ pub struct AgentDefinition {
     /// Stdio MCP 服务器（M3 接入，这里先占位）。
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
+    /// 自动压缩阈值：上下文占用达到模型窗口的这个百分比时压缩（默认 75）。
+    /// 越界值由 [`AgentDefinition::compact_threshold_percent`] 兜底成默认值。
+    #[serde(default = "default_compact_threshold_percent")]
+    pub compact_threshold_percent: u8,
+}
+
+fn default_compact_threshold_percent() -> u8 {
+    crate::compaction::DEFAULT_THRESHOLD_PERCENT
+}
+
+impl AgentDefinition {
+    /// 自动压缩阈值百分比：越界（0 / >100）视为「没设过」，用默认值 ——
+    /// 手改过的 agent.json 不该让压缩失效。
+    pub fn compact_threshold_percent(&self) -> u8 {
+        crate::compaction::normalize_threshold_percent(self.compact_threshold_percent)
+    }
 }
 
 /// Stdio MCP 服务器声明。
@@ -456,6 +472,7 @@ pub fn create_agent_with_instructions(
         workspace: workspace.clone(),
         permissions,
         mcp_servers: Vec::new(),
+        compact_threshold_percent: default_compact_threshold_percent(),
     };
     // 与 save_agent 同一套校验（工具名单等）
     validate_definition(&def)?;
@@ -1179,6 +1196,7 @@ mod tests {
             workspace: None,
             permissions: PermissionsConfig::default(),
             mcp_servers: Vec::new(),
+            compact_threshold_percent: 75,
         };
 
         assert!(agent_dir("linked-agent").is_none());
@@ -1246,6 +1264,7 @@ mod tests {
             workspace: None,
             permissions: PermissionsConfig::default(),
             mcp_servers: Vec::new(),
+            compact_threshold_percent: 75,
         };
         std::fs::write(
             &external_manifest,
@@ -1296,6 +1315,7 @@ mod tests {
                 ..Default::default()
             },
             mcp_servers: Vec::new(),
+            compact_threshold_percent: 75,
         };
         let tools = [crate::types::Tool {
             name: "read".into(),
@@ -1362,6 +1382,7 @@ only = ["wanted"]
                 ..Default::default()
             },
             mcp_servers: Vec::new(),
+            compact_threshold_percent: 75,
         };
 
         // 声明替换约定发现；skills 按名过滤
@@ -1495,6 +1516,7 @@ only = ["wanted"]
             workspace: None,
             permissions: PermissionsConfig::default(),
             mcp_servers: Vec::new(),
+            compact_threshold_percent: 75,
         };
 
         let result = build_tool_context(&def, None, crate::types::AbortSignal::new());
@@ -1597,6 +1619,7 @@ only = ["wanted"]
             workspace: None,
             permissions: PermissionsConfig::default(),
             mcp_servers: Vec::new(),
+            compact_threshold_percent: 75,
         };
 
         // 未知工具 / 空工具名单
@@ -1730,6 +1753,33 @@ only = ["wanted"]
         assert_eq!(loaded.model, "claude-3-7-sonnet-20250219");
         assert!(loaded.provider.is_some());
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// 自动压缩阈值：旧 agent.json 缺字段取默认 75；越界值兜底；序列化是 camelCase。
+    #[test]
+    fn compact_threshold_defaults_and_bounds() {
+        let minimal = r#"{"name":"t","permissions":{"tools":["read"]}}"#;
+        let def: AgentDefinition = serde_json::from_str(minimal).unwrap();
+        assert_eq!(def.compact_threshold_percent, 75);
+        assert_eq!(def.compact_threshold_percent(), 75);
+
+        // 显式值生效（含边界）
+        let custom = r#"{"name":"t","permissions":{"tools":["read"]},"compactThresholdPercent":40}"#;
+        let def: AgentDefinition = serde_json::from_str(custom).unwrap();
+        assert_eq!(def.compact_threshold_percent(), 40);
+
+        // 越界 → 退回默认（手改过的文件不该让压缩失效或不可预期）
+        for value in [0u8, 101, 200] {
+            let text = format!(
+                r#"{{"name":"t","permissions":{{"tools":["read"]}},"compactThresholdPercent":{value}}}"#
+            );
+            let def: AgentDefinition = serde_json::from_str(&text).unwrap();
+            assert_eq!(def.compact_threshold_percent(), 75, "值 {value} 应兜底成默认");
+        }
+
+        // 序列化键名与前端类型对齐（此刻 def 是上面那个 40 的）
+        let json = serde_json::to_string(&def).unwrap();
+        assert!(json.contains("\"compactThresholdPercent\":40"), "{json}");
     }
 
     #[test]

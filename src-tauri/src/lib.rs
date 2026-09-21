@@ -19,6 +19,7 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             chat::send_prompt,
+            chat::compact_now,
             chat::steer,
             chat::resolve_approval,
             chat::stop_run,

@@ -66,7 +66,26 @@ src/                React + TypeScript 前端
   数据不足时省略而非显示 0 —— 改统计先对齐这三个语义。用量口径同 pi：`Usage.input`
   只计未命中缓存的提示词 token（OpenAI 兼容端点的 `prompt_tokens` 已含缓存，拆分在
   `provider::from_rig_usage` 完成）；读用量一律用 `Usage::prompt_tokens()`，不要再自行
-  相加 —— 相加会把命中量算两遍，命中率恒为 50%。
+  相加 —— 相加会把命中量算两遍，命中率恒为 50%。摘要压缩这类一次性调用的用量走
+  `SessionStatsTracker::record_ledger`（只进累计值，不改写「当前上下文占用」）。
+- 上下文压缩（`compaction/`）分两类，加档位前先判断属于哪类：**投影式**
+  （`Projection`：纯函数、确定性、可从原始历史重算 → **不落盘**，只在
+  `transform_context` 里应用；写进历史会造成 live 与重开不一致）与**替换式**
+  （`Replacement`：信息已丢失 → 必须落盘成 compaction 条目并在回放时重建）。
+  策略只能返回 `Plan`，不得直接改 `messages`；切点不得孤立 toolResult、就地改写
+  不得改角色、压缩后破损度不得增加 —— 这些不变量统一由 `validate` /
+  `validate_result` 把关（fail-closed），预算参数集中在 `Budget::from_window`。
+  改压缩必须跑 `tests/compaction_corpus.rs`（真实会话 + 合成语料的不变量回归）。
+  触发口径只有一处：`Budget::trigger_tokens`（窗口 × 百分比，Agent 级
+  `agent.json.compactThresholdPercent`，默认 75）；手动压缩与自动压缩共用
+  `runtime::run_compaction`，差别只在 `CompactionTrigger`（手动跳过阈值预检，
+  并且要在首尾补一对 AgentStart/AgentEnd —— 前端靠 agent_end 落 running）。
+  压缩默认**分叉 + 归档**（settings 的 `compaction.forkBeforeCompact` /
+  `archiveOriginal`）：压缩写进新会话、原会话留作完整记录。换会话是**原地替换
+  writer 与 messages**（`running`/`abort`/`steering` 必须共享同一批对象，重建
+  Session 会让停止按钮与 steering 断链），并且**事件身份必须跟着切换**：
+  `session-switched` 用旧 id（前端此刻身份还是旧的）、后续事件用新 id；
+  归档只在旧 writer 关闭之后做 —— 否则 Linux 上打开的 fd 会继续往被移动的文件追加。
 - 权限是安全边界：bash 命令检查在 `pipi-core/src/tools/bash.rs` 执行前发生，
   改权限逻辑（`permissions/`）必须带测试，且宁可拒绝不可放行 —— 无法静态
   分析的命令一律视为危险。

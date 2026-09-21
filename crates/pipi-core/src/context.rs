@@ -1,6 +1,6 @@
 //! 上下文预算：token 估算、裁剪与环境上下文。
 //!
-//! - `estimate_tokens` / `should_compact` / `prune_oldest` 移植自
+//! - `estimate_tokens` / `prune_oldest` 移植自
 //!   `packages/agent/src/harness/compaction/compaction.ts` 的启发式部分
 //!   （chars/4、图片按 4800 chars 计）。上游的完整 compaction 用 LLM 做
 //!   摘要替换，属「有意推迟」；这里是 M1 的保底策略：超预算时从最旧的
@@ -51,54 +51,51 @@ pub fn estimate_context_tokens(messages: &[Message]) -> u64 {
     messages.iter().map(estimate_tokens).sum()
 }
 
-/// 上下文是否超出 compaction 阈值（pi 的 shouldCompact）。
-pub fn should_compact(context_tokens: u64, context_window: u64, reserve_tokens: u64) -> bool {
-    context_tokens > context_window.saturating_sub(reserve_tokens)
-}
-
-/// 保底裁剪：从最旧的**完整轮次**开始丢弃，直到尾部预算 ≤ 上限。
+/// 保底裁剪的切点决策：返回「保留段起点」的下标，`None` 表示无需裁剪。
+///
+/// `budget_tokens` 是整段历史允许占用的上限（调用方给压缩触发线，见
+/// `compaction::Budget::trigger_tokens`）—— 预算口径只在那一处计算。
 ///
 /// 切点只落在 user 消息的开头 —— toolResult 永远不会与其 assistant 分离
 /// （provider 会拒绝孤儿 toolResult）。找不到可行切点（尾部本身就超预算）
-/// 时原样返回，交由上层处理（provider 会以 length 停止，loop 已有对应
-/// 处理路径）。返回 (裁剪后消息, 丢弃条数)。
-pub fn prune_oldest(
-    messages: &[Message],
-    context_window: u64,
-    reserve_tokens: u64,
-) -> (Vec<Message>, usize) {
-    let budget = context_window.saturating_sub(reserve_tokens);
+/// 时返回 `None`，交由上层处理（provider 会以 length 停止，loop 已有对应
+/// 处理路径）。
+///
+/// 投影式压缩策略（如旧工具输出清理）需要「切在哪」而不是「切完是什么」，
+/// 所以决策与执行分开：`prune_oldest` 也走这里，规则只有一份。
+pub fn prune_cut_index(messages: &[Message], budget_tokens: u64) -> Option<usize> {
+    let budget = budget_tokens;
     let total = estimate_context_tokens(messages);
     if total <= budget || messages.is_empty() {
-        return (messages.to_vec(), 0);
+        return None;
     }
 
     // 前缀累计 token
     let mut cum = 0u64;
-    let mut cut: Option<usize> = None;
     for (i, message) in messages.iter().enumerate() {
         if message.role() == "user" && i > 0 {
             let tail = total - cum;
             if tail <= budget {
-                cut = Some(i);
-                break;
+                return Some(i);
             }
         }
         cum += estimate_tokens(message);
     }
+    None
+}
 
-    match cut {
+/// 保底裁剪：从最旧的**完整轮次**开始丢弃，直到尾部预算 ≤ 上限。
+/// 返回 (裁剪后消息, 丢弃条数)。切点规则见 [`prune_cut_index`]。
+pub fn prune_oldest(messages: &[Message], budget_tokens: u64) -> (Vec<Message>, usize) {
+    match prune_cut_index(messages, budget_tokens) {
         Some(i) => (messages[i..].to_vec(), i),
         None => (messages.to_vec(), 0),
     }
 }
 
 /// 生成供 loop 用的裁剪 transform（pi 的 transformContext 钩子的默认实现）。
-pub fn prune_transform(
-    context_window: u64,
-    reserve_tokens: u64,
-) -> impl Fn(Vec<Message>) -> Vec<Message> + Send + Sync {
-    move |messages| prune_oldest(&messages, context_window, reserve_tokens).0
+pub fn prune_transform(budget_tokens: u64) -> impl Fn(Vec<Message>) -> Vec<Message> + Send + Sync {
+    move |messages| prune_oldest(&messages, budget_tokens).0
 }
 
 /// 结果缺失时写给模型看的合成 tool 结果文案（发送前修复与载入自愈共用）。
@@ -298,12 +295,12 @@ mod tests {
             assistant_text("answer"),
         ];
         // 预算只够放下后两条
-        let (pruned, dropped) = prune_oldest(&messages, 1000, 100);
+        let (pruned, dropped) = prune_oldest(&messages, 900);
         assert_eq!(dropped, 3);
         assert_eq!(pruned.len(), 2);
         assert_eq!(pruned[0].role(), "user");
         // 预算充足：不动
-        let (pruned, dropped) = prune_oldest(&messages, 100_000, 100);
+        let (pruned, dropped) = prune_oldest(&messages, 99_900);
         assert_eq!((pruned.len(), dropped), (5, 0));
     }
 
@@ -315,14 +312,8 @@ mod tests {
             assistant_text(&"y".repeat(10_000)),
             tool_result(&"z".repeat(10_000)),
         ];
-        let (pruned, dropped) = prune_oldest(&messages, 500, 0);
+        let (pruned, dropped) = prune_oldest(&messages, 500);
         assert_eq!((pruned.len(), dropped), (3, 0));
-    }
-
-    #[test]
-    fn compact_threshold() {
-        assert!(should_compact(90_000, 100_000, 16_384));
-        assert!(!should_compact(50_000, 100_000, 16_384));
     }
 
     #[test]

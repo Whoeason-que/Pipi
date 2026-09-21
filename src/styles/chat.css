@@ -124,6 +124,29 @@
   height: 24px;
 }
 
+/* 右栏「状态」tab：上下文行里的手动压缩入口 */
+.compact-now {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--faint);
+  background: none;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.compact-now:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--faint);
+}
+
+.compact-now:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .row-meta .icon-btn svg {
   width: 13px;
   height: 13px;

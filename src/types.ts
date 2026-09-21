@@ -56,6 +56,8 @@ export interface AgentDefinition {
   workspace: string | null;
   permissions: PermissionsConfig;
   mcpServers: McpServer[];
+  /** 自动压缩阈值：上下文占用达到模型窗口的这个百分比时压缩（默认 75）。 */
+  compactThresholdPercent: number;
 }
 
 export interface ProviderConfig {
@@ -67,10 +69,19 @@ export interface ProviderConfig {
   apiKey: string | null;
 }
 
+/** 压缩行为开关（Rust 侧 settings::CompactionSettings）。 */
+export interface CompactionSettings {
+  /** 压缩前分叉出新会话（原会话保留为完整记录）。 */
+  forkBeforeCompact: boolean;
+  /** 分叉后把原会话移入归档。 */
+  archiveOriginal: boolean;
+}
+
 export interface Settings {
   theme: Theme;
   providers: ProviderConfig[];
   defaultProviderId: string | null;
+  compaction: CompactionSettings;
 }
 
 // ---- 会话统计（hermes 设计，Rust stats::SessionStats 的序列化）----

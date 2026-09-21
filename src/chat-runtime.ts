@@ -57,7 +57,16 @@ export type AgentEvent =
       isError: boolean;
     }
   | { type: "compaction_start" }
-  | { type: "compaction_end"; summary: string; replaced: number };
+  | {
+      type: "compaction_end";
+      summary: string;
+      replaced: number;
+      /** 产出它的压缩策略名（诊断用，如 "llm-summarize"）。 */
+      strategy?: string;
+      /** 压缩前后整段历史的 token 估算（显示省了多少）。 */
+      tokensBefore?: number;
+      tokensAfter?: number;
+    };
 
 export interface SessionEventMeta {
   agentName: string;
@@ -82,6 +91,16 @@ export interface ApprovalRequestPayload extends SessionEventMeta {
   requestId: string;
   command: string;
   missing: string[];
+}
+
+/** 压缩换会话（RuntimeEvent::SessionSwitched）。
+ *
+ * envelope 的 `sessionId` 是**切换前**的 id（前端此刻的身份还是旧的）；新 id 在
+ * `toSessionId` 里，收到后应把身份切过去。 */
+export interface SessionSwitchedPayload extends SessionEventMeta {
+  toSessionId: string;
+  /** 原会话是否已移入归档。 */
+  archived: boolean;
 }
 
 export type ApprovalDecisionValue = "allow" | "always" | "deny";
@@ -256,7 +275,31 @@ function firstToolCallId(message: MessageView): string | undefined {
   return undefined;
 }
 
+/** 历史里的「压缩摘要」消息：回放出的首条 User 消息就是它（见 Rust 侧
+ * `session::summary_message`）。重开会话时把它还原成折叠条目，而不是一条
+ * 裸露的用户气泡。 */
+export function extractCompactionSummary(message: MessageView): string | null {
+  if (message.role !== "user" || typeof message.content !== "string") return null;
+  const match = /^<compaction summary>\n([\s\S]*?)\n<\/compaction summary>\s*$/.exec(
+    message.content,
+  );
+  const summary = match?.[1]?.trim();
+  return summary ? summary : null;
+}
+
 export function entryFromMessage(message: MessageView, key: string, transient = false): ChatEntry {
+  const summary = extractCompactionSummary(message);
+  if (summary !== null) {
+    return {
+      key,
+      role: "assistant",
+      kind: "compaction",
+      text: "♻ 已压缩上下文",
+      summary,
+      timestamp: message.timestamp,
+      transient,
+    };
+  }
   const status = messageStatus(message);
   return {
     key,
@@ -275,6 +318,14 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
     timestamp: message.timestamp,
     transient,
   };
+}
+
+/** token 数量的紧凑显示（1.2M / 34.5k / 812）。 */
+export function formatTokens(value: number | undefined): string {
+  if (value == null) return "—";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return String(value);
 }
 
 /** 提示词总量（未命中 + 命中 + 写入）。
@@ -738,14 +789,20 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           };
         case "compaction_end": {
           const pendingKey = state.activeCompactionKey;
+          // 正文说清「做了什么、省了多少」：压缩是最容易被误认为「丢消息」的动作，
+          // 把策略与前后 token 摆出来，用户能判断要不要继续。
+          const saved =
+            event.tokensBefore != null && event.tokensAfter != null
+              ? `：${formatTokens(event.tokensBefore)} → ${formatTokens(event.tokensAfter)} tok`
+              : "";
           const nextEntry: ChatEntry = {
             key: pendingKey ?? action.key,
             role: "assistant",
             kind: "compaction",
             text:
               event.replaced > 0
-                ? `♻ 已压缩上下文：${event.replaced} 条旧消息已并入摘要`
-                : "♻ 已压缩上下文",
+                ? `♻ 已压缩上下文：${event.replaced} 条旧消息已并入摘要${saved}`
+                : `♻ 已压缩上下文${saved}`,
             summary: event.summary,
             timestamp: Date.now(),
           };

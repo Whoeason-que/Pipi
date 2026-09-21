@@ -20,6 +20,7 @@ fn tauri_emitter(app: AppHandle) -> EventEmitter {
             RuntimeEvent::SessionStats(payload) => app.emit("session-stats", &payload),
             RuntimeEvent::SessionError(payload) => app.emit("session-error", &payload),
             RuntimeEvent::ApprovalRequest(payload) => app.emit("approval-request", &payload),
+            RuntimeEvent::SessionSwitched(payload) => app.emit("session-switched", &payload),
         };
         let _ = result;
     })
@@ -68,6 +69,16 @@ pub fn send_prompt(
     model: Option<Model>,
 ) -> Result<(), String> {
     state.send_prompt(&agent_name, &prompt, model, tauri_emitter(app))
+}
+
+/// 手动压缩当前会话（跳过阈值预检，走与自动压缩相同的分叉/归档路径）。
+#[tauri::command]
+pub fn compact_now(
+    app: AppHandle,
+    state: State<'_, ChatState>,
+    agent_name: String,
+) -> Result<(), String> {
+    state.compact_now(&agent_name, tauri_emitter(app))
 }
 
 /// 运行中插话（steering）：注入当前运行的下一轮上下文。

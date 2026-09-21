@@ -49,6 +49,7 @@ async fn create_run_and_read_agent_output() {
             api_key: Some("test-key".into()),
         }],
         default_provider_id: None,
+        compaction: Default::default(),
     })
     .unwrap();
 
@@ -317,6 +318,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
             api_key: Some("test-key".into()),
         }],
         default_provider_id: None,
+        compaction: Default::default(),
     })
     .unwrap();
 

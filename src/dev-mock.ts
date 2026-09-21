@@ -15,6 +15,7 @@ const demoAgent: AgentDefinition = {
     sandbox: "workspace-write",
   },
   mcpServers: [],
+  compactThresholdPercent: 75,
 };
 
 const initialDemoMessages: Array<Record<string, unknown>> = [
@@ -363,6 +364,7 @@ const settings: Settings = {
     },
   ],
   defaultProviderId: "anthropic",
+  compaction: { forkBeforeCompact: true, archiveOriginal: true },
 };
 
 function listDemoSessions(): Array<Record<string, unknown>> {
@@ -452,6 +454,9 @@ export function installDevMock(): void {
         case "send_prompt":
           startDemoRun(String(args.prompt ?? ""));
           return Promise.resolve(null);
+        case "compact_now":
+          // 演示模式没有真实会话可压：返回拒绝的 Promise，让 UI 的错误通路走到
+          return Promise.reject(new Error("演示模式不支持压缩上下文（接上核心后才可用）"));
         case "steer":
           // 演示桩：把插话作为用户消息回显
           emitDemoAgentEvent({

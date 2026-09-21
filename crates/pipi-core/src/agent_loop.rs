@@ -68,10 +68,15 @@ pub enum AgentEvent {
     },
     /// 摘要式上下文压缩开始（runtime 在 turn 边界触发）。
     CompactionStart,
-    /// 压缩完成；`summary` 为摘要正文，`replaced` 为被替换的消息条数。
+    /// 压缩完成；`summary` 为摘要正文，`replaced` 为被替换的消息条数，
+    /// `strategy` 为产出它的策略名，`tokens_before/after` 是整段历史的
+    /// token 估算（UI 用它显示省了多少）。
     CompactionEnd {
         summary: String,
         replaced: u64,
+        strategy: String,
+        tokens_before: u64,
+        tokens_after: u64,
     },
 }
 
@@ -1082,7 +1087,7 @@ mod tests {
         let mut config = test_config(provider, registry, None);
         config.follow_up = follow_up;
         // 预算很小：第二次调用时历史超限，transform 应裁掉旧轮次
-        config.transform_context = Some(Arc::new(prune_transform(80, 0)));
+        config.transform_context = Some(Arc::new(prune_transform(80)));
         let emit: Emitter = Arc::new(|_| {});
 
         run_agent_loop(

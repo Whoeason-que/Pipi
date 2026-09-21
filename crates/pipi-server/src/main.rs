@@ -407,6 +407,15 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             state.runtime.send_prompt(&agent_name, &prompt, model, emitter)?;
             Ok(Value::Null)
         }
+        "compact_now" => {
+            let agent_name = required_string(args, "agentName")?;
+            let events = state.events.clone();
+            let emitter: EventEmitter = Arc::new(move |event| {
+                let _ = events.send(event);
+            });
+            state.runtime.compact_now(&agent_name, emitter)?;
+            Ok(Value::Null)
+        }
         "steer" => {
             let message = required_string(args, "message")?;
             state.runtime.steer(&message)?;

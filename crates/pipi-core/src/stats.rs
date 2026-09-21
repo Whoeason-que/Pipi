@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 
 use serde::Serialize;
 
-use crate::types::Message;
+use crate::types::{Message, Usage};
 
 /// 滚动窗口大小（hermes：Rolling over the last 10 calls）。
 pub const ROLLING_WINDOW: usize = 10;
@@ -126,6 +126,18 @@ impl SessionStatsTracker {
             cache_read: usage.cache_read,
             cache_write: usage.cache_write,
         });
+    }
+
+    /// 只进累计账本的用量：摘要压缩这类**一次性调用**用它。
+    ///
+    /// 不计入滚动平均，也不改写「最近一次调用」口径 —— 摘要请求的 prompt 是
+    /// 被压缩的原文，不是当前上下文占用，拿它当窗口占用会误导面板。
+    pub fn record_ledger(&mut self, usage: &Usage) {
+        self.input += usage.input;
+        self.output += usage.output;
+        self.cache_read += usage.cache_read;
+        self.cache_write += usage.cache_write;
+        self.calls += 1;
     }
 
     pub fn snapshot(&self) -> SessionStats {
@@ -329,6 +341,37 @@ mod tests {
             1_000,
         ));
         assert!((per_message.unwrap() - 99.98).abs() < 0.01);
+    }
+
+    #[test]
+    fn ledger_records_summary_cost_without_touching_last_call() {
+        let mut tracker = SessionStatsTracker::new(Some(1_000_000));
+        tracker.record(&assistant(
+            Usage {
+                input: 100,
+                output: 50,
+                cache_read: 900,
+                cache_write: 0,
+                total_tokens: 1050,
+            },
+            1_000,
+        ));
+        let before = tracker.snapshot();
+        // 摘要调用：进累计账本（input/output/cache/calls），不动窗口占用与命中率
+        tracker.record_ledger(&Usage {
+            input: 40_000,
+            output: 800,
+            cache_read: 0,
+            cache_write: 0,
+            total_tokens: 40_800,
+        });
+        let after = tracker.snapshot();
+        assert_eq!(after.input, before.input + 40_000);
+        assert_eq!(after.output, before.output + 800);
+        assert_eq!(after.calls, before.calls + 1);
+        assert_eq!(after.context_used, before.context_used);
+        assert_eq!(after.cache_hit_pct, before.cache_hit_pct);
+        assert_eq!(after.avg_tps, before.avg_tps);
     }
 
     #[test]

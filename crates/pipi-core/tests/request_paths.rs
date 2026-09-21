@@ -57,6 +57,7 @@ fn fixture(agent: &str, api: Api, base_url: &str) {
             api_key: Some("test-key".into()),
         }],
         default_provider_id: None,
+        compaction: Default::default(),
     })
     .expect("写入测试设置");
 }

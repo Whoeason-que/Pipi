@@ -1157,6 +1157,19 @@ export default function App() {
                   onSessionReset={(info) => {
                     setActiveSession(info ?? null);
                     void refreshSessions([current.name]);
+                    // 压缩换会话可能把原会话移进归档：折叠区正展开时同步刷新
+                    if (archivedSessionsExpanded[current.name]) {
+                      void invoke<SessionSummaryView[]>("list_archived_sessions", {
+                        agentName: current.name,
+                      })
+                        .then((list) =>
+                          setArchivedSessions((previous) => ({
+                            ...previous,
+                            [current.name]: list,
+                          })),
+                        )
+                        .catch(() => {});
+                    }
                   }}
                 />
               ) : (
@@ -1277,6 +1290,8 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
   const [bashMode, setBashMode] = useState<BashMode>(bash.mode);
   const [commands, setCommands] = useState(bash.commands.join("\n"));
   const [sandbox, setSandbox] = useState<SandboxMode>(agent.permissions.sandbox);
+  // 自动压缩阈值（窗口占用的百分比，1–100）
+  const [compactThreshold, setCompactThreshold] = useState(agent.compactThresholdPercent);
   const [savingMeta, setSavingMeta] = useState(false);
   // agent 切换时重置编辑状态（否则上一个 Agent 的草稿会串台）
   const agentNameRef = useRef(agent.name);
@@ -1285,6 +1300,7 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
     setDescription(agent.description);
     setWorkspace(agent.workspace ?? "");
     setTools(agent.permissions.tools);
+    setCompactThreshold(agent.compactThresholdPercent);
     setBashMode(bash.mode);
     setCommands(bash.commands.join("\n"));
     setSandbox(agent.permissions.sandbox);
@@ -1344,6 +1360,8 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
           },
           sandbox,
         },
+        // 越界值在核心侧也会兜底，但先在这里夹一次，免得写进文件的是脏值
+        compactThresholdPercent: Math.min(100, Math.max(1, Math.round(compactThreshold))),
       };
       await invoke("save_agent", { def: next });
       await onSaved();
@@ -1360,7 +1378,8 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
     tools.join(",") !== agent.permissions.tools.join(",") ||
     bashMode !== bash.mode ||
     (bashMode === "allowAll" ? "" : commands) !== bash.commands.join("\n") ||
-    sandbox !== agent.permissions.sandbox;
+    sandbox !== agent.permissions.sandbox ||
+    Math.min(100, Math.max(1, Math.round(compactThreshold))) !== agent.compactThresholdPercent;
 
   return (
     <div className="screen">
@@ -1471,6 +1490,22 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
                 onChange={(e) => setWorkspace(e.target.value)}
                 placeholder={`~/.pipi/agents/${agent.name}/workspace（默认）`}
               />
+            </div>
+          </div>
+          <div className="drow">
+            <span className="k">compact_threshold</span>
+            <div className="v">
+              <input
+                className="mono"
+                type="number"
+                min={1}
+                max={100}
+                value={compactThreshold}
+                onChange={(e) => setCompactThreshold(Number(e.target.value))}
+              />
+              <span className="hint">
+                % · 上下文占用达到模型窗口的这个百分比时自动压缩（默认 75）
+              </span>
             </div>
           </div>
           <div className="drow">
@@ -2139,6 +2174,48 @@ function SettingsModal({ settings, onChange, onClose, showLogout }: SettingsModa
               swatch={["#f9f9f9", "#ffffff", "#0169CC", "#0d0d0d"]}
               onClick={() => commit((previous) => ({ ...previous, theme: "light" }))}
             />
+          </div>
+        </div>
+
+        <div className="modal-section">
+          <span className="label">上下文压缩</span>
+          <div className="setting-checks">
+          <label className="tool-check">
+            <input
+              type="checkbox"
+              checked={draft.compaction.forkBeforeCompact}
+              onChange={() =>
+                commit((previous) => ({
+                  ...previous,
+                  compaction: {
+                    ...previous.compaction,
+                    forkBeforeCompact: !previous.compaction.forkBeforeCompact,
+                  },
+                }))
+              }
+            />
+            <span>压缩前分叉新会话（原会话保留为完整记录）</span>
+          </label>
+          <label className="tool-check">
+            <input
+              type="checkbox"
+              checked={draft.compaction.archiveOriginal}
+              disabled={!draft.compaction.forkBeforeCompact}
+              onChange={() =>
+                commit((previous) => ({
+                  ...previous,
+                  compaction: {
+                    ...previous.compaction,
+                    archiveOriginal: !previous.compaction.archiveOriginal,
+                  },
+                }))
+              }
+            />
+            <span>分叉后归档原会话</span>
+          </label>
+          <div className="hint">
+            关闭分叉即回到原地压缩：摘要会替换当前会话里被压缩的旧轮次。
+          </div>
           </div>
         </div>
 
