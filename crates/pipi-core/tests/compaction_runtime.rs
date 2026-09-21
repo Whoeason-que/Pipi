@@ -175,6 +175,26 @@ fn fixture(
     .expect("写入测试设置");
 }
 
+/// 该 Agent 当前打开的会话 id（测试里一般只有一条）。
+fn open_session_id(state: &RuntimeState, agent_name: &str) -> String {
+    state
+        .session_infos()
+        .expect("读取会话列表")
+        .into_iter()
+        .find(|info| info.agent_name == agent_name)
+        .unwrap_or_else(|| panic!("{agent_name} 应当有打开的会话"))
+        .session_id
+}
+
+/// 该 Agent 是否有一条会话正在跑。
+fn any_session_running(state: &RuntimeState, agent_name: &str) -> bool {
+    state
+        .session_infos()
+        .expect("读取会话列表")
+        .iter()
+        .any(|info| info.agent_name == agent_name && info.running)
+}
+
 /// 往会话里预置一段历史（每轮：user + assistant(tool_call) + toolResult）。
 /// 尾部留在 user 边界上，于是压缩会产生非空的保留区间。
 fn seed_history(sessions_dir: &std::path::Path) -> (String, String) {
@@ -321,7 +341,7 @@ impl Case {
             .expect("打开会话");
         let (sink, seen) = collect_events();
         state
-            .send_prompt("compaction-e2e", "继续", None, sink)
+            .send_prompt("compaction-e2e", Some(&old_id), "继续", None, sink)
             .expect("发送消息");
         // AgentEnd 之后 runtime 才做 turn 边界的压缩，所以等 CompactionEnd
         wait_for(&seen, |events| {
@@ -348,11 +368,8 @@ impl Case {
     }
 
     fn new_session_id(&self) -> String {
-        self.state
-            .session_info()
-            .expect("读取会话信息")
-            .expect("当前有会话")
-            .session_id
+        // 压缩换会话后 map 里的键也搬到新 id：直接查该 Agent 当前打开的会话
+        open_session_id(&self.state, "compaction-e2e")
     }
 
     /// 事件里 SessionSwitched 的目标 id（没有则为 None）。
@@ -458,7 +475,7 @@ fn compaction_forks_to_new_session_and_archives_original() {
     // 当前会话是压缩后的视图：摘要在前，长度明显变短
     let messages = case
         .runtime
-        .block_on(case.state.session_messages())
+        .block_on(case.state.session_messages("compaction-e2e", &case.new_session_id()))
         .expect("读取消息");
     assert_eq!(
         pipi_core::session::summary_text(&messages[0]),
@@ -472,9 +489,37 @@ fn compaction_forks_to_new_session_and_archives_original() {
     );
 
     // 摘要用量进账本，但不改写「当前上下文占用」
-    let stats = case.state.session_stats().expect("读取统计");
+    let stats = case
+        .state
+        .session_stats("compaction-e2e", &case.new_session_id())
+        .expect("读取统计");
     assert!(stats.input >= SUMMARY_INPUT);
     assert_eq!(stats.context_used, Some(CHAT_INPUT));
+
+    // 键也跟着搬到了新 id：新会话是「打开中的那条」，旧 id 已经不是
+    //（没搬的话会有两个问题：旧键仍指向新文件、旧文件却已归档）
+    let new_id = case.new_session_id();
+    assert!(
+        case.state
+            .session_info("compaction-e2e", &new_id)
+            .expect("读取新会话")
+            .is_some(),
+        "换会话后新 id 应当是打开中的那条"
+    );
+    assert!(
+        case.state
+            .session_info("compaction-e2e", &case.old_id)
+            .expect("读取旧会话")
+            .is_none(),
+        "换会话后旧 id 不应还留在 map 里"
+    );
+    // 旧会话已经不打开，可以归档/删除（占用检查按会话判定）
+    assert!(
+        case.state
+            .open_session("compaction-e2e", &case.old_id)
+            .is_err(),
+        "旧会话文件已归档，重新打开应当失败"
+    );
 }
 
 #[test]
@@ -559,7 +604,7 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
         .expect("打开会话");
     let (sink, seen) = collect_events();
     state
-        .compact_now("compaction-e2e", sink)
+        .compact_now("compaction-e2e", &old_id, sink)
         .expect("手动压缩应当被接受");
 
     wait_for(&seen, |events| {
@@ -595,14 +640,11 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
     assert_eq!(kinds.first(), Some(&"agent_start"), "{kinds:?}");
     assert_eq!(kinds.last(), Some(&"agent_end"), "{kinds:?}");
     assert!(kinds.contains(&"compaction_start") && kinds.contains(&"compaction_end"));
-    assert!(!state.session_running(), "结束后必须不再是运行中");
-
-    // 换会话 + 归档：与自动压缩同一套结果
-    let new_id = state
-        .session_info()
-        .expect("读取会话信息")
-        .expect("当前有会话")
-        .session_id;
+    let new_id = open_session_id(&state, "compaction-e2e");
+    assert!(
+        !state.session_running("compaction-e2e", &new_id),
+        "结束后必须不再是运行中"
+    );
     assert_ne!(new_id, old_id, "手动压缩同样分叉到新会话");
     assert!(sessions_dir.join(format!("{new_id}.jsonl")).is_file());
     assert!(!std::path::Path::new(&old_path).exists(), "原会话应已归档");
@@ -643,26 +685,34 @@ fn manual_compaction_refused_while_running() {
     let (sink, _seen) = collect_events();
     // 这一轮会停在半途（收到一个分片后静默）
     state
-        .send_prompt("compaction-e2e", "跑一下", None, sink.clone())
+        .send_prompt("compaction-e2e", Some(&session_id), "跑一下", None, sink.clone())
         .expect("启动一轮");
     let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline && !state.session_running() {
+    while Instant::now() < deadline && !state.session_running("compaction-e2e", &session_id) {
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert!(state.session_running(), "这一轮应当处于运行中");
+    assert!(
+        state.session_running("compaction-e2e", &session_id),
+        "这一轮应当处于运行中"
+    );
 
     let error = state
-        .compact_now("compaction-e2e", sink)
+        .compact_now("compaction-e2e", &session_id, sink)
         .expect_err("运行中必须拒绝手动压缩");
     assert!(error.contains("正在运行"), "{error}");
 
     // 收尾：停止这一轮，别把测试挂在半路
-    state.stop_run().expect("停止");
+    state
+        .stop_run("compaction-e2e", &session_id)
+        .expect("停止");
     let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline && state.session_running() {
+    while Instant::now() < deadline && state.session_running("compaction-e2e", &session_id) {
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert!(!state.session_running(), "停止后应当落地");
+    assert!(
+        !state.session_running("compaction-e2e", &session_id),
+        "停止后应当落地"
+    );
     let _ = std::fs::remove_dir_all(&home);
 }
 
@@ -694,7 +744,9 @@ fn manual_compaction_reports_when_nothing_to_compress() {
     let state = RuntimeState::new(runtime.handle().clone());
     state.open_session("compaction-e2e", &session_id).expect("打开会话");
     let (sink, seen) = collect_events();
-    state.compact_now("compaction-e2e", sink).expect("调用本身应被接受");
+    state
+        .compact_now("compaction-e2e", &session_id, sink)
+        .expect("调用本身应被接受");
 
     wait_for(&seen, |events| {
         events.iter().any(|event| {
@@ -718,7 +770,11 @@ fn manual_compaction_reports_when_nothing_to_compress() {
     assert_eq!(summaries.load(Ordering::SeqCst), 0, "没有可压的就不该调摘要");
     // 会话没有被换掉、文件还在原地
     assert_eq!(
-        state.session_info().unwrap().unwrap().session_id,
+        state
+            .session_info("compaction-e2e", &session_id)
+            .unwrap()
+            .unwrap()
+            .session_id,
         session_id,
         "失败时不该换会话"
     );
@@ -757,7 +813,7 @@ fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
     let (sink, seen) = collect_events();
 
     state
-        .send_prompt("compaction-e2e", "继续", None, sink)
+        .send_prompt("compaction-e2e", Some(&session_id), "继续", None, sink)
         .expect("发送消息");
 
     // 等这一轮结束（AgentEnd 之后 runtime 才会做 turn 边界的压缩，所以再等
@@ -808,11 +864,15 @@ fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
     assert!(summary.contains("## Goal"), "摘要正文应为模型返回的内容：{summary}");
 
     // 2) 重开会话：摘要 + 保留区间的原文都还在
+    //    （先释放再重开：否则拿的是内存里那份，验证不到回放）
+    state
+        .new_session("compaction-e2e")
+        .expect("释放会话槽");
     state
         .open_session("compaction-e2e", &session_id)
         .expect("重开会话");
     let messages = runtime
-        .block_on(state.session_messages())
+        .block_on(state.session_messages("compaction-e2e", &session_id))
         .expect("读取消息");
     assert_eq!(
         pipi_core::session::summary_text(&messages[0]),
@@ -834,7 +894,9 @@ fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
     );
 
     // 3) 摘要用量进累计账本，但不改写「当前上下文占用」
-    let stats = state.session_stats().expect("读取统计");
+    let stats = state
+        .session_stats("compaction-e2e", &session_id)
+        .expect("读取统计");
     assert!(
         stats.input >= SUMMARY_INPUT,
         "摘要调用的输入必须计入累计：{}",

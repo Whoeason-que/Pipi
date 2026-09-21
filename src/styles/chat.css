@@ -549,6 +549,70 @@ pre.code {
   flex: 1;
 }
 
+/* ============ Agent 工作台：临时测试提示 ============ */
+
+.test-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  color: var(--muted);
+  background: var(--stripe);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.test-mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.test-mode-dot.running {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+  animation: pipi-pulse 1.2s ease-in-out infinite;
+}
+
+.test-model {
+  max-width: 24ch;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.test-clear {
+  white-space: nowrap;
+}
+
+.test-safety-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  margin: 0 auto 8px;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.test-safety-note > span {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-full);
+  color: var(--warn);
+  background: var(--warn-soft);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+
 /* ============ 命令审批横幅：composer 上方的白名单外命令确认 ============ */
 
 .approval-bar {
@@ -698,6 +762,273 @@ pre.code {
   background: rgba(0, 0, 0, 0.45);
   border: 0;
   cursor: pointer;
+}
+
+/* Agent 工作台设置栏：宽屏常驻，沿用会话检查器的拖宽与抽屉外壳。 */
+.agent-settings-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.agent-settings-head {
+  flex-shrink: 0;
+  padding: 18px 18px 12px;
+}
+
+.agent-settings-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.agent-settings-title > .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-settings-head .sub {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dirty-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-full);
+  color: var(--warn);
+  background: var(--warn-soft);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.agent-settings-tabs {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  margin: 0 12px;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--stripe);
+}
+
+.agent-settings-tabs button {
+  min-width: 0;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11.5px;
+}
+
+.agent-settings-tabs button:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.agent-settings-tabs button.active {
+  color: var(--fg);
+  background: var(--hover-2);
+}
+
+.agent-settings-body {
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 8px 16px 22px;
+}
+
+.settings-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-field > label,
+.settings-field > .field-label,
+.settings-summary-row > .field-label {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.45px;
+}
+
+.agent-settings-panel input:not([type="checkbox"]):not([type="radio"]),
+.agent-settings-panel textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  outline: 0;
+  color: var(--fg);
+  background: var(--chat-surface);
+  font-size: 12.5px;
+  transition: border-color 0.15s;
+}
+
+.agent-settings-panel input:not([type="checkbox"]):not([type="radio"]):focus,
+.agent-settings-panel textarea:focus {
+  border-color: var(--line-2);
+}
+
+.agent-settings-panel input:disabled,
+.agent-settings-panel textarea:disabled {
+  opacity: 0.55;
+}
+
+.agent-settings-panel .hint {
+  line-height: 1.55;
+}
+
+.inline-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--faint);
+}
+
+.compact-threshold-field .inline-value input {
+  width: 88px;
+}
+
+.settings-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.settings-choice-grid .tool-check,
+.vertical-choices .tool-check {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--stripe);
+}
+
+.vertical-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.settings-summary-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-soft);
+  overflow-wrap: anywhere;
+  font-size: 11.5px;
+}
+
+.settings-tags {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.agent-settings-panel .file-editor-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+}
+
+.agent-settings-panel .file-editor-row > .k {
+  padding: 0;
+}
+
+.agent-settings-panel .file-editor-row > .v {
+  width: 100%;
+}
+
+.agent-settings-panel .file-tabs {
+  max-height: 92px;
+  overflow-y: auto;
+}
+
+.agent-settings-panel .file-tab {
+  padding: 4px 9px;
+  font-size: 10.5px;
+}
+
+.agent-settings-panel .file-new {
+  align-items: stretch;
+}
+
+.agent-settings-panel .file-editor {
+  min-height: 220px;
+}
+
+.agent-settings-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px calc(10px + var(--safe-bottom));
+  border-top: 1px solid var(--line-soft);
+  background: var(--bg);
+}
+
+.save-state {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-settings-footer .btn {
+  flex-shrink: 0;
+}
+
+.embedded-inspector {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+.embedded-inspector .ipanels {
+  flex: none;
+  overflow: visible;
+}
+
+.agent-workbench-loading .compact-empty {
+  padding-top: calc(72px + var(--safe-top));
 }
 
 .ipanel {

@@ -73,7 +73,7 @@ fn send_and_collect(agent: &str, home: &Path) -> String {
     let sink: EventEmitter = Arc::new(|_| {});
 
     state
-        .send_prompt(agent, "hello", None, sink)
+        .send_prompt(agent, None, "hello", None, sink)
         .expect("send_prompt 应能启动这一轮");
 
     let sessions = home.join(".pipi").join("agents").join(agent).join("sessions");

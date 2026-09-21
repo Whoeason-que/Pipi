@@ -83,7 +83,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
     // 关键断言点：在测试线程（没有 reactor）上调用，等价于桌面壳的 Tauri command。
     // 修复前这一行会 panic（there is no reactor running）并中止整个测试进程。
     state
-        .send_prompt("spawn-regression", "hello", None, sink)
+        .send_prompt("spawn-regression", None, "hello", None, sink)
         .expect("send_prompt 应把这一轮交给注入的运行时，而不是要求调用线程自带 reactor");
 
     // 再证明这一轮真的被注入的运行时调度执行了（而不是静默丢失）

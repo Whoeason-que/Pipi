@@ -112,6 +112,8 @@ export interface SessionSummaryView {
 export interface SessionInfoView {
   agentName: string;
   sessionId: string;
+  /** 设置工作台的内存测试会话，不对应 sessions/*.jsonl。 */
+  temporary: boolean;
   running: boolean;
   runId?: number;
   model?: ModelConfig | null;

@@ -18,8 +18,9 @@ export default defineConfig({
     strictPort: true,
     // 监听所有网卡：手机等局域网设备可用 http://<本机IP>:1420 访问（仅开发模式生效）
     host: true,
-    // 忽略 Rust 构建产物与桌面壳：数量庞大且无需 HMR（target/ 会耗尽 inotify watch）
-    watch: { ignored: ["**/src-tauri/**", "**/target/**"] },
+    // 忽略 Rust 构建产物、桌面壳与上游源码快照：数量庞大且无需 HMR
+    //（target/ 与 reference/ 都会耗尽 inotify watch → ENOSPC 直接打挂 dev server）
+    watch: { ignored: ["**/src-tauri/**", "**/target/**", "**/reference/**"] },
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {

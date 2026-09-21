@@ -357,7 +357,7 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
         }
         "save_agent" => {
             let definition: AgentDefinition = required_value(args, "def")?;
-            agents::save_agent(&definition)?;
+            state.runtime.save_agent_definition(&definition)?;
             Ok(Value::Null)
         }
         "get_settings" => to_value(settings::load_settings()),
@@ -386,39 +386,65 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
                 up_to_entry_id.as_deref(),
             )?)
         }
-        "session_info" => to_value(state.runtime.session_info()?),
-        "session_running" => to_value(state.runtime.session_running()),
+        "session_info" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            to_value(state.runtime.session_info(&agent_name, &session_id)?)
+        }
+        "session_infos" => to_value(state.runtime.session_infos()?),
+        "ensure_test_session" => {
+            let agent_name = required_string(args, "agentName")?;
+            to_value(state.runtime.ensure_test_session(&agent_name)?)
+        }
+        "reset_test_session" => {
+            let agent_name = required_string(args, "agentName")?;
+            to_value(state.runtime.reset_test_session(&agent_name)?)
+        }
+        "session_running" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            to_value(state.runtime.session_running(&agent_name, &session_id))
+        }
         "stop_run" => {
-            state.runtime.stop_run()?;
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            state.runtime.stop_run(&agent_name, &session_id)?;
             Ok(Value::Null)
         }
         "new_session" => {
-            state.runtime.new_session()?;
+            let agent_name = required_string(args, "agentName")?;
+            state.runtime.new_session(&agent_name)?;
             Ok(Value::Null)
         }
         "send_prompt" => {
             let agent_name = required_string(args, "agentName")?;
+            let session_id = optional_string(args, "sessionId")?;
             let prompt = required_string(args, "prompt")?;
             let model = optional_value::<pipi_core::types::Model>(args, "model")?;
             let events = state.events.clone();
             let emitter: EventEmitter = Arc::new(move |event| {
                 let _ = events.send(event);
             });
-            state.runtime.send_prompt(&agent_name, &prompt, model, emitter)?;
+            state
+                .runtime
+                .send_prompt(&agent_name, session_id.as_deref(), &prompt, model, emitter)?;
             Ok(Value::Null)
         }
         "compact_now" => {
             let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
             let events = state.events.clone();
             let emitter: EventEmitter = Arc::new(move |event| {
                 let _ = events.send(event);
             });
-            state.runtime.compact_now(&agent_name, emitter)?;
+            state.runtime.compact_now(&agent_name, &session_id, emitter)?;
             Ok(Value::Null)
         }
         "steer" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
             let message = required_string(args, "message")?;
-            state.runtime.steer(&message)?;
+            state.runtime.steer(&agent_name, &session_id, &message)?;
             Ok(Value::Null)
         }
         "resolve_approval" => {
@@ -430,12 +456,24 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             Ok(Value::Null)
         }
         "set_session_model" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
             let model = optional_value::<pipi_core::types::Model>(args, "model")?;
-            state.runtime.set_session_model(model)?;
+            state
+                .runtime
+                .set_session_model(&agent_name, &session_id, model)?;
             Ok(Value::Null)
         }
-        "session_messages" => to_value(state.runtime.session_messages().await?),
-        "session_stats" => to_value(state.runtime.session_stats()?),
+        "session_messages" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            to_value(state.runtime.session_messages(&agent_name, &session_id).await?)
+        }
+        "session_stats" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            to_value(state.runtime.session_stats(&agent_name, &session_id)?)
+        }
         "list_archived_agents" => to_value(agents::list_archived_agents()?),
         "list_agent_files" => {
             let agent_name = required_string(args, "agentName")?;
@@ -450,7 +488,9 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             let agent_name = required_string(args, "agentName")?;
             let rel_path = required_string(args, "relPath")?;
             let content = required_string(args, "content")?;
-            agents::write_agent_file(&agent_name, &rel_path, &content)?;
+            state
+                .runtime
+                .write_agent_file(&agent_name, &rel_path, &content)?;
             Ok(Value::Null)
         }
         "archive_agent" => {

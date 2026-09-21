@@ -2,8 +2,10 @@
 
 use pipi_core::agents::{self, AgentDefinition, PermissionsConfig};
 use pipi_core::catalog::ModelCatalog;
+use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{self, Settings};
 use pipi_core::types::Model;
+use tauri::State;
 
 #[tauri::command]
 pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
@@ -43,8 +45,8 @@ pub fn load_agent(name: String) -> Result<AgentDefinition, String> {
 }
 
 #[tauri::command]
-pub fn save_agent(def: AgentDefinition) -> Result<(), String> {
-    agents::save_agent(&def)
+pub fn save_agent(def: AgentDefinition, state: State<'_, RuntimeState>) -> Result<(), String> {
+    state.save_agent_definition(&def)
 }
 
 #[tauri::command]
@@ -66,8 +68,13 @@ pub fn read_agent_file(agent_name: String, rel_path: String) -> Result<String, S
 
 /// 写入 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
 #[tauri::command]
-pub fn write_agent_file(agent_name: String, rel_path: String, content: String) -> Result<(), String> {
-    agents::write_agent_file(&agent_name, &rel_path, &content)
+pub fn write_agent_file(
+    agent_name: String,
+    rel_path: String,
+    content: String,
+    state: State<'_, RuntimeState>,
+) -> Result<(), String> {
+    state.write_agent_file(&agent_name, &rel_path, &content)
 }
 
 #[tauri::command]

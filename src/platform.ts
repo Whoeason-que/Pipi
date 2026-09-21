@@ -315,10 +315,51 @@ function webListen(
 }
 
 /**
+ * 会话/Agent 级命令要求的参数键。`invoke` 的 args 是 `Record<string, unknown>`，
+ * TS 检查不到漏参 —— 漏了只有运行时才炸（Tauri 会报 invalid args）。这里显式核对，
+ * 让错误在调用点就带上命令名，别等到用户点出来才发现。
+ *
+ * 「会话级」= 必须带 agentName；带 sessionId 的表示会话已确定（`send_prompt` 与
+ * `new_session` 例外：前者 sessionId 为空表示新建，后者作用于整个 Agent）。
+ */
+const SESSION_COMMAND_ARGS: Record<string, { sessionId: "required" | "optional" }> = {
+  ensure_test_session: { sessionId: "optional" },
+  reset_test_session: { sessionId: "optional" },
+  session_info: { sessionId: "required" },
+  session_running: { sessionId: "required" },
+  session_messages: { sessionId: "required" },
+  session_stats: { sessionId: "required" },
+  stop_run: { sessionId: "required" },
+  steer: { sessionId: "required" },
+  set_session_model: { sessionId: "required" },
+  compact_now: { sessionId: "required" },
+  open_session: { sessionId: "required" },
+  fork_session: { sessionId: "required" },
+  send_prompt: { sessionId: "optional" },
+  new_session: { sessionId: "optional" },
+};
+
+function assertSessionArgs(command: string, args?: Record<string, unknown>): void {
+  const spec = SESSION_COMMAND_ARGS[command];
+  if (!spec) return;
+  const agentName = args?.agentName;
+  if (typeof agentName !== "string" || agentName.length === 0) {
+    throw new Error(`调用 ${command} 少了 agentName（会话级命令必须指明是哪个 Agent 的哪条会话）`);
+  }
+  if (spec.sessionId === "required") {
+    const sessionId = args?.sessionId;
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+      throw new Error(`调用 ${command} 少了 sessionId（同一个 Agent 可以有多条会话）`);
+    }
+  }
+}
+
+/**
  * Pipi 的唯一前端运行时边界：Tauri 桌面端走 IPC，普通浏览器走
  * HTTP/WebSocket，开发环境可注入本地 mock。组件不依赖具体传输方式。
  */
 export function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  assertSessionArgs(command, args);
   const dev = devPlatform();
   if (dev) return dev.invoke<T>(command, args);
   return isTauriRuntime()

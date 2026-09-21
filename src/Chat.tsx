@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { Markdown } from "./Markdown";
 import { invoke, listen } from "./platform";
 import { useResizableWidth } from "./resizable";
@@ -44,35 +44,65 @@ export type { MessageView } from "./chat-runtime";
 
 const WRITE_TOOLS = new Set(["write", "edit"]);
 
+export interface ChatInspectorContext {
+  agent: AgentDefinition;
+  sessionId: string | null;
+  entries: ChatEntry[];
+  stats: SessionStatsView | null;
+  running: boolean;
+  ready: boolean;
+  sessionModel: ModelConfig | null;
+  isCustomModel: boolean;
+  blockedCount: number;
+  chipDetail: Chip | null;
+  chipDetailMode: "preview" | "pinned";
+  onUnpinChip: () => void;
+}
+
 interface ChatViewProps {
   agent: AgentDefinition;
   providers: ProviderConfig[];
+  /** 正在查看的会话 id；null = 新会话（还没有文件，首次发送时创建）。 */
+  sessionId: string | null;
   blockedSessionIds: string[];
   onBack: () => void;
   onError: (msg: string) => void;
   onNewSession: (previousSessionId?: string) => Promise<boolean>;
-  onRunningChange: (running: boolean) => void;
+  onRunningChange: (agentName: string, sessionId: string | null, running: boolean) => void;
   /** 新会话：传 null 表示无会话；分叉/重建后传新的会话信息以同步侧栏高亮。 */
   onSessionReset: (info?: SessionInfoView | null) => void;
+  /** 设置工作台复用同一套对话状态机，但不暴露正式会话专属操作。 */
+  mode?: "session" | "test";
+  /** 临时测试的显式清空入口；返回后父组件用新 sessionId 重挂本视图。 */
+  onClearTest?: () => Promise<void>;
+  /** 设置工作台用自定义右栏；普通会话省略后继续渲染既有 Inspector。 */
+  renderInspector?: (context: ChatInspectorContext) => ReactNode;
+  /** 设置工作台在固定工具/thinking 标签时切换到测试页。 */
+  onInspectDetail?: () => void;
 }
 
 export default function ChatView({
   agent,
   providers,
+  sessionId: initialSessionId,
   blockedSessionIds,
   onBack,
   onError,
   onNewSession,
   onRunningChange,
   onSessionReset,
+  mode = "session",
+  onClearTest,
+  renderInspector,
+  onInspectDetail,
 }: ChatViewProps) {
+  const isTest = mode === "test";
   const [state, dispatch] = useReducer(chatReducer, INITIAL_CHAT_STATE);
   const { entries, stats, running } = state;
-  const runningRef = useRef(running);
-  runningRef.current = running;
   const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
   const [stopping, setStopping] = useState(false);
+  const [clearingTest, setClearingTest] = useState(false);
   /** 待处理的 bash 命令审批请求（同时至多一个：bash 工具强制顺序执行）。 */
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
   /** 右栏「调用详情」：悬浮标签 = 临时预览，点击 = 固定（再点取消固定）。 */
@@ -81,15 +111,23 @@ export default function ChatView({
   const [sessionModel, setSessionModel] = useState<ModelConfig | null>(agent.provider ?? null);
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [modelModalOpen, setModelModalOpen] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(initialSessionId);
+  /** 会话级 IPC 的会话 id（props 是初始值；分叉/压缩换会话后在视图内更新）。 */
+  const sessionIdRef = useRef<string | null>(initialSessionId);
+  sessionIdRef.current = sessionId;
+  const requireSessionId = (): string => {
+    const id = sessionIdRef.current;
+    if (!id) throw new Error("尚未确定会话身份，请稍后重试");
+    return id;
+  };
   const [inspectorOpen, setInspectorOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 1100,
   );
   // 检查器宽度可拖拽调节（窄屏抽屉模式下由媒体查询接管，见 responsive.css）
   const inspectorResize = useResizableWidth({
-    storageKey: "inspector-width",
-    initial: 320,
-    min: 260,
+    storageKey: isTest ? "agent-settings-width" : "inspector-width",
+    initial: isTest ? 400 : 320,
+    min: isTest ? 340 : 260,
     max: 620,
     edge: "left",
   });
@@ -117,7 +155,9 @@ export default function ChatView({
     if (pinnedChip && !chipById.has(pinnedChip)) setPinnedChip(null);
     if (previewChip && !chipById.has(previewChip)) setPreviewChip(null);
   }, [chipById, pinnedChip, previewChip]);
-  const sessionIdentityRef = useRef<{ sessionId: string; runId?: number } | null>(null);
+  const sessionIdentityRef = useRef<{ sessionId: string; runId?: number } | null>(
+    initialSessionId ? { sessionId: initialSessionId } : null,
+  );
   const blockedSessionIdsRef = useRef(new Set(blockedSessionIds));
   const awaitingSessionIdentityRef = useRef(true);
   const sessionInfoResolvedRef = useRef(false);
@@ -165,10 +205,24 @@ export default function ChatView({
     }
     if (settledRunIdRef.current === meta.runId) return false;
 
+    const adopted = !identity || identity.sessionId !== meta.sessionId;
     sessionIdentityRef.current = identity
       ? { ...identity, runId: Math.max(identity.runId ?? 0, meta.runId) }
       : { sessionId: meta.sessionId, runId: meta.runId };
     awaitingSessionIdentityRef.current = false;
+    if (adopted) {
+      // 新会话（或换会话）后核心已经建好/切到这条会话：让父组件把视图身份对齐
+      //（侧栏高亮、后续的会话列表刷新都依赖它）
+      setSessionId(meta.sessionId);
+      sessionIdRef.current = meta.sessionId;
+      onSessionReset({
+        agentName: agent.name,
+        sessionId: meta.sessionId,
+        temporary: isTest,
+        running: true,
+        runId: meta.runId,
+      } as SessionInfoView);
+    }
     return true;
   };
 
@@ -237,7 +291,10 @@ export default function ChatView({
       // 不重新 hydrate 消息：时间线保留当前视图（压缩本体由紧随其后的
       // compaction_end 落成折叠条目），这里只把身份与侧栏同步过去。
       try {
-        const info = await invoke<SessionInfoView>("session_info");
+        const info = await invoke<SessionInfoView>("session_info", {
+          agentName: agent.name,
+          sessionId: payload.toSessionId,
+        });
         onSessionReset(info);
       } catch (err) {
         onError(formatRuntimeError(err));
@@ -276,19 +333,32 @@ export default function ChatView({
         return;
       }
 
+      // 新会话（还没落文件）：没有会话级的快照可查，直接以空历史起步；
+      // 首次发送时由核心创建文件，事件回来后再认领身份。
+      if (!initialSessionId) {
+        awaitingSessionIdentityRef.current = true;
+        sessionInfoResolvedRef.current = true;
+        sessionInfoFailedRef.current = false;
+        setSessionModel(agent.provider ?? null);
+        setIsCustomModel(false);
+        dispatch({ type: "hydrate", messages: [], stats: null, running: false });
+        hydrationCompleteRef.current = true;
+        setReady(true);
+        return;
+      }
       const snapshotResults = await Promise.allSettled([
-        invoke<MessageView[]>("session_messages"),
-        invoke<SessionStatsView>("session_stats"),
-        invoke<boolean>("session_running"),
-        invoke<SessionInfoView | null>("session_info"),
+        invoke<MessageView[]>("session_messages", { agentName: agent.name, sessionId: initialSessionId }),
+        invoke<SessionStatsView>("session_stats", { agentName: agent.name, sessionId: initialSessionId }),
+        invoke<boolean>("session_running", { agentName: agent.name, sessionId: initialSessionId }),
+        invoke<SessionInfoView | null>("session_info", { agentName: agent.name, sessionId: initialSessionId }),
       ]);
       if (!mounted) return;
 
       const [messagesResult, statsResult, runningResult, infoResult] = snapshotResults;
       sessionInfoResolvedRef.current = infoResult.status === "fulfilled"
-        && (infoResult.value === null || infoResult.value.agentName === agent.name);
+        && (infoResult.value === null || infoResult.value.sessionId === initialSessionId);
       sessionInfoFailedRef.current = !sessionInfoResolvedRef.current;
-      if (infoResult.status === "fulfilled" && infoResult.value?.agentName === agent.name) {
+      if (infoResult.status === "fulfilled" && infoResult.value?.sessionId === initialSessionId) {
         const info = infoResult.value;
         const current = sessionIdentityRef.current;
         if (!current || current.sessionId === info.sessionId) {
@@ -378,6 +448,15 @@ export default function ChatView({
     setInspectorOpen(!narrow);
   }, [narrow]);
 
+  useEffect(() => {
+    if (!narrow || !inspectorOpen) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setInspectorOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [inspectorOpen, narrow]);
+
   // 只有用户仍停留在底部时才跟随流式输出，阅读历史时不抢滚动位置。
   useEffect(() => {
     if (!followTailRef.current) return;
@@ -404,16 +483,13 @@ export default function ChatView({
         stopPollTimerRef.current = null;
       }
     }
-    onRunningChange(running);
-  }, [onRunningChange, running]);
+    // 带上正在跑的会话 id：父组件据此把标记打在对应的会话行上
+    onRunningChange(agent.name, sessionIdentityRef.current?.sessionId ?? null, running);
+  }, [agent.name, onRunningChange, running]);
 
-  useEffect(() => {
-    return () => {
-      if (!runningRef.current) return;
-      void invoke("stop_run").catch(() => {});
-      onRunningChange(false);
-    };
-  }, [onRunningChange]);
+  // 卸载**不**中止运行：切到别的 Agent 或返回时，这一轮在核心里继续跑、继续落盘，
+  // 重新进入时会用 session_info / session_messages 重新水合（见 mount 时的 snapshot）。
+  // 想停就点停止按钮 —— 那是显式动作，不该由「离开视图」代劳。
 
   const handleScroll = () => {
     const list = listRef.current;
@@ -436,7 +512,7 @@ export default function ChatView({
       sendInFlightRef.current = true;
       setInput("");
       try {
-        await invoke("steer", { message: text });
+        await invoke("steer", { agentName: agent.name, sessionId: requireSessionId(), message: text });
       } catch (error) {
         // 运行恰好结束等竞态：恢复输入，让用户重发
         setInput(text);
@@ -459,6 +535,7 @@ export default function ChatView({
     try {
       await invoke("send_prompt", {
         agentName: agent.name,
+        sessionId: sessionIdRef.current,
         prompt: text,
         model: isCustomModel ? sessionModel : null,
       });
@@ -488,6 +565,7 @@ export default function ChatView({
   const togglePinnedDetail = (id: string) => {
     setPinnedChip((current) => (current === id ? null : id));
     setPreviewChip(null);
+    onInspectDetail?.();
     if (narrow) setInspectorOpen(true);
   };
 
@@ -508,7 +586,10 @@ export default function ChatView({
   ): Promise<void> => {
     if (!mountedRef.current || !isStopTarget(epoch, sessionId)) return;
     try {
-      const stillRunning = await invoke<boolean>("session_running");
+      const stillRunning = await invoke<boolean>("session_running", {
+        agentName: agent.name,
+        sessionId: requireSessionId(),
+      });
       if (!mountedRef.current || !isStopTarget(epoch, sessionId)) return;
       if (stillRunning) {
         if (attempt >= 50) {
@@ -523,10 +604,11 @@ export default function ChatView({
       }
 
       ignoreEventsUntilNextRunRef.current = true;
+      const stoppedId = requireSessionId();
       const [messagesResult, statsResult, infoResult] = await Promise.allSettled([
-        invoke<MessageView[]>("session_messages"),
-        invoke<SessionStatsView>("session_stats"),
-        invoke<SessionInfoView | null>("session_info"),
+        invoke<MessageView[]>("session_messages", { agentName: agent.name, sessionId: stoppedId }),
+        invoke<SessionStatsView>("session_stats", { agentName: agent.name, sessionId: stoppedId }),
+        invoke<SessionInfoView | null>("session_info", { agentName: agent.name, sessionId: stoppedId }),
       ]);
       if (!mountedRef.current || !isStopTarget(epoch, sessionId)) return;
 
@@ -591,7 +673,7 @@ export default function ChatView({
     const sessionId = sessionIdentityRef.current?.sessionId;
     setStopping(true);
     try {
-      await invoke("stop_run");
+      await invoke("stop_run", { agentName: agent.name, sessionId: requireSessionId() });
       void reconcileStoppedRun(0, epoch, sessionId);
     } catch (error) {
       setStopping(false);
@@ -599,127 +681,30 @@ export default function ChatView({
     }
   };
 
+  /// 「新建会话」：交给 App 处理（释放这个 Agent 空闲的会话 + 把视图切到新会话
+  /// 并重挂本视图）。原地重置那一套不再需要 —— 会话之间互不影响，也没有
+  /// 「槽被占用」这回事了。
   const newSession = async () => {
     if (!ready || running) return;
     if (!sessionInfoResolvedRef.current) {
       onError("尚未确认当前会话身份，请稍后重试");
       return;
     }
-    const previousIdentity = sessionIdentityRef.current;
-    const previousAwaiting = awaitingSessionIdentityRef.current;
-    const previousSettled = settledRunIdRef.current;
-    const previousIgnore = ignoreEventsUntilNextRunRef.current;
-    const previousReady = ready;
-    const previousInfoResolved = sessionInfoResolvedRef.current;
-    const previousInfoFailed = sessionInfoFailedRef.current;
-    const previousEpoch = runEpochRef.current;
-    const previousAwaitingRunId = awaitingRunIdRef.current;
-    if (previousIdentity) blockedSessionIdsRef.current.add(previousIdentity.sessionId);
-    sessionIdentityRef.current = null;
-    awaitingSessionIdentityRef.current = true;
-    sessionInfoResolvedRef.current = false;
-    sessionInfoFailedRef.current = false;
-    awaitingRunIdRef.current = null;
-    settledRunIdRef.current = null;
-    ignoreEventsUntilNextRunRef.current = false;
-    runEpochRef.current += 1;
-    setReady(false);
-    const restorePrevious = () => {
-      if (previousIdentity) blockedSessionIdsRef.current.delete(previousIdentity.sessionId);
-      sessionIdentityRef.current = previousIdentity;
-      awaitingSessionIdentityRef.current = previousAwaiting;
-      awaitingRunIdRef.current = previousAwaitingRunId;
-      settledRunIdRef.current = previousSettled;
-      ignoreEventsUntilNextRunRef.current = previousIgnore;
-      sessionInfoResolvedRef.current = previousInfoResolved;
-      sessionInfoFailedRef.current = previousInfoFailed;
-      runEpochRef.current = previousEpoch;
-      setReady(previousReady);
-    };
-    try {
-      const accepted = await onNewSession(previousIdentity?.sessionId);
-      if (!accepted) {
-        restorePrevious();
-        return;
-      }
-      if (!mountedRef.current) return;
-      hydrationCompleteRef.current = false;
-      pendingIdentityEventsRef.current = [];
-      pendingIdentityStatsRef.current = [];
-      pendingEventsRef.current = [];
-      pendingStatsRef.current = [];
-      dispatch({ type: "reset" });
-      onSessionReset();
-      setInput("");
-      followTailRef.current = true;
-      const [messagesResult, statsResult, runningResult, infoResult] = await Promise.allSettled([
-        invoke<MessageView[]>("session_messages"),
-        invoke<SessionStatsView>("session_stats"),
-        invoke<boolean>("session_running"),
-        invoke<SessionInfoView | null>("session_info"),
-      ]);
-      if (!mountedRef.current) return;
-      sessionInfoResolvedRef.current = infoResult.status === "fulfilled"
-        && (infoResult.value === null || infoResult.value.agentName === agent.name);
-      sessionInfoFailedRef.current = !sessionInfoResolvedRef.current;
-      if (infoResult.status === "fulfilled" && infoResult.value?.agentName === agent.name) {
-        sessionIdentityRef.current = {
-          sessionId: infoResult.value.sessionId,
-          runId: infoResult.value.runId,
-        };
-        settledRunIdRef.current = infoResult.value.running ? null : (infoResult.value.runId ?? null);
-        awaitingSessionIdentityRef.current = false;
-        setSessionId(infoResult.value.sessionId);
-        if (infoResult.value.model !== undefined) {
-          setSessionModel(infoResult.value.model ?? agent.provider ?? null);
-          setIsCustomModel(Boolean(infoResult.value.isCustomModel));
-        }
-      } else {
-        setSessionModel(agent.provider ?? null);
-        setIsCustomModel(false);
-        setSessionId(null);
-      }
-      const identityEvents = pendingIdentityEventsRef.current;
-      const identityStats = pendingIdentityStatsRef.current;
-      pendingIdentityEventsRef.current = [];
-      pendingIdentityStatsRef.current = [];
-      if (sessionInfoResolvedRef.current) {
-        identityEvents.forEach(processAgentPayload);
-        identityStats.forEach(processStatsPayload);
-      }
-      dispatch({
-        type: "hydrate",
-        messages: messagesResult.status === "fulfilled" ? messagesResult.value : [],
-        stats: statsResult.status === "fulfilled" ? statsResult.value : null,
-        running: runningResult.status === "fulfilled" && runningResult.value,
-      });
-      hydrationCompleteRef.current = true;
-      const pendingEvents = pendingEventsRef.current;
-      const pendingStats = pendingStatsRef.current;
-      pendingEventsRef.current = [];
-      pendingStatsRef.current = [];
-      pendingEvents.forEach((action) => dispatch(action));
-      pendingStats.forEach((stats) => dispatch({ type: "stats", stats }));
-      const snapshotReady = sessionInfoResolvedRef.current
-        && messagesResult.status === "fulfilled"
-        && statsResult.status === "fulfilled"
-        && runningResult.status === "fulfilled";
-      setReady(snapshotReady);
-      const failed = [messagesResult, statsResult, runningResult, infoResult]
-        .find((result) => result.status === "rejected");
-      if (failed?.status === "rejected") onError(formatRuntimeError(failed.reason));
-      else if (!sessionInfoResolvedRef.current) onError("无法确认新会话身份，请返回后重试");
-      inputRef.current?.focus();
-    } catch (error) {
-      restorePrevious();
-      onError(formatRuntimeError(error));
-    }
+    const accepted = await onNewSession(sessionIdentityRef.current?.sessionId);
+    if (!accepted) return;
+    if (!mountedRef.current) return;
+    hydrationCompleteRef.current = false;
+    pendingIdentityEventsRef.current = [];
+    pendingIdentityStatsRef.current = [];
+    pendingEventsRef.current = [];
+    pendingStatsRef.current = [];
+    dispatch({ type: "reset" });
+    setInput("");
+    followTailRef.current = true;
   };
 
-  /// 手动压缩：核心异步执行（占住 running 位），结果通过事件回流 ——
-  /// compaction_start/end 出折叠条目、session-switched 切会话、出错走 session-error。
   const compactNow = () => {
-    void invoke("compact_now", { agentName: agent.name }).catch((err: unknown) => {
+    void invoke("compact_now", { agentName: agent.name, sessionId: requireSessionId() }).catch((err: unknown) => {
       onError(formatRuntimeError(err));
     });
   };
@@ -733,6 +718,7 @@ export default function ChatView({
       const info = await invoke<SessionInfoView>("fork_session", {
         agentName: agent.name,
         sessionId: currentId,
+        upToEntryId: null,
       });
       sessionIdentityRef.current = {
         sessionId: info.sessionId,
@@ -745,8 +731,14 @@ export default function ChatView({
         setIsCustomModel(Boolean(info.isCustomModel));
       }
       onSessionReset(info);
-      const messages = await invoke<MessageView[]>("session_messages");
-      const loadedStats = await invoke<SessionStatsView>("session_stats").catch(() => null);
+      const messages = await invoke<MessageView[]>("session_messages", {
+        agentName: agent.name,
+        sessionId: info.sessionId,
+      });
+      const loadedStats = await invoke<SessionStatsView>("session_stats", {
+        agentName: agent.name,
+        sessionId: info.sessionId,
+      }).catch(() => null);
       dispatch({ type: "hydrate", messages, stats: loadedStats, running: false });
     } catch (err) {
       onError(formatRuntimeError(err));
@@ -758,7 +750,7 @@ export default function ChatView({
     const hasActiveSession = Boolean(sessionIdentityRef.current?.sessionId);
     if (hasActiveSession) {
       try {
-        await invoke("set_session_model", { model: modelToSet });
+        await invoke("set_session_model", { agentName: agent.name, sessionId: requireSessionId(), model: modelToSet });
       } catch (err) {
         throw new Error(formatRuntimeError(err));
       }
@@ -768,9 +760,36 @@ export default function ChatView({
     setModelModalOpen(false);
   };
 
+  const clearTest = async () => {
+    if (!isTest || !onClearTest || running || clearingTest) return;
+    setClearingTest(true);
+    try {
+      await onClearTest();
+    } catch (error) {
+      onError(formatRuntimeError(error));
+    } finally {
+      if (mountedRef.current) setClearingTest(false);
+    }
+  };
+
+  const inspectorContext: ChatInspectorContext = {
+    agent,
+    sessionId,
+    entries,
+    stats,
+    running,
+    ready,
+    sessionModel,
+    isCustomModel,
+    blockedCount: blockedSessionIds.length,
+    chipDetail: activeChip,
+    chipDetailMode: previewChip ? "preview" : "pinned",
+    onUnpinChip: () => setPinnedChip(null),
+  };
+
   return (
     <div
-      className={`chat-shell${inspectorOpen ? " inspector-open" : ""}`}
+      className={`chat-shell${inspectorOpen ? " inspector-open" : ""}${isTest ? " test-workbench" : ""}`}
       style={{ "--inspector-width": `${inspectorResize.width}px` } as React.CSSProperties}
     >
       <div className="chat">
@@ -778,46 +797,75 @@ export default function ChatView({
           <button type="button" className="icon-btn" title="返回" aria-label="返回" onClick={onBack}>
             <IconBack />
           </button>
-          <span className="crumb" title={`~/.pipi/agents/${agent.name}/sessions/${sessionId ?? ""}`}>
-            ~/.pipi/agents/<b>{agent.name}</b>/sessions/{sessionId ? <b>{sessionId}</b> : "…"}
-          </span>
+          {isTest ? (
+            <span className="crumb" title={`Agent 工作台 · ${agent.name}`}>
+              Agent 工作台 · <b>{agent.name}</b>
+            </span>
+          ) : (
+            <span className="crumb" title={`~/.pipi/agents/${agent.name}/sessions/${sessionId ?? ""}`}>
+              ~/.pipi/agents/<b>{agent.name}</b>/sessions/{sessionId ? <b>{sessionId}</b> : "…"}
+            </span>
+          )}
           <span className="spacer" />
-          <button
-            type="button"
-            className="model-pill"
-            onClick={() => setModelModalOpen(true)}
-            disabled={running}
-            title={running ? "Agent 运行中不可切换模型" : "点击切换当前会话的模型"}
-          >
-            <span className="model-pill-name mono">{sessionModel?.id || "未配置模型"}</span>
-            <span className="model-pill-tag">{isCustomModel ? "自定义" : "默认"}</span>
-          </button>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={forkSession}
-            disabled={!ready || running || !sessionIdentityRef.current?.sessionId}
-            title="从当前对话节点分叉出新会话"
-            aria-label="分叉会话"
-          >
-            <IconFork />
-          </button>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={newSession}
-            disabled={!ready || running}
-            title="新会话"
-            aria-label="新建会话"
-          >
-            <IconPlus />
-          </button>
+          {isTest ? (
+            <>
+              <span className="test-mode-pill">
+                <span className={`test-mode-dot${running ? " running" : ""}`} />
+                临时测试
+              </span>
+              <span className="test-model mono" title={sessionModel?.id || "未配置模型"}>
+                {sessionModel?.id || "未配置模型"}
+              </span>
+              <button
+                type="button"
+                className="btn ghost test-clear"
+                onClick={() => void clearTest()}
+                disabled={!ready || running || clearingTest}
+                title={running ? "请先停止测试" : "清空临时上下文"}
+              >
+                {clearingTest ? "清空中…" : "清空测试"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="model-pill"
+                onClick={() => setModelModalOpen(true)}
+                disabled={running}
+                title={running ? "Agent 运行中不可切换模型" : "点击切换当前会话的模型"}
+              >
+                <span className="model-pill-name mono">{sessionModel?.id || "未配置模型"}</span>
+                <span className="model-pill-tag">{isCustomModel ? "自定义" : "默认"}</span>
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={forkSession}
+                disabled={!ready || running || !sessionIdentityRef.current?.sessionId}
+                title="从当前对话节点分叉出新会话"
+                aria-label="分叉会话"
+              >
+                <IconFork />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={newSession}
+                disabled={!ready || running}
+                title="新会话"
+                aria-label="新建会话"
+              >
+                <IconPlus />
+              </button>
+            </>
+          )}
           <button
             type="button"
             className={`icon-btn${inspectorOpen ? " active" : ""}`}
             onClick={() => setInspectorOpen((open) => !open)}
-            title="统计 / 检查器"
-            aria-label="切换检查器"
+            title={isTest ? "Agent 设置" : "统计 / 检查器"}
+            aria-label={isTest ? "切换 Agent 设置" : "切换检查器"}
             aria-expanded={inspectorOpen}
             aria-controls="session-inspector"
           >
@@ -833,8 +881,17 @@ export default function ChatView({
         >
           {entries.length === 0 && (
             <div className="chat-welcome">
-              与 <span className="mono">{agent.name}</span> 对话。会话记录将写入
-              <span className="mono"> sessions/*.jsonl</span>。
+              {isTest ? (
+                <>
+                  在这里验证 <span className="mono">{agent.name}</span> 的已保存配置。
+                  测试上下文只保留在本次应用运行期，不会进入会话历史。
+                </>
+              ) : (
+                <>
+                  与 <span className="mono">{agent.name}</span> 对话。会话记录将写入
+                  <span className="mono"> sessions/*.jsonl</span>。
+                </>
+              )}
             </div>
           )}
           {blocks.map((block) => {
@@ -935,6 +992,12 @@ export default function ChatView({
               </div>
             </div>
           )}
+          {isTest && (
+            <div className="test-safety-note" role="note">
+              <span>临时仅指对话记录</span>
+              工具仍按当前权限真实运行，对工作区造成的改动会保留。
+            </div>
+          )}
           <div className="composer-box">
             <textarea
               ref={inputRef}
@@ -1006,20 +1069,30 @@ export default function ChatView({
         />
       )}
 
-      <Inspector
-        agent={agent}
-        sessionId={sessionId}
-        entries={entries}
-        stats={stats}
-        running={running}
-        sessionModel={sessionModel}
-        isCustomModel={isCustomModel}
-        blockedCount={blockedSessionIds.length}
-        chipDetail={activeChip}
-        chipDetailMode={previewChip ? "preview" : "pinned"}
-        onUnpinChip={() => setPinnedChip(null)}
-        onCompact={compactNow}
-      />
+      {renderInspector ? (
+        <aside
+          className="inspector agent-settings-inspector"
+          id="session-inspector"
+          aria-label="Agent 设置与测试信息"
+        >
+          {renderInspector(inspectorContext)}
+        </aside>
+      ) : (
+        <Inspector
+          agent={agent}
+          sessionId={sessionId}
+          entries={entries}
+          stats={stats}
+          running={running}
+          sessionModel={sessionModel}
+          isCustomModel={isCustomModel}
+          blockedCount={blockedSessionIds.length}
+          chipDetail={activeChip}
+          chipDetailMode={previewChip ? "preview" : "pinned"}
+          onUnpinChip={() => setPinnedChip(null)}
+          onCompact={compactNow}
+        />
+      )}
 
       {narrow && inspectorOpen && (
         <button
@@ -1030,7 +1103,7 @@ export default function ChatView({
         />
       )}
 
-      {modelModalOpen && (
+      {!isTest && modelModalOpen && (
         <ModelSelectModal
           isOpen={modelModalOpen}
           onClose={() => setModelModalOpen(false)}
@@ -1294,6 +1367,9 @@ interface InspectorProps {
   onUnpinChip: () => void;
   /** 手动压缩当前会话（「状态」tab 的「立即压缩」按钮）。 */
   onCompact: () => void;
+  embedded?: boolean;
+  allowCompact?: boolean;
+  temporary?: boolean;
 }
 
 const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
@@ -1322,11 +1398,14 @@ function Inspector({
   chipDetailMode,
   onUnpinChip,
   onCompact,
+  embedded = false,
+  allowCompact = true,
+  temporary = false,
 }: InspectorProps) {
   const [tab, setTab] = useState<InspectorTab>("stats");
   // 正在压缩：压缩条目在收尾前是 transient（见 chat-runtime 的 compaction_start）
   const compacting = entries.some((entry) => entry.kind === "compaction" && entry.transient);
-  const canCompact = Boolean(sessionId) && !running && !compacting;
+  const canCompact = allowCompact && Boolean(sessionId) && !running && !compacting;
   // 选中标签时自动切到「调用详情」，取消选中后回到之前的 tab
   const tabRef = useRef(tab);
   tabRef.current = tab;
@@ -1422,8 +1501,13 @@ function Inspector({
     ? (runningTool ? `${runningTool.toolName ?? "tool"} · 运行中` : "模型调用中")
     : (lastTool ? `上次工具 ${lastTool.toolName ?? "tool"}` : "尚无工具调用");
 
+  const Wrapper: "aside" | "div" = embedded ? "div" : "aside";
   return (
-    <aside className="inspector" id="session-inspector" aria-label="会话检查器">
+    <Wrapper
+      className={embedded ? "embedded-inspector" : "inspector"}
+      id={embedded ? undefined : "session-inspector"}
+      aria-label={embedded ? "临时测试信息" : "会话检查器"}
+    >
       <div className="itabs" role="tablist" aria-label="检查器视图" onKeyDown={handleTabKeys}>
         {INSPECTOR_TABS.map((item) => (
           <button
@@ -1637,21 +1721,27 @@ function Inspector({
                   ) : (
                     <span className="dim">—</span>
                   )}
-                  <button
-                    type="button"
-                    className="compact-now"
-                    onClick={onCompact}
-                    disabled={!canCompact}
-                    title="立即压缩当前会话（跳过阈值；走与自动压缩相同的分叉/归档设置）"
-                  >
-                    {compacting ? "压缩中…" : "立即压缩"}
-                  </button>
+                  {allowCompact && (
+                    <button
+                      type="button"
+                      className="compact-now"
+                      onClick={onCompact}
+                      disabled={!canCompact}
+                      title="立即压缩当前会话（跳过阈值；走与自动压缩相同的分叉/归档设置）"
+                    >
+                      {compacting ? "压缩中…" : "立即压缩"}
+                    </button>
+                  )}
                 </span>
               </div>
               <div className="kv-row">
                 <span className="k">会话文件</span>
                 <span className="v mono dim">
-                  {sessionId ? `~/.pipi/agents/${agent.name}/sessions/` : "—"}
+                  {temporary
+                    ? "内存（不落盘）"
+                    : sessionId
+                      ? `~/.pipi/agents/${agent.name}/sessions/`
+                      : "—"}
                 </span>
               </div>
             </div>
@@ -1731,7 +1821,30 @@ function Inspector({
             </div>
         </div>
       </div>
-    </aside>
+    </Wrapper>
+  );
+}
+
+/** 设置工作台「测试」页复用正式会话检查器的数据解释与展示。 */
+export function SessionDiagnostics({ context }: { context: ChatInspectorContext }) {
+  return (
+    <Inspector
+      agent={context.agent}
+      sessionId={context.sessionId}
+      entries={context.entries}
+      stats={context.stats}
+      running={context.running}
+      sessionModel={context.sessionModel}
+      isCustomModel={context.isCustomModel}
+      blockedCount={context.blockedCount}
+      chipDetail={context.chipDetail}
+      chipDetailMode={context.chipDetailMode}
+      onUnpinChip={context.onUnpinChip}
+      onCompact={() => {}}
+      embedded
+      allowCompact={false}
+      temporary
+    />
   );
 }
 

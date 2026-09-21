@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pipi_core::permissions::{BashPermissions, PermissionsConfig, SandboxMode};
+use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
 use pipi_core::tools::{AgentTool, ToolContext, ToolRegistry};
@@ -17,6 +18,26 @@ use serde_json::json;
 /// 本文件内所有改写 HOME 的测试共用此锁：同一进程内并行测试会互相看到
 /// 对方的 HOME，串行化才能保证隔离。
 static HOME_LOCK: Mutex<()> = Mutex::new(());
+
+/// 该 Agent 当前打开的会话 id（测试里一般只有一条）。
+fn open_session_id(state: &RuntimeState, agent_name: &str) -> String {
+    state
+        .session_infos()
+        .expect("读取会话列表")
+        .into_iter()
+        .find(|info| info.agent_name == agent_name)
+        .unwrap_or_else(|| panic!("{agent_name} 应当有打开的会话"))
+        .session_id
+}
+
+/// 该 Agent 是否有一条会话正在跑。
+fn any_session_running(state: &RuntimeState, agent_name: &str) -> bool {
+    state
+        .session_infos()
+        .expect("读取会话列表")
+        .iter()
+        .any(|info| info.agent_name == agent_name && info.running)
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn create_run_and_read_agent_output() {
@@ -353,19 +374,22 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         tokio::runtime::Handle::current(),
     ));
     runtime
-        .send_prompt("mock-parent", "让 worker 计算 6x7 并汇报", None, Arc::new(|_| {}))
+        .send_prompt("mock-parent", None, "让 worker 计算 6x7 并汇报", None, Arc::new(|_| {}))
         .unwrap();
 
     // 等待运行结束（上限 30 秒）
     for _ in 0..600 {
-        if !runtime.session_running() {
+        if !any_session_running(&runtime, "mock-parent") {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
-    assert!(!runtime.session_running(), "运行应在超时前结束");
+    assert!(!any_session_running(&runtime, "mock-parent"), "运行应在超时前结束");
 
-    let messages = runtime.session_messages().await.unwrap();
+    let messages = runtime
+        .session_messages("mock-parent", &open_session_id(&runtime, "mock-parent"))
+        .await
+        .unwrap();
     let roles: Vec<&str> = messages.iter().map(|m| m.role()).collect();
     // user → assistant(run_agent) → toolResult → assistant(最终)
     assert_eq!(roles, vec!["user", "assistant", "toolResult", "assistant"]);

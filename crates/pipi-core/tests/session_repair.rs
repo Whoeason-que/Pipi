@@ -73,7 +73,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     let runtime = pipi_core::runtime::RuntimeState::new(tokio::runtime::Handle::current());
     runtime.open_session("repair-worker", &session_id).unwrap();
 
-    let messages = runtime.session_messages().await.unwrap();
+    let messages = runtime.session_messages("repair-worker", &session_id).await.unwrap();
     let roles: Vec<&str> = messages.iter().map(|message| message.role()).collect();
     assert_eq!(
         roles,
@@ -107,9 +107,9 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     );
 
     // 幂等：重复打开不会重复追加
-    runtime.new_session().unwrap();
+    runtime.new_session("repair-worker").unwrap();
     runtime.open_session("repair-worker", &session_id).unwrap();
-    let again = runtime.session_messages().await.unwrap();
+    let again = runtime.session_messages("repair-worker", &session_id).await.unwrap();
     assert_eq!(again.len(), 3, "重复打开不应重复补结果：{again:?}");
 
     let _ = std::fs::remove_dir_all(home);
@@ -163,7 +163,7 @@ async fn completed_tail_is_left_untouched() {
         tokio::runtime::Handle::current(),
     ));
     runtime.open_session("intact-worker", &session_id).unwrap();
-    let messages = runtime.session_messages().await.unwrap();
+    let messages = runtime.session_messages("intact-worker", &session_id).await.unwrap();
     assert_eq!(
         messages.iter().map(|message| message.role()).collect::<Vec<_>>(),
         vec!["user", "assistant"],

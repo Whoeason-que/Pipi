@@ -63,20 +63,163 @@ let messages = run_agent_loop(
 ];
 
 const initialDemoSessionId = "1730000000000-abc123";
-let demoSessionId = initialDemoSessionId;
-let demoMessages: Array<Record<string, unknown>> = initialDemoMessages;
-const demoSessionHistories = new Map<string, Array<Record<string, unknown>>>([
-  [initialDemoSessionId, demoMessages],
-]);
 const legacyDemoSessionId = "1729990000000-def456";
-demoSessionHistories.set(legacyDemoSessionId, [
-  { role: "user", content: "把 README 翻译成英文", timestamp: 0 },
-  { role: "assistant", content: [{ type: "text", text: "好的，我会先读取 README。" }], timestamp: 0 },
+const peerDemoSessionId = "1729980000000-ghi789";
+
+/** 第二个演示 Agent：用来演示「两个 Agent 各跑一轮」（运行态是按 Agent 的集合）。 */
+const demoPeer: AgentDefinition = {
+  name: "demo-reviewer",
+  description: "浏览器演示模式的第二个 Agent：演示多 Agent 并行运行",
+  model: "",
+  provider: null,
+  workspace: null,
+  permissions: {
+    tools: ["read", "glob", "grep"],
+    bash: { mode: "allowAll", commands: [] },
+    sandbox: "read-only",
+  },
+  mcpServers: [],
+  compactThresholdPercent: 75,
+};
+
+const peerDemoMessages: Array<Record<string, unknown>> = [
+  { role: "user", content: "审查一下 src/ 的组件拆分", timestamp: Date.now() - 60000 },
+  {
+    role: "assistant",
+    content: [{ type: "text", text: "读完了 src/：App.tsx 负责编排，Chat.tsx 是单会话视图。需要我把拆分建议写下来吗？" }],
+    usage: { input: 20, output: 40, cacheRead: 120, cacheWrite: 0, totalTokens: 180 },
+    stopReason: "stop",
+    timestamp: Date.now() - 58000,
+  },
+];
+
+/**
+ * 每个 Agent 一份会话状态 —— 与核心同构：核心是「一个 Agent 一个会话槽 +
+ * 一个运行守卫」，不同 Agent 可以各跑一轮，所以 mock 不能再用单份模块级状态。
+ */
+/** 每个 Agent 的账本：它名下有哪些会话（历史、标题、归档区）。 */
+interface DemoAgentState {
+  histories: Map<string, Array<Record<string, unknown>>>;
+  titles: Map<string, string>;
+  archivedSessions: Map<string, Array<Record<string, unknown>>>;
+}
+
+function seedDemoState(
+  seeds: Array<[string, string, Array<Record<string, unknown>>]>,
+): DemoAgentState {
+  const histories = new Map<string, Array<Record<string, unknown>>>();
+  const titles = new Map<string, string>();
+  for (const [id, title, messages] of seeds) {
+    titles.set(id, title);
+    histories.set(id, messages);
+  }
+  return { histories, titles, archivedSessions: new Map() };
+}
+
+let demoSessionCounter = 0;
+
+const demoStates = new Map<string, DemoAgentState>([
+  [
+    demoAgent.name,
+    seedDemoState([
+      [initialDemoSessionId, "帮我看看这个项目的结构", initialDemoMessages],
+      [
+        legacyDemoSessionId,
+        "把 README 翻译成英文",
+        [
+          { role: "user", content: "把 README 翻译成英文", timestamp: 0 },
+          { role: "assistant", content: [{ type: "text", text: "好的，我会先读取 README。" }], timestamp: 0 },
+        ],
+      ],
+    ]),
+  ],
+  [
+    demoPeer.name,
+    seedDemoState([[peerDemoSessionId, "审查一下 src/ 的组件拆分", peerDemoMessages]]),
+  ],
 ]);
-const demoSessionTitles = new Map<string, string>([
-  [initialDemoSessionId, "帮我看看这个项目的结构"],
-  [legacyDemoSessionId, "把 README 翻译成英文"],
-]);
+
+/** 取（必要时新建）某个 Agent 的账本。 */
+function stateFor(agentName: string): DemoAgentState {
+  const existing = demoStates.get(agentName);
+  if (existing) return existing;
+  const created = seedDemoState([]);
+  demoStates.set(agentName, created);
+  return created;
+}
+
+/** 一条**打开中**的会话 —— 与核心同构：同一个 Agent 可以同时开多条，各自独立运行。 */
+interface DemoConversation {
+  agentName: string;
+  sessionId: string;
+  temporary: boolean;
+  messages: Array<Record<string, unknown>>;
+  running: boolean;
+  runId: number;
+  runTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const conversationKey = (agentName: string, sessionId: string) => `${agentName}\u0000${sessionId}`;
+
+const demoConversations = new Map<string, DemoConversation>();
+
+/** 打开（必要时按历史装载）一条会话；已打开则原样返回。 */
+function openConversation(agentName: string, sessionId: string): DemoConversation {
+  const key = conversationKey(agentName, sessionId);
+  const existing = demoConversations.get(key);
+  if (existing) return existing;
+  const state = stateFor(agentName);
+  const messages = state.histories.get(sessionId) ?? [];
+  state.histories.set(sessionId, messages);
+  const conversation: DemoConversation = {
+    agentName,
+    sessionId,
+    temporary: false,
+    messages,
+    running: false,
+    runId: 0,
+    runTimer: null,
+  };
+  demoConversations.set(key, conversation);
+  return conversation;
+}
+
+/** 设置工作台的临时测试会话：只进打开中 map，不进入 histories / 会话列表。 */
+function createTestConversation(agentName: string): DemoConversation {
+  demoSessionCounter += 1;
+  const sessionId = `test-demo-${demoSessionCounter}-${Date.now().toString(36)}`;
+  const conversation: DemoConversation = {
+    agentName,
+    sessionId,
+    temporary: true,
+    messages: [],
+    running: false,
+    runId: 0,
+    runTimer: null,
+  };
+  demoConversations.set(conversationKey(agentName, sessionId), conversation);
+  return conversation;
+}
+
+function testConversationOf(agentName: string): DemoConversation | undefined {
+  return [...demoConversations.values()].find(
+    (conversation) => conversation.agentName === agentName && conversation.temporary,
+  );
+}
+
+/** 取一条已打开的会话（没打开返回 undefined）。 */
+function conversationOf(agentName: string, sessionId: string): DemoConversation | undefined {
+  return demoConversations.get(conversationKey(agentName, sessionId));
+}
+
+/** 新建一条会话（还没发消息的「新会话」也算）。 */
+function createConversation(agentName: string): DemoConversation {
+  const state = stateFor(agentName);
+  demoSessionCounter += 1;
+  const sessionId = `demo-session-${demoSessionCounter}-${Date.now().toString(36)}`;
+  state.histories.set(sessionId, []);
+  return openConversation(agentName, sessionId);
+}
 
 interface DevEvent {
   payload: unknown;
@@ -85,27 +228,21 @@ interface DevEvent {
 type DevEventListener = (event: DevEvent) => void;
 
 const devListeners = new Map<string, Set<DevEventListener>>();
-let demoRunTimer: ReturnType<typeof setTimeout> | null = null;
-let demoRunning = false;
-let demoHasSession = true;
-let demoRunId = 0;
-let demoSessionCounter = 0;
-// 归档演示状态：Agent 与部分会话可被「归档/恢复/删除」，在内存里挪动。
+// 归档演示状态：Agent 可被「归档/恢复/删除」，在内存里挪动。
 // deleted 与 archived 分开：删除是永久消失（对应真实后端删目录），
 // 归档后仍可恢复（对应真实后端从 .archive 移回）。
-let demoAgentArchived = false;
-let demoAgentDeleted = false;
-const demoArchivedSessions = new Map<string, Array<Record<string, unknown>>>();
+const demoAgentArchived = new Set<string>();
+const demoAgentDeleted = new Set<string>();
 
 function emitDevEvent(name: string, payload: unknown): void {
   devListeners.get(name)?.forEach((listener) => listener({ payload }));
 }
 
-function emitDemoAgentEvent(event: unknown): void {
+function emitDemoAgentEvent(conversation: DemoConversation, event: unknown): void {
   emitDevEvent("agent-event", {
-    agentName: "demo-assistant",
-    sessionId: demoSessionId,
-    runId: demoRunId,
+    agentName: conversation.agentName,
+    sessionId: conversation.sessionId,
+    runId: conversation.runId,
     event,
   });
 }
@@ -120,18 +257,23 @@ function listenDevEvent(name: string, listener: DevEventListener): () => void {
   };
 }
 
-function startDemoRun(prompt: string): void {
-  if (demoRunTimer) clearTimeout(demoRunTimer);
-  demoRunId += 1;
-  demoRunning = true;
-  demoHasSession = true;
-  demoSessionTitles.set(demoSessionId, demoSessionTitles.get(demoSessionId) ?? prompt);
-  demoMessages.push({ role: "user", content: prompt, timestamp: Date.now() });
+function startDemoRun(conversation: DemoConversation, prompt: string): void {
+  const state = stateFor(conversation.agentName);
+  if (conversation.runTimer) clearTimeout(conversation.runTimer);
+  conversation.runId += 1;
+  conversation.running = true;
+  if (!conversation.temporary) {
+    state.titles.set(
+      conversation.sessionId,
+      state.titles.get(conversation.sessionId) ?? prompt,
+    );
+  }
+  conversation.messages.push({ role: "user", content: prompt, timestamp: Date.now() });
 
   // 演示剧本：thinking → bash（成功）→ thinking → bash（失败）→ 正文，
   // 覆盖标签行折叠、同名计数（thinking ×2 / bash ×2）与失败标红。
-  const call1 = `call-demo-${demoRunId}-1`;
-  const call2 = `call-demo-${demoRunId}-2`;
+  const call1 = `call-demo-${conversation.runId}-1`;
+  const call2 = `call-demo-${conversation.runId}-2`;
   const thinking1 = "先确认一下项目结构，再决定改哪里。";
   const thinking2 = "README 里应该有构建命令，直接读一下。";
   const toolCallBlock = (id: string, command: string) => ({
@@ -161,78 +303,78 @@ function startDemoRun(prompt: string): void {
   };
 
   const steps: Array<() => void> = [
-    () => emitDemoAgentEvent({ type: "agent_start" }),
+    () => emitDemoAgentEvent(conversation, { type: "agent_start" }),
     // 第 1 条助手消息：thinking + bash 调用
-    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, { type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
+    () => emitDemoAgentEvent(conversation, {
       type: "message_update",
       message: { role: "assistant", content: [{ type: "thinking", thinking: thinking1 }] },
     }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, {
       type: "message_update",
       message: { role: "assistant", content: [{ type: "thinking", thinking: thinking1 }, toolCallBlock(call1, "ls -la")] },
     }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, {
       type: "message_end",
       message: { role: "assistant", content: [{ type: "thinking", thinking: thinking1 }, toolCallBlock(call1, "ls -la")], stopReason: "toolUse", timestamp: Date.now() },
     }),
     // 第 1 次 bash：运行中 → 部分输出 → 完成
-    () => emitDemoAgentEvent({ type: "tool_execution_start", toolCallId: call1, toolName: "bash", args: { command: "ls -la" } }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, { type: "tool_execution_start", toolCallId: call1, toolName: "bash", args: { command: "ls -la" } }),
+    () => emitDemoAgentEvent(conversation, {
       type: "tool_execution_update",
       toolCallId: call1,
       toolName: "bash",
       partial: { content: [{ type: "text", text: "total 24\ndrwxr-xr-x  src" }] },
     }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, {
       type: "tool_execution_end",
       toolCallId: call1,
       toolName: "bash",
       result: { content: [{ type: "text", text: "README.md\nsrc/\ncrates/\npackage.json" }] },
       isError: false,
     }),
-    () => emitDemoAgentEvent({ type: "message_start", message: toolResult(call1, "README.md\nsrc/\ncrates/\npackage.json") }),
-    () => emitDemoAgentEvent({ type: "message_end", message: toolResult(call1, "README.md\nsrc/\ncrates/\npackage.json") }),
+    () => emitDemoAgentEvent(conversation, { type: "message_start", message: toolResult(call1, "README.md\nsrc/\ncrates/\npackage.json") }),
+    () => emitDemoAgentEvent(conversation, { type: "message_end", message: toolResult(call1, "README.md\nsrc/\ncrates/\npackage.json") }),
     // 第 2 条助手消息：thinking + 再次 bash（读取失败，验证失败标红）
-    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, { type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
+    () => emitDemoAgentEvent(conversation, {
       type: "message_update",
       message: { role: "assistant", content: [{ type: "thinking", thinking: thinking2 }, toolCallBlock(call2, "cat CONTRIBUTING.md")] },
     }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, {
       type: "message_end",
       message: { role: "assistant", content: [{ type: "thinking", thinking: thinking2 }, toolCallBlock(call2, "cat CONTRIBUTING.md")], stopReason: "toolUse", timestamp: Date.now() },
     }),
-    () => emitDemoAgentEvent({ type: "tool_execution_start", toolCallId: call2, toolName: "bash", args: { command: "cat CONTRIBUTING.md" } }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, { type: "tool_execution_start", toolCallId: call2, toolName: "bash", args: { command: "cat CONTRIBUTING.md" } }),
+    () => emitDemoAgentEvent(conversation, {
       type: "tool_execution_end",
       toolCallId: call2,
       toolName: "bash",
       result: { content: [{ type: "text", text: "cat: CONTRIBUTING.md: No such file or directory" }] },
       isError: true,
     }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, {
       type: "message_start",
       message: { ...toolResult(call2, "cat: CONTRIBUTING.md: No such file or directory", true), isError: true },
     }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, {
       type: "message_end",
       message: { ...toolResult(call2, "cat: CONTRIBUTING.md: No such file or directory", true), isError: true },
     }),
     // 第 3 条助手消息：正文回复（正文出现即断开标签行）
-    () => emitDemoAgentEvent({ type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
-    () => emitDemoAgentEvent({
+    () => emitDemoAgentEvent(conversation, { type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
+    () => emitDemoAgentEvent(conversation, {
       type: "message_update",
       message: { ...response, content: [{ type: "text", text: `我已收到：${prompt}\n\n` }] },
     }),
-    () => emitDemoAgentEvent({ type: "message_update", message: response }),
-    () => emitDemoAgentEvent({ type: "message_end", message: response }),
+    () => emitDemoAgentEvent(conversation, { type: "message_update", message: response }),
+    () => emitDemoAgentEvent(conversation, { type: "message_end", message: response }),
     () => {
-      demoMessages.push(response);
+      conversation.messages.push(response);
       emitDevEvent("session-stats", {
-        agentName: "demo-assistant",
-        sessionId: demoSessionId,
-        runId: demoRunId,
+        agentName: conversation.agentName,
+        sessionId: conversation.sessionId,
+        runId: conversation.runId,
         stats: {
           input: 130,
           output: 176,
@@ -248,21 +390,21 @@ function startDemoRun(prompt: string): void {
         },
       });
     },
-    () => emitDemoAgentEvent({ type: "agent_end", messages: [response] }),
+    () => emitDemoAgentEvent(conversation, { type: "agent_end", messages: [response] }),
   ];
 
   let stepIndex = 0;
   const runNextStep = () => {
     if (stepIndex >= steps.length) {
-      demoRunTimer = null;
-      demoRunning = false;
+      conversation.runTimer = null;
+      conversation.running = false;
       return;
     }
     steps[stepIndex]();
     stepIndex += 1;
-    demoRunTimer = setTimeout(runNextStep, 240);
+    conversation.runTimer = setTimeout(runNextStep, 240);
   };
-  demoRunTimer = setTimeout(runNextStep, 120);
+  conversation.runTimer = setTimeout(runNextStep, 120);
 }
 
 interface DevPlatform {
@@ -367,12 +509,13 @@ const settings: Settings = {
   compaction: { forkBeforeCompact: true, archiveOriginal: true },
 };
 
-function listDemoSessions(): Array<Record<string, unknown>> {
-  return [...demoSessionHistories.entries()]
+function listDemoSessions(agentName: string): Array<Record<string, unknown>> {
+  const state = stateFor(agentName);
+  return [...state.histories.entries()]
     .filter(([, messages]) => messages.length > 0)
     .map(([id, messages]) => ({
       id,
-      title: demoSessionTitles.get(id) ?? "未命名会话",
+      title: state.titles.get(id) ?? "未命名会话",
       messageCount: messages.length,
       startedAt: Number(id.split("-")[0]) || 0,
       lastActive: Number(id.split("-")[0]) || 0,
@@ -395,18 +538,32 @@ export function installDevMock(): void {
           return Promise.resolve(null);
         case "list_agents":
           // 尊重归档/删除状态：归档后活跃列表为空，删除后彻底消失
-          return Promise.resolve(demoAgentArchived || demoAgentDeleted ? [] : [demoAgent]);
+          // 尊重归档/删除状态：归档后活跃列表为空，删除后彻底消失
+          return Promise.resolve(
+            [demoAgent, demoPeer].filter(
+              (agent) => !demoAgentArchived.has(agent.name) && !demoAgentDeleted.has(agent.name),
+            ),
+          );
         case "save_agent": {
           // 浏览器演示模式：把保存落回 demoAgent，让「改完刷新」的流程可验证
           const def = args.def as AgentDefinition | undefined;
+          const current = def ? testConversationOf(def.name) : undefined;
+          if (current?.running) {
+            return Promise.reject(new Error("临时测试仍在运行，请先停止再保存设置"));
+          }
           if (def && def.name === demoAgent.name) Object.assign(demoAgent, def);
+          if (current) demoConversations.delete(conversationKey(current.agentName, current.sessionId));
           return Promise.resolve(null);
         }
         case "model_catalog":
           // 与 pipi-core 的 wire 结构一致（providers/models 按 camelCase）
           return Promise.resolve(structuredClone(demoCatalog));
-        case "load_agent":
-          return Promise.resolve(demoAgent);
+        case "load_agent": {
+          const name = String(args.name ?? "");
+          return Promise.resolve(
+            [demoAgent, demoPeer].find((agent) => agent.name === name) ?? demoAgent,
+          );
+        }
         case "list_agent_files":
           return Promise.resolve(["AGENTS.md", "memory/user-prefs.md"]);
         case "read_agent_file":
@@ -415,26 +572,82 @@ export function installDevMock(): void {
               ? "# demo-assistant\n\n演示模式的系统指令。\n"
               : "",
           );
-        case "write_agent_file":
+        case "write_agent_file": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const current = testConversationOf(agentName);
+          if (current?.running) {
+            return Promise.reject(new Error("临时测试仍在运行，请先停止再保存文件"));
+          }
+          if (current) demoConversations.delete(conversationKey(agentName, current.sessionId));
           return Promise.resolve(null);
+        }
         case "list_sessions":
-          return Promise.resolve(listDemoSessions());
-        case "open_session":
-          demoSessionId = String(args.sessionId ?? demoSessionId);
-          demoRunId = 0;
-          demoMessages = demoSessionHistories.get(demoSessionId) ?? [];
-          demoSessionHistories.set(demoSessionId, demoMessages);
-          demoHasSession = demoMessages.length > 0;
+          return Promise.resolve(listDemoSessions(String(args.agentName ?? demoAgent.name)));
+        case "open_session": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          openConversation(agentName, String(args.sessionId ?? ""));
           return Promise.resolve(null);
-        case "session_info":
-          return Promise.resolve(demoHasSession ? {
-            agentName: "demo-assistant",
-            sessionId: demoSessionId,
-            running: demoRunning,
-            runId: demoRunId,
-          } : null);
-        case "session_messages":
-          return Promise.resolve(demoMessages);
+        }
+        case "session_info": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const conversation = conversationOf(agentName, String(args.sessionId ?? ""));
+          return Promise.resolve(
+            conversation
+              ? {
+                  agentName,
+                  sessionId: conversation.sessionId,
+                  temporary: conversation.temporary,
+                  running: conversation.running,
+                  runId: conversation.runId,
+                }
+              : null,
+          );
+        }
+        // 所有打开中的会话（核心 session_infos 的同构桩：同一个 Agent 可以有多条）
+        case "session_infos":
+          return Promise.resolve(
+            [...demoConversations.values()].map((conversation) => ({
+              agentName: conversation.agentName,
+              sessionId: conversation.sessionId,
+              temporary: conversation.temporary,
+              running: conversation.running,
+              runId: conversation.runId,
+            })),
+          );
+        case "ensure_test_session": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const conversation = testConversationOf(agentName) ?? createTestConversation(agentName);
+          return Promise.resolve({
+            agentName,
+            sessionId: conversation.sessionId,
+            temporary: true,
+            running: conversation.running,
+            runId: conversation.runId,
+          });
+        }
+        case "reset_test_session": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const current = testConversationOf(agentName);
+          if (current?.running) {
+            return Promise.reject(new Error("临时测试仍在运行，请先停止再清空或保存设置"));
+          }
+          if (current) demoConversations.delete(conversationKey(agentName, current.sessionId));
+          const conversation = createTestConversation(agentName);
+          return Promise.resolve({
+            agentName,
+            sessionId: conversation.sessionId,
+            temporary: true,
+            running: false,
+            runId: 0,
+          });
+        }
+        case "session_messages": {
+          const conversation = conversationOf(
+            String(args.agentName ?? demoAgent.name),
+            String(args.sessionId ?? ""),
+          );
+          return Promise.resolve(conversation?.messages ?? []);
+        }
         case "session_stats":
           return Promise.resolve({
             input: 70,
@@ -449,106 +662,166 @@ export function installDevMock(): void {
             contextMax: 200000,
             contextPercent: 0,
           });
-        case "session_running":
-          return Promise.resolve(demoRunning);
-        case "send_prompt":
-          startDemoRun(String(args.prompt ?? ""));
+        case "session_running": {
+          const conversation = conversationOf(
+            String(args.agentName ?? demoAgent.name),
+            String(args.sessionId ?? ""),
+          );
+          return Promise.resolve(Boolean(conversation?.running));
+        }
+        case "send_prompt": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          // 会话 id 为空 = 新会话（核心会创建文件，这里创建一条演示会话）
+          const requested = args.sessionId === null || args.sessionId === undefined
+            ? null
+            : String(args.sessionId);
+          const conversation = requested
+            ? openConversation(agentName, requested)
+            : createConversation(agentName);
+          // 与核心同构：同一条会话不允许并发两轮（别的会话互不影响）
+          if (conversation.running) {
+            return Promise.reject(
+              new Error(`会话「${conversation.sessionId}」正在运行，请等待完成或先停止`),
+            );
+          }
+          startDemoRun(conversation, String(args.prompt ?? ""));
           return Promise.resolve(null);
+        }
         case "compact_now":
           // 演示模式没有真实会话可压：返回拒绝的 Promise，让 UI 的错误通路走到
           return Promise.reject(new Error("演示模式不支持压缩上下文（接上核心后才可用）"));
-        case "steer":
+        case "steer": {
           // 演示桩：把插话作为用户消息回显
-          emitDemoAgentEvent({
+          const conversation = conversationOf(
+            String(args.agentName ?? demoAgent.name),
+            String(args.sessionId ?? ""),
+          );
+          if (!conversation) return Promise.resolve(null);
+          emitDemoAgentEvent(conversation, {
             type: "message_start",
             message: { role: "user", content: String(args.message ?? ""), timestamp: Date.now() },
           });
-          emitDemoAgentEvent({
+          emitDemoAgentEvent(conversation, {
             type: "message_end",
             message: { role: "user", content: String(args.message ?? ""), timestamp: Date.now() },
           });
           return Promise.resolve(null);
+        }
         case "resolve_approval":
           return Promise.resolve(null);
-        case "stop_run":
-          if (demoRunTimer) clearTimeout(demoRunTimer);
-          demoRunTimer = null;
-          if (demoRunning) emitDemoAgentEvent({ type: "agent_end" });
-          demoRunning = false;
+        case "stop_run": {
+          const conversation = conversationOf(
+            String(args.agentName ?? demoAgent.name),
+            String(args.sessionId ?? ""),
+          );
+          if (!conversation) return Promise.resolve(null);
+          if (conversation.runTimer) clearTimeout(conversation.runTimer);
+          conversation.runTimer = null;
+          if (conversation.running) emitDemoAgentEvent(conversation, { type: "agent_end" });
+          conversation.running = false;
           return Promise.resolve(null);
-        case "new_session":
-          if (demoRunTimer) clearTimeout(demoRunTimer);
-          demoRunTimer = null;
-          demoRunning = false;
-          demoHasSession = false;
-          demoSessionCounter += 1;
-          demoSessionId = `demo-session-${demoSessionCounter}`;
-          demoRunId = 0;
-          demoMessages = [];
-          demoSessionHistories.set(demoSessionId, demoMessages);
+        }
+        case "set_session_model":
           return Promise.resolve(null);
+        // 释放该 Agent 名下**空闲**的会话（正在跑的留着）—— 与核心同构
+        case "new_session": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          for (const [key, conversation] of [...demoConversations.entries()]) {
+            if (
+              conversation.agentName === agentName
+              && !conversation.running
+              && !conversation.temporary
+            ) {
+              demoConversations.delete(key);
+            }
+          }
+          return Promise.resolve(null);
+        }
         // —— 归档 / 恢复 / 删除（演示桩：内存里挪动 demo 数据）——
         case "list_archived_agents":
-          return Promise.resolve(demoAgentArchived && !demoAgentDeleted ? [demoAgent] : []);
-        case "archive_agent":
-          if (String(args.name ?? "") === demoAgent.name && !demoAgentDeleted) {
-            demoAgentArchived = true;
-          }
-          return Promise.resolve(null);
-        case "restore_agent":
-          if (String(args.name ?? "") === demoAgent.name && !demoAgentDeleted) {
-            demoAgentArchived = false;
-          }
-          return Promise.resolve(null);
-        case "delete_agent":
-          if (String(args.name ?? "") === demoAgent.name) {
-            // 真实后端：删除目录 → Agent 永久消失（不复活，不重新播种）
-            demoAgentDeleted = true;
-            demoAgentArchived = false;
-            demoSessionHistories.clear();
-            demoArchivedSessions.clear();
-          }
-          return Promise.resolve(null);
-        case "delete_archived_agent":
-          demoAgentDeleted = true;
-          demoAgentArchived = false;
-          return Promise.resolve(null);
-        case "list_archived_sessions":
           return Promise.resolve(
-            [...demoArchivedSessions.entries()].map(([id, messages]) => ({
+            [demoAgent, demoPeer].filter(
+              (agent) => demoAgentArchived.has(agent.name) && !demoAgentDeleted.has(agent.name),
+            ),
+          );
+        case "archive_agent": {
+          const name = String(args.name ?? "");
+          const current = testConversationOf(name);
+          if (current?.running) {
+            return Promise.reject(new Error(`Agent「${name}」的临时测试仍在运行，请先停止再归档`));
+          }
+          if (current) demoConversations.delete(conversationKey(name, current.sessionId));
+          if (!demoAgentDeleted.has(name)) demoAgentArchived.add(name);
+          return Promise.resolve(null);
+        }
+        case "restore_agent": {
+          const name = String(args.name ?? "");
+          if (!demoAgentDeleted.has(name)) demoAgentArchived.delete(name);
+          return Promise.resolve(null);
+        }
+        case "delete_agent": {
+          const name = String(args.name ?? "");
+          const current = testConversationOf(name);
+          if (current?.running) {
+            return Promise.reject(new Error(`Agent「${name}」的临时测试仍在运行，请先停止再删除`));
+          }
+          if (current) demoConversations.delete(conversationKey(name, current.sessionId));
+          // 真实后端：删除目录 → Agent 永久消失（不复活，不重新播种）
+          demoAgentDeleted.add(name);
+          demoAgentArchived.delete(name);
+          const state = demoStates.get(name);
+          if (state) {
+            state.histories.clear();
+            state.archivedSessions.clear();
+          }
+          return Promise.resolve(null);
+        }
+        case "delete_archived_agent": {
+          const name = String(args.name ?? "");
+          demoAgentDeleted.add(name);
+          demoAgentArchived.delete(name);
+          return Promise.resolve(null);
+        }
+        case "list_archived_sessions": {
+          const state = stateFor(String(args.agentName ?? demoAgent.name));
+          return Promise.resolve(
+            [...state.archivedSessions.entries()].map(([id, messages]) => ({
               id,
-              title: demoSessionTitles.get(id) ?? "已归档会话",
+              title: state.titles.get(id) ?? "已归档会话",
               messageCount: messages.length,
               startedAt: Number(id.split("-")[0]) || 0,
               lastActive: Number(id.split("-")[0]) || 0,
             })),
           );
+        }
         case "archive_session": {
+          const state = stateFor(String(args.agentName ?? demoAgent.name));
           const sid = String(args.sessionId ?? "");
-          const history = demoSessionHistories.get(sid);
+          const history = state.histories.get(sid);
           if (history !== undefined) {
-            demoSessionHistories.delete(sid);
-            demoArchivedSessions.set(sid, history);
+            state.histories.delete(sid);
+            state.archivedSessions.set(sid, history);
           }
           return Promise.resolve(null);
         }
         case "restore_session": {
+          const state = stateFor(String(args.agentName ?? demoAgent.name));
           const sid = String(args.sessionId ?? "");
-          const history = demoArchivedSessions.get(sid);
+          const history = state.archivedSessions.get(sid);
           if (history !== undefined) {
-            demoArchivedSessions.delete(sid);
-            demoSessionHistories.set(sid, history);
+            state.archivedSessions.delete(sid);
+            state.histories.set(sid, history);
           }
           return Promise.resolve(null);
         }
         case "delete_session": {
-          const sid = String(args.sessionId ?? "");
-          demoSessionHistories.delete(sid);
+          const state = stateFor(String(args.agentName ?? demoAgent.name));
+          state.histories.delete(String(args.sessionId ?? ""));
           return Promise.resolve(null);
         }
         case "delete_archived_session": {
-          const sid = String(args.sessionId ?? "");
-          demoArchivedSessions.delete(sid);
+          const state = stateFor(String(args.agentName ?? demoAgent.name));
+          state.archivedSessions.delete(String(args.sessionId ?? ""));
           return Promise.resolve(null);
         }
         default:

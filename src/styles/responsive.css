@@ -24,6 +24,10 @@
     transition: transform 0.2s ease;
   }
 
+  .test-workbench .agent-settings-inspector {
+    width: min(420px, 92vw);
+  }
+
   .chat-shell:not(.inspector-open) .inspector {
     display: flex;
   }
@@ -111,6 +115,58 @@
   .drow {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .test-workbench .crumb {
+    max-width: 18ch;
+  }
+
+  .test-workbench .test-model {
+    display: none;
+  }
+
+  .test-workbench .test-mode-pill {
+    padding-inline: 8px;
+  }
+
+  .test-safety-note {
+    align-items: flex-start;
+    font-size: 10.5px;
+  }
+}
+
+@media (max-width: 520px) {
+  .test-workbench .screen-bar {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .test-workbench .crumb {
+    max-width: 11ch;
+  }
+
+  .test-workbench .test-mode-pill {
+    font-size: 0;
+    width: 26px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .test-workbench .test-clear {
+    padding-inline: 8px;
+    font-size: 11px;
+  }
+
+  .agent-settings-tabs {
+    margin-inline: 8px;
+  }
+
+  .settings-section {
+    padding-inline: 12px;
+  }
+
+  .settings-choice-grid {
+    grid-template-columns: 1fr;
   }
 }
 

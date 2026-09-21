@@ -86,6 +86,17 @@ src/                React + TypeScript 前端
   Session 会让停止按钮与 steering 断链），并且**事件身份必须跟着切换**：
   `session-switched` 用旧 id（前端此刻身份还是旧的）、后续事件用新 id；
   归档只在旧 writer 关闭之后做 —— 否则 Linux 上打开的 fd 会继续往被移动的文件追加。
+- 并发模型是**按会话**的：`RuntimeState` 的会话槽是
+  `Mutex<HashMap<SessionKey, Session>>`，`SessionKey = (Agent 名, 会话 id)` ——
+  同一个 Agent 可以同时开多条会话、每条各跑一轮，数量不限（**没有并发上限，别引入
+  全局信号量**）。守卫也按会话：**同一条会话同时只能跑一轮是硬不变量**（第二轮必须
+  拒绝并提示先停止或走 steering），别的会话照跑。压缩分叉换 id 时要把条目从旧键
+  搬到新键（`SessionRekey`，同一条会话、新 id），并保持 `session-switched` 的语义。
+  所有会话类命令都带 `agentName` + `sessionId`；`session_infos` 是「哪些会话在跑」
+  的唯一来源。改这里必须跑 `tests/concurrent_sessions.rs`（多 Agent 同时跑、
+  **同一个 Agent 两条会话同时跑**、停一条不影响其他、只释放空闲会话、事件与落盘
+  互不串），并且别把前端拖回去：ChatView 卸载**不得**中止运行、切换 Agent 或切换
+  会话**不得**被拦（后台运行是产品行为，不是 bug）。
 - 权限是安全边界：bash 命令检查在 `pipi-core/src/tools/bash.rs` 执行前发生，
   改权限逻辑（`permissions/`）必须带测试，且宁可拒绝不可放行 —— 无法静态
   分析的命令一律视为危险。

@@ -11,7 +11,7 @@ import {
   subscribeConnection,
   type ConnectionState,
 } from "./platform";
-import ChatView from "./Chat";
+import ChatView, { SessionDiagnostics } from "./Chat";
 import Login from "./Login";
 import { useResizableWidth } from "./resizable";
 import {
@@ -122,9 +122,19 @@ export default function App() {
   const [chatKey, setChatKey] = useState(0);
   const [sessionsByAgent, setSessionsByAgent] = useState<Record<string, SessionSummaryView[]>>({});
   const [activeSession, setActiveSession] = useState<SessionInfoView | null>(null);
-  const [chatRunning, setChatRunning] = useState(false);
-  /** 核心里正在运行的会话属于哪个 Agent：用于放行「进入该 Agent 停止」。 */
-  const [runningAgent, setRunningAgent] = useState<string | null>(null);
+  /**
+   * 正在跑一轮的会话集合，键是 `conversationKey(Agent, 会话 id)`。
+   * 多会话并发下运行态是**集合**：同一个 Agent 可以有多条会话在跑、不同 Agent 也可以，
+   * 每条各自一个运行守卫。这个集合只用于显示（侧栏标记 / 底部计数）——守卫在核心。
+   */
+  const [runningSessions, setRunningSessions] = useState<Set<string>>(() => new Set());
+  /** 当前查看的会话 id（null = 新会话，还没落文件）。 */
+  const [viewSessionId, setViewSessionId] = useState<string | null>(null);
+  const runningKey = (agentName: string, sessionId: string) => `${agentName}\u0000${sessionId}`;
+  const isConversationRunning = (agentName: string, sessionId: string | null) =>
+    sessionId !== null && runningSessions.has(runningKey(agentName, sessionId));
+  const agentHasRunning = (agentName: string) =>
+    Array.from(runningSessions).some((key) => key.startsWith(`${agentName}\u0000`));
   // 侧栏宽度可拖拽调节（窄屏抽屉模式下由媒体查询接管，见 responsive.css）
   const sidebarResize = useResizableWidth({
     storageKey: "sidebar-width",
@@ -178,47 +188,61 @@ export default function App() {
     setError(msg);
   }, []);
 
-  // 身份必须保持稳定：ChatView 的卸载清理以它为依赖，变化会被误判为卸载而中止运行
-  const handleRunningChange = useCallback((running: boolean) => {
-    setChatRunning(running);
-    setRunningAgent(running ? selectedRef.current : null);
-  }, []);
+  /** 立刻向核心核对一次运行态（新会话拿到 id 前 / 事件驱动变化时用）。 */
+  const syncRunningRef = useRef<() => void>(() => {});
+
+  // 身份必须保持稳定（ChatView 的 effect 以它为依赖）：运行态变化按会话合并。
+  const handleRunningChange = useCallback(
+    (agentName: string, sessionId: string | null, running: boolean) => {
+      if (sessionId === null) {
+        // 新会话还没拿到 id：立刻向核心核对一次（轮询也会兜底）
+        syncRunningRef.current();
+        return;
+      }
+      setRunningSessions((previous) => {
+        const next = new Set(previous);
+        const key = `${agentName}\u0000${sessionId}`;
+        if (running) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    },
+    [],
+  );
 
   // 运行态以核心为准：前端可能整体重载（HMR / 刷新）而核心里的运行还在继续，
   // 只靠 ChatView 的 onRunningChange 会让界面自认空闲、守卫放行后撞上核心拒绝。
+  // 另外，视图关着时（切到了别的 Agent）运行结束的信号不会到达前端，所以只要
+  // 还有 Agent 在跑就轮询兜底 —— 开销是一次本地 IPC。
   useEffect(() => {
     let active = true;
-    void invoke<SessionInfoView | null>("session_info")
-      .then((info) => {
-        if (!active || !info?.running) return;
-        setChatRunning(true);
-        setRunningAgent(info.agentName);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  // 未打开会话视图时，运行结束的信号不会到达前端：轮询到它结束为止
-  //（仅在有已知运行且对话未打开时生效，开销为一次本地 IPC）。
-  useEffect(() => {
-    if (!chatRunning || chatOpen) return;
-    let active = true;
-    const timer = window.setInterval(() => {
-      void invoke<SessionInfoView | null>("session_info")
-        .then((info) => {
-          if (!active || info?.running) return;
-          setChatRunning(false);
-          setRunningAgent(null);
+    const sync = () => {
+      void invoke<SessionInfoView[]>("session_infos")
+        .then((infos) => {
+          if (!active) return;
+          setRunningSessions(
+            new Set(
+              infos
+                .filter((info) => info.running)
+                .map((info) => `${info.agentName}\u0000${info.sessionId}`),
+            ),
+          );
         })
         .catch(() => {});
-    }, 2000);
+    };
+    syncRunningRef.current = sync;
+    sync();
+    if (runningSessions.size === 0) {
+      return () => {
+        active = false;
+      };
+    }
+    const timer = window.setInterval(sync, 2000);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [chatRunning, chatOpen]);
+  }, [runningSessions.size]);
 
   useEffect(() => {
     let active = true;
@@ -391,14 +415,21 @@ export default function App() {
           || (activeSessionRef.current?.runId != null
             && normalized.meta.runId < activeSessionRef.current.runId))
       ) return;
-      const infoRequestId = ++sessionInfoRequestRef.current;
-      void invoke<SessionInfoView | null>("session_info")
-        .then((info) => {
-          if (active && infoRequestId === sessionInfoRequestRef.current) setActiveSession(info);
+      const targetAgent = normalized.meta?.agentName;
+      const targetSession = normalized.meta?.sessionId;
+      if (targetAgent && targetSession) {
+        const infoRequestId = ++sessionInfoRequestRef.current;
+        void invoke<SessionInfoView | null>("session_info", {
+          agentName: targetAgent,
+          sessionId: targetSession,
         })
-        .catch((errorValue) => {
-          if (active) setError(formatRuntimeError(errorValue));
-        });
+          .then((info) => {
+            if (active && infoRequestId === sessionInfoRequestRef.current) setActiveSession(info);
+          })
+          .catch((errorValue) => {
+            if (active) setError(formatRuntimeError(errorValue));
+          });
+      }
       void refreshSessions(agentsRef.current.map((agent) => agent.name));
     });
     return () => {
@@ -407,11 +438,9 @@ export default function App() {
     };
   }, [refreshSessions]);
 
+  /// 打开（查看）一条会话。会话之间互不影响：别的会话在跑也能打开、切换、
+  /// 查看 —— 每条会话是独立的一路。
   const openSession = async (agentName: string, sessionId: string) => {
-    if (chatRunning) {
-      setError("Agent 正在运行，请先停止后再切换会话");
-      return;
-    }
     const requestId = ++navigationRequestRef.current;
     sessionInfoRequestRef.current += 1;
     const previousSessionId = activeSessionRef.current?.sessionId;
@@ -424,24 +453,22 @@ export default function App() {
       try {
         await invoke("open_session", { agentName, sessionId });
         if (requestId !== navigationRequestRef.current) {
-          await invoke("new_session").catch(() => {});
           return;
         }
         setSelected(agentName);
         setCreating(false);
         setChatOpen(true);
         setSidebarOpen(false);
+        setViewSessionId(sessionId);
         setActiveSession(null);
         setChatKey((key) => key + 1);
         infoRequestId = ++sessionInfoRequestRef.current;
-        const info = await invoke<SessionInfoView | null>("session_info");
+        const info = await invoke<SessionInfoView | null>("session_info", { agentName, sessionId });
         if (
           requestId === navigationRequestRef.current
           && infoRequestId === sessionInfoRequestRef.current
         ) {
           setActiveSession(info);
-        } else {
-          await invoke("new_session").catch(() => {});
         }
       } catch (errorValue) {
         if (
@@ -452,46 +479,27 @@ export default function App() {
             blockedSessionIdsRef.current.delete(previousSessionId);
           }
           setError(formatRuntimeError(errorValue));
-        } else {
-          await invoke("new_session").catch(() => {});
         }
       }
     });
   };
 
+  /// 为某个 Agent 新建一条会话：视图切到「新会话」（还没落文件），
+  /// 同时释放它名下**空闲**的会话（正在跑的那条留着，后台继续）。
   const startNewSession = async (agentName: string) => {
-    if (chatRunning) {
-      // 运行中的就是本 Agent：允许进入它的会话（那里有停止按钮），
-      // 但不新建会话——核心的槽位被运行占用，new_session 也会被拒。
-      if (agentName === runningAgent) {
-        invalidateNavigation();
-        setSelected(agentName);
-        setCreating(false);
-        setChatOpen(true);
-        setSidebarOpen(false);
-        setActiveSession(null);
-        setChatKey((key) => key + 1);
-        return;
-      }
-      setError(
-        runningAgent
-          ? `Agent「${runningAgent}」正在运行，请进入它的会话停止后再新建`
-          : "Agent 正在运行，请先停止后再新建会话",
-      );
-      return;
-    }
     const requestId = ++navigationRequestRef.current;
     sessionInfoRequestRef.current += 1;
     const previousSessionId = activeSessionRef.current?.sessionId;
     if (previousSessionId) blockedSessionIdsRef.current.add(previousSessionId);
     await enqueueNavigation(requestId, async () => {
       try {
-        await invoke("new_session");
+        await invoke("new_session", { agentName });
         if (requestId !== navigationRequestRef.current) return;
         setSelected(agentName);
         setCreating(false);
         setChatOpen(true);
         setSidebarOpen(false);
+        setViewSessionId(null);
         setActiveSession(null);
         setChatKey((key) => key + 1);
       } catch (errorValue) {
@@ -503,18 +511,18 @@ export default function App() {
     });
   };
 
+  /// ChatView 里点「新建会话」：释放该 Agent 的空闲会话（跑着的留着），
+  /// 视图切到「新会话」并重挂 ChatView。
   const createSessionFromChat = async (previousSessionId?: string): Promise<boolean> => {
-    if (chatRunning) {
-      setError("Agent 正在运行，请先停止后再新建会话");
-      return false;
-    }
+    const agentName = selectedRef.current;
+    if (!agentName) return false;
     const requestId = ++navigationRequestRef.current;
     sessionInfoRequestRef.current += 1;
     if (previousSessionId) blockedSessionIdsRef.current.add(previousSessionId);
     let accepted = false;
     await enqueueNavigation(requestId, async () => {
       try {
-        await invoke("new_session");
+        await invoke("new_session", { agentName });
         accepted = requestId === navigationRequestRef.current;
       } catch (errorValue) {
         if (requestId === navigationRequestRef.current) {
@@ -523,7 +531,11 @@ export default function App() {
         }
       }
     });
-    return accepted && requestId === navigationRequestRef.current;
+    if (!accepted || requestId !== navigationRequestRef.current) return false;
+    setViewSessionId(null);
+    setActiveSession(null);
+    setChatKey((key) => key + 1);
+    return true;
   };
 
   const updateSettings = (next: Settings): Promise<void> => {
@@ -698,22 +710,15 @@ export default function App() {
   };
 
   const selectAgent = (agentName: string) => {
-    // 运行中唯一放行的路径：从外部进入那个正在跑的 Agent（前端重载后核心
-    // 仍在运行时，用户需要一个入口进到它的会话里点停止）。对话已打开时
-    // 仍然拦住 —— 放行会卸载 ChatView 并静默中止运行。
-    const enterRunningAgent = chatRunning && runningAgent === agentName && !chatOpen;
-    if (chatRunning && !enterRunningAgent) {
-      setError(
-        runningAgent
-          ? `Agent「${runningAgent}」正在运行，请进入它的会话停止后再切换`
-          : "Agent 正在运行，请先停止后再切换",
-      );
-      return;
-    }
+    // 切换不被任何运行态拦住：每条会话是独立的一路，切走不影响它继续跑
+    //（ChatView 卸载也不中止）。这里只做「选中 + 收起会话视图」。
+    const previous = selectedRef.current;
     invalidateNavigation();
-    // 释放后端会话槽（new_session 仅清空槽、不落盘），避免该 Agent 被占用检查锁住。
-    // 运行中的会话会被核心拒绝（无害）：进入它只是为了能点停止。
-    void invoke("new_session").catch(() => {});
+    // 释放上一个 Agent 名下**空闲**的会话（不落盘，文件还在），否则它们会一直
+    // 被占用检查锁住（归档 / 删除被拒）。正在跑的那条留着 —— 后台继续跑。
+    if (previous && previous !== agentName) {
+      void invoke("new_session", { agentName: previous }).catch(() => {});
+    }
     setSelected(agentName);
     setCreating(false);
     setChatOpen(false);
@@ -721,10 +726,6 @@ export default function App() {
   };
 
   const startCreating = () => {
-    if (chatRunning) {
-      setError("Agent 正在运行，请先停止后再新建 Agent");
-      return;
-    }
     invalidateNavigation();
     setCreating(true);
     setSidebarOpen(false);
@@ -827,7 +828,8 @@ export default function App() {
             {visibleAgents.map((a) => {
               const isActiveAgent = selected === a.name && !creating;
               const sessions = sessionsFor(a);
-              const activeHere = activeSession?.agentName === a.name;
+
+              const isRunning = agentHasRunning(a.name);
               return (
                 <div key={a.name} className="agent">
                   <div className="agent-row">
@@ -840,6 +842,11 @@ export default function App() {
                     >
                       {a.name}
                     </button>
+                    {isRunning && (
+                      <span className="agent-running" title={`${a.name} 正在运行`}>
+                        运行中
+                      </span>
+                    )}
                     <span className="agent-count">{sessionsByAgent[a.name]?.length ?? 0}</span>
                     <span className="agent-actions">
                       <button
@@ -894,7 +901,8 @@ export default function App() {
                   </div>
                   <div className="sessions">
                     {sessions.map((sess) => {
-                      const isCurrent = activeHere && activeSession?.sessionId === sess.id;
+                      const isCurrent = chatOpen && selected === a.name && viewSessionId === sess.id;
+                      const isRunning = isConversationRunning(a.name, sess.id);
                       return (
                         <div
                           key={sess.id}
@@ -914,6 +922,11 @@ export default function App() {
                           }}
                         >
                           <span className="session-title">{sess.title}</span>
+                          {isRunning && (
+                            <span className="session-running" title="这条会话正在运行">
+                              运行中
+                            </span>
+                          )}
                           {sess.model && <span className="session-model">{sess.model}</span>}
                           <span className="session-actions">
                             <button
@@ -1139,15 +1152,13 @@ export default function App() {
                   key={`${current.name}-${chatKey}`}
                   agent={current}
                   providers={settings.providers}
+                  sessionId={viewSessionId}
                   blockedSessionIds={[...blockedSessionIdsRef.current]}
                   onBack={() => {
-                    if (chatRunning) {
-                      safeSetError("Agent 正在运行，请先停止后再返回");
-                      return;
-                    }
                     invalidateNavigation();
-                    // 释放后端会话槽：否则「返回」后该 Agent 仍被占用，归档/删除会被拒
-                    void invoke("new_session").catch(() => {});
+                    // 释放本 Agent 空闲的会话（否则归档/删除会被占用检查拒），
+                    // 正在跑的那条留着：返回后它继续跑（卸载不再中止运行）。
+                    void invoke("new_session", { agentName: current.name }).catch(() => {});
                     setChatOpen(false);
                     setSidebarOpen(false);
                   }}
@@ -1156,6 +1167,7 @@ export default function App() {
                   onRunningChange={handleRunningChange}
                   onSessionReset={(info) => {
                     setActiveSession(info ?? null);
+                    if (info) setViewSessionId(info.sessionId);
                     void refreshSessions([current.name]);
                     // 压缩换会话可能把原会话移进归档：折叠区正展开时同步刷新
                     if (archivedSessionsExpanded[current.name]) {
@@ -1179,8 +1191,9 @@ export default function App() {
                   providers={settings.providers}
                   onSaved={refresh}
                   onBack={() => setSelected(null)}
-                  onChat={() => void startNewSession(current.name)}
                   onError={safeSetError}
+                  blockedSessionIds={[...blockedSessionIdsRef.current]}
+                  onRunningChange={handleRunningChange}
                 />
               )
             )
@@ -1207,7 +1220,7 @@ export default function App() {
         </span>
         <span className="spacer" />
         <span>
-          运行中 <b>{chatRunning ? 1 : 0}</b>
+          运行中 <b>{runningSessions.size}</b>
         </span>
         {APP_VERSION && (
           <>
@@ -1260,12 +1273,27 @@ interface AgentDetailProps {
   providers: ProviderConfig[];
   onSaved: () => void | Promise<void>;
   onBack: () => void;
-  onChat: () => void;
   onError: (msg: string) => void;
+  blockedSessionIds: string[];
+  onRunningChange: (agentName: string, sessionId: string | null, running: boolean) => void;
 }
 
-function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: AgentDetailProps) {
+type AgentSettingsTab = "basic" | "permissions" | "files" | "test";
+
+function AgentDetail({
+  agent,
+  providers,
+  onSaved,
+  onBack,
+  onError,
+  blockedSessionIds,
+  onRunningChange,
+}: AgentDetailProps) {
   const { bash } = agent.permissions;
+  const [testSession, setTestSession] = useState<SessionInfoView | null>(null);
+  const [testLoadError, setTestLoadError] = useState<string | null>(null);
+  const [testLoadVersion, setTestLoadVersion] = useState(0);
+  const [settingsTab, setSettingsTab] = useState<AgentSettingsTab>("basic");
   const [providerId, setProviderId] = useState<string>(() => {
     const bound = providers.find(
       (p) => agent.provider && p.api === agent.provider.api && p.baseUrl === agent.provider.baseUrl,
@@ -1292,7 +1320,30 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
   const [sandbox, setSandbox] = useState<SandboxMode>(agent.permissions.sandbox);
   // 自动压缩阈值（窗口占用的百分比，1–100）
   const [compactThreshold, setCompactThreshold] = useState(agent.compactThresholdPercent);
-  const [savingMeta, setSavingMeta] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setTestSession(null);
+    setTestLoadError(null);
+    void invoke<SessionInfoView>("ensure_test_session", { agentName: agent.name })
+      .then((info) => {
+        if (!active) return;
+        setTestSession(info);
+      })
+      .catch((errorValue) => {
+        if (!active) return;
+        const message = formatRuntimeError(errorValue);
+        setTestLoadError(message);
+        onError(message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [agent.name, onError, testLoadVersion]);
+
+  const resetTestSession = async () => {
+    const info = await invoke<SessionInfoView>("reset_test_session", { agentName: agent.name });
+    setTestSession(info);
+  };
   // agent 切换时重置编辑状态（否则上一个 Agent 的草稿会串台）
   const agentNameRef = useRef(agent.name);
   if (agentNameRef.current !== agent.name) {
@@ -1306,44 +1357,41 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
     setSandbox(agent.permissions.sandbox);
   }
 
-  const bindProvider = async () => {
-    if (saving) return;
+  const selectedProvider = providers.find((provider) => provider.id === providerId);
+  const draftProvider = selectedProvider
+    ? {
+        id: modelId.trim(),
+        name: modelId.trim(),
+        api: selectedProvider.api,
+        baseUrl: selectedProvider.baseUrl,
+        maxTokens: resolveMaxTokens(pickedModel, savedLimits.maxTokens),
+        contextWindow: resolveContextWindow(pickedModel, savedLimits.contextWindow),
+      }
+    : null;
+  const boundProviderId = providers.find(
+    (provider) => agent.provider
+      && provider.api === agent.provider.api
+      && provider.baseUrl === agent.provider.baseUrl,
+  )?.id ?? "";
+
+  const providerDirty =
+    providerId !== boundProviderId
+    || modelId.trim() !== (agent.provider?.id ?? "")
+    || (draftProvider?.maxTokens ?? 8192) !== (agent.provider?.maxTokens ?? 8192)
+    || (draftProvider?.contextWindow ?? 0) !== (agent.provider?.contextWindow ?? 0);
+
+  const saveConfiguration = async (running: boolean) => {
+    if (saving || running || tools.length === 0) return;
+    if (providerId && !modelId.trim()) {
+      onError("请选择或填写默认模型后再保存");
+      return;
+    }
     setSaving(true);
     try {
-      const p = providers.find((x) => x.id === providerId);
       const next: AgentDefinition = {
         ...agent,
         model: modelId.trim(),
-        provider: p
-          ? {
-              id: modelId.trim(),
-              name: modelId.trim(),
-              api: p.api,
-              baseUrl: p.baseUrl,
-              maxTokens: resolveMaxTokens(pickedModel, savedLimits.maxTokens),
-              contextWindow: resolveContextWindow(pickedModel, savedLimits.contextWindow),
-            }
-          : null,
-      };
-      await invoke("save_agent", { def: next });
-      setSavedLimits({
-        maxTokens: next.provider?.maxTokens ?? 8192,
-        contextWindow: next.provider?.contextWindow ?? 0,
-      });
-      await onSaved();
-    } catch (errorValue) {
-      onError(formatRuntimeError(errorValue));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveMeta = async () => {
-    if (savingMeta || tools.length === 0) return;
-    setSavingMeta(true);
-    try {
-      const next: AgentDefinition = {
-        ...agent,
+        provider: draftProvider,
         description: description.trim(),
         workspace: workspace.trim() || null,
         permissions: {
@@ -1364,11 +1412,16 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
         compactThresholdPercent: Math.min(100, Math.max(1, Math.round(compactThreshold))),
       };
       await invoke("save_agent", { def: next });
+      setSavedLimits({
+        maxTokens: next.provider?.maxTokens ?? 8192,
+        contextWindow: next.provider?.contextWindow ?? 0,
+      });
       await onSaved();
+      await resetTestSession();
     } catch (errorValue) {
       onError(formatRuntimeError(errorValue));
     } finally {
-      setSavingMeta(false);
+      setSaving(false);
     }
   };
 
@@ -1380,249 +1433,278 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
     (bashMode === "allowAll" ? "" : commands) !== bash.commands.join("\n") ||
     sandbox !== agent.permissions.sandbox ||
     Math.min(100, Math.max(1, Math.round(compactThreshold))) !== agent.compactThresholdPercent;
+  const configurationDirty = providerDirty || metaDirty;
+
+  if (!testSession) {
+    return (
+      <div className="screen agent-workbench-loading">
+        <div className="screen-bar">
+          <button type="button" className="icon-btn" title="返回" aria-label="返回" onClick={onBack}>
+            <IconBack />
+          </button>
+          <span className="crumb">Agent 工作台 · <b>{agent.name}</b></span>
+        </div>
+        <div className="empty compact-empty">
+          <h2>{testLoadError ? "临时测试初始化失败" : "正在准备临时测试…"}</h2>
+          {testLoadError && <p>{testLoadError}</p>}
+          {testLoadError && (
+            <button type="button" className="btn primary" onClick={() => setTestLoadVersion((value) => value + 1)}>
+              重试
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="screen">
-      <div className="screen-bar">
-        <button
-          type="button"
-          className="icon-btn"
-          title="返回"
-          aria-label="返回"
-          onClick={onBack}
-        >
-          <IconBack />
-        </button>
-        <span className="crumb">
-          Agent 配置 · <b>{agent.name}</b>
-        </span>
-        <span className="spacer" />
-        <button className="btn primary" onClick={onChat}>
-          ▶ 开始对话
-        </button>
-      </div>
-
-      <div className="detail">
-        <div className="detail-head">
-          <div>
-            <h2>
+    <ChatView
+      key={`${agent.name}-${testSession.sessionId}`}
+      agent={agent}
+      providers={providers}
+      sessionId={testSession.sessionId}
+      blockedSessionIds={blockedSessionIds}
+      onBack={onBack}
+      onError={onError}
+      onNewSession={async () => false}
+      onRunningChange={onRunningChange}
+      onSessionReset={(info) => {
+        if (info?.temporary) setTestSession(info);
+      }}
+      mode="test"
+      onClearTest={resetTestSession}
+      onInspectDetail={() => setSettingsTab("test")}
+      renderInspector={(context) => (
+        <div className="agent-settings-panel">
+          <div className="agent-settings-head">
+            <div className="agent-settings-title">
               <span className="mono">{agent.name}</span>
-              {agent.provider && <span className="badge">{agent.provider.id}</span>}
-            </h2>
+              {configurationDirty && <span className="dirty-badge">未保存</span>}
+            </div>
             <div className="sub">{agent.description || "（暂无描述）"}</div>
           </div>
-        </div>
 
-        <section className="dsec">
-          <h4>模型</h4>
-          <div className="drow">
-            <span className="k">default_model</span>
-            <div className="v">
-              <div className="bind-row">
-                <div className="provider-picker">
+          <div className="agent-settings-tabs" role="tablist" aria-label="Agent 设置">
+            {([
+              ["basic", "基础"],
+              ["permissions", "权限"],
+              ["files", "文件"],
+              ["test", "测试"],
+            ] as const).map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={settingsTab === tab}
+                className={settingsTab === tab ? "active" : ""}
+                onClick={() => setSettingsTab(tab)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="agent-settings-body">
+            {settingsTab === "basic" && (
+              <section className="settings-section">
+                <div className="settings-field">
+                  <label htmlFor="agent-provider-select">provider</label>
                   <ChoiceSelect
                     id="agent-provider-select"
                     value={providerId}
-                    choices={providers.map((p) => ({ value: p.id, label: p.name }))}
+                    choices={providers.map((provider) => ({ value: provider.id, label: provider.name }))}
                     placeholder="（未绑定提供商）"
                     isClearable
                     menuInPortal
                     onChange={(next) => {
                       setProviderId(next);
-                      // 与会话模型弹窗同一护栏：换供应商必须清掉上一家的模型与限额，
-                      // 否则会保存出「B 的端点 + A 的模型/上限」这种静默错配。
                       setModelId("");
                       setPickedModel(undefined);
                       setSavedLimits({ maxTokens: 8192, contextWindow: 0 });
                     }}
                   />
                 </div>
-                <ModelPicker
-                  id="agent-default-model"
-                  providers={providers}
-                  providerId={providerId}
-                  modelId={modelId}
-                  disabled={saving}
-                  placeholder="模型 ID，如 claude-sonnet-4-5"
-                  onModelChange={(nextId, model) => {
-                    setModelId(nextId);
-                    setPickedModel(model);
-                  }}
-                />
-                <button
-                  className="btn primary"
-                  disabled={saving || (!!providerId && !modelId.trim())}
-                  onClick={bindProvider}
-                >
-                  {saving ? "保存中…" : "保存"}
-                </button>
-              </div>
-              <span className="hint">新建会话将默认继承此模型；会话内可随时切换</span>
-              {agent.provider && (
-                <span className="hint mono">
-                  {agent.provider.api} · {agent.provider.baseUrl}
-                </span>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="dsec">
-          <h4>信息与权限</h4>
-          <div className="drow">
-            <span className="k">description</span>
-            <div className="v">
-              <textarea
-                className="meta-editor"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="这个 Agent 是做什么的？"
-                rows={2}
-              />
-            </div>
-          </div>
-          <div className="drow">
-            <span className="k">workspace</span>
-            <div className="v">
-              <input
-                className="mono"
-                value={workspace}
-                onChange={(e) => setWorkspace(e.target.value)}
-                placeholder={`~/.pipi/agents/${agent.name}/workspace（默认）`}
-              />
-            </div>
-          </div>
-          <div className="drow">
-            <span className="k">compact_threshold</span>
-            <div className="v">
-              <input
-                className="mono"
-                type="number"
-                min={1}
-                max={100}
-                value={compactThreshold}
-                onChange={(e) => setCompactThreshold(Number(e.target.value))}
-              />
-              <span className="hint">
-                % · 上下文占用达到模型窗口的这个百分比时自动压缩（默认 75）
-              </span>
-            </div>
-          </div>
-          <div className="drow">
-            <span className="k">tools</span>
-            <div className="v">
-              <div className="tool-row">
-                {KNOWN_TOOLS.map((tool) => (
-                  <label key={tool} className="tool-check">
-                    <input
-                      type="checkbox"
-                      checked={tools.includes(tool)}
-                      onChange={() =>
-                        setTools((prev) =>
-                          prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool],
-                        )
-                      }
-                    />
-                    <span className="mono">{tool}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="drow">
-            <span className="k">bash.mode</span>
-            <div className="v">
-              <div className="tool-row">
-                {(Object.keys(BASH_MODE_LABELS) as BashMode[]).map((mode) => (
-                  <label key={mode} className="tool-check">
-                    <input
-                      type="radio"
-                      name="agent-bash-mode"
-                      checked={bashMode === mode}
-                      onChange={() => setBashMode(mode)}
-                    />
-                    <span>{BASH_MODE_LABELS[mode]}</span>
-                  </label>
-                ))}
-              </div>
-              {bashMode !== "allowAll" && (
-                <div className="perm-editor">
-                  <textarea
-                    value={commands}
-                    onChange={(e) => setCommands(e.target.value)}
-                    placeholder={bashMode === "allowlist" ? "git\nnpm run\nls" : "rm\nsudo"}
+                <div className="settings-field">
+                  <label htmlFor="agent-default-model">default_model</label>
+                  <ModelPicker
+                    id="agent-default-model"
+                    providers={providers}
+                    providerId={providerId}
+                    modelId={modelId}
+                    disabled={saving}
+                    placeholder="模型 ID，如 claude-sonnet-4-5"
+                    onModelChange={(nextId, model) => {
+                      setModelId(nextId);
+                      setPickedModel(model);
+                    }}
                   />
-                  <div className="hint">
-                    {bashMode === "allowlist"
-                      ? "每行一条；单词条目匹配以该词开头的命令，带空格按前缀匹配"
-                      : "每行一条；命中任意条目的命令将被拒绝"}
+                  <span className="hint">保存后，新的临时测试和正式会话会使用此模型。</span>
+                  {draftProvider && (
+                    <span className="hint mono">{draftProvider.api} · {draftProvider.baseUrl}</span>
+                  )}
+                </div>
+                <div className="settings-field">
+                  <label htmlFor="agent-description">description</label>
+                  <textarea
+                    id="agent-description"
+                    className="meta-editor"
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    placeholder="这个 Agent 是做什么的？"
+                    rows={3}
+                  />
+                </div>
+                <div className="settings-field">
+                  <label htmlFor="agent-workspace">workspace</label>
+                  <input
+                    id="agent-workspace"
+                    className="mono"
+                    value={workspace}
+                    onChange={(event) => setWorkspace(event.target.value)}
+                    placeholder={`~/.pipi/agents/${agent.name}/workspace（默认）`}
+                  />
+                </div>
+                <div className="settings-field compact-threshold-field">
+                  <label htmlFor="agent-compact-threshold">compact_threshold</label>
+                  <div className="inline-value">
+                    <input
+                      id="agent-compact-threshold"
+                      className="mono"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={compactThreshold}
+                      onChange={(event) => setCompactThreshold(Number(event.target.value))}
+                    />
+                    <span>%</span>
+                  </div>
+                  <span className="hint">上下文占用达到模型窗口的该比例时自动压缩。</span>
+                </div>
+              </section>
+            )}
+
+            {settingsTab === "permissions" && (
+              <section className="settings-section">
+                <div className="settings-field">
+                  <span className="field-label">tools</span>
+                  <div className="tool-row settings-choice-grid">
+                    {KNOWN_TOOLS.map((tool) => (
+                      <label key={tool} className="tool-check">
+                        <input
+                          type="checkbox"
+                          checked={tools.includes(tool)}
+                          onChange={() => setTools((previous) => previous.includes(tool)
+                            ? previous.filter((candidate) => candidate !== tool)
+                            : [...previous, tool])}
+                        />
+                        <span className="mono">{tool}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {tools.length === 0 && <span className="field-error">至少保留一个工具。</span>}
+                </div>
+                <div className="settings-field">
+                  <span className="field-label">bash.mode</span>
+                  <div className="tool-row vertical-choices">
+                    {(Object.keys(BASH_MODE_LABELS) as BashMode[]).map((mode) => (
+                      <label key={mode} className="tool-check">
+                        <input
+                          type="radio"
+                          name="agent-bash-mode"
+                          checked={bashMode === mode}
+                          onChange={() => setBashMode(mode)}
+                        />
+                        <span>{BASH_MODE_LABELS[mode]}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {bashMode !== "allowAll" && (
+                    <div className="perm-editor">
+                      <textarea
+                        value={commands}
+                        onChange={(event) => setCommands(event.target.value)}
+                        placeholder={bashMode === "allowlist" ? "git\nnpm run\nls" : "rm\nsudo"}
+                        rows={5}
+                      />
+                      <div className="hint">
+                        {bashMode === "allowlist"
+                          ? "每行一条；单词条目匹配命令名，带空格的条目按前缀匹配。"
+                          : "每行一条；命中任意条目的命令将被拒绝。"}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="settings-field">
+                  <span className="field-label">sandbox</span>
+                  <div className="tool-row vertical-choices">
+                    {(Object.keys(SANDBOX_LABELS) as SandboxMode[]).map((mode) => (
+                      <label key={mode} className="tool-check">
+                        <input
+                          type="radio"
+                          name="agent-sandbox"
+                          checked={sandbox === mode}
+                          onChange={() => setSandbox(mode)}
+                        />
+                        <span>{SANDBOX_LABELS[mode]}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <span className="hint">
+                    临时测试会按保存后的真实权限执行；工具造成的工作区改动不会回滚。
+                  </span>
+                </div>
+              </section>
+            )}
+
+            {settingsTab === "files" && (
+              <section className="settings-section settings-files">
+                <div className="settings-summary-row">
+                  <span className="field-label">agent_dir</span>
+                  <span className="mono">~/.pipi/agents/{agent.name}/</span>
+                </div>
+                <div className="settings-summary-row">
+                  <span className="field-label">mcp_servers</span>
+                  <div className="settings-tags">
+                    {agent.mcpServers.length
+                      ? agent.mcpServers.map((server) => <span className="tag" key={server.name}>{server.name}</span>)
+                      : <span className="dim">未配置</span>}
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
-          <div className="drow">
-            <span className="k">sandbox</span>
-            <div className="v">
-              <div className="tool-row">
-                {(Object.keys(SANDBOX_LABELS) as SandboxMode[]).map((mode) => (
-                  <label key={mode} className="tool-check">
-                    <input
-                      type="radio"
-                      name="agent-sandbox"
-                      checked={sandbox === mode}
-                      onChange={() => setSandbox(mode)}
-                    />
-                    <span>{SANDBOX_LABELS[mode]}</span>
-                  </label>
-                ))}
-              </div>
-              <span className="hint">
-                只读：不执行命令、不写文件；工作目录内可写：强制删除类命令与越出
-                工作目录的写入被拒绝；完全访问：不设限。保存后对下一次会话生效。
-              </span>
-            </div>
-          </div>
-          <div className="drow">
-            <span className="k" />
-            <div className="v">
-              <button
-                className="btn primary"
-                disabled={!metaDirty || tools.length === 0 || savingMeta}
-                onClick={saveMeta}
-              >
-                {savingMeta ? "保存中…" : "保存信息与权限"}
-              </button>
-              {!metaDirty && <span className="sub">（无改动）</span>}
-            </div>
-          </div>
-        </section>
+                <AgentFileEditor
+                  agentName={agent.name}
+                  onError={onError}
+                  disabled={!context.ready || context.running}
+                  onSaved={async () => {
+                    await onSaved();
+                    await resetTestSession();
+                  }}
+                />
+              </section>
+            )}
 
-        <section className="dsec">
-          <h4>文件</h4>
-          <div className="drow">
-            <span className="k">agent_dir</span>
-            <div className="v mono">
-              ~/.pipi/agents/{agent.name}/
-              <span className="sub">skills/ · sessions/ 由文件直接管理，改动即生效</span>
-            </div>
+            {settingsTab === "test" && <SessionDiagnostics context={context} />}
           </div>
-          <div className="drow">
-            <span className="k">mcp_servers</span>
-            <div className="v">
-              {agent.mcpServers.length
-                ? agent.mcpServers.map((m) => (
-                    <span className="tag" key={m.name}>
-                      {m.name}
-                    </span>
-                  ))
-                : <span className="dim">未配置</span>}
+
+          {(settingsTab === "basic" || settingsTab === "permissions") && (
+            <div className="agent-settings-footer">
+              <div className="save-state">
+                {context.running
+                  ? "测试运行中，请先停止"
+                  : configurationDirty ? "有未保存的 Agent 配置" : "配置已保存"}
+              </div>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={saving || context.running || !context.ready || !configurationDirty || tools.length === 0}
+                onClick={() => void saveConfiguration(context.running)}
+              >
+                {saving ? "保存中…" : "保存配置"}
+              </button>
             </div>
-          </div>
-          <AgentFileEditor agentName={agent.name} onError={onError} />
-        </section>
-      </div>
-    </div>
+          )}
+        </div>
+      )}
+    />
   );
 }
 
@@ -1631,9 +1713,11 @@ function AgentDetail({ agent, providers, onSaved, onBack, onChat, onError }: Age
 interface AgentFileEditorProps {
   agentName: string;
   onError: (msg: string) => void;
+  disabled?: boolean;
+  onSaved?: () => void | Promise<void>;
 }
 
-function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
+function AgentFileEditor({ agentName, onError, disabled = false, onSaved }: AgentFileEditorProps) {
   const [files, setFiles] = useState<string[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [content, setContent] = useState("");
@@ -1685,7 +1769,7 @@ function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
   }, [refreshFiles, openFile, agentName]);
 
   const saveFile = async () => {
-    if (!activeFile || saving || content === savedContent) return;
+    if (!activeFile || saving || disabled || content === savedContent) return;
     setSaving(true);
     try {
       await invoke("write_agent_file", {
@@ -1694,6 +1778,7 @@ function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
         content,
       });
       setSavedContent(content);
+      await onSaved?.();
     } catch (errorValue) {
       onError(formatRuntimeError(errorValue));
     } finally {
@@ -1702,6 +1787,7 @@ function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
   };
 
   const createMemoryFile = async () => {
+    if (disabled) return;
     const name = newFileName.trim().replace(/\.md$/, "");
     if (!name || name.includes("/")) return;
     const relPath = `memory/${name}.md`;
@@ -1715,6 +1801,7 @@ function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
       setNewFileName("");
       await refreshFiles();
       await openFile(relPath);
+      await onSaved?.();
     } catch (errorValue) {
       onError(formatRuntimeError(errorValue));
     }
@@ -1732,6 +1819,7 @@ function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
               key={file}
               type="button"
               className={`file-tab mono${file === activeFile ? " active" : ""}`}
+              disabled={disabled}
               onClick={() => void openFile(file)}
             >
               {file}
@@ -1742,6 +1830,7 @@ function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
           <input
             className="mono"
             value={newFileName}
+            disabled={disabled}
             onChange={(e) => setNewFileName(e.target.value)}
             placeholder="新建 memory 文件，例如 user-prefs"
             onKeyDown={(e) => {
@@ -1754,7 +1843,7 @@ function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
           <button
             type="button"
             className="btn ghost"
-            disabled={!newFileName.trim() || newFileName.trim().includes("/")}
+            disabled={disabled || !newFileName.trim() || newFileName.trim().includes("/")}
             onClick={() => void createMemoryFile()}
           >
             新建
@@ -1764,7 +1853,7 @@ function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
           className="mono file-editor"
           value={loading ? "加载中…" : content}
           onChange={(e) => setContent(e.target.value)}
-          disabled={!activeFile || loading}
+          disabled={disabled || !activeFile || loading}
           placeholder={activeFile ? undefined : "选择或新建一个文件开始编辑"}
           rows={8}
           spellCheck={false}
@@ -1782,10 +1871,10 @@ function AgentFileEditor({ agentName, onError }: AgentFileEditorProps) {
         <button
           type="button"
           className="btn primary"
-          disabled={!dirty || saving}
+          disabled={disabled || !dirty || saving}
           onClick={() => void saveFile()}
         >
-          {saving ? "保存中…" : dirty ? "保存文件" : "已保存"}
+          {saving ? "保存中…" : disabled ? "测试运行中" : dirty ? "保存文件" : "已保存"}
         </button>
       </div>
     </div>

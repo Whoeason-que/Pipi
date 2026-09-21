@@ -133,6 +133,7 @@ Agent 可以通过三项显式工具组合已有 Agent，而不引入独立的 s
 │  ├─ provider      anthropic +        │  流式 SSE，事件驱动
 │  │                openai-compat      │
 │  ├─ session       sessions/*.jsonl   │  append-only，崩溃安全
+│  ├─ runtime       会话槽 + 事件协议    │  槽按 Agent 索引：可同时多轮
 │  ├─ compaction    上下文压缩策略流水线  │  投影式（不落盘）+ 替换式（落盘）
 │  ├─ permissions   bash 白/黑名单      │
 │  └─ agents        扫描 ~/.pipi/agents │  一切皆文件
@@ -180,6 +181,33 @@ Agent 可以通过三项显式工具组合已有 Agent，而不引入独立的 s
 - 会话身份变了要通知前端：切完 writer 先发 `session-switched`（envelope 用**旧 id**，
   因为此刻前端身份还是旧的），再让后续事件带新 id —— 顺序反了前端会收不到切换、
   `running` 卡在 true。
+
+### 并发模型（多路会话同时运行）
+
+- **会话槽按 (Agent 名, 会话 id) 索引**：`RuntimeState` 持的是
+  `Mutex<HashMap<SessionKey, Session>>`，不是「当前那个会话」。每个槽自带
+  abort / 运行守卫 / writer / 统计，所以**同一个 Agent 可以同时开多条会话、每条
+  各跑一轮；不同 Agent 更是互不影响，路数不限**（没有并发上限设置、没有信号量；
+  每轮运行是注入运行时上的一个独立任务）。桌面壳与 Web 服务同款语义。
+- **运行守卫按会话**：同一条会话同时只能跑一轮（**同会话串行是硬不变量**，第二轮
+  会被拒并提示先停止或走插话）；别的会话、别的 Agent 照跑。`stop_run` 只停指定的
+  那一条。
+- **换会话要换键**：压缩分叉出新会话时，条目从旧键搬到新键（同一个 `Session`
+  对象：运行守卫 / abort / writer 跟着走），随后发 `session-switched` 让前端把
+  视图身份切到新 id。
+- **身份进 IPC**：会话类命令都带 `agentName` + `sessionId`
+  （`session_info` / `session_running` / `stop_run` / `steer` / `session_stats` /
+  `session_messages` / `set_session_model` / `compact_now`；`send_prompt` 的
+  `sessionId` 为空 = 新建一条）；`session_infos` 返回所有打开中的会话，前端由此
+  得到「哪些会话正在跑」的**集合**，侧栏把标记打在那条**会话行**上。
+- **事件本就带身份**：所有 envelope 都带 `agentName` + `sessionId` + `runId`，前端
+  按身份过滤 —— 所以多会话并发不需要新的分发通道。
+- **前端**：离开会话视图**不再中止运行**（后台继续跑、继续落盘；回到视图时用
+  `session_messages` / `session_info` 重新水合）；切换 Agent / 切换会话都不再被拦 ——
+  会话之间是独立的路，运行中的会话也可以随时打开查看。`new_session(agent)` 只释放该
+  Agent 名下**空闲**的会话（正在跑的那条留着），用于「新建会话」与离开时的清理。
+- **跨进程**：桌面壳与 Web 服务各自一个 `RuntimeState`，进程之间没有写者锁 —— 已知
+  限制：别让两边同时开同一个会话。
 
 ### 与 pi 的关系
 

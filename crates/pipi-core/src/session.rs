@@ -75,10 +75,16 @@ pub fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
-/// 一个会话的追加写入器。`sessions/<millis>-<id>.jsonl`。
+/// 一个会话的追加账本。
+///
+/// 正式会话把每条 entry 追加到 `sessions/<millis>-<id>.jsonl`；设置工作台的
+/// 临时测试会话只维护同样的 tip / seq / message id 映射，不持有文件。这样
+/// runtime 的事件、统计与压缩不需要两套状态机，同时保证临时测试不会出现在
+/// sessions 目录和会话列表里。
 pub struct SessionWriter {
-    path: PathBuf,
-    file: std::fs::File,
+    session_id: String,
+    path: Option<PathBuf>,
+    file: Option<std::fs::File>,
     tip_id: Option<String>,
     seq: u64,
     /// 环境记账每会话至多一条；打开旧会话时从已有条目恢复。
@@ -110,14 +116,34 @@ impl SessionWriter {
             .create(true)
             .append(true)
             .open(&path)?;
+        let session_id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| std::io::Error::other("无法解析会话 ID"))?
+            .to_string();
         Ok(SessionWriter {
-            path,
-            file,
+            session_id,
+            path: Some(path),
+            file: Some(file),
             tip_id: None,
             seq: 0,
             env_recorded: false,
             message_ids: Vec::new(),
         })
+    }
+
+    /// 创建不落盘的临时测试账本。ID 仍是稳定的会话身份，供事件过滤、停止、
+    /// steering 与供应商缓存路由使用；应用进程退出后它随内存一起消失。
+    pub fn temporary() -> SessionWriter {
+        SessionWriter {
+            session_id: format!("test-{}", new_id()),
+            path: None,
+            file: None,
+            tip_id: None,
+            seq: 0,
+            env_recorded: false,
+            message_ids: Vec::new(),
+        }
     }
 
     /// 打开已有会话文件继续追加（seq/tip 从已有条目恢复）。
@@ -134,9 +160,15 @@ impl SessionWriter {
         // 保证「内存第 i 条消息」的条目 id 可查。
         let message_ids = replay(&active_path(&entries)).1;
         let file = std::fs::OpenOptions::new().append(true).open(path)?;
+        let session_id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| std::io::Error::other("无法解析会话 ID"))?
+            .to_string();
         Ok(SessionWriter {
-            path: path.to_path_buf(),
-            file,
+            session_id,
+            path: Some(path.to_path_buf()),
+            file: Some(file),
             tip_id,
             seq,
             env_recorded,
@@ -144,8 +176,22 @@ impl SessionWriter {
         })
     }
 
+    /// 正式会话的文件路径。临时账本没有路径；旧的持久化调用点继续使用本方法，
+    /// runtime 的通用路径应优先用 [`SessionWriter::session_id`] / `is_temporary`。
     pub fn path(&self) -> &Path {
-        &self.path
+        self.path.as_deref().expect("临时会话没有持久化路径")
+    }
+
+    pub fn persistent_path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    pub fn is_temporary(&self) -> bool {
+        self.path.is_none()
     }
 
     pub fn tip_id(&self) -> Option<&str> {
@@ -249,10 +295,12 @@ impl SessionWriter {
     }
 
     pub fn write_entry(&mut self, entry: &SessionEntry) -> std::io::Result<()> {
-        let mut line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
-        line.push('\n');
-        self.file.write_all(line.as_bytes())?;
-        self.file.flush()?; // 每条即刷，崩溃安全
+        if let Some(file) = self.file.as_mut() {
+            let mut line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
+            line.push('\n');
+            file.write_all(line.as_bytes())?;
+            file.flush()?; // 每条即刷，崩溃安全
+        }
         self.tip_id = Some(entry.id.clone());
         self.seq += 1;
         track_message_ids(&mut self.message_ids, entry);
@@ -582,6 +630,26 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pipi-test-{}", new_id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn temporary_writer_keeps_ledger_state_without_a_file() {
+        let mut writer = SessionWriter::temporary();
+        let session_id = writer.session_id().to_string();
+        assert!(session_id.starts_with("test-"));
+        assert!(writer.is_temporary());
+        assert!(writer.persistent_path().is_none());
+
+        let first = writer
+            .append_message(&Message::user_text("只在内存里"))
+            .unwrap();
+        let second = writer
+            .append_message(&Message::assistant_text("收到", "mock"))
+            .unwrap();
+
+        assert_eq!(writer.tip_id(), Some(second.as_str()));
+        assert_eq!(writer.message_ids(), &[first, second]);
+        assert!(writer.persistent_path().is_none());
     }
 
     #[test]
@@ -1034,4 +1102,3 @@ mod tests {
         assert_eq!(current_summary.model.as_deref(), Some("Claude Sonnet"));
     }
 }
-

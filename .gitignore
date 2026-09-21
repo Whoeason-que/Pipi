@@ -4,3 +4,6 @@ target/
 src-tauri/gen/schemas
 *.local
 .DS_Store
+
+# 上游源码参考（pi / codex / opencode / hermes 的浅克隆），只读不提交
+reference/

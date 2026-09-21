@@ -257,6 +257,35 @@ body.resizing * {
   color: var(--faint);
 }
 
+/* 侧栏运行中标记：多个 Agent 可以同时在跑，标记逐行显示 */
+.agent-running {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.agent-running::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentcolor;
+  animation: agent-running-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes agent-running-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 .sessions {
   padding-left: 0;
 }
@@ -317,6 +346,30 @@ body.resizing * {
   font-size: 10px;
   color: var(--faint);
   flex-shrink: 0;
+}
+
+/* 会话行上的运行标记：运行中的 Agent 只允许回到它正在跑的那条会话 */
+.session-running {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.session-running::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentcolor;
+  animation: agent-running-pulse 1.4s ease-in-out infinite;
 }
 
 .session:hover {
