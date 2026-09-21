@@ -99,7 +99,14 @@ src/                React + TypeScript 前端
   会话**不得**被拦（后台运行是产品行为，不是 bug）。
 - 权限是安全边界：bash 命令检查在 `pipi-core/src/tools/bash.rs` 执行前发生，
   改权限逻辑（`permissions/`）必须带测试，且宁可拒绝不可放行 —— 无法静态
-  分析的命令一律视为危险。
+  分析的命令一律视为危险。两条已定的判据边界，改动前先想清楚：
+  **重定向**只拦「写入文件系统」（`>` `>>` `2>文件` `&>` `>|` `<>` `>&词`）
+  与「从文件读入」（`<文件` `<(cmd)`），`2>/dev/null`、`2>&1`、`>&-`、
+  heredoc / herestring 必须放行（它们既不落盘也不读文件，且实测占拒绝量的
+  绝大多数，拦下来只有摩擦）—— 见 `permissions::check_write_redirect`；
+  **`rm -f` 家族**只放行工作区内、非仓库根 / 工作区根的字面量绝对路径，
+  包装调用（sudo/env/bash -c）、变量与通配符目标必须拒绝 —— 见
+  `permissions::forced_rm_inside_workspace`。这两条改判据都要更新表驱动测试。
 - agent.toml 契约（`crates/av`，README「agent.toml 契约（av 标准）」一节）：
   未知键/未知段一律拒绝、秘密值只许引用式（永不内联）、`AV_*` 是运行时
   保留命名空间、项目层文件不得声明身份与权限段 —— 改 schema/合并/解析

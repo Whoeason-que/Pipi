@@ -43,7 +43,14 @@ impl AgentTool for BashTool {
 
     fn description(&self) -> String {
         format!(
-            "Execute a bash command in the current working directory. Returns combined stdout and stderr. In workspace-write mode, shell redirection is rejected; use write or edit for file writes. Output is truncated to last {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). Optionally provide a timeout in seconds.",
+            "Execute a bash command in the current working directory. Returns combined stdout and stderr. \
+             In workspace-write mode, write redirections (`> file`, `>> file`, `2> file`, `&> file`) are rejected — \
+             use the write / edit tools for file writes — and file-input redirections (`< file`, `<(cmd)`) are rejected; \
+             discarding or merging output (`2>/dev/null`, `2>&1`), pipes and heredocs (`<<EOF`) are allowed. \
+             For long-running work prefer one bounded foreground run with trimmed output, e.g. \
+             `timeout 900 cargo test -p x 2>&1 | tail -40`; avoid detaching a job and polling it with sleep. \
+             Output is truncated to last {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). \
+             Optionally provide a timeout in seconds.",
             DEFAULT_MAX_BYTES / 1024
         )
     }

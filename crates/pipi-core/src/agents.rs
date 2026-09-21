@@ -1431,6 +1431,49 @@ only = ["wanted"]
         let _ = fs::remove_file(outside);
     }
 
+    /// 项目层契约可以用 `[resources.skills] sources` 指向仓库内的技能包目录
+    /// （多仓库工作区用 `.agents/skills` 这种既有约定），不必改造成 `.pi/skills`。
+    #[test]
+    fn project_contract_skills_sources_point_into_the_repo() {
+        let root = std::env::temp_dir().join(format!(
+            "pipi-skills-sources-{}",
+            crate::session::new_id()
+        ));
+        fs::create_dir_all(root.join(".git")).unwrap();
+        let pack = root.join(".agents").join("skills").join("workspace-guide");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join("SKILL.md"),
+            "---\nname: workspace-guide\ndescription: repo skill pack\n---\nbody",
+        )
+        .unwrap();
+        fs::write(
+            root.join("agent.toml"),
+            "schema = 1\n\n[resources.skills]\nsources = [\".agents/skills\"]\n",
+        )
+        .unwrap();
+
+        let def = AgentDefinition {
+            name: "__pipi_skills_sources__".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: Some(root.to_string_lossy().into_owned()),
+            permissions: PermissionsConfig {
+                tools: vec!["read".into(), "bash".into()],
+                ..Default::default()
+            },
+            mcp_servers: Vec::new(),
+            compact_threshold_percent: 75,
+        };
+
+        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        assert!(prompt.contains("<name>workspace-guide</name>"), "{prompt}");
+        assert!(prompt.contains("repo skill pack"), "{prompt}");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn system_prompt_injects_memory_index_with_summaries() {
         let _guard = HOME_LOCK.lock().unwrap();
