@@ -49,6 +49,7 @@ import {
   SANDBOX_LABELS,
   type AgentDefinition,
   type SessionInfoView,
+  type SessionChangedPayload,
   type SessionSummaryView,
   type Theme,
   type ApiKind,
@@ -78,7 +79,49 @@ const KNOWN_TOOLS = [
   "create_agent",
   "run_agent",
   "read_agent",
+  "submit_background_task",
+  "query_background_tasks",
+  "manage_background_task",
 ] as const;
+
+/**
+ * ChatView 可以随会话切换卸载，但运行事件不能随视图一起消失。
+ * App 只保留每条会话最近一轮的事件：已完成消息仍以 JSONL 水合为准，
+ * 这里主要覆盖「切走时尚未落盘的流式消息」以及回切前的工具进度。
+ */
+const SESSION_EVENT_REPLAY_LIMIT = 2048;
+type SessionEventReplay = {
+  runId: number;
+  events: AgentEventPayload[];
+};
+
+function sessionEventKey(agentName: string, sessionId: string): string {
+  return `${agentName}\u0000${sessionId}`;
+}
+
+function rememberAgentEvent(
+  cache: Map<string, SessionEventReplay>,
+  payload: AgentEventPayload,
+): void {
+  const { event, meta } = normalizeAgentEvent(payload);
+  if (!meta) return;
+  const key = sessionEventKey(meta.agentName, meta.sessionId);
+  const current = cache.get(key);
+  if (current && meta.runId < current.runId) return;
+  if (!current || meta.runId > current.runId) {
+    cache.set(key, { runId: meta.runId, events: [payload] });
+    return;
+  }
+  // 结束帧自带本轮完整消息；运行结束后不必继续保留几千个增量事件。
+  if (event.type === "agent_end") {
+    current.events = [payload];
+    return;
+  }
+  current.events.push(payload);
+  if (current.events.length > SESSION_EVENT_REPLAY_LIMIT) {
+    current.events.splice(0, current.events.length - SESSION_EVENT_REPLAY_LIMIT);
+  }
+}
 
 /** 构建时注入的版本号（vite define），未注入时留空。 */
 const APP_VERSION = typeof __PIPI_VERSION__ === "string" ? __PIPI_VERSION__ : "";
@@ -166,11 +209,17 @@ export default function App() {
   const selectedRef = useRef<string | null>(null);
   const activeSessionRef = useRef<SessionInfoView | null>(null);
   const blockedSessionIdsRef = useRef(new Set<string>());
+  const sessionEventReplayRef = useRef(new Map<string, SessionEventReplay>());
   const navigationQueueRef = useRef<Promise<void>>(Promise.resolve());
   agentsRef.current = agents;
   settingsRef.current = settings;
   selectedRef.current = selected;
   activeSessionRef.current = activeSession;
+
+  const replayEventsFor = useCallback((agentName: string, sessionId: string | null) => {
+    if (!sessionId) return [];
+    return sessionEventReplayRef.current.get(sessionEventKey(agentName, sessionId))?.events ?? [];
+  }, []);
 
   useEffect(() => subscribeConnection(setConnection), []);
 
@@ -184,6 +233,10 @@ export default function App() {
     // 换成可执行的指引而不是把核心原文丢给用户。
     if (msg.includes("当前会话仍在运行")) {
       setError("Agent 正在运行：请进入该 Agent 的会话停止，或等它完成后再操作");
+      return;
+    }
+    if (msg.includes("正在运行或有托管后台任务")) {
+      setError("会话仍在运行或有后台任务：请先停止运行并终止后台任务后再操作");
       return;
     }
     setError(msg);
@@ -402,8 +455,9 @@ export default function App() {
   // 只订阅一次全局完成事件，读取 ref 避免因 Agent 列表更新反复注册监听器。
   useEffect(() => {
     let active = true;
-    const unlisten = listen<AgentEventPayload>("agent-event", (event) => {
+    const unlistenAgent = listen<AgentEventPayload>("agent-event", (event) => {
       if (!active) return;
+      rememberAgentEvent(sessionEventReplayRef.current, event.payload);
       const normalized = normalizeAgentEvent(event.payload);
       if (normalized.event.type !== "agent_end") return;
       if (
@@ -433,9 +487,16 @@ export default function App() {
       }
       void refreshSessions(agentsRef.current.map((agent) => agent.name));
     });
+    const unlistenSession = listen<SessionChangedPayload>("session-changed", (event) => {
+      if (!active) return;
+      // child session 的创建与当前打开的父会话无关；只刷新事件携带的 Agent，
+      // 即使用户此刻已经切换到别的 Agent 也不能丢掉这次更新。
+      void refreshSessions([event.payload.agentName]);
+    });
     return () => {
       active = false;
-      unlisten.then((fn) => fn()).catch(() => {});
+      unlistenAgent.then((fn) => fn()).catch(() => {});
+      unlistenSession.then((fn) => fn()).catch(() => {});
     };
   }, [refreshSessions]);
 
@@ -569,9 +630,55 @@ export default function App() {
   // ============ 归档 / 恢复 / 删除 ============
   // 归档 = 移到 .archive/（文件即真相）；删除不可恢复，一律 confirm 后才执行。
 
+  /**
+   * 归档/删除当前正在查看的会话后，留在 ChatView 里进入一条干净的新会话。
+   * 核心会在文件操作前释放空闲会话槽；这里同步清理前端身份与事件回放缓存，
+   * 避免界面继续把已归档/已删除的会话当成可发送目标。
+   */
+  const finishSessionMutation = (agentName: string, sessionId: string) => {
+    sessionEventReplayRef.current.delete(sessionEventKey(agentName, sessionId));
+    setRunningSessions((previous) => {
+      const key = runningKey(agentName, sessionId);
+      if (!previous.has(key)) return previous;
+      const next = new Set(previous);
+      next.delete(key);
+      return next;
+    });
+    if (
+      selectedRef.current !== agentName
+      || !chatOpen
+      || viewSessionId !== sessionId
+    ) {
+      return;
+    }
+    invalidateNavigation();
+    activeSessionRef.current = null;
+    setActiveSession(null);
+    setViewSessionId(null);
+    setChatKey((key) => key + 1);
+  };
+
+  const forgetAgentRuntime = (agentName: string) => {
+    const prefix = `${agentName}\u0000`;
+    for (const key of sessionEventReplayRef.current.keys()) {
+      if (key.startsWith(prefix)) sessionEventReplayRef.current.delete(key);
+    }
+    setRunningSessions((previous) => {
+      const next = new Set([...previous].filter((key) => !key.startsWith(prefix)));
+      return next.size === previous.size ? previous : next;
+    });
+    if (selectedRef.current !== agentName) return;
+    invalidateNavigation();
+    activeSessionRef.current = null;
+    setActiveSession(null);
+    setViewSessionId(null);
+    setChatOpen(false);
+  };
+
   const archiveAgent = async (name: string) => {
     try {
       await invoke("archive_agent", { name });
+      forgetAgentRuntime(name);
       if (selectedRef.current === name) {
         setSelected(null);
         setChatOpen(false);
@@ -605,6 +712,7 @@ export default function App() {
       action: async () => {
         try {
           await invoke(archived ? "delete_archived_agent" : "delete_agent", { name });
+          if (!archived) forgetAgentRuntime(name);
           if (!archived && selectedRef.current === name) {
             setSelected(null);
             setChatOpen(false);
@@ -638,6 +746,7 @@ export default function App() {
   const archiveSession = async (agentName: string, sessionId: string) => {
     try {
       await invoke("archive_session", { agentName, sessionId });
+      finishSessionMutation(agentName, sessionId);
       await refreshSessions([agentName]);
       // 「已归档」折叠区若正展开，同步回写新归档的会话，避免收起再展开才可见
       if (archivedSessionsExpanded[agentName]) {
@@ -658,6 +767,7 @@ export default function App() {
       action: async () => {
         try {
           await invoke("delete_session", { agentName, sessionId });
+          finishSessionMutation(agentName, sessionId);
           await refreshSessions([agentName]);
         } catch (errorValue) {
           safeSetError(formatRuntimeError(errorValue));
@@ -999,33 +1109,38 @@ export default function App() {
                         ) : (
                           (archivedSessions[a.name] ?? []).map((sess) => (
                             <div key={sess.id} className="session">
-                              <span className="session-title dim">{sess.title}</span>
-                              <span className="session-actions">
-                                <button
-                                  type="button"
-                                  className="icon-btn"
-                                  title="恢复会话"
-                                  aria-label={`恢复会话 ${sess.title}`}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void restoreSession(a.name, sess.id);
-                                  }}
-                                >
-                                  <IconRestore />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="icon-btn danger"
-                                  title="彻底删除归档会话"
-                                  aria-label={`彻底删除归档会话 ${sess.title}`}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void deleteArchivedSession(a.name, sess.id);
-                                  }}
-                                >
-                                  <IconTrash />
-                                </button>
-                              </span>
+                              <div className="session-content">
+                                <span className="session-title dim">{sess.title}</span>
+                              </div>
+                              <div className="session-meta">
+                                <span className="session-status session-archived-status">已归档</span>
+                                <span className="session-actions">
+                                  <button
+                                    type="button"
+                                    className="icon-btn"
+                                    title="恢复会话"
+                                    aria-label={`恢复会话 ${sess.title}`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void restoreSession(a.name, sess.id);
+                                    }}
+                                  >
+                                    <IconRestore />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-btn danger"
+                                    title="彻底删除归档会话"
+                                    aria-label={`彻底删除归档会话 ${sess.title}`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void deleteArchivedSession(a.name, sess.id);
+                                    }}
+                                  >
+                                    <IconTrash />
+                                  </button>
+                                </span>
+                              </div>
                             </div>
                           ))
                         )}
@@ -1174,6 +1289,7 @@ export default function App() {
                   agent={current}
                   providers={settings.providers}
                   sessionId={viewSessionId}
+                  replayEvents={replayEventsFor(current.name, viewSessionId)}
                   blockedSessionIds={[...blockedSessionIdsRef.current]}
                   onBack={() => {
                     invalidateNavigation();
@@ -1214,6 +1330,7 @@ export default function App() {
                   onBack={() => setSelected(null)}
                   onError={safeSetError}
                   blockedSessionIds={[...blockedSessionIdsRef.current]}
+                  replayEventsFor={replayEventsFor}
                   onRunningChange={handleRunningChange}
                 />
               )
@@ -1287,6 +1404,7 @@ interface AgentDetailProps {
   onBack: () => void;
   onError: (msg: string) => void;
   blockedSessionIds: string[];
+  replayEventsFor: (agentName: string, sessionId: string | null) => AgentEventPayload[];
   onRunningChange: (agentName: string, sessionId: string | null, running: boolean) => void;
 }
 
@@ -1299,6 +1417,7 @@ function AgentDetail({
   onBack,
   onError,
   blockedSessionIds,
+  replayEventsFor,
   onRunningChange,
 }: AgentDetailProps) {
   const { bash } = agent.permissions;
@@ -1475,6 +1594,7 @@ function AgentDetail({
       agent={agent}
       providers={providers}
       sessionId={testSession.sessionId}
+      replayEvents={replayEventsFor(agent.name, testSession.sessionId)}
       blockedSessionIds={blockedSessionIds}
       onBack={onBack}
       onError={onError}

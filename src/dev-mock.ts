@@ -813,10 +813,17 @@ export function installDevMock(): void {
           );
         }
         case "archive_session": {
-          const state = stateFor(String(args.agentName ?? demoAgent.name));
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const state = stateFor(agentName);
           const sid = String(args.sessionId ?? "");
+          const current = conversationOf(agentName, sid);
+          if (current?.running) {
+            return Promise.reject(new Error(`会话「${sid}」正在运行，请先停止再归档`));
+          }
           const history = state.histories.get(sid);
           if (history !== undefined) {
+            // 与核心一致：归档前释放仍打开但空闲的会话槽。
+            demoConversations.delete(conversationKey(agentName, sid));
             state.histories.delete(sid);
             state.archivedSessions.set(sid, history);
           }
@@ -833,8 +840,15 @@ export function installDevMock(): void {
           return Promise.resolve(null);
         }
         case "delete_session": {
-          const state = stateFor(String(args.agentName ?? demoAgent.name));
-          state.histories.delete(String(args.sessionId ?? ""));
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const state = stateFor(agentName);
+          const sid = String(args.sessionId ?? "");
+          const current = conversationOf(agentName, sid);
+          if (current?.running) {
+            return Promise.reject(new Error(`会话「${sid}」正在运行，请先停止再删除`));
+          }
+          demoConversations.delete(conversationKey(agentName, sid));
+          state.histories.delete(sid);
           return Promise.resolve(null);
         }
         case "delete_archived_session": {

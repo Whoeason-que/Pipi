@@ -330,6 +330,8 @@ const SESSION_COMMAND_ARGS: Record<string, { sessionId: "required" | "optional" 
   session_messages: { sessionId: "required" },
   session_stats: { sessionId: "required" },
   stop_run: { sessionId: "required" },
+  query_background_tasks: { sessionId: "required" },
+  manage_background_task: { sessionId: "required" },
   steer: { sessionId: "required" },
   set_session_model: { sessionId: "required" },
   compact_now: { sessionId: "required" },

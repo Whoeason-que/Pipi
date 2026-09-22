@@ -120,12 +120,20 @@ export interface SessionSummaryView {
   model?: string;
 }
 
+/** child Agent 创建持久会话后，宿主要求刷新该 Agent 的列表。 */
+export interface SessionChangedPayload {
+  agentName: string;
+  sessionId: string;
+  runId: number;
+}
+
 export interface SessionInfoView {
   agentName: string;
   sessionId: string;
   /** 设置工作台的内存测试会话，不对应 sessions/*.jsonl。 */
   temporary: boolean;
   running: boolean;
+  backgroundTasks?: number;
   runId?: number;
   model?: ModelConfig | null;
   isCustomModel?: boolean;

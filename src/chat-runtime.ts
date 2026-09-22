@@ -583,6 +583,53 @@ function finishRunningEntries(entries: ChatEntry[]): ChatEntry[] {
   });
 }
 
+/**
+ * 把一条已经完成的消息并入当前时间线。
+ *
+ * `agent_end.messages` 是切换视图期间丢失流事件时的最后兜底；正常收到
+ * `message_end` 时也走同一条路径，保证两种入口的去重与工具条目合并规则一致。
+ */
+function applyCompletedMessage(state: ChatState, message: MessageView, key: string): ChatState {
+  if (message.role === "assistant") {
+    if (!state.activeAssistantKey && state.entries.some((entry) => sameMessage(entry, message))) {
+      return state;
+    }
+    const assistantKey = state.activeAssistantKey ?? key;
+    const exists = state.entries.some((entry) => entry.key === assistantKey);
+    return {
+      ...state,
+      entries: exists
+        ? state.entries.map((entry) => (
+          entry.key === assistantKey ? updateAssistantEntry(entry, message, false) : entry
+        ))
+        : [...state.entries, {
+          ...entryFromMessage(message, assistantKey, true),
+          streaming: false,
+        }],
+      activeAssistantKey: null,
+    };
+  }
+
+  if (message.role === "toolResult" && message.toolCallId) {
+    const toolKey = `tool-${message.toolCallId}`;
+    const toolEntry = state.entries.find((entry) => entry.key === toolKey);
+    if (toolEntry) {
+      return {
+        ...state,
+        entries: state.entries.map((entry) => (
+          entry.key === toolKey ? mergeToolMessageEntry(entry, message) : entry
+        )),
+      };
+    }
+  }
+
+  if (state.entries.some((entry) => sameMessage(entry, message))) return state;
+  return {
+    ...state,
+    entries: [...state.entries, entryFromMessage(message, key, true)],
+  };
+}
+
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "hydrate":
@@ -613,14 +660,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       switch (event.type) {
         case "agent_start":
           return { ...state, running: true };
-        case "agent_end":
+        case "agent_end": {
+          // 切换会话期间可能只收到 agent_end，不能让它把一个空时间线直接
+          // 结算掉；把运行循环带回来的完整消息先合并，再结束 transient 状态。
+          const recovered = (event.messages ?? []).reduce(
+            (current, message) => applyCompletedMessage(current, message, action.key),
+            state,
+          );
           return {
-            ...state,
-            entries: finishRunningEntries(state.entries),
+            ...recovered,
+            entries: finishRunningEntries(recovered.entries),
             running: false,
             activeAssistantKey: null,
             activeCompactionKey: null,
           };
+        }
         case "message_start": {
           const message = event.message;
           if (message.role !== "assistant") {
@@ -686,39 +740,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         }
         case "message_end": {
           const message = event.message;
-          if (message.role === "assistant") {
-            if (!state.activeAssistantKey && state.entries.some((entry) => sameMessage(entry, message))) {
-              return state;
-            }
-            const key = state.activeAssistantKey ?? action.key;
-            const exists = state.entries.some((entry) => entry.key === key);
-            return {
-              ...state,
-              entries: exists
-                ? state.entries.map((entry) => (
-                  entry.key === key ? updateAssistantEntry(entry, message, false) : entry
-                ))
-                : [...state.entries, entryFromMessage(message, key, true)],
-              activeAssistantKey: null,
-            };
-          }
-          if (message.role === "toolResult" && message.toolCallId) {
-            const toolKey = `tool-${message.toolCallId}`;
-            const toolEntry = state.entries.find((entry) => entry.key === toolKey);
-            if (toolEntry) {
-              return {
-                ...state,
-                entries: state.entries.map((entry) => (
-                  entry.key === toolKey ? mergeToolMessageEntry(entry, message) : entry
-                )),
-              };
-            }
-          }
-          if (state.entries.some((entry) => sameMessage(entry, message))) return state;
-          return {
-            ...state,
-            entries: [...state.entries, entryFromMessage(message, action.key, true)],
-          };
+          return applyCompletedMessage(state, message, action.key);
         }
         case "tool_execution_start": {
           const key = `tool-${event.toolCallId}`;

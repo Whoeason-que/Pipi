@@ -178,6 +178,19 @@ test("agent end finalizes every incomplete live entry", () => {
   assert.equal(state.entries.every((entry) => entry.status === "aborted"), true);
 });
 
+test("agent end recovers messages when the view missed the stream", () => {
+  let state = event(INITIAL_CHAT_STATE, { type: "agent_start" });
+  state = event(state, {
+    type: "agent_end",
+    messages: [assistantMessage("切换期间完成的回答", "stop")],
+  });
+
+  assert.equal(state.running, false);
+  assert.equal(state.entries.length, 1);
+  assert.equal(state.entries[0]?.text, "切换期间完成的回答");
+  assert.equal(state.entries[0]?.streaming, false);
+});
+
 test("session envelopes reject stale identity and unwrap stats", () => {
   const payload = {
     agentName: "coder",

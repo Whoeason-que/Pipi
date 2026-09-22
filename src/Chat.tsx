@@ -64,6 +64,8 @@ interface ChatViewProps {
   providers: ProviderConfig[];
   /** 正在查看的会话 id；null = 新会话（还没有文件，首次发送时创建）。 */
   sessionId: string | null;
+  /** App 层在视图卸载期间保留的当前 run 事件，水合后回放。 */
+  replayEvents: AgentEventPayload[];
   blockedSessionIds: string[];
   onBack: () => void;
   onError: (msg: string) => void;
@@ -85,6 +87,7 @@ export default function ChatView({
   agent,
   providers,
   sessionId: initialSessionId,
+  replayEvents,
   blockedSessionIds,
   onBack,
   onError,
@@ -228,7 +231,18 @@ export default function ChatView({
 
   const processAgentPayload = (payload: AgentEventPayload) => {
     const normalized = normalizeAgentEvent(payload);
-    if (!acceptMeta(normalized.meta)) return;
+    const accepted = acceptMeta(normalized.meta);
+    const finalRecovery = !accepted
+      && normalized.event.type === "agent_end"
+      && Boolean(normalized.event.messages?.length)
+      && normalized.meta !== null
+      // 只允许当前已结算 run 的结束帧兜底，不能让旧 run 复活。
+      && awaitingRunIdRef.current === null
+      && settledRunIdRef.current === normalized.meta.runId
+      && sessionIdentityRef.current?.sessionId === normalized.meta.sessionId
+      && sessionIdentityRef.current?.runId != null
+      && normalized.meta.runId >= sessionIdentityRef.current.runId;
+    if (!accepted && !finalRecovery) return;
     if (normalized.event.type === "agent_end") {
       // 运行已结束：残留的审批请求在核心侧必然已 fail-closed，收起横幅
       setPendingApproval(null);
@@ -386,6 +400,9 @@ export default function ChatView({
       if (sessionInfoResolvedRef.current) {
         identityEvents.forEach(processAgentPayload);
         identityStats.forEach(processStatsPayload);
+        // 先水合持久化历史，再回放 App 在切换期间缓存的事件；重复的结束帧由
+        // acceptMeta / reducer 去重，缺失的 assistant 消息由 agent_end.messages 补回。
+        replayEvents.forEach(processAgentPayload);
       }
       const messages = messagesResult.status === "fulfilled" ? messagesResult.value : [];
       const loadedStats = statsResult.status === "fulfilled" ? statsResult.value : null;
