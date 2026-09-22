@@ -5,8 +5,9 @@
 //! 使用 `pipi_core::types::*`，避免一次性破坏外部 crate。
 
 pub use pipi_protocol::{
-    now_millis, AbortSignal, Api, ContentBlock, Context, ErrorEnvelope, Message, Model, StopReason,
-    StreamEvent, StreamOptions, Tool, ToolResultContent, Usage,
+    now_millis, AbortSignal, Api, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskOutput,
+    BackgroundTaskSnapshot, BackgroundTaskStatus, ContentBlock, Context, ErrorEnvelope, Message,
+    Model, StopReason, StreamEvent, StreamOptions, Tool, ToolResultContent, Usage,
 };
 
 #[cfg(test)]

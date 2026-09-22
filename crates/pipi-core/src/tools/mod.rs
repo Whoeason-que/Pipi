@@ -4,6 +4,7 @@
 //! 因为它只依赖 core 的 Agent/session port，具体运行时由 `AgentRunner` 注入。
 
 pub mod agent;
+pub mod background;
 
 pub use pipi_tools::{
     bash, edit, glob, grep, memory, read, resolve_path, resolve_read_path, resolve_write_path,

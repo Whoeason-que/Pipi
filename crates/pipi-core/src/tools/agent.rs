@@ -1,8 +1,8 @@
 //! Agent 组合工具。
 //!
-//! 第一阶段刻意保持同步、扁平：当前 Agent 可以创建普通 Agent、用一个全新
-//! session 运行它，并读取它已经落盘的输出；被运行的 Agent 不再获得这组三个
-//! 工具，因此不会递归委派。所有权、后台任务和消息邮箱留给后续验证。
+//! 当前 Agent 可以创建普通 Agent、在全新 session 中同步等待它，或把它提交给
+//! 应用层的 session-owned 后台托管器；被运行的 Agent 不再获得这组三个工具，
+//! 因此不会递归委派。工具协议保持在 core，生命周期由宿主注入。
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -13,9 +13,14 @@ use serde_json::{json, Value};
 
 use super::{AgentTool, ToolContext, ToolOutput};
 use crate::agents;
-use crate::permissions::{AGENT_TOOLS, DEFAULT_TOOLS};
+use crate::permissions::{AGENT_TOOLS, BACKGROUND_TASK_TOOLS, DEFAULT_TOOLS};
 use crate::session::{active_path, list_session_summaries, load_session, rebuild_messages};
-use crate::types::{AbortSignal, ContentBlock, Message, Model, StopReason, ToolResultContent};
+use crate::tools::background::{
+    BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskOwner, BackgroundTaskService,
+};
+use crate::types::{
+    AbortSignal, BackgroundTaskInfo, ContentBlock, Message, Model, StopReason, ToolResultContent,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -182,6 +187,10 @@ impl AgentTool for CreateAgentTool {
 pub struct RunAgentTool {
     caller_agent: String,
     runner: Arc<dyn AgentRunner>,
+    background_owner: Option<BackgroundTaskOwner>,
+    background_service: Option<Arc<dyn BackgroundTaskService>>,
+    session_sink: Option<BackgroundAgentSessionSink>,
+    default_background: bool,
 }
 
 impl RunAgentTool {
@@ -189,7 +198,37 @@ impl RunAgentTool {
         Self {
             caller_agent,
             runner,
+            background_owner: None,
+            background_service: None,
+            session_sink: None,
+            default_background: false,
         }
+    }
+
+    /// 应用层注入托管服务。`default_background` 只影响省略 `background` 参数时
+    /// 的默认值；显式 `background:false` 始终保留旧的同步等待语义。
+    pub fn new_managed(
+        caller_agent: String,
+        owner: BackgroundTaskOwner,
+        runner: Arc<dyn AgentRunner>,
+        service: Arc<dyn BackgroundTaskService>,
+        default_background: bool,
+    ) -> Self {
+        Self {
+            caller_agent,
+            runner,
+            background_owner: Some(owner),
+            background_service: Some(service),
+            session_sink: None,
+            default_background,
+        }
+    }
+
+    /// 注入宿主的 child-session 生命周期通知。该回调同时用于同步 child 与
+    /// 后台 child，避免两条 `run_agent` 路径的 UI 可见性语义分叉。
+    pub fn with_session_sink(mut self, sink: BackgroundAgentSessionSink) -> Self {
+        self.session_sink = Some(sink);
+        self
     }
 }
 
@@ -200,8 +239,13 @@ impl AgentTool for RunAgentTool {
     }
 
     fn description(&self) -> String {
-        "Run an existing Pipi Agent in a fresh independent session. Wait for completion and return that Agent's final output plus its session ID."
-            .into()
+        if self.default_background {
+            "Submit an existing Pipi Agent as a managed background task in a fresh independent session. Return immediately with a job ID; use query_background_tasks to wait/read progress and manage_background_task to terminate it. Pass background:false only when the final output is needed before continuing."
+                .into()
+        } else {
+            "Run an existing Pipi Agent in a fresh independent session. By default wait for completion and return its final output plus session ID; pass background:true to submit a managed task and return immediately."
+                .into()
+        }
     }
 
     fn parameters(&self) -> Value {
@@ -215,6 +259,10 @@ impl AgentTool for RunAgentTool {
                 "prompt": {
                     "type": "string",
                     "description": "Self-contained task and context for the Agent"
+                },
+                "background": {
+                    "type": "boolean",
+                    "description": "Submit and return immediately as a managed task. Defaults to the host's configured mode; false waits for the final output."
                 }
             },
             "required": ["name", "prompt"],
@@ -239,6 +287,41 @@ impl AgentTool for RunAgentTool {
         }
         if prompt.is_empty() {
             return Err("prompt 不能为空".into());
+        }
+
+        let background = args
+            .get("background")
+            .and_then(Value::as_bool)
+            .unwrap_or(self.default_background);
+        if background {
+            if !ctx.permissions.tool_enabled(BACKGROUND_TASK_TOOLS[1])
+                || !ctx.permissions.tool_enabled(BACKGROUND_TASK_TOOLS[2])
+            {
+                return Err(
+                    "后台 run_agent 需要同时启用 query_background_tasks 和 manage_background_task，避免提交后无法观察或终止 child".into(),
+                );
+            }
+            let owner = self
+                .background_owner
+                .clone()
+                .ok_or("当前宿主没有配置后台 Agent 托管服务")?;
+            let service = self
+                .background_service
+                .clone()
+                .ok_or("当前宿主没有配置后台 Agent 托管服务")?;
+            let info = service
+                .submit_agent(BackgroundAgentTaskSpec {
+                    owner,
+                    target_agent: name.to_string(),
+                    prompt: prompt.to_string(),
+                    session_sink: self.session_sink.clone(),
+                })
+                .await?;
+            on_update(ToolOutput::text(format!(
+                "Agent {name} 已提交为托管后台任务 {}。",
+                info.job_id
+            )));
+            return background_agent_to_tool_output(&info);
         }
 
         on_update(ToolOutput::text(format!("Running Agent {name}…")));
@@ -268,6 +351,23 @@ impl AgentTool for RunAgentTool {
         let result = outcome?;
         result_to_tool_output(&result)
     }
+}
+
+fn background_agent_to_tool_output(info: &BackgroundTaskInfo) -> Result<ToolOutput, String> {
+    let mut text = format!(
+        "Agent {} 已提交后台任务 {}，状态为 {:?}。使用 query_background_tasks 查询状态和输出。",
+        info.target_agent.as_deref().unwrap_or("(unknown)"),
+        info.job_id,
+        info.status
+    );
+    if let Some(session_id) = &info.child_session_id {
+        text.push_str(&format!(" Child session: {session_id}."));
+    }
+    Ok(ToolOutput {
+        content: vec![ToolResultContent::Text { text }],
+        details: Some(serde_json::to_value(info).map_err(|error| error.to_string())?),
+        terminate: false,
+    })
 }
 
 pub struct ReadAgentTool;

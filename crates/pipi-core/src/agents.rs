@@ -260,7 +260,8 @@ pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
 // ============ 归档 / 恢复 / 删除 ============
 // 归档 = 移动到 `agents/.archive/<name>/`；删除 = 彻底删目录。
 // 都是纯文件操作：移动失败、目录不存在都直接报中文错误。
-// 调用方（命令层）负责先做「会话占用」检查 —— 打开中的 Agent 目录不能挪走。
+// 调用方（应用层）负责先做「会话占用」检查，并在无占用时释放空闲会话槽，
+// 再移动 Agent 目录。
 
 fn checked_archive_dir() -> Result<PathBuf, String> {
     Ok(checked_agents_root()?.join(ARCHIVE_DIR))
@@ -490,7 +491,7 @@ pub fn create_agent_with_instructions(
     }
 
     // 目录骨架（与 README「Agent 的组成」一一对应）
-    for sub in ["skills", "memory", "sessions"] {
+    for sub in ["skills", "memory", "sessions", "jobs"] {
         fs::create_dir_all(dir.join(sub)).map_err(|e| e.to_string())?;
     }
     if workspace.is_none() {
@@ -1752,6 +1753,7 @@ only = ["wanted"]
         assert!(dir.join("AGENTS.md").is_file());
         assert!(dir.join("skills").is_dir());
         assert!(dir.join("memory").is_dir());
+        assert!(dir.join("jobs").is_dir());
         assert!(dir.join("sessions").is_dir());
         assert!(dir.join("workspace").is_dir()); // 未指定外部目录 → 创建默认
 
@@ -1869,6 +1871,7 @@ only = ["wanted"]
             "AGENTS.md",
             "skills",
             "memory",
+            "jobs",
             "sessions",
             "workspace",
         ] {

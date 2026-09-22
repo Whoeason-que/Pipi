@@ -214,8 +214,16 @@ pub const DEFAULT_TOOLS: [&str; 7] = ["read", "write", "edit", "bash", "memory",
 /// Agent 组合工具：必须在 `permissions.tools` 中显式启用。
 pub const AGENT_TOOLS: [&str; 3] = ["create_agent", "run_agent", "read_agent"];
 
-/// Pipi 已知内置工具名（基础工具 + 显式启用的 Agent 组合工具）。
-pub const KNOWN_TOOLS: [&str; 10] = [
+/// 后台任务托管工具：必须显式启用。它们允许进程跨越当前模型轮次继续运行，
+/// 因此不随普通 bash 权限默认开放。
+pub const BACKGROUND_TASK_TOOLS: [&str; 3] = [
+    "submit_background_task",
+    "query_background_tasks",
+    "manage_background_task",
+];
+
+/// Pipi 已知内置工具名（基础工具 + 显式启用的 Agent 组合 / 后台任务工具）。
+pub const KNOWN_TOOLS: [&str; 13] = [
     "read",
     "write",
     "edit",
@@ -226,6 +234,9 @@ pub const KNOWN_TOOLS: [&str; 10] = [
     "create_agent",
     "run_agent",
     "read_agent",
+    "submit_background_task",
+    "query_background_tasks",
+    "manage_background_task",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1161,6 +1172,10 @@ mod tests {
     fn agent_composition_tools_are_known_but_never_defaulted() {
         let defaults = PermissionsConfig::default();
         for tool in AGENT_TOOLS {
+            assert!(KNOWN_TOOLS.contains(&tool));
+            assert!(!defaults.tool_enabled(tool));
+        }
+        for tool in BACKGROUND_TASK_TOOLS {
             assert!(KNOWN_TOOLS.contains(&tool));
             assert!(!defaults.tool_enabled(tool));
         }

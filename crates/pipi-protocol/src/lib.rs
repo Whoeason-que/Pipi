@@ -218,6 +218,93 @@ pub struct Tool {
     pub parameters: serde_json::Value,
 }
 
+/// 后台任务的生命周期状态。
+///
+/// `orphaned` 只表示 Pipi 重启时发现任务最后一次持久化状态仍是运行中；
+/// Pipi 不会根据旧 PID 自动接管或发送信号，避免 PID 复用导致误杀别的进程。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BackgroundTaskStatus {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Terminated,
+    Orphaned,
+}
+
+impl BackgroundTaskStatus {
+    pub fn is_active(self) -> bool {
+        matches!(self, Self::Queued | Self::Running)
+    }
+}
+
+/// 后台任务的执行类型。shell 与 child Agent 共用同一套 session-owned
+/// 生命周期、查询游标和重启 orphan 语义。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BackgroundTaskKind {
+    #[default]
+    Shell,
+    Agent,
+}
+
+/// 后台任务的稳定元数据。输出正文通过 [`BackgroundTaskOutput`] 增量返回，
+/// 不把可能很大的日志直接塞进每一次状态快照。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTaskInfo {
+    pub job_id: String,
+    #[serde(default)]
+    pub kind: BackgroundTaskKind,
+    pub agent_name: String,
+    pub session_id: String,
+    pub run_id: usize,
+    pub command: String,
+    pub cwd: String,
+    /// `kind=agent` 时的目标 Agent；shell 任务为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_agent: Option<String>,
+    /// child Agent 真正创建 session 后填入；任务刚提交时可能尚未可用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_session_id: Option<String>,
+    pub status: BackgroundTaskStatus,
+    pub started_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    /// 当前输出序号；调用方把它作为下一次 `afterSeq` 的游标。
+    pub output_cursor: u64,
+    /// 内存尾部缓冲是否已经淘汰了较早输出。完整日志仍由任务目录里的
+    /// `.log` 文件保留，工具不会把该绝对路径暴露给模型。
+    pub output_truncated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// child Agent 的最终文本；shell 任务为空，shell 输出仍走 output 游标。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+}
+
+/// 一段有序的后台任务输出。`seq` 在单个任务内单调递增。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTaskOutput {
+    pub seq: u64,
+    pub stream: String,
+    pub text: String,
+    pub timestamp: u64,
+}
+
+/// 查询结果：元数据加上游标之后仍可见的输出。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTaskSnapshot {
+    pub task: BackgroundTaskInfo,
+    pub output: Vec<BackgroundTaskOutput>,
+    pub next_seq: u64,
+}
+
 /// 模型描述。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
