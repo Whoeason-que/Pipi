@@ -293,8 +293,9 @@ body.resizing * {
 
 .session {
   display: flex;
-  align-items: center;
-  gap: 7px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
   width: 100%;
   text-align: left;
   background: transparent;
@@ -308,17 +309,52 @@ body.resizing * {
   transition: background 0.13s, color 0.13s;
 }
 
+.session-content {
+  width: 100%;
+  min-width: 0;
+}
+
 .session-title {
-  flex: 1;
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 20px;
+}
+
+.session-status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.session-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
+  flex-shrink: 0;
+}
+
+.session-idle,
+.session-archived-status {
+  white-space: nowrap;
+}
+
 .session-actions {
   display: inline-flex;
   gap: 2px;
+  margin-left: auto;
   flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.12s;
@@ -340,13 +376,6 @@ body.resizing * {
 
 .session-actions:focus-within {
   opacity: 1;
-}
-
-.session-model {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--faint);
-  flex-shrink: 0;
 }
 
 /* 会话行上的运行标记：运行中的 Agent 只允许回到它正在跑的那条会话 */
@@ -382,10 +411,6 @@ body.resizing * {
 .session.active {
   background: var(--hover-2);
   color: var(--fg);
-}
-
-.session.active .session-model {
-  color: var(--muted);
 }
 
 .session.pending {
@@ -425,6 +450,16 @@ body.resizing * {
 }
 
 /* 会话树内的「已归档」折叠区 */
+
+.archived-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+}
+
+.archived-toggle .session-title {
+  flex: 1;
+}
 
 .archived-toggle > svg {
   width: 12px;

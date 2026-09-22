@@ -917,7 +917,7 @@ export default function App() {
                           role="button"
                           tabIndex={0}
                           aria-current={isCurrent ? "true" : undefined}
-                          title={`${sess.title}${sess.model ? ` · ${sess.model}` : ""}（${sess.messageCount} 条消息）`}
+                          title={`${sess.title}（${sess.messageCount} 条消息）`}
                           onClick={() => void openSession(a.name, sess.id)}
                           onKeyDown={(event) => {
                             // 内层按钮（归档/删除）的键盘事件不冒泡成「打开会话」
@@ -928,39 +928,46 @@ export default function App() {
                             }
                           }}
                         >
-                          <span className="session-title">{sess.title}</span>
-                          {isRunning && (
-                            <span className="session-running" title="这条会话正在运行">
-                              运行中
+                          <div className="session-content">
+                            <span className="session-title">{sess.title}</span>
+                          </div>
+                          <div className="session-meta">
+                            <span className="session-status">
+                              {isRunning ? (
+                                <span className="session-running" title="这条会话正在运行">
+                                  运行中
+                                </span>
+                              ) : (
+                                <span className="session-idle">空闲</span>
+                              )}
                             </span>
-                          )}
-                          {sess.model && <span className="session-model">{sess.model}</span>}
-                          <span className="session-actions">
-                            <button
-                              type="button"
-                              className="icon-btn"
-                              title="归档会话"
-                              aria-label={`归档会话 ${sess.title}`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void archiveSession(a.name, sess.id);
-                              }}
-                            >
-                              <IconArchive />
-                            </button>
-                            <button
-                              type="button"
-                              className="icon-btn danger"
-                              title="彻底删除会话"
-                              aria-label={`彻底删除会话 ${sess.title}`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void deleteSession(a.name, sess.id);
-                              }}
-                            >
-                              <IconTrash />
-                            </button>
-                          </span>
+                            <span className="session-actions">
+                              <button
+                                type="button"
+                                className="icon-btn"
+                                title="归档会话"
+                                aria-label={`归档会话 ${sess.title}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void archiveSession(a.name, sess.id);
+                                }}
+                              >
+                                <IconArchive />
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-btn danger"
+                                title="彻底删除会话"
+                                aria-label={`彻底删除会话 ${sess.title}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void deleteSession(a.name, sess.id);
+                                }}
+                              >
+                                <IconTrash />
+                              </button>
+                            </span>
+                          </div>
                         </div>
                       );
                     })}
@@ -982,7 +989,7 @@ export default function App() {
                     >
                       <IconArchive />
                       <span className="session-title dim">已归档</span>
-                      <span className="session-model">{archivedSessions[a.name]?.length ?? ""}</span>
+                      <span className="session-count">{archivedSessions[a.name]?.length ?? ""}</span>
                       <span className={`caret${archivedSessionsExpanded[a.name] ? " open" : ""}`}>▶</span>
                     </div>
                     {archivedSessionsExpanded[a.name] && (
