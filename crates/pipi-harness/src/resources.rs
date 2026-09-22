@@ -17,11 +17,7 @@ pub const CONTEXT_FILE_CANDIDATES: [&str; 5] = [
 
 /// Load Agent-global context followed by project context at the default budget.
 pub fn load_project_context_files(agent_dir: Option<&Path>, cwd: &Path) -> Vec<ContextFile> {
-    load_project_context_files_with_budget(
-        agent_dir,
-        cwd,
-        crate::project_doc::DEFAULT_PROJECT_DOC_MAX_BYTES,
-    )
+    load_project_context_files_with_budget(agent_dir, cwd, crate::DEFAULT_PROJECT_DOC_MAX_BYTES)
 }
 
 /// Load Agent-global context followed by project context with an explicit project budget.
@@ -88,7 +84,7 @@ pub fn load_agent_context_files(agent_dir: Option<&Path>) -> Vec<ContextFile> {
 }
 
 fn project_directories(cwd: &Path) -> (Option<PathBuf>, Vec<PathBuf>) {
-    let root = crate::project_doc::find_project_root(cwd);
+    let root = crate::find_project_root(cwd);
     let Some(root) = root else {
         return (Some(cwd.to_path_buf()), vec![cwd.to_path_buf()]);
     };
@@ -177,7 +173,7 @@ fn load_directory_context(
 }
 
 /// 在 UTF-8 字符边界上截断（声明式上下文文件与发现路径共用）。
-pub(crate) fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
+pub fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
     if max_bytes >= s.len() {
         return s.to_string();
     }
@@ -191,13 +187,17 @@ pub(crate) fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::harness::ContextFile;
+    use crate::ContextFile;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEST_ID: AtomicU64 = AtomicU64::new(0);
 
     fn temp_root(label: &str) -> PathBuf {
+        let id = NEXT_TEST_ID.fetch_add(1, Ordering::Relaxed);
         let root =
-            std::env::temp_dir().join(format!("pipi-context-{label}-{}", crate::session::new_id()));
+            std::env::temp_dir().join(format!("pipi-context-{label}-{}-{id}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         root
     }

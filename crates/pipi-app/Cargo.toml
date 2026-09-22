@@ -1,0 +1,13 @@
+[package]
+name = "pipi-app"
+version = "26.9.3"
+description = "Pipi 的应用服务层：会话槽、运行编排与宿主事件协议"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1"
+av = { path = "../av" }
+pipi-core = { path = "../pipi-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }

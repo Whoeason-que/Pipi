@@ -1,4 +1,4 @@
-//! read 工具。移植自 `packages/agent/src/harness/tools/read.ts`：
+//! `pipi-tools` 的 read 工具。移植自 `packages/agent/src/harness/tools/read.ts`：
 //! 文本按行号截断输出；图片按魔数识别后以 base64 附件返回。
 
 use async_trait::async_trait;

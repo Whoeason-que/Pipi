@@ -398,7 +398,9 @@ impl RuntimeState {
         }
         // 空闲临时测试没有文件需要保留，也不应让访问过设置页的 Agent 永久无法归档。
         sessions.retain(|key, session| !(key.agent_name == name && session.temporary));
-        drop(sessions);
+        // `open_session` 也必须先取得这把锁；不要在检查与目录移动之间释放它，
+        // 否则并发打开会把一个仍指向活跃目录的 Session 插入 map，再由这里把
+        // 目录移走。归档是罕见的同步文件操作，短暂持锁优先于留下悬空会话。
         agents::archive_agent(name)
     }
 
@@ -424,7 +426,8 @@ impl RuntimeState {
             ));
         }
         sessions.retain(|key, session| !(key.agent_name == name && session.temporary));
-        drop(sessions);
+        // 与归档相同：占用检查和不可逆删除是同一个临界区，不能让
+        // `open_session` 在两者之间抢跑。
         agents::delete_agent(name)
     }
 
@@ -555,6 +558,43 @@ fn settle_unanswered_tail(
         appended.push(result);
     }
     Ok(appended)
+}
+
+/// 在向持久化会话追加终态之前，先结算当前文件 tip 上尚未回答的工具调用。
+///
+/// 正常 loop 会自行写入每条 `toolResult`；但 child run 被超时取消时，future 会
+/// 在工具执行中被丢弃。此时最后一条已落盘的 assistant 工具调用必须先补齐，
+/// 再写 timeout / aborted assistant，才能保持 JSONL 的工具配对不变量。
+fn settle_unanswered_persistent_tail(writer: &mut SessionWriter) -> Result<Vec<Message>, String> {
+    let path = writer
+        .persistent_path()
+        .ok_or_else(|| "临时会话没有可修复的持久化尾部".to_string())?;
+    let entries = load_session(path).map_err(|error| error.to_string())?;
+    let messages = crate::session::rebuild_messages(&crate::session::active_path(&entries));
+    settle_unanswered_tail(writer, &messages)
+}
+
+/// child run 到达总时限后的统一收尾。返回的 assistant 终态只会排在合成的
+/// `toolResult` 之后，避免 `read_agent` 重开会话时遇到中段的孤立工具调用。
+fn append_child_timeout_terminal(
+    writer: &Arc<Mutex<SessionWriter>>,
+    model: &Model,
+    timeout: std::time::Duration,
+) -> Result<Message, String> {
+    let timeout_error = Message::assistant_error(
+        format!("子任务运行超时（{} 秒），已终止", timeout.as_secs()),
+        model.display_name(),
+        StopReason::Error,
+    );
+    let mut writer = writer
+        .lock()
+        .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
+    settle_unanswered_persistent_tail(&mut writer)
+        .map_err(|error| format!("无法修复超时前的工具调用: {error}"))?;
+    writer
+        .append_message(&timeout_error)
+        .map_err(|error| format!("无法写入超时状态: {error}"))?;
+    Ok(timeout_error)
 }
 
 /// 投影式压缩流水线的 transform 钩子（组装请求时应用，不落盘）。
@@ -1143,8 +1183,8 @@ pub(crate) async fn run_agent_once_inner(
         }),
     };
     let abort_for_result = abort.clone();
-    // 超时取消整个循环 future（bash 子进程有 kill_on_drop 兜底），并落盘
-    // 可读取的终态，避免 read_agent 把超时任务永远报成 pending。
+    // 超时取消整个循环 future（bash 子进程有 kill_on_drop 兜底）。在追加
+    // timeout assistant 前必须补齐已经落盘的工具调用，避免中段留下 orphan。
     let new_messages = match tokio::time::timeout(
         timeout,
         run_agent_loop(Vec::new(), context, config, emitter, abort),
@@ -1153,16 +1193,7 @@ pub(crate) async fn run_agent_once_inner(
     {
         Ok(new_messages) => new_messages,
         Err(_) => {
-            let timeout_error = Message::assistant_error(
-                format!("子任务运行超时（{} 秒），已终止", timeout.as_secs()),
-                model.display_name(),
-                StopReason::Error,
-            );
-            result_writer
-                .lock()
-                .map_err(|error| format!("无法锁定会话写入器: {error}"))?
-                .append_message(&timeout_error)
-                .map_err(|error| format!("无法写入超时状态: {error}"))?;
+            let timeout_error = append_child_timeout_terminal(&result_writer, &model, timeout)?;
             return Ok(result_from_messages(
                 &definition.name,
                 &session_id,
@@ -2283,6 +2314,74 @@ mod tests {
 #[cfg(test)]
 mod child_timeout_tests {
     use super::*;
+
+    #[test]
+    fn timeout_terminal_repairs_a_persisted_tool_call_before_appending_error() {
+        let sessions = std::env::temp_dir().join(format!(
+            "pipi-timeout-pairing-{}-{}",
+            std::process::id(),
+            crate::session::new_id()
+        ));
+        std::fs::create_dir_all(&sessions).unwrap();
+        let writer = Arc::new(Mutex::new(SessionWriter::create(&sessions).unwrap()));
+        let path = writer.lock().unwrap().path().to_path_buf();
+
+        let user = Message::user_text("run a tool");
+        let tool_call = Message::Assistant {
+            content: vec![crate::types::ContentBlock::ToolCall {
+                id: "call-timeout".into(),
+                name: "bash".into(),
+                arguments: serde_json::json!({ "command": "sleep 30" }),
+            }],
+            api: "openai-completions".into(),
+            provider: "test".into(),
+            model: "test-model".into(),
+            usage: Default::default(),
+            stop_reason: StopReason::ToolUse,
+            error_message: None,
+            timestamp: crate::types::now_millis(),
+            duration_ms: None,
+        };
+        {
+            let mut guard = writer.lock().unwrap();
+            guard.append_message(&user).unwrap();
+            guard.append_message(&tool_call).unwrap();
+        }
+
+        let model = Model {
+            id: "test-model".into(),
+            name: "Test model".into(),
+            api: crate::types::Api::OpenAICompletions,
+            base_url: String::new(),
+            max_tokens: 1,
+            context_window: 0,
+        };
+        append_child_timeout_terminal(&writer, &model, std::time::Duration::from_secs(1)).unwrap();
+
+        let entries = load_session(&path).unwrap();
+        let messages = crate::session::rebuild_messages(&crate::session::active_path(&entries));
+        assert_eq!(messages.len(), 4);
+        assert!(matches!(
+            &messages[2],
+            Message::ToolResult {
+                tool_call_id,
+                tool_name,
+                is_error: true,
+                ..
+            } if tool_call_id == "call-timeout" && tool_name == "bash"
+        ));
+        assert!(matches!(
+            &messages[3],
+            Message::Assistant {
+                stop_reason: StopReason::Error,
+                error_message: Some(message),
+                ..
+            } if message.contains("超时")
+        ));
+
+        drop(writer);
+        std::fs::remove_dir_all(sessions).unwrap();
+    }
 
     /// 子 Agent 挂死（端点接受连接但不回包）时，运行时限必须终止本轮并把
     /// 超时终态落盘 —— read_agent 读到 Failed 而不是永远的 pending。

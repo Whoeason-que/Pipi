@@ -231,11 +231,7 @@ enum SummarizeFailure {
 }
 
 /// 放弃重试后的文案。
-fn summarize_give_up(
-    cause: &str,
-    failures: u32,
-    reason: crate::retry::GiveUpReason,
-) -> String {
+fn summarize_give_up(cause: &str, failures: u32, reason: crate::retry::GiveUpReason) -> String {
     match reason {
         crate::retry::GiveUpReason::PolicyExhausted => {
             format!("摘要调用失败（已重试 {failures} 次）：{cause}")

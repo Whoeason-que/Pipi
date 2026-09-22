@@ -5,7 +5,7 @@
 //!   tailscale serve 1421
 //!
 //! 浏览器与桌面端复用同一组 command 名称和事件 payload。服务端不直接
-//! 暴露 pipi-core 的内部结构，所有 Agent 执行都经过共享 RuntimeState。
+//! 暴露 `pipi-app` 的应用服务，所有 Agent 执行都经过共享 RuntimeState。
 
 use std::env;
 use std::net::SocketAddr;
@@ -18,10 +18,10 @@ use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
+use pipi_app::approval::ApprovalDecision;
 use pipi_core::agents::{self, AgentDefinition, PermissionsConfig};
-use pipi_core::approval::ApprovalDecision;
 
-use pipi_core::runtime::{self, EventEmitter, RuntimeEvent, RuntimeState};
+use pipi_app::runtime::{self, EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::settings::{self, Settings};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};

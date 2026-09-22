@@ -11,19 +11,7 @@ use std::path::{Path, PathBuf};
 
 pub const AGENTS_MD_FILENAME: &str = "AGENTS.md";
 
-/// 单个项目文档的字节预算（对齐 codex 的 project_doc_max_bytes 默认值）。
-pub const DEFAULT_PROJECT_DOC_MAX_BYTES: usize = 16 * 1024;
-
-/// 在没有项目根时，资源 loader 只扫描 cwd；有项目根时从根到 cwd 逐层扫描。
-pub fn find_project_root(start: &Path) -> Option<PathBuf> {
-    let mut cursor = start;
-    loop {
-        if cursor.join(".git").exists() {
-            return Some(cursor.to_path_buf());
-        }
-        cursor = cursor.parent()?;
-    }
-}
+pub use pipi_harness::{find_project_root, DEFAULT_PROJECT_DOC_MAX_BYTES};
 
 /// 兼容收集 API：委托给 harness resource loader，按 Agent 全局 context、
 /// 项目根到 cwd 的顺序返回 context 文件；`max_bytes` 仅限制项目资源。

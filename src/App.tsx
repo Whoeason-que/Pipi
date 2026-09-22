@@ -458,6 +458,7 @@ export default function App() {
         }
         setSelected(agentName);
         setCreating(false);
+        setSettingsOpen(false);
         setChatOpen(true);
         setSidebarOpen(false);
         setViewSessionId(sessionId);
@@ -498,6 +499,7 @@ export default function App() {
         if (requestId !== navigationRequestRef.current) return;
         setSelected(agentName);
         setCreating(false);
+        setSettingsOpen(false);
         setChatOpen(true);
         setSidebarOpen(false);
         setViewSessionId(null);
@@ -1120,7 +1122,7 @@ export default function App() {
               <IconMenu />
             </button>
             <span className="mobile-toolbar-title">
-              {settingsOpen ? "设置" : current?.name ?? (creating ? "新建 Agent" : "Pipi")}
+              {settingsOpen ? "设置" : creating ? "新建 Agent" : current?.name ?? "Pipi"}
             </span>
           </div>
 

@@ -4,16 +4,18 @@
 //!
 //! | pi | pipi-core | 说明 |
 //! | --- | --- | --- |
-//! | `packages/ai` types | [`types`] | 消息 / 内容块 / 流式事件协议 |
-//! | `packages/ai` api adapters | [`provider`] | 仅移植 anthropic-messages 与 openai-completions 两个 |
+//! | `packages/ai` types | `pipi-protocol`（经 [`types`] 兼容导出） | 消息 / 内容块 / 流式事件协议 |
+//! | `packages/ai` api adapters | `pipi-provider`（经 [`provider`] 兼容导出） | 仅移植 anthropic-messages 与 openai-completions 两个 |
 //! | `packages/agent` agent-loop | [`agent_loop`] | 主循环 + steering/follow-up + 工具批次执行 |
-//! | `packages/agent` harness/tools | [`tools`] | 文件工具 + Pipi 的 Agent 创建、运行与输出读取工具 |
-//! | `packages/agent` harness/utils/truncate | [`truncate`] | 2000 行 / 50KB 截断规则 |
+//! | `packages/agent` harness/tools | `pipi-tools` + [`tools`] | 基础文件工具；核心保留 Agent 组合工具 |
+//! | `packages/agent` harness/utils/truncate | `pipi-tools::truncate`（经 [`truncate`] 兼容导出） | 2000 行 / 50KB 截断规则 |
 //! | `packages/agent` harness/session | [`session`] | 树状 JSONL 条目（append-only） |
+//! | （Pipi 应用层） | `pipi-app::runtime` | 会话槽、后台编排与宿主事件；Tauri/Web 共用 |
+//! | `packages/agent` harness prompt/resources | `pipi-harness`（经 [`harness`] 兼容导出） | 纯 prompt 渲染和项目上下文发现 |
 //! | `packages/agent` compaction（启发式部分） | [`context`] | token 估算 / 裁剪 / 环境上下文 |
 //! | `packages/agent` compaction（LLM 摘要替换） | [`compaction`] | 摘要替换旧轮次 + 保留近期轮次，落盘为 compaction 条目 |
 //! | `packages/agent` skills（frontmatter + 索引） | [`skills`] | 渐进式披露：索引常驻、全文按需 read |
-//! | （Pipi 新增） | [`permissions`] | bash 命令权限：白名单 / 黑名单 |
+//! | （Pipi 新增） | `pipi-tools::permissions`（经 [`permissions`] 兼容导出） | bash 命令权限：白名单 / 黑名单 |
 //! | （Pipi 新增） | [`agents`] | Agent 定义与注册表（一切皆文件） |
 //!
 //! 另有 codex 移植：[`permissions::safety`]（危险命令）、[`permissions`]
@@ -25,7 +27,6 @@
 
 pub mod agent_loop;
 pub mod agents;
-pub mod approval;
 pub mod catalog;
 pub mod compaction;
 pub mod context;
@@ -34,7 +35,6 @@ pub mod permissions;
 pub mod project_doc;
 pub mod provider;
 pub mod retry;
-pub mod runtime;
 pub mod session;
 
 pub mod settings;

@@ -1,5 +1,5 @@
 /* ============================================================
-   响应式：检查器抽屉（≤1100px）/ 侧栏抽屉（≤860px）/ 动效降级
+   响应式：检查器抽屉（≤1100px）/ 侧栏抽屉（≤860px）/ 手机布局
    放在最后 import：覆盖前面的基础规则。
    ============================================================ */
 
@@ -16,6 +16,7 @@
     bottom: 0;
     z-index: 30;
     width: min(320px, 88vw);
+    height: 100dvh;
     min-width: 0;
     padding-top: var(--safe-top);
     padding-bottom: var(--safe-bottom);
@@ -35,12 +36,21 @@
   .chat-shell.inspector-open .inspector {
     transform: none;
   }
+
+  .inspector-backdrop {
+    touch-action: none;
+  }
 }
 
 /* 窄屏：侧栏抽屉 + 移动工具栏；抽屉模式不提供拖拽调宽 */
 @media (max-width: 860px) {
   .mobile-toolbar {
     display: flex;
+  }
+
+  .mobile-toolbar .icon-btn {
+    width: 40px;
+    height: 40px;
   }
 
   .sidebar-resize {
@@ -54,6 +64,7 @@
     left: 0;
     z-index: 35;
     width: min(300px, 84vw);
+    height: 100dvh;
     min-width: 0;
     padding-bottom: var(--safe-bottom);
     transform: translateX(-100%);
@@ -73,6 +84,76 @@
     background: rgba(0, 0, 0, 0.5);
     border: 0;
     cursor: pointer;
+    touch-action: none;
+  }
+
+  /* 触屏没有 hover：侧栏里的归档/删除动作必须始终可见。 */
+  .agent-row .agent-actions,
+  .session-actions {
+    opacity: 1;
+  }
+
+  .agent-actions .icon-btn,
+  .session-actions .icon-btn {
+    width: 28px;
+    height: 28px;
+  }
+
+  .agent-row,
+  .session {
+    min-height: 38px;
+  }
+
+  .sb-filter .search {
+    height: 40px;
+  }
+
+  .sb-filter input,
+  .field input,
+  .field textarea,
+  .field select,
+  .form-row input,
+  .form-row select,
+  .agent-settings-panel input:not([type="checkbox"]):not([type="radio"]),
+  .agent-settings-panel textarea,
+  .pipi-select__control {
+    font-size: 16px;
+  }
+
+  /* 顶栏在手机上是紧凑的操作条：路径只占剩余空间，避免按钮被挤出视口。 */
+  .screen-bar {
+    gap: 6px;
+    padding-inline: 10px;
+  }
+
+  .screen-bar > .spacer {
+    display: none;
+  }
+
+  .screen-bar > .icon-btn,
+  .screen-bar > .btn {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding-inline: 0;
+    flex-shrink: 0;
+  }
+
+  .screen-bar .crumb {
+    max-width: none;
+  }
+
+  .model-pill {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: min(32vw, 240px);
+    height: 36px;
+    padding-inline: 8px;
+  }
+
+  .model-pill-name {
+    min-width: 0;
   }
 
   .crumb {
@@ -93,6 +174,12 @@
     border-bottom: 1px solid var(--line-soft);
     overflow-x: auto;
     overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .settings-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .settings-nav-item {
@@ -101,6 +188,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px 10px;
+    min-height: 40px;
   }
 
   .settings-nav-item .meta {
@@ -113,6 +201,13 @@
 
   .settings-main-body {
     padding: 0 14px 24px;
+    scrollbar-gutter: auto;
+  }
+
+  .settings-body,
+  .settings-main,
+  .settings-main-body {
+    min-width: 0;
   }
 
   .row {
@@ -148,9 +243,59 @@
     padding-bottom: calc(10px + var(--safe-bottom));
   }
 
+  .composer textarea {
+    font-size: 16px;
+  }
+
+  .composer-bar .hint {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .drow {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .detail-head,
+  .dsec > h4,
+  .drow {
+    padding-inline: 14px;
+  }
+
+  .form {
+    padding: 20px 16px calc(32px + var(--safe-bottom));
+    gap: 16px;
+  }
+
+  .form .actions,
+  .actions {
+    flex-wrap: wrap;
+  }
+
+  .form .actions .btn,
+  .actions .btn {
+    min-height: 40px;
+  }
+
+  .provider-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .provider-row .p-actions {
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .preset-actions {
+    flex-wrap: wrap;
+  }
+
+  .preset-actions .spacer {
+    display: none;
   }
 
   .test-workbench .crumb {
@@ -171,7 +316,213 @@
   }
 }
 
+/* 竖屏手机：需要把二列表单与审批操作改成可滚动、可点击的单列。 */
+@media (max-width: 720px) {
+  .provider-form .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mode-toggle-group {
+    flex-direction: column;
+  }
+
+  .provider-row .p-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .approval-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .approval-actions {
+    flex-wrap: wrap;
+  }
+
+  .approval-actions .btn {
+    min-height: 40px;
+    flex: 1 1 110px;
+  }
+
+  .chat-welcome {
+    padding-inline: 18px;
+  }
+
+  .agent-settings-footer {
+    align-items: stretch;
+  }
+
+  .agent-settings-footer .btn {
+    min-height: 40px;
+  }
+}
+
 @media (max-width: 520px) {
+  .screen-bar {
+    gap: 4px;
+    padding-inline: 8px;
+    background: var(--bg);
+  }
+
+  .screen-bar::after {
+    height: 18px;
+    background: linear-gradient(to bottom, var(--bg), var(--bg-fade));
+  }
+
+  .model-pill {
+    max-width: 34vw;
+    padding-inline: 7px;
+  }
+
+  .model-pill-tag {
+    display: none;
+  }
+
+  .row {
+    padding-inline: 12px;
+  }
+
+  .chat-welcome {
+    padding: 60px 16px 20px;
+    font-size: 12.5px;
+  }
+
+  .user-bubble {
+    max-width: 92%;
+  }
+
+  .composer {
+    padding-inline: 8px;
+  }
+
+  .composer-bar {
+    gap: 6px;
+    padding-left: 14px;
+    padding-right: 8px;
+  }
+
+  .btn.send,
+  .btn.stop {
+    width: 40px;
+    height: 40px;
+  }
+
+  .approval-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .approval-actions .btn {
+    width: 100%;
+  }
+
+  .approval-actions .btn:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .settings-nav {
+    padding-inline: 8px;
+  }
+
+  .settings-main-head {
+    padding-inline: 12px;
+  }
+
+  .settings-main-body {
+    padding-inline: 12px;
+  }
+
+  .settings-section {
+    padding-inline: 12px;
+  }
+
+  .agent-settings-head {
+    padding: 14px 14px 10px;
+  }
+
+  .agent-settings-footer {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .agent-settings-footer .save-state {
+    white-space: normal;
+  }
+
+  .agent-settings-footer .btn {
+    width: 100%;
+  }
+
+  .itabs {
+    gap: 2px;
+    padding-inline: 6px;
+  }
+
+  .itab {
+    padding-inline: 2px;
+    font-size: 11px;
+  }
+
+  .kv-row {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .tl-row {
+    grid-template-columns: 58px minmax(0, 1fr) auto;
+    gap: 5px;
+  }
+
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 8px;
+    padding-bottom: calc(8px + var(--safe-bottom));
+  }
+
+  .modal {
+    max-height: calc(100dvh - 16px - var(--safe-bottom));
+    border-radius: var(--r-lg);
+  }
+
+  .modal-section {
+    padding-inline: 12px;
+  }
+
+  .modal-actions {
+    flex-direction: column;
+    align-items: stretch;
+    padding-inline: 12px;
+  }
+
+  .modal-actions .btn {
+    width: 100%;
+    min-height: 40px;
+  }
+
+  .pipi-select__control,
+  .field input,
+  .field select,
+  .form-row input,
+  .form-row select {
+    min-height: 40px;
+  }
+
+  .bind-row {
+    align-items: stretch;
+  }
+
+  .bind-row input,
+  .bind-row select,
+  .bind-row .provider-picker,
+  .bind-row .model-picker {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .theme-row {
+    flex-direction: column;
+  }
+
   .test-workbench .screen-bar {
     gap: 6px;
     padding-inline: 8px;
@@ -189,6 +540,8 @@
   }
 
   .test-workbench .test-clear {
+    width: auto;
+    min-width: 0;
     padding-inline: 8px;
     font-size: 11px;
   }
@@ -203,6 +556,35 @@
 
   .settings-choice-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  /* 普通会话已经在外层工具栏显示 Agent 名称，给操作按钮让出完整宽度。 */
+  .chat-shell:not(.test-workbench) .screen-bar .crumb {
+    display: none;
+  }
+
+  .chat-shell:not(.test-workbench) .model-pill {
+    max-width: none;
+  }
+
+  .detail-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .detail-head .spacer {
+    display: none;
+  }
+
+  .form {
+    padding-inline: 12px;
+  }
+
+  .form .actions .btn,
+  .actions .btn {
+    flex-basis: 100%;
   }
 }
 

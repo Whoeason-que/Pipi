@@ -1,0 +1,16 @@
+[package]
+name = "pipi-provider"
+version = "26.9.3"
+description = "Pipi 的 LLM provider 适配层（基于 rig）"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+http = "1"
+pipi-error = { path = "../pipi-error" }
+pipi-protocol = { path = "../pipi-protocol" }
+rig = "0.42.0"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }

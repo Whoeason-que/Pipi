@@ -92,16 +92,13 @@ fn spawn_http_script(script: Vec<String>) -> (std::net::SocketAddr, Arc<AtomicUs
                 let mut stream = stream;
                 drain_http_request(&mut stream);
                 let index = counter.fetch_add(1, Ordering::SeqCst);
-                let response = script
-                    .get(index)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        http_response(
-                            "200 OK",
-                            &[("Content-Type", "text/event-stream")],
-                            &sse_text("(mock 剧本已耗尽)"),
-                        )
-                    });
+                let response = script.get(index).cloned().unwrap_or_else(|| {
+                    http_response(
+                        "200 OK",
+                        &[("Content-Type", "text/event-stream")],
+                        &sse_text("(mock 剧本已耗尽)"),
+                    )
+                });
                 use std::io::Write;
                 let _ = stream.write_all(response.as_bytes());
             });
@@ -217,7 +214,9 @@ async fn retryable_429_is_resent_after_the_requested_delay() {
             ..
         } => {
             assert_eq!(*stop_reason, StopReason::Stop, "{error_message:?}");
-            assert!(matches!(&content[0], pipi_core::types::ContentBlock::Text { text } if text == "恢复后的回复"));
+            assert!(
+                matches!(&content[0], pipi_core::types::ContentBlock::Text { text } if text == "恢复后的回复")
+            );
         }
         other => panic!("期望成功的助手消息，得到 {other:?}"),
     }
@@ -234,6 +233,59 @@ async fn retryable_429_is_resent_after_the_requested_delay() {
         })
         .collect();
     assert_eq!(retries, vec![(1, 3)], "应发出一次 retry_start");
+}
+
+/// `Retry-After` 不是 429 专属：负载保护中的 503 同样必须优先于本地退避。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retryable_503_is_resent_after_the_requested_delay() {
+    let unavailable = http_response(
+        "503 Service Unavailable",
+        &[("Content-Type", "application/json"), ("Retry-After", "1")],
+        r#"{"error":{"message":"temporarily unavailable"}}"#,
+    );
+    let (addr, requests) = spawn_http_script(vec![unavailable, {
+        http_response(
+            "200 OK",
+            &[("Content-Type", "text/event-stream")],
+            &sse_text("503 恢复后的回复"),
+        )
+    }]);
+
+    let config = test_config(
+        addr,
+        RetryPolicy {
+            max_attempts: 3,
+            base_delay_ms: 50,
+            max_delay_ms: 5_000,
+        },
+    );
+    let (_sink, emit) = sink_and_emit();
+
+    let started = std::time::Instant::now();
+    let messages = run_agent_loop(
+        vec![Message::user_text("hi")],
+        AgentContext {
+            system_prompt: String::new(),
+            messages: Vec::new(),
+        },
+        config,
+        emit,
+        AbortSignal::new(),
+    )
+    .await;
+
+    assert_eq!(requests.load(Ordering::SeqCst), 2, "应重发一次");
+    assert!(
+        started.elapsed() >= std::time::Duration::from_millis(900),
+        "应等待服务端要求的 1 秒，而不是 50ms 本地退避"
+    );
+    assert!(matches!(
+        messages.last(),
+        Some(Message::Assistant {
+            stop_reason: StopReason::Stop,
+            ..
+        })
+    ));
 }
 
 /// 400 是终态：不重发，直接把错误交回。

@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use pipi_app::runtime::{EventEmitter, RuntimeState};
 use pipi_core::agents;
-use pipi_core::runtime::{EventEmitter, RuntimeState};
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
 use pipi_core::types::{Api, Model};
 

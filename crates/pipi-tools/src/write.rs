@@ -1,4 +1,4 @@
-//! write 工具。移植自 `packages/agent/src/harness/tools/write.ts`：
+//! `pipi-tools` 的 write 工具。移植自 `packages/agent/src/harness/tools/write.ts`：
 //! 自动创建父目录，存在则覆盖。
 
 use async_trait::async_trait;

@@ -1,4 +1,4 @@
-//! edit 工具。移植自 `packages/agent/src/harness/tools/edit.ts` 与
+//! `pipi-tools` 的 edit 工具。移植自 `packages/agent/src/harness/tools/edit.ts` 与
 //! `edit-diff.ts` 的核心：唯一匹配的精确替换；保留 BOM 与行尾风格；
 //! 多个 edit 都对原始内容匹配、按位置排序后应用并检查重叠。
 

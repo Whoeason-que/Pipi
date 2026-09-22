@@ -1,4 +1,4 @@
-//! bash 命令权限与沙箱策略。
+//! bash 命令权限与沙箱策略（`pipi-tools` 的安全边界）。
 //!
 //! 权限是 Pipi 新增的（pi 靠扩展/审批机制，codex 靠 OS 级沙箱）。Pipi 的
 //! 分层设计，按顺序评估，任何一层拒绝即拒绝（宁可拒绝不可放行）：
@@ -189,7 +189,8 @@ pub struct BashPermissions {
     pub commands: Vec<String>,
 }
 
-pub(crate) fn matches_entry(entry: &str, segment: &str) -> bool {
+/// 白/黑名单条目匹配。交互审批层需要用同一规则判断需要持久化的未命中段落。
+pub fn matches_entry(entry: &str, segment: &str) -> bool {
     let entry = entry.trim();
     let seg = segment.trim_start();
     if entry.is_empty() || seg.is_empty() {

@@ -277,8 +277,7 @@ mod tests {
     #[test]
     fn retry_settings_partial_object_keeps_defaults() {
         // 旧 settings.json 完全没有 retry 段 → 全默认（3 次尝试 / 1s / 30s）
-        let legacy: Settings =
-            serde_json::from_str(r#"{"theme":"dark","providers":[]}"#).unwrap();
+        let legacy: Settings = serde_json::from_str(r#"{"theme":"dark","providers":[]}"#).unwrap();
         assert_eq!(legacy.retry, RetrySettings::default());
         let policy = legacy.retry.policy();
         assert_eq!(policy.max_attempts, 3);
@@ -286,10 +285,9 @@ mod tests {
         assert_eq!(policy.max_delay_ms, 30_000);
 
         // 只写一项 → 其余取默认；序列化字段是 camelCase
-        let partial: Settings = serde_json::from_str(
-            r#"{"theme":"dark","providers":[],"retry":{"maxAttempts":1}}"#,
-        )
-        .unwrap();
+        let partial: Settings =
+            serde_json::from_str(r#"{"theme":"dark","providers":[],"retry":{"maxAttempts":1}}"#)
+                .unwrap();
         assert_eq!(partial.retry.max_attempts, 1);
         assert_eq!(partial.retry.base_delay_ms, 1_000);
         let json = serde_json::to_string(&partial).unwrap();

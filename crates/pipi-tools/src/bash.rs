@@ -1,4 +1,4 @@
-//! bash 工具。移植自 `packages/agent/src/harness/tools/bash.ts` 的核心：
+//! `pipi-tools` 的 bash 工具。移植自 `packages/agent/src/harness/tools/bash.ts` 的核心：
 //! 合并 stdout/stderr、tail 截断（2000 行 / 50KB）、可选超时；在其上叠加
 //! Pipi 的命令权限检查（allowlist / denylist），并流式回报部分输出。
 

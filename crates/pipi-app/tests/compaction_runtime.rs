@@ -13,8 +13,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use pipi_app::runtime::{EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::agents;
-use pipi_core::runtime::{EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::session::{load_session, EntryKind, SessionWriter};
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
 use pipi_core::types::{Api, Message, Model};

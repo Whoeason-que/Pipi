@@ -153,16 +153,17 @@ Agent 可以通过三项显式工具组合已有 Agent，而不引入独立的 s
 ┌────────────────▼────────────────────┐
 │  src-tauri      Rust 薄壳            │  commands：list/create/save agent
 ├─────────────────────────────────────┤
+│  pipi-error / pipi-protocol           │  错误语义 + 稳定 JSONL/IPC DTO
+│  pipi-tools / pipi-harness            │  内置工具/权限/截断 + 纯提示词层
+│  pipi-provider                         │  rig 的 HTTP/SSE 适配与错误分类
+├─────────────────────────────────────┤
+│  crates/pipi-app   应用服务层         │  会话槽、后台编排、宿主事件协议
+├─────────────────────────────────────┤
 │  crates/pipi-core  Rust 核心         │  不依赖 Tauri，可独立测试
 │  ├─ agent_loop    工具调用循环        │  LLM → 工具调用 → 执行 → 回喂
-│  ├─ tools         文件工具 + Agent   │  workspace 工具默认启用；Agent
-│  │                组合工具            │  组合工具显式启用
-│  ├─ provider      anthropic +        │  流式 SSE，事件驱动
-│  │                openai-compat      │
+│  ├─ tools::agent  Agent 组合工具      │  显式启用；基础工具来自 pipi-tools
 │  ├─ session       sessions/*.jsonl   │  append-only，崩溃安全
-│  ├─ runtime       会话槽 + 事件协议    │  槽按 Agent 索引：可同时多轮
 │  ├─ compaction    上下文压缩策略流水线  │  投影式（不落盘）+ 替换式（落盘）
-│  ├─ permissions   bash 白/黑名单      │
 │  └─ agents        扫描 ~/.pipi/agents │  一切皆文件
 └──────────────────────────────────────┘
 ```
@@ -278,20 +279,22 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
 
 核心从 [pi](https://github.com/earendil-works/pi) 移植为 Rust，模块映射：
 
-| pi | pipi-core | 备注 |
+| pi | crate / 模块 | 备注 |
 | --- | --- | --- |
-| `packages/ai` types | `types` | 消息/内容块/事件协议，JSON 字段名与上游一致 |
-| `packages/ai` api adapters | `provider` | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
+| `packages/ai` types | `pipi-protocol`（经 `types` 兼容导出） | 消息/内容块/事件协议，JSON 字段名与上游一致 |
+| `packages/ai` api adapters | `pipi-provider`（经 `pipi-core::provider` 兼容导出） | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
 | `packages/agent` agent-loop | `agent_loop` | 事件流 + steering/follow-up + 工具批次执行；steering 已接线到 UI（运行中插话，迟到消息在运行结束收割、下次运行重放，不丢失） |
-| `packages/agent` harness/tools | `tools` | read/write/edit/bash + 新增 memory/glob/grep；Pipi 增加显式的 Agent 创建、运行与输出读取工具 |
-| `packages/agent` harness/utils/truncate | `truncate` | 2000 行 / 50KB，同一套提示文案 |
+| `packages/agent` harness/tools | `pipi-tools` + `tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/glob/grep；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
+| `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
+| `packages/agent` harness prompt/resources | `pipi-harness`（经 `pipi-core::harness` 兼容导出） | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
 | `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
+| （Pipi 应用层） | `pipi-app::runtime` | 会话槽、后台 Agent 编排和宿主事件协议；Tauri 与 Web server 共用，IPC payload 不变 |
 | `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
 | `packages/agent` compaction（LLM 摘要替换） | `compaction` | 见下文「上下文压缩」：摘要替换旧轮次 + 保留近期原文（keepRecentTokens=20000）；摘要骨架 prompt、旧摘要经 `<previous-summary>` 交回 update 版指令、文件操作清单追加在摘要末尾；落盘为 `compaction` 条目（含 `keep_from_entry`），重开/分叉时回放 |
 | `packages/agent` skills（frontmatter） | `skills` | 渐进式披露：索引常驻上下文，全文模型按需 read |
 
 有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/
-prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`permissions`
+prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-tools::permissions`
 （命令权限）、`agents`（Agent 注册表）、`catalog`（模型目录，models.dev）、
 memory 工具（含渐进召回注入）、glob/grep 检索工具。
 
@@ -335,7 +338,7 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
 ### 与 codex 的关系
 
 命令安全与沙箱概念移植自 [openai/codex](https://github.com/openai/codex)
-（Apache-2.0，见 `pipi-core/src/permissions/safety.rs` 的 attribution）：
+（Apache-2.0，见 `crates/pipi-tools/src/permissions/safety.rs` 的 attribution）：
 
 - `SandboxMode`（read-only / workspace-write / danger-full-access）→
   `permissions::SandboxMode`，语义一致（kebab-case 序列化兼容）。
@@ -440,7 +443,7 @@ cargo check --workspace
 
 ## Web/远程模式
 
-Pipi 也可以把 React 前端和 pipi-core 运行时以浏览器服务方式启动。服务默认
+Pipi 也可以把 React 前端和 pipi-app 运行时以浏览器服务方式启动。服务默认
 只监听 127.0.0.1:1421，适合由 Tailscale Serve 转发到 Tailnet 内的手机；
 运行时仍然在电脑上执行，手机只负责显示界面和发送操作。
 
@@ -478,4 +481,4 @@ Pipi 也可以把 React 前端和 pipi-core 运行时以浏览器服务方式启
 
 ## License
 
-MIT（`pipi-core/src/permissions/safety.rs` 移植自 Apache-2.0 项目 openai/codex，保留其许可声明）。
+MIT（`crates/pipi-tools/src/permissions/safety.rs` 移植自 Apache-2.0 项目 openai/codex，保留其许可声明）。

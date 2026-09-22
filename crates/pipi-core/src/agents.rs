@@ -101,7 +101,9 @@ fn manifest_name_matches_directory(directory_name: &str, manifest_name: &str) ->
     directory_name == manifest_name && validate_agent_name(manifest_name).is_ok()
 }
 
-pub(crate) fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
+/// 验证 Agent 数据树中的目录不是符号链接。应用服务层在打开/归档 session 时也
+/// 必须复用这个边界，避免迁出 core 后丢失同一条 containment 保证。
+pub fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             Err(format!("{label} 不能是符号链接: {}", path.display()))
@@ -113,7 +115,8 @@ pub(crate) fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, St
     }
 }
 
-pub(crate) fn ensure_real_file(path: &Path, label: &str) -> Result<bool, String> {
+/// 验证 Agent 数据树中的普通文件不是符号链接。
+pub fn ensure_real_file(path: &Path, label: &str) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             Err(format!("{label} 不能是符号链接: {}", path.display()))

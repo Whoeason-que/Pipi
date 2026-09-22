@@ -1,17 +1,17 @@
 //! Tauri 事件适配层。
 //!
-//! 会话运行逻辑位于 pipi-core::runtime，本模块只把共享运行时映射为
+//! 会话运行逻辑位于 pipi-app::runtime，本模块只把共享运行时映射为
 //! Tauri command 与 event。
 
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, State};
 
-use pipi_core::approval::ApprovalDecision;
-use pipi_core::runtime::{self, EventEmitter, RuntimeEvent, SessionInfo};
+use pipi_app::approval::ApprovalDecision;
+use pipi_app::runtime::{self, EventEmitter, RuntimeEvent, SessionInfo};
 use pipi_core::types::{Message, Model};
 
-pub use pipi_core::runtime::RuntimeState as ChatState;
+pub use pipi_app::runtime::RuntimeState as ChatState;
 
 fn tauri_emitter(app: AppHandle) -> EventEmitter {
     Arc::new(move |event| {

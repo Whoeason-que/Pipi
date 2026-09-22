@@ -1,0 +1,19 @@
+[package]
+name = "pipi-tools"
+version = "26.9.3"
+description = "Pipi Agent 的工具协议、权限策略与内置工具实现"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1"
+base64 = "0.22"
+glob = "0.3"
+pipi-protocol = { path = "../pipi-protocol" }
+regex = "1.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+shlex = "1"
+similar = "2.7"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
+walkdir = "2.5"

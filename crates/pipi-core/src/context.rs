@@ -176,30 +176,8 @@ fn flush_pending(out: &mut Vec<Message>, pending: &mut Vec<(String, String)>) {
     }
 }
 
-/// 将文件系统路径安全地渲染进 prompt：规范化分隔符、可见化控制字符并
-/// 转义 XML 特殊字符，避免路径破坏上下文标签或注入额外行。
-pub(crate) fn escape_path_for_prompt(value: &str) -> String {
-    let normalized = value.replace('\\', "/");
-    let mut sanitized = String::with_capacity(normalized.len());
-    for character in normalized.chars() {
-        match character {
-            '\n' => sanitized.push_str("\\n"),
-            '\r' => sanitized.push_str("\\r"),
-            '\t' => sanitized.push_str("\\t"),
-            character if character.is_control() => {
-                use std::fmt::Write;
-                write!(sanitized, "\\u{{{:x}}}", character as u32).unwrap();
-            }
-            character => sanitized.push(character),
-        }
-    }
-    sanitized
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
+/// `pipi-harness` 的兼容导出，供运行环境上下文沿用相同的路径转义规则。
+pub(crate) use pipi_harness::escape_path_for_prompt;
 
 /// 运行环境上下文块（codex 思路，简化渲染）。
 pub fn environment_context(workspace: &Path, sandbox: &SandboxMode) -> String {

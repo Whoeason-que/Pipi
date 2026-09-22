@@ -56,7 +56,7 @@ pub fn build_system_prompt(options: BuildSystemPromptOptions) -> String {
         skills,
         memory_files,
     } = options;
-    let prompt_cwd = crate::context::escape_path_for_prompt(&cwd);
+    let prompt_cwd = crate::escape_path_for_prompt(&cwd);
     let tools = selected_tools.unwrap_or_else(|| {
         ["read", "bash", "edit", "write"]
             .into_iter()
@@ -172,7 +172,7 @@ fn append_context_files(prompt: &mut String, context_files: &[ContextFile]) {
     for file in context_files {
         prompt.push_str(&format!(
             "<project_instructions path=\"{}\">\n{}\n</project_instructions>\n\n",
-            crate::context::escape_path_for_prompt(&file.path),
+            crate::escape_path_for_prompt(&file.path),
             file.content
         ));
     }
@@ -203,7 +203,7 @@ fn append_skills(prompt: &mut String, skills: &[SkillMetadata], read_tool: &str)
         ));
         prompt.push_str(&format!(
             "    <location>{}</location>\n",
-            crate::context::escape_path_for_prompt(&skill.path)
+            crate::escape_path_for_prompt(&skill.path)
         ));
         prompt.push_str("  </skill>\n");
     }
@@ -224,7 +224,7 @@ fn append_memory_index(prompt: &mut String, memory_files: &[MemoryFileMeta], rea
         prompt.push_str("  <memory>\n");
         prompt.push_str(&format!(
             "    <path>{}</path>\n",
-            crate::context::escape_path_for_prompt(&file.path)
+            crate::escape_path_for_prompt(&file.path)
         ));
         if !file.summary.is_empty() {
             prompt.push_str(&format!(

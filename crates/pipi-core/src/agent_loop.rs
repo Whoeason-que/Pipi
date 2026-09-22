@@ -76,7 +76,8 @@ pub enum AgentEvent {
         is_error: bool,
     },
     /// 摘要式上下文压缩开始（runtime 在 turn 边界触发）。
-    CompactionStart,    /// 压缩完成；`summary` 为摘要正文，`replaced` 为被替换的消息条数，
+    CompactionStart,
+    /// 压缩完成；`summary` 为摘要正文，`replaced` 为被替换的消息条数，
     /// `strategy` 为产出它的策略名，`tokens_before/after` 是整段历史的
     /// token 估算（UI 用它显示省了多少）。
     CompactionEnd {
@@ -354,7 +355,10 @@ async fn stream_assistant_response(
                     }
                     // channel 关闭且用户没中止：流被截断（provider 侧的
                     // `流提前结束` 会走上面的 Error 分支，这里是兜底）
-                    break (STREAM_TRUNCATED.into(), Some(crate::retry::RetryHint::plain()));
+                    break (
+                        STREAM_TRUNCATED.into(),
+                        Some(crate::retry::RetryHint::plain()),
+                    );
                 }
                 Some(StreamEvent::Start) => {
                     emit(AgentEvent::MessageStart {
@@ -1131,11 +1135,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(
-            provider.clone(),
-            Arc::new(ToolRegistry::new(vec![])),
-            None,
-        );
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -1158,12 +1158,18 @@ mod tests {
             } => {
                 assert_eq!(*stop_reason, StopReason::Stop);
                 assert!(error_message.is_none());
-                assert!(matches!(&content[0], ContentBlock::Text { text } if text == "恢复后的回复"));
+                assert!(
+                    matches!(&content[0], ContentBlock::Text { text } if text == "恢复后的回复")
+                );
             }
             other => panic!("期望成功的助手消息，得到 {other:?}"),
         }
         let events = sink.lock().unwrap();
-        assert_eq!(retry_events(&events), vec![(1, 3)], "应发出一次 retry_start");
+        assert_eq!(
+            retry_events(&events),
+            vec![(1, 3)],
+            "应发出一次 retry_start"
+        );
     }
 
     #[tokio::test]
@@ -1176,11 +1182,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(
-            provider.clone(),
-            Arc::new(ToolRegistry::new(vec![])),
-            None,
-        );
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -1214,11 +1216,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (_sink, emit) = event_sink();
-        let mut config = test_config(
-            provider.clone(),
-            Arc::new(ToolRegistry::new(vec![])),
-            None,
-        );
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -1250,11 +1248,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(
-            provider.clone(),
-            Arc::new(ToolRegistry::new(vec![])),
-            None,
-        );
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -1291,11 +1285,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(
-            provider.clone(),
-            Arc::new(ToolRegistry::new(vec![])),
-            None,
-        );
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -1307,7 +1297,11 @@ mod tests {
         )
         .await;
 
-        assert_eq!(provider.call.load(Ordering::SeqCst), 2, "工具参数截断应重发");
+        assert_eq!(
+            provider.call.load(Ordering::SeqCst),
+            2,
+            "工具参数截断应重发"
+        );
         match messages.last().expect("至少一条消息") {
             Message::Assistant { stop_reason, .. } => assert_eq!(*stop_reason, StopReason::Stop),
             other => panic!("期望成功的助手消息，得到 {other:?}"),
@@ -1330,11 +1324,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(
-            provider.clone(),
-            Arc::new(ToolRegistry::new(vec![])),
-            None,
-        );
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
         // 退避 5 秒：若不与 abort 竞速，这个用例会一直等下去
         config.retry = crate::retry::RetryPolicy {
             max_attempts: 5,

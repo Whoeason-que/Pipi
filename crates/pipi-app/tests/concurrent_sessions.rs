@@ -15,8 +15,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use pipi_app::runtime::{EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::agents;
-use pipi_core::runtime::{EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::session::SessionWriter;
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
 use pipi_core::types::{Api, Message, Model};
@@ -680,7 +680,7 @@ fn temporary_test_session_is_memory_only_and_independent() {
         "应用运行期内应复用同一个临时测试"
     );
     assert!(
-        pipi_core::runtime::list_sessions("agent-test")
+        pipi_app::runtime::list_sessions("agent-test")
             .expect("读取正式会话列表")
             .is_empty(),
         "临时测试不应进入会话列表"
@@ -704,7 +704,7 @@ fn temporary_test_session_is_memory_only_and_independent() {
         "临时测试运行中不得保存设置"
     );
     assert!(
-        pipi_core::runtime::list_sessions("agent-test")
+        pipi_app::runtime::list_sessions("agent-test")
             .expect("读取正式会话列表")
             .is_empty(),
         "运行多轮所用的用户消息也不能创建正式文件"
@@ -730,7 +730,7 @@ fn temporary_test_session_is_memory_only_and_independent() {
         .find(|info| info.agent_name == "agent-test" && !info.temporary)
         .expect("正式会话信息");
     assert_eq!(
-        pipi_core::runtime::list_sessions("agent-test")
+        pipi_app::runtime::list_sessions("agent-test")
             .expect("读取正式会话列表")
             .len(),
         1,
@@ -836,7 +836,7 @@ fn temporary_test_keeps_real_tool_side_effects() {
         "this change is real"
     );
     assert!(
-        pipi_core::runtime::list_sessions("agent-tool-test")
+        pipi_app::runtime::list_sessions("agent-tool-test")
             .expect("读取正式会话列表")
             .is_empty(),
         "真实工具副作用不应让临时聊天账本落盘"

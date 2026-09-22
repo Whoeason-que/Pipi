@@ -9,6 +9,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 100%;
   min-width: 0;
 }
 
@@ -483,7 +484,7 @@ body.resizing * {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 56px;
+  height: calc(56px + var(--safe-top));
   padding: 0 14px;
   padding-top: var(--safe-top);
   background: linear-gradient(to bottom, var(--bg-fade), var(--bg) 78%);
@@ -501,6 +502,8 @@ body.resizing * {
 }
 
 .crumb {
+  flex: 1 1 auto;
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--faint);
@@ -730,8 +733,9 @@ body.resizing * {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 28px;
+  height: calc(28px + var(--safe-bottom));
   padding: 0 14px;
+  padding-bottom: var(--safe-bottom);
   border-top: 1px solid var(--line-soft);
   background: var(--panel);
   font-family: var(--font-mono);
@@ -1883,7 +1887,7 @@ body.resizing * {
   display: none;
   align-items: center;
   gap: 10px;
-  height: 52px;
+  height: calc(52px + var(--safe-top));
   padding: 0 12px;
   padding-top: var(--safe-top);
   border-bottom: 1px solid var(--line-soft);

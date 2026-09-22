@@ -1,6 +1,17 @@
 [workspace]
 resolver = "2"
-members = ["crates/av", "crates/pipi-core", "crates/pipi-server", "src-tauri"]
+members = [
+    "crates/av",
+    "crates/pipi-error",
+    "crates/pipi-protocol",
+    "crates/pipi-tools",
+    "crates/pipi-harness",
+    "crates/pipi-provider",
+    "crates/pipi-core",
+    "crates/pipi-app",
+    "crates/pipi-server",
+    "src-tauri",
+]
 
 [profile.release]
 codegen-units = 1
