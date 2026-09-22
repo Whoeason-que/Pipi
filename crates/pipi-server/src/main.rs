@@ -433,6 +433,43 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             state.runtime.stop_run(&agent_name, &session_id)?;
             Ok(Value::Null)
         }
+        "query_background_tasks" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            let job_id = optional_string(args, "jobId")?;
+            let after_seq = optional_value::<u64>(args, "afterSeq")?.unwrap_or(0);
+            let wait_ms = optional_value::<u64>(args, "waitMs")?.unwrap_or(0);
+            let include_completed =
+                optional_value::<bool>(args, "includeCompleted")?.unwrap_or(true);
+            let limit = optional_value::<usize>(args, "limit")?.unwrap_or(20);
+            to_value(
+                state
+                    .runtime
+                    .query_background_tasks(
+                        &agent_name,
+                        &session_id,
+                        job_id,
+                        after_seq,
+                        wait_ms,
+                        include_completed,
+                        limit,
+                    )
+                    .await?,
+            )
+        }
+        "manage_background_task" => {
+            let agent_name = required_string(args, "agentName")?;
+            let session_id = required_string(args, "sessionId")?;
+            let job_id = required_string(args, "jobId")?;
+            let action = required_string(args, "action")?;
+            let data = optional_string(args, "data")?;
+            to_value(
+                state
+                    .runtime
+                    .manage_background_task(&agent_name, &session_id, &job_id, &action, data)
+                    .await?,
+            )
+        }
         "new_session" => {
             let agent_name = required_string(args, "agentName")?;
             state.runtime.new_session(&agent_name)?;

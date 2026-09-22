@@ -5711,6 +5711,7 @@ version = "26.9.3"
 dependencies = [
  "async-trait",
  "av",
+ "libc",
  "pipi-core",
  "serde",
  "serde_json",

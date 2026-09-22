@@ -7,6 +7,7 @@
 pub use pipi_core::*;
 
 pub mod approval;
+pub mod background;
 pub mod runtime;
 
 /// `HOME` 是进程级状态。runtime 单元测试在自己的 crate 中改写它，必须串行。

@@ -268,6 +268,9 @@ fn recording_sink() -> (EventEmitter, EventLog) {
                 "{}:{}:switched({})",
                 envelope.agent_name, envelope.session_id, envelope.to_session_id
             ),
+            RuntimeEvent::SessionChanged(envelope) => {
+                format!("{}:{}:changed", envelope.agent_name, envelope.session_id)
+            }
         };
         sink_log.lock().unwrap().push(label);
     });
@@ -648,6 +651,126 @@ fn new_session_releases_idle_sessions_only() {
         &state,
         "agent-other"
     )));
+
+    let _ = std::fs::remove_dir_all(home);
+}
+
+/// 归档/删除从侧栏触发时，当前 ChatView 可能仍持有空闲会话槽；文件操作应当
+/// 自动释放这一槽，而不是要求用户先点返回。运行中会话仍必须拒绝变更。
+#[test]
+fn archive_and_delete_idle_open_sessions_without_leaving_view() {
+    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let home = temp_home();
+    let base = format!("http://{}/v1", spawn_stalling_endpoint("L"));
+    fixture_agent("agent-lifecycle", &base);
+    write_settings(std::slice::from_ref(&base));
+
+    let runtime = runtime();
+    let state = RuntimeState::new(runtime.handle().clone());
+    let archive_id = seed_session("agent-lifecycle", "要归档的当前会话");
+    let delete_id = seed_session("agent-lifecycle", "要删除的当前会话");
+    let sessions_dir = agents::load_agent("agent-lifecycle")
+        .expect("加载 Agent")
+        .sessions_dir()
+        .expect("会话目录");
+
+    state
+        .open_session("agent-lifecycle", &archive_id)
+        .expect("打开待归档会话");
+    state
+        .archive_session("agent-lifecycle", &archive_id)
+        .expect("当前空闲会话应可直接归档");
+    assert!(
+        state
+            .session_info("agent-lifecycle", &archive_id)
+            .expect("读取归档后的会话槽")
+            .is_none(),
+        "归档后不应继续占用打开会话槽"
+    );
+    assert!(!sessions_dir.join(format!("{archive_id}.jsonl")).exists());
+    assert!(
+        sessions_dir
+            .join(".archive")
+            .join(format!("{archive_id}.jsonl"))
+            .is_file(),
+        "归档文件应进入 .archive"
+    );
+
+    state
+        .open_session("agent-lifecycle", &delete_id)
+        .expect("打开待删除会话");
+    state
+        .delete_session("agent-lifecycle", &delete_id)
+        .expect("当前空闲会话应可直接删除");
+    assert!(
+        state
+            .session_info("agent-lifecycle", &delete_id)
+            .expect("读取删除后的会话槽")
+            .is_none(),
+        "删除后不应继续占用打开会话槽"
+    );
+    assert!(!sessions_dir.join(format!("{delete_id}.jsonl")).exists());
+
+    // Agent 级按钮也应能直接作用于当前打开但空闲的会话，不需要先退出 ChatView。
+    fixture_agent("agent-archive-open", &base);
+    let archive_agent_session = seed_session("agent-archive-open", "Agent 归档前的会话");
+    state
+        .open_session("agent-archive-open", &archive_agent_session)
+        .expect("打开待归档 Agent 的会话");
+    state
+        .archive_agent("agent-archive-open")
+        .expect("有空闲打开会话的 Agent 应可直接归档");
+    assert!(
+        state
+            .session_info("agent-archive-open", &archive_agent_session)
+            .expect("读取归档 Agent 的会话槽")
+            .is_none(),
+        "归档 Agent 后不应留下悬空会话槽"
+    );
+    let agents_root = agents::agents_dir().expect("Agent 根目录");
+    assert!(!agents_root.join("agent-archive-open").exists());
+    assert!(agents_root.join(".archive/agent-archive-open").is_dir());
+
+    fixture_agent("agent-delete-open", &base);
+    let delete_agent_session = seed_session("agent-delete-open", "Agent 删除前的会话");
+    state
+        .open_session("agent-delete-open", &delete_agent_session)
+        .expect("打开待删除 Agent 的会话");
+    state
+        .delete_agent("agent-delete-open")
+        .expect("有空闲打开会话的 Agent 应可直接删除");
+    assert!(
+        state
+            .session_info("agent-delete-open", &delete_agent_session)
+            .expect("读取删除 Agent 的会话槽")
+            .is_none(),
+        "删除 Agent 后不应留下悬空会话槽"
+    );
+    assert!(!agents_root.join("agent-delete-open").exists());
+
+    let running_id = seed_session("agent-lifecycle", "运行中的会话");
+    state
+        .open_session("agent-lifecycle", &running_id)
+        .expect("打开运行中会话");
+    let (sink, _events) = recording_sink();
+    state
+        .send_prompt("agent-lifecycle", Some(&running_id), "保持运行", None, sink)
+        .expect("启动运行中会话");
+    assert!(wait_until(5_000, || state
+        .session_running("agent-lifecycle", &running_id)));
+    assert!(state
+        .archive_session("agent-lifecycle", &running_id)
+        .expect_err("运行中会话不得归档")
+        .contains("正在运行或有托管后台任务"));
+    assert!(state
+        .delete_session("agent-lifecycle", &running_id)
+        .expect_err("运行中会话不得删除")
+        .contains("正在运行或有托管后台任务"));
+    state
+        .stop_run("agent-lifecycle", &running_id)
+        .expect("停止运行中会话");
+    assert!(wait_until(5_000, || !state
+        .session_running("agent-lifecycle", &running_id)));
 
     let _ = std::fs::remove_dir_all(home);
 }

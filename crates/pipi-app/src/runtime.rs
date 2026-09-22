@@ -19,6 +19,7 @@ use crate::agents::{self, AgentDefinition};
 use crate::approval::{
     ApprovalDecision, ApprovalGate, ApprovalRequestEnvelope, InteractiveApprover,
 };
+use crate::background::BackgroundTaskManager;
 use crate::provider::provider_for;
 pub use crate::session::SessionSummary;
 use crate::session::{list_session_summaries, load_session, EntryKind, SessionWriter};
@@ -27,6 +28,10 @@ use crate::stats::SessionStatsTracker;
 use crate::tools::agent::{
     result_from_messages, AgentRunResult, AgentRunStatus, AgentRunner, ChildProgressTx,
     CreateAgentTool, ReadAgentTool, RunAgentTool,
+};
+use crate::tools::background::{
+    BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskService,
+    ManageBackgroundTaskTool, QueryBackgroundTasksTool, SubmitBackgroundTaskTool,
 };
 use crate::tools::ToolRegistry;
 use crate::types::{AbortSignal, Message, Model, StopReason, StreamOptions};
@@ -79,6 +84,18 @@ pub struct SessionSwitchedEnvelope {
     pub archived: bool,
 }
 
+/// 一个独立 child session 已经创建并写入磁盘，宿主应刷新对应 Agent 的会话列表。
+///
+/// 这条事件不绑定当前打开的父会话：后台 `run_agent` 可能在父轮结束后才创建
+/// child，前端也可能已经切到了别的 Agent。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionChangedEnvelope {
+    pub agent_name: String,
+    pub session_id: String,
+    pub run_id: usize,
+}
+
 /// 宿主只需将这个协议映射为 Tauri event 或 WebSocket frame。
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "payload")]
@@ -93,6 +110,8 @@ pub enum RuntimeEvent {
     ApprovalRequest(ApprovalRequestEnvelope),
     #[serde(rename = "session-switched")]
     SessionSwitched(SessionSwitchedEnvelope),
+    #[serde(rename = "session-changed")]
+    SessionChanged(SessionChangedEnvelope),
 }
 
 /// 运行时事件接收器。
@@ -223,6 +242,7 @@ pub struct RuntimeState {
     /// `SessionRekey`）。
     sessions: Arc<Mutex<HashMap<SessionKey, Session>>>,
     approval: Arc<ApprovalGate>,
+    background: BackgroundTaskManager,
 }
 
 /// 校验会话 ID：必须是单一、稳定的文件名（`<id>.jsonl` 的 stem）。
@@ -240,10 +260,12 @@ pub fn validate_session_id(session_id: &str) -> Result<(), String> {
 impl RuntimeState {
     /// 用宿主运行时句柄构造。句柄必须指向多线程、IO/time 驱动齐全的运行时。
     pub fn new(runtime: tokio::runtime::Handle) -> Self {
+        let background = BackgroundTaskManager::new(runtime.clone());
         Self {
             runtime,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             approval: Arc::new(ApprovalGate::new()),
+            background,
         }
     }
 
@@ -277,26 +299,25 @@ impl RuntimeState {
     // ============ 会话归档 / 恢复 / 删除 ============
     // 归档 = 移动 `sessions/<id>.jsonl` 到 `sessions/.archive/<id>.jsonl`，
     // 与 Agent 归档同一套「文件即真相」语义。删除不可恢复，UI 层需确认。
-    // 注意：占用检查与文件操作必须在同一把 sessions 锁内完成，
-    // 否则检查与移动之间可能被并发 open_session 抢跑。
+    // 注意：占用检查、从会话槽脱离与文件操作必须在同一把 sessions 锁内完成，
+    // 否则检查与移动之间可能被并发 open_session 抢跑。空闲的当前会话可以由
+    // 归档/删除操作自动脱离；正在运行或仍有托管后台任务的会话必须先停止。
     // （跨进程限制：桌面壳与 Web 服务同时跑时各有 RuntimeState，进程间的
     // 并发打开不在本锁覆盖范围内 —— 产品形态是二选一，已知限制。）
 
     /// 归档会话：移动到 `sessions/.archive/`。
     ///
-    /// 占用检查留在这一层（会话正打开时拒绝）；实际移动是
-    /// [`crate::session::archive_session_file`] —— 压缩换会话后的内部归档
-    /// 走那个自由函数（那时旧 id 已不再是打开的会话）。
+    /// 空闲会话即使仍在前端打开，也会在移动前自动从运行时会话槽脱离；实际移动
+    /// 是 [`crate::session::archive_session_file`]。压缩换会话后的内部归档仍然
+    /// 直接走那个自由函数（那时旧 id 已不再是打开的会话）。
     pub fn archive_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
-        let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        if sessions.contains_key(&SessionKey::new(agent_name, session_id)) {
-            return Err("该会话当前已打开，请先返回再归档".into());
-        }
+        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         let src = self.session_file_path(agent_name, session_id)?;
         if !Self::ensure_real_session_file(&src)? {
             return Err("会话不存在".into());
         }
+        self.detach_idle_session(&mut sessions, agent_name, session_id, "归档")?;
         let Some(dir) = src.parent() else {
             return Err("无法解析会话目录".into());
         };
@@ -328,14 +349,12 @@ impl RuntimeState {
     /// 彻底删除会话（`sessions/<id>.jsonl`）。不可恢复；UI 层需确认。
     pub fn delete_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
-        let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        if sessions.contains_key(&SessionKey::new(agent_name, session_id)) {
-            return Err("该会话当前已打开，请先返回再删除".into());
-        }
+        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         let path = self.session_file_path(agent_name, session_id)?;
         if !Self::ensure_real_session_file(&path)? {
             return Err("会话不存在".into());
         }
+        self.detach_idle_session(&mut sessions, agent_name, session_id, "删除")?;
         std::fs::remove_file(&path).map_err(|e| format!("删除会话失败: {e}"))
     }
 
@@ -379,25 +398,22 @@ impl RuntimeState {
 
     // ============ Agent 归档 / 恢复 / 删除（运行时占用检查） ============
 
-    /// 归档 Agent：目录移入 `.archive/`。该 Agent 有会话打开时拒绝。
-    /// 占用检查与目录移动在同一把 sessions 锁内，避免检查后被并发打开抢跑。
+    /// 归档 Agent：目录移入 `.archive/`。空闲会话会随操作自动释放；运行中或
+    /// 仍有托管后台任务的会话必须先停止/终止。占用检查与目录移动在同一把
+    /// sessions 锁内，避免检查后被并发打开抢跑。
     pub fn archive_agent(&self, name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        if sessions.iter().any(|(key, session)| {
-            key.agent_name == name && session.temporary && session.running.is_running()
-        }) {
-            return Err(format!("Agent「{name}」的临时测试仍在运行，请先停止再归档"));
-        }
         if sessions
             .iter()
-            .any(|(key, session)| key.agent_name == name && !session.temporary)
+            .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
         {
             return Err(format!(
-                "Agent「{name}」仍有会话打开，请先打开其他会话或新建会话，再归档"
+                "Agent「{name}」仍有会话正在运行或托管后台任务未结束，请先停止/终止后再归档"
             ));
         }
-        // 空闲临时测试没有文件需要保留，也不应让访问过设置页的 Agent 永久无法归档。
-        sessions.retain(|key, session| !(key.agent_name == name && session.temporary));
+        // 空闲正式会话的 writer 也在这里释放，避免归档后仍有打开的文件句柄；
+        // 临时测试同样一并清掉。前端不需要先退出会话界面。
+        sessions.retain(|key, _session| key.agent_name != name);
         // `open_session` 也必须先取得这把锁；不要在检查与目录移动之间释放它，
         // 否则并发打开会把一个仍指向活跃目录的 Session 插入 map，再由这里把
         // 目录移走。归档是罕见的同步文件操作，短暂持锁优先于留下悬空会话。
@@ -409,23 +425,20 @@ impl RuntimeState {
         agents::restore_agent(name)
     }
 
-    /// 彻底删除 Agent。该 Agent 有会话打开时拒绝；不可恢复。
+    /// 彻底删除 Agent。空闲会话会随操作自动释放；运行中或仍有托管后台任务的
+    /// 会话必须先停止/终止；不可恢复。
     pub fn delete_agent(&self, name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        if sessions.iter().any(|(key, session)| {
-            key.agent_name == name && session.temporary && session.running.is_running()
-        }) {
-            return Err(format!("Agent「{name}」的临时测试仍在运行，请先停止再删除"));
-        }
         if sessions
             .iter()
-            .any(|(key, session)| key.agent_name == name && !session.temporary)
+            .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
         {
             return Err(format!(
-                "Agent「{name}」仍有会话打开，请先打开其他会话或新建会话，再删除"
+                "Agent「{name}」仍有会话正在运行或托管后台任务未结束，请先停止/终止后再删除"
             ));
         }
-        sessions.retain(|key, session| !(key.agent_name == name && session.temporary));
+        // 与归档相同：先释放所有空闲会话槽，再做不可逆删除。
+        sessions.retain(|key, _session| key.agent_name != name);
         // 与归档相同：占用检查和不可逆删除是同一个临界区，不能让
         // `open_session` 在两者之间抢跑。
         agents::delete_agent(name)
@@ -436,9 +449,9 @@ impl RuntimeState {
     pub fn save_agent_definition(&self, def: &AgentDefinition) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         if sessions.iter().any(|(key, session)| {
-            key.agent_name == def.name && session.temporary && session.running.is_running()
+            key.agent_name == def.name && session.temporary && self.session_occupied(session)
         }) {
-            return Err("临时测试仍在运行，请先停止再保存设置".into());
+            return Err("临时测试仍在运行或托管后台任务未结束，请先停止/终止后再保存设置".into());
         }
         agents::save_agent(def)?;
         sessions.retain(|key, session| !(key.agent_name == def.name && session.temporary));
@@ -455,9 +468,9 @@ impl RuntimeState {
     ) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         if sessions.iter().any(|(key, session)| {
-            key.agent_name == agent_name && session.temporary && session.running.is_running()
+            key.agent_name == agent_name && session.temporary && self.session_occupied(session)
         }) {
-            return Err("临时测试仍在运行，请先停止再保存文件".into());
+            return Err("临时测试仍在运行或托管后台任务未结束，请先停止/终止后再保存文件".into());
         }
         agents::write_agent_file(agent_name, rel_path, content)?;
         sessions.retain(|key, session| !(key.agent_name == agent_name && session.temporary));
@@ -666,8 +679,12 @@ struct CompactionContext<'a> {
 }
 
 /// 构造「把条目从旧键搬到新键」的回调（同一把锁、同一个 Session 对象）。
-fn make_rekey(sessions: Arc<Mutex<HashMap<SessionKey, Session>>>) -> SessionRekey {
+fn make_rekey(
+    sessions: Arc<Mutex<HashMap<SessionKey, Session>>>,
+    background: BackgroundTaskManager,
+) -> SessionRekey {
     Arc::new(move |old: &SessionKey, new_session_id: &str| {
+        background.rekey_session(&old.agent_name, &old.session_id, new_session_id);
         let Ok(mut map) = sessions.lock() else {
             return;
         };
@@ -952,11 +969,24 @@ fn make_emitter(
     })
 }
 
+fn make_session_change_sink(event_sink: EventEmitter) -> BackgroundAgentSessionSink {
+    Arc::new(move |agent_name, session_id, run_id| {
+        event_sink(RuntimeEvent::SessionChanged(SessionChangedEnvelope {
+            agent_name,
+            session_id,
+            run_id,
+        }));
+    })
+}
+
 /// 不占用 [`RuntimeState`] 当前会话槽的一次性 Agent 执行器。
 ///
-/// `run_agent` 在父循环的工具调用内 await 本执行器；目标 Agent 使用独立的新
-/// session，并且只注册基础工具，所以第一阶段不会递归调用其他 Agent。
-struct RuntimeAgentRunner;
+/// `run_agent` 的同步兼容路径在父循环的工具调用内 await 本执行器；异步模式
+/// 由 `BackgroundTaskManager::submit_agent` 使用独立的 child 生命周期调用同一
+/// 内核。目标 Agent 只注册基础工具，所以不会递归调用其他 Agent。
+struct RuntimeAgentRunner {
+    session_sink: Option<BackgroundAgentSessionSink>,
+}
 
 #[async_trait::async_trait]
 impl AgentRunner for RuntimeAgentRunner {
@@ -967,12 +997,13 @@ impl AgentRunner for RuntimeAgentRunner {
         abort: AbortSignal,
         progress: Option<ChildProgressTx>,
     ) -> Result<AgentRunResult, String> {
-        run_agent_once_inner(
+        run_agent_once_inner_with_sink(
             agent_name,
             prompt,
             abort,
             std::time::Duration::from_secs(CHILD_RUN_TIMEOUT_SECS),
             progress,
+            self.session_sink.clone(),
         )
         .await
     }
@@ -1043,6 +1074,20 @@ pub(crate) async fn run_agent_once_inner(
     timeout: std::time::Duration,
     progress: Option<ChildProgressTx>,
 ) -> Result<AgentRunResult, String> {
+    run_agent_once_inner_with_sink(agent_name, prompt, abort, timeout, progress, None).await
+}
+
+/// 与 [`run_agent_once_inner`] 相同，但额外通知宿主 child session 已建立。
+/// `session_sink` 在文件创建成功后立即调用，因此即使后续配置或 provider
+/// 初始化失败，用户仍能在会话列表里打开这条失败记录。
+pub(crate) async fn run_agent_once_inner_with_sink(
+    agent_name: &str,
+    prompt: &str,
+    abort: AbortSignal,
+    timeout: std::time::Duration,
+    progress: Option<ChildProgressTx>,
+    session_sink: Option<BackgroundAgentSessionSink>,
+) -> Result<AgentRunResult, String> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
         return Err("空消息".into());
@@ -1056,6 +1101,10 @@ pub(crate) async fn run_agent_once_inner(
         SessionWriter::create(&sessions_dir).map_err(|error| error.to_string())?,
     ));
     let session_id = writer_session_id(&writer)?;
+    let run_id = NEXT_RUN_ID.fetch_add(1, Ordering::AcqRel);
+    if let Some(session_sink) = session_sink.as_ref() {
+        session_sink(definition.name.clone(), session_id.clone(), run_id);
+    }
 
     let (tool_context, resolved_env) =
         match agents::build_tool_context(&definition, Some(session_id.clone()), abort.clone()) {
@@ -1153,7 +1202,7 @@ pub(crate) async fn run_agent_once_inner(
         stats,
         definition.name.clone(),
         session_id.clone(),
-        NEXT_RUN_ID.fetch_add(1, Ordering::AcqRel),
+        run_id,
     );
     let config = AgentLoopConfig {
         model: model.clone(),
@@ -1231,6 +1280,8 @@ pub struct SessionInfo {
     /// true = 设置工作台的内存测试会话，不对应 sessions/*.jsonl。
     pub temporary: bool,
     pub running: bool,
+    /// 该 session 当前仍在运行的托管后台任务数；它们会阻止会话槽被释放。
+    pub background_tasks: usize,
     pub run_id: usize,
     pub model: Option<Model>,
     pub is_custom_model: bool,
@@ -1349,14 +1400,14 @@ impl RuntimeState {
         if let Some(session) = sessions.iter().find_map(|(key, session)| {
             (key.agent_name == agent_name && session.temporary).then_some(session)
         }) {
-            return Self::session_info_of(session);
+            return self.session_info_of(session);
         }
 
         // 定义读取也放在 sessions 锁内，与 save_agent_definition 的「写文件 +
         // 丢弃旧测试」串行，避免并发保存时用保存前的快照新建测试会话。
         let definition = agents::load_agent(agent_name)?;
         let (session, session_id) = Self::create_test_session_object(&definition);
-        let info = Self::session_info_of(&session)?;
+        let info = self.session_info_of(&session)?;
         sessions.insert(SessionKey::new(agent_name, &session_id), session);
         Ok(info)
     }
@@ -1365,14 +1416,16 @@ impl RuntimeState {
     pub fn reset_test_session(&self, agent_name: &str) -> Result<SessionInfo, String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         if sessions.iter().any(|(key, session)| {
-            key.agent_name == agent_name && session.temporary && session.running.is_running()
+            key.agent_name == agent_name && session.temporary && self.session_occupied(session)
         }) {
-            return Err("临时测试仍在运行，请先停止再清空或保存设置".into());
+            return Err(
+                "临时测试仍在运行或托管后台任务未结束，请先停止/终止后再清空或保存设置".into(),
+            );
         }
         sessions.retain(|key, session| !(key.agent_name == agent_name && session.temporary));
         let definition = agents::load_agent(agent_name)?;
         let (session, session_id) = Self::create_test_session_object(&definition);
-        let info = Self::session_info_of(&session)?;
+        let info = self.session_info_of(&session)?;
         sessions.insert(SessionKey::new(agent_name, &session_id), session);
         Ok(info)
     }
@@ -1423,9 +1476,11 @@ impl RuntimeState {
         // 源会话正在跑时不允许分叉（分叉会复制一份半途的历史）
         if sessions
             .get(&SessionKey::new(agent_name, session_id))
-            .is_some_and(|session| session.running.is_running())
+            .is_some_and(|session| self.session_occupied(session))
         {
-            return Err(format!("会话「{session_id}」正在运行，请先停止再分叉"));
+            return Err(format!(
+                "会话「{session_id}」正在运行或有后台任务，请先停止/终止后再分叉"
+            ));
         }
 
         let writer = crate::session::fork_session(&source_path, &dir, up_to_entry_id)?;
@@ -1488,6 +1543,7 @@ impl RuntimeState {
             session_id: new_session_id,
             temporary: false,
             running: false,
+            background_tasks: 0,
             run_id: run_state.current_run_id(),
             model: effective_model,
             is_custom_model: active_model.is_some(),
@@ -1505,7 +1561,7 @@ impl RuntimeState {
             .lock()
             .map_err(|error| format!("无法读取会话槽: {error}"))?;
         match sessions.get(&SessionKey::new(agent_name, session_id)) {
-            Some(session) => Ok(Some(Self::session_info_of(session)?)),
+            Some(session) => Ok(Some(self.session_info_of(session)?)),
             None => Ok(None),
         }
     }
@@ -1519,12 +1575,12 @@ impl RuntimeState {
             .map_err(|error| format!("无法读取会话槽: {error}"))?;
         let mut infos = Vec::with_capacity(sessions.len());
         for session in sessions.values() {
-            infos.push(Self::session_info_of(session)?);
+            infos.push(self.session_info_of(session)?);
         }
         Ok(infos)
     }
 
-    fn session_info_of(session: &Session) -> Result<SessionInfo, String> {
+    fn session_info_of(&self, session: &Session) -> Result<SessionInfo, String> {
         let writer = session
             .writer
             .lock()
@@ -1535,15 +1591,62 @@ impl RuntimeState {
             .clone()
             .or_else(|| session.agent.provider.clone());
         let is_custom_model = custom_model.is_some();
+        let owner = BackgroundTaskOwner::new(
+            session.agent.name.clone(),
+            session_id.clone(),
+            session.running.current_run_id(),
+        );
         Ok(SessionInfo {
             agent_name: session.agent.name.clone(),
             session_id,
             temporary: session.temporary,
             running: session.running.is_running(),
+            background_tasks: self.background.active_count(&owner),
             run_id: session.running.current_run_id(),
             model: effective_model,
             is_custom_model,
         })
+    }
+
+    fn session_has_active_background_tasks(&self, session: &Session) -> bool {
+        let Ok(writer) = session.writer.lock() else {
+            return true;
+        };
+        let owner = BackgroundTaskOwner::new(
+            session.agent.name.clone(),
+            writer.session_id().to_string(),
+            session.running.current_run_id(),
+        );
+        self.background.active_count(&owner) > 0
+    }
+
+    fn session_occupied(&self, session: &Session) -> bool {
+        session.running.is_running() || self.session_has_active_background_tasks(session)
+    }
+
+    /// 让文件级会话变更可以作用于当前仍显示在前端的空闲会话。
+    ///
+    /// `Session` 持有追加文件的 writer；先从槽中移除并在本函数返回前释放它，
+    /// 再由调用方在同一把 sessions 锁内移动/删除文件。运行中或仍有托管后台
+    /// 任务时不允许脱离，避免后台继续向已归档/已删除的路径写入。
+    fn detach_idle_session(
+        &self,
+        sessions: &mut HashMap<SessionKey, Session>,
+        agent_name: &str,
+        session_id: &str,
+        operation: &str,
+    ) -> Result<(), String> {
+        let key = SessionKey::new(agent_name, session_id);
+        if sessions
+            .get(&key)
+            .is_some_and(|session| self.session_occupied(session))
+        {
+            return Err(format!(
+                "会话「{session_id}」正在运行或有托管后台任务，请先停止/终止后再{operation}"
+            ));
+        }
+        sessions.remove(&key);
+        Ok(())
     }
 
     /// 为某条会话设置或切换模型配置。
@@ -1616,6 +1719,67 @@ impl RuntimeState {
         Ok(())
     }
 
+    /// 查询某条会话拥有的托管后台任务。宿主查询与 Agent 的 query tool 共用同一
+    /// owner 边界，避免通过 UI / Web command 看到别的 session 的任务。
+    pub async fn query_background_tasks(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        job_id: Option<String>,
+        after_seq: u64,
+        wait_ms: u64,
+        include_completed: bool,
+        limit: usize,
+    ) -> Result<Vec<crate::types::BackgroundTaskSnapshot>, String> {
+        let run_id = {
+            let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+            let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
+                return Err(format!("会话「{session_id}」没有打开"));
+            };
+            session.running.current_run_id()
+        };
+        let owner = BackgroundTaskOwner::new(agent_name, session_id, run_id);
+        self.background
+            .query(
+                &owner,
+                crate::tools::background::BackgroundTaskQuery {
+                    job_id,
+                    after_seq,
+                    wait_ms,
+                    include_completed,
+                    limit,
+                },
+            )
+            .await
+    }
+
+    /// 由宿主终止或向指定后台任务写入 stdin；实际控制仍由 app manager 执行。
+    pub async fn manage_background_task(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        job_id: &str,
+        action: &str,
+        data: Option<String>,
+    ) -> Result<crate::types::BackgroundTaskSnapshot, String> {
+        let run_id = {
+            let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+            let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
+                return Err(format!("会话「{session_id}」没有打开"));
+            };
+            session.running.current_run_id()
+        };
+        let command = match action {
+            "terminate" => crate::tools::background::BackgroundTaskCommand::Terminate,
+            "writeStdin" => crate::tools::background::BackgroundTaskCommand::WriteStdin(
+                data.ok_or("writeStdin 需要 data")?,
+            ),
+            _ => return Err("action 必须是 terminate 或 writeStdin".into()),
+        };
+        let owner = BackgroundTaskOwner::new(agent_name, session_id, run_id);
+        self.background.manage(&owner, job_id, command).await
+    }
+
     /// 手动压缩某条会话（UI「立即压缩」）：跳过阈值预检，其余与自动压缩完全同一条
     /// 路径（摘要 → 分叉/归档 → 换会话）。
     ///
@@ -1660,7 +1824,7 @@ impl RuntimeState {
         let run_id = running.current_run_id();
         let sink = event_sink.clone();
         let sessions_map = self.sessions.clone();
-        let rekey = make_rekey(sessions_map);
+        let rekey = make_rekey(sessions_map, self.background.clone());
 
         self.spawn_run(async move {
             let _running_guard = running_guard;
@@ -1748,7 +1912,7 @@ impl RuntimeState {
     pub fn new_session(&self, agent_name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         sessions.retain(|key, session| {
-            key.agent_name != agent_name || session.temporary || session.running.is_running()
+            key.agent_name != agent_name || session.temporary || self.session_occupied(session)
         });
         Ok(())
     }
@@ -1912,30 +2076,74 @@ impl RuntimeState {
             Some(&resolved_env.vars),
         )?;
 
-        let mut registry = ToolRegistry::for_context(&tool_context);
-        if tool_context.permissions.tool_enabled("create_agent") {
-            registry.push(Arc::new(CreateAgentTool::new(model.clone())));
-        }
-        if tool_context.permissions.tool_enabled("run_agent") {
-            registry.push(Arc::new(RunAgentTool::new(
-                def.name.clone(),
-                Arc::new(RuntimeAgentRunner),
-            )));
-        }
-        if tool_context.permissions.tool_enabled("read_agent") {
-            registry.push(Arc::new(ReadAgentTool));
-        }
-        let registry = Arc::new(registry);
-        let wire_tools = registry.wire_tools();
-        // api_key 随 config 被移走；压缩摘要调用还要用一份
-        let compaction_api_key = api_key.clone();
         abort.reset();
         let running_guard = RunningGuard::new(running.clone());
         let run_token = running_guard.token;
         let run_id = running.current_run_id();
         // 可变：压缩换会话后要改成新 id，随后的 CompactionEnd / AgentEnd 才能
-        // 被前端按新身份收下（见 SessionSwitched 事件）
+        // 被前端按新身份收下（见 SessionSwitched 事件）。
         let mut session_id = writer_session_id(&writer)?;
+
+        let mut registry = ToolRegistry::for_context(&tool_context);
+        let background_owner =
+            BackgroundTaskOwner::new(def.name.clone(), session_id.clone(), run_id);
+        if tool_context.permissions.tool_enabled("create_agent") {
+            registry.push(Arc::new(CreateAgentTool::new(model.clone())));
+        }
+        if tool_context.permissions.tool_enabled("run_agent") {
+            let default_background = tool_context
+                .permissions
+                .tool_enabled("query_background_tasks")
+                && tool_context
+                    .permissions
+                    .tool_enabled("manage_background_task");
+            registry.push(Arc::new(
+                RunAgentTool::new_managed(
+                    def.name.clone(),
+                    background_owner.clone(),
+                    Arc::new(RuntimeAgentRunner {
+                        session_sink: Some(make_session_change_sink(event_sink.clone())),
+                    }),
+                    Arc::new(self.background.clone()),
+                    default_background,
+                )
+                .with_session_sink(make_session_change_sink(event_sink.clone())),
+            ));
+        }
+        if tool_context.permissions.tool_enabled("read_agent") {
+            registry.push(Arc::new(ReadAgentTool));
+        }
+        if tool_context
+            .permissions
+            .tool_enabled("submit_background_task")
+        {
+            registry.push(Arc::new(SubmitBackgroundTaskTool::new(
+                Arc::new(self.background.clone()),
+                background_owner.clone(),
+            )));
+        }
+        if tool_context
+            .permissions
+            .tool_enabled("query_background_tasks")
+        {
+            registry.push(Arc::new(QueryBackgroundTasksTool::new(
+                Arc::new(self.background.clone()),
+                background_owner.clone(),
+            )));
+        }
+        if tool_context
+            .permissions
+            .tool_enabled("manage_background_task")
+        {
+            registry.push(Arc::new(ManageBackgroundTaskTool::new(
+                Arc::new(self.background.clone()),
+                background_owner,
+            )));
+        }
+        let registry = Arc::new(registry);
+        let wire_tools = registry.wire_tools();
+        // api_key 随 config 被移走；压缩摘要调用还要用一份
+        let compaction_api_key = api_key.clone();
         // 压缩时的分叉 / 归档需要会话目录与设置（都在同步段取好，move 进任务）
         let sessions_dir = def.sessions_dir();
         let runtime_settings = load_settings();
@@ -2009,7 +2217,7 @@ impl RuntimeState {
             run_id,
         );
         // 压缩分叉换 id 后把 map 条目搬到新键
-        let rekey = make_rekey(self.sessions.clone());
+        let rekey = make_rekey(self.sessions.clone(), self.background.clone());
         // 显式 spawn 到注入的运行时上：调用线程可能根本不在运行时里
         // （桌面壳的 Tauri command 跑在 GTK 主线程），此时 `tokio::spawn` 会 panic。
         self.spawn_run(async move {

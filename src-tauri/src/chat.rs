@@ -21,6 +21,7 @@ fn tauri_emitter(app: AppHandle) -> EventEmitter {
             RuntimeEvent::SessionError(payload) => app.emit("session-error", &payload),
             RuntimeEvent::ApprovalRequest(payload) => app.emit("approval-request", &payload),
             RuntimeEvent::SessionSwitched(payload) => app.emit("session-switched", &payload),
+            RuntimeEvent::SessionChanged(payload) => app.emit("session-changed", &payload),
         };
         let _ = result;
     })
@@ -85,6 +86,44 @@ pub fn stop_run(
     session_id: String,
 ) -> Result<(), String> {
     state.stop_run(&agent_name, &session_id)
+}
+
+#[tauri::command]
+pub async fn query_background_tasks(
+    state: State<'_, ChatState>,
+    agent_name: String,
+    session_id: String,
+    job_id: Option<String>,
+    after_seq: Option<u64>,
+    wait_ms: Option<u64>,
+    include_completed: Option<bool>,
+    limit: Option<usize>,
+) -> Result<Vec<pipi_core::types::BackgroundTaskSnapshot>, String> {
+    state
+        .query_background_tasks(
+            &agent_name,
+            &session_id,
+            job_id,
+            after_seq.unwrap_or(0),
+            wait_ms.unwrap_or(0),
+            include_completed.unwrap_or(true),
+            limit.unwrap_or(20),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn manage_background_task(
+    state: State<'_, ChatState>,
+    agent_name: String,
+    session_id: String,
+    job_id: String,
+    action: String,
+    data: Option<String>,
+) -> Result<pipi_core::types::BackgroundTaskSnapshot, String> {
+    state
+        .manage_background_task(&agent_name, &session_id, &job_id, &action, data)
+        .await
 }
 
 #[tauri::command]
@@ -182,7 +221,8 @@ pub fn fork_session(
 
 // ============ 归档 / 恢复 / 删除（Agent 与会话） ============
 // 归档 = 目录/文件移动到 `.archive/`（文件即真相，不引入新状态）；
-// 删除不可恢复，UI 层负责确认。核心层负责「会话打开中禁止操作」的占用检查。
+// 删除不可恢复，UI 层负责确认。核心层负责运行中/后台任务的占用检查，
+// 空闲的打开会话会在操作前自动释放。
 
 #[tauri::command]
 pub fn archive_agent(state: State<ChatState>, name: String) -> Result<(), String> {

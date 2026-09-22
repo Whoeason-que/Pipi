@@ -76,6 +76,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
                 RuntimeEvent::SessionError(_) => "session-error",
                 RuntimeEvent::ApprovalRequest(_) => "approval-request",
                 RuntimeEvent::SessionSwitched(_) => "session-switched",
+                RuntimeEvent::SessionChanged(_) => "session-changed",
             };
             events.lock().unwrap().push(name);
         })

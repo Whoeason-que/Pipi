@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pipi_app::runtime::RuntimeState;
+use pipi_app::runtime::{RuntimeEvent, RuntimeState};
 use pipi_core::permissions::{BashPermissions, PermissionsConfig, SandboxMode};
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
@@ -200,7 +200,7 @@ async fn create_run_and_read_agent_output() {
 // ============ 端到端：真实协议栈下父 Agent 调用子 Agent ============
 //
 // 本地 OpenAI 兼容 mock（rig 的 HTTP/SSE 栈原样参与），按请求序号回放：
-//   req1: 父第 1 轮 → tool_call run_agent(mock-worker)
+//   req1: 父第 1 轮 → tool_call run_agent(mock-worker, background=false)
 //   req2: 子第 1 轮 → 文本「子任务完成：42」
 //   req3: 父第 2 轮 → 文本「最终：42」
 // 验证 run_agent 工具把子输出作为 toolResult 交回父循环、子 JSONL 完整落盘、
@@ -320,7 +320,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     let (addr, counter) = spawn_scripted_mock(vec![
         sse_tool_call(
             "run_agent",
-            &json!({"name": "mock-worker", "prompt": "计算 6x7"}),
+            &json!({"name": "mock-worker", "prompt": "计算 6x7", "background": false}),
         ),
         sse_text("子任务完成：42"),
         sse_text("最终：42"),
@@ -382,13 +382,26 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     let runtime = Arc::new(pipi_app::runtime::RuntimeState::new(
         tokio::runtime::Handle::current(),
     ));
+    let child_session_events = Arc::new(Mutex::new(Vec::<(String, String, usize)>::new()));
+    let event_sink = {
+        let child_session_events = child_session_events.clone();
+        Arc::new(move |event: RuntimeEvent| {
+            if let RuntimeEvent::SessionChanged(envelope) = event {
+                child_session_events.lock().unwrap().push((
+                    envelope.agent_name,
+                    envelope.session_id,
+                    envelope.run_id,
+                ));
+            }
+        })
+    };
     runtime
         .send_prompt(
             "mock-parent",
             None,
             "让 worker 计算 6x7 并汇报",
             None,
-            Arc::new(|_| {}),
+            event_sink,
         )
         .unwrap();
 
@@ -462,6 +475,16 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     let child_output = pipi_core::tools::agent::read_agent_output("mock-worker", None).unwrap();
     assert_eq!(child_output.status, AgentRunStatus::Completed);
     assert!(child_output.response.contains("子任务完成：42"));
+    assert_eq!(
+        child_session_events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(agent_name, _, _)| agent_name == "mock-worker")
+            .count(),
+        1,
+        "同步 run_agent 创建 child 后应立即通知宿主刷新会话列表"
+    );
 
     let _ = std::fs::remove_dir_all(home);
 }

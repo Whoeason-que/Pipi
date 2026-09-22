@@ -46,6 +46,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
     │       └── SKILL.md
     ├── memory/             # 持久记忆（Markdown，人机共写）
     ├── workspace/          # Agent 目录内的默认工作区（也可指向任意本地路径）
+    ├── jobs/               # 托管后台任务的状态 JSONL 与完整输出日志
     └── sessions/           # 运行记录（JSONL，append-only）
 ```
 
@@ -60,8 +61,10 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 ### 3. 小核心，组合优于配置
 
 核心只默认启用最小工具集（`read` / `write` / `edit` / `bash` / `memory` / `glob` / `grep`）。
-跨 Agent 的 `create_agent` / `run_agent` / `read_agent` 是显式选择的组合能力，
-不会因升级或新建 Agent 而自动开启。其余能力来自组合：
+跨 Agent 的 `create_agent` / `run_agent` / `read_agent`，以及会让进程跨越当前模型
+轮次继续运行的 `submit_background_task` / `query_background_tasks` /
+`manage_background_task`，都是显式选择的组合能力，不会因升级或新建 Agent 而自动
+开启。其余能力来自组合：
 
 - **Skills** —— 用 Markdown 写的能力包，渐进式加载：只有描述常驻上下文，正文在被触发时才进入（同 pi 的做法）。
 - **MCP** —— 标准工具协议，在 `agent.json` 里声明即可接入。
@@ -82,12 +85,13 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 记忆 | `memory/*.md` | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
 | 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查；Allowlist 模式下白名单外的非危险命令可交互审批救回（拒绝 / 允许一次 / 总是允许——按段写回白名单），黑名单命中、危险命令与沙箱约束不可审批 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、写入文件系统的重定向（`>` `>>` `2>文件`）与从文件读入的重定向（`<文件` `<(cmd)`）在非完全访问下被拒绝。`rm -f` 家族只放行「工作区内、非仓库根 / 工作区根」的绝对路径字面量；`2>/dev/null`、`2>&1`、管道与 heredoc 不受限 |
-| 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；`create_agent` / `run_agent` / `read_agent` 必须显式开启 |
+| 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |
 | 压缩阈值 | `agent.json` → `compactThresholdPercent` | 上下文占用达到模型窗口的这个百分比时自动压缩（默认 75）；窗口未知（0）时不压缩 |
 | 请求重试 | `settings.json` → `retry` | 可重试错误的重发策略：`maxAttempts`（含首次，1 = 不重试）/ `baseDelayMs` / `maxDelayMs`；默认 3 次尝试、1s 起指数退避、30s 封顶、25% 抖动，尊重 `Retry-After` |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 环境契约 | `agent.toml`（项目根 / Agent 定义目录）+ `agent.local.toml` | av 标准：env 声明、工具链断言、资源覆盖；会话启动解析一次，秘密值永不内联 |
 | 会话 | `sessions/*.jsonl` | Append-only 的运行记录，一文件一会话，树状条目（id/parentId）支持分叉 |
+| 后台任务 | `jobs/<job-id>.jsonl` + `.log` | shell 进程与 child Agent 的生命周期、状态和输出；任务按 Agent/session 所有，重启只显示 orphaned，不按旧 PID 或 future 自动接管 |
 
 ### 默认 Agent
 
@@ -131,17 +135,19 @@ Agent 可以通过三项显式工具组合已有 Agent，而不引入独立的 s
 - `create_agent`：用结构化参数创建一个普通、持久的 Agent；模型、工作目录、
   沙箱和基础工具从调用者继承，`instructions` 写入新 Agent 的 `AGENTS.md`。
   新 Agent 不继承三项 Agent 组合工具。
-- `run_agent`：在目标 Agent 下创建一个全新 session，使用目标自己的配置同步
-  运行，完成后把最终文本与 `sessionId` 返回调用者。单次运行有 10 分钟
-  时间上限，超时与中止一样落盘为可读取的终态；运行期间的工具调用与轮次
-  完成作为进度回流传回父会话。
+- `run_agent`：在目标 Agent 下创建一个全新 session。若当前 Agent 同时启用了
+  `query_background_tasks` 与 `manage_background_task`，默认提交为托管后台任务并
+  立即返回 `jobId`；可用 `background:false` 保留同步等待并返回最终文本与
+  `sessionId`。异步任务通过同一组后台任务工具查询输出、等待变化或终止。
+  单次 child 运行有 10 分钟时间上限，超时与中止一样落盘为可读取的终态；运行
+  期间的工具调用与轮次完成作为任务输出记录。
 - `read_agent`：按 `sessionId` 读取目标 Agent 已落盘的最终输出；省略时读取
   最近活跃的 session。
 
-第一阶段固定为单层、同步委派：child 运行时只注册基础工具，不支持递归、后台
-运行、所有权、消息邮箱或并行 child。完整过程仍写入目标 Agent 自己的
-`sessions/*.jsonl`，所以输出既能由 `run_agent` 直接取得，也能之后用
-`read_agent` 重读。
+Agent 组合仍固定为单层：child 运行时只注册基础工具，不支持递归委派。shell 进程
+与异步 child Agent 共用三项显式托管工具，任务按父 Agent 的 session 所有，完整
+状态写入父 Agent 的 `jobs/`；应用重启后运行态任务只显示为 `orphaned`，不冒险
+接管遗留 PID 或未完成的 child future。
 
 ## 架构
 
@@ -157,11 +163,12 @@ Agent 可以通过三项显式工具组合已有 Agent，而不引入独立的 s
 │  pipi-tools / pipi-harness            │  内置工具/权限/截断 + 纯提示词层
 │  pipi-provider                         │  rig 的 HTTP/SSE 适配与错误分类
 ├─────────────────────────────────────┤
-│  crates/pipi-app   应用服务层         │  会话槽、后台编排、宿主事件协议
+│  crates/pipi-app   应用服务层         │  会话槽、进程托管、后台编排、宿主协议
 ├─────────────────────────────────────┤
 │  crates/pipi-core  Rust 核心         │  不依赖 Tauri，可独立测试
 │  ├─ agent_loop    工具调用循环        │  LLM → 工具调用 → 执行 → 回喂
 │  ├─ tools::agent  Agent 组合工具      │  显式启用；基础工具来自 pipi-tools
+│  ├─ tools::background 后台任务工具    │  只定义能力端口；shell/child 由 pipi-app 托管
 │  ├─ session       sessions/*.jsonl   │  append-only，崩溃安全
 │  ├─ compaction    上下文压缩策略流水线  │  投影式（不落盘）+ 替换式（落盘）
 │  └─ agents        扫描 ~/.pipi/agents │  一切皆文件

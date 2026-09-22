@@ -23,6 +23,8 @@ pub fn run() {
             chat::steer,
             chat::resolve_approval,
             chat::stop_run,
+            chat::query_background_tasks,
+            chat::manage_background_task,
             chat::new_session,
             chat::session_messages,
             chat::session_running,

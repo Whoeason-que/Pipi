@@ -301,6 +301,10 @@ fn wait_for<F: Fn(&[RuntimeEvent]) -> bool>(
                         "session-switched → {} (archived={})",
                         envelope.to_session_id, envelope.archived
                     ),
+                    RuntimeEvent::SessionChanged(envelope) => format!(
+                        "session-changed: {}:{}",
+                        envelope.agent_name, envelope.session_id
+                    ),
                 })
                 .collect();
             panic!("等待超时；已收到 {} 个事件：{dump:#?}", snapshot.len());
