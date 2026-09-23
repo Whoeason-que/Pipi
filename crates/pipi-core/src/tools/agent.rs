@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 
 use super::{AgentTool, ToolContext, ToolOutput};
 use crate::agents;
-use crate::permissions::{AGENT_TOOLS, BACKGROUND_TASK_TOOLS, DEFAULT_TOOLS};
+use crate::permissions::{BACKGROUND_TASK_TOOLS, DEFAULT_TOOLS};
 use crate::session::{active_path, list_session_summaries, load_session, rebuild_messages};
 use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskOwner, BackgroundTaskService,
@@ -127,11 +127,13 @@ impl AgentTool for CreateAgentTool {
             return Err("instructions 不能为空".into());
         }
 
+        // 只允许继承基础工具。后台任务工具也是显式高权限能力，不能因
+        // 默认继承或伪造工具参数而从父 Agent 传给新 Agent。
         let ordinary_tools: Vec<String> = ctx
             .permissions
             .tools
             .iter()
-            .filter(|tool| !AGENT_TOOLS.contains(&tool.as_str()))
+            .filter(|tool| DEFAULT_TOOLS.contains(&tool.as_str()))
             .cloned()
             .collect();
         let allowed: HashSet<&str> = ordinary_tools.iter().map(String::as_str).collect();
@@ -143,7 +145,9 @@ impl AgentTool for CreateAgentTool {
                 for value in values {
                     let tool = value.as_str().ok_or("tools 必须是字符串数组")?;
                     if !allowed.contains(tool) {
-                        return Err(format!("不能把当前 Agent 未启用的工具授予新 Agent: {tool}"));
+                        return Err(format!(
+                            "只能把当前 Agent 已启用的基础工具授予新 Agent: {tool}"
+                        ));
                     }
                     if seen.insert(tool) {
                         selected.push(tool.to_string());

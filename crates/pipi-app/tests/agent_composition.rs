@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pipi_app::runtime::{RuntimeEvent, RuntimeState};
-use pipi_core::permissions::{BashPermissions, PermissionsConfig, SandboxMode};
+use pipi_core::permissions::{
+    BashPermissions, PermissionsConfig, SandboxMode, BACKGROUND_TASK_TOOLS,
+};
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
 use pipi_core::tools::{AgentTool, ToolContext, ToolRegistry};
@@ -84,6 +86,9 @@ async fn create_run_and_read_agent_output() {
             "create_agent".into(),
             "run_agent".into(),
             "read_agent".into(),
+            "submit_background_task".into(),
+            "query_background_tasks".into(),
+            "manage_background_task".into(),
         ],
         bash: BashPermissions::default(),
         sandbox: SandboxMode::WorkspaceWrite,
@@ -122,12 +127,52 @@ async fn create_run_and_read_agent_output() {
     let definition = pipi_core::agents::load_agent("composition-worker").unwrap();
     assert_eq!(definition.permissions.tools, vec!["read"]);
     assert!(definition.subagent);
+    assert!(BACKGROUND_TASK_TOOLS
+        .iter()
+        .all(|tool| !definition.permissions.tool_enabled(tool)));
     assert_eq!(definition.workspace.as_deref(), workspace.to_str());
     let instructions =
         std::fs::read_to_string(home.join(".pipi/agents/composition-worker/AGENTS.md")).unwrap();
     assert!(instructions.contains("Return a concise result."));
 
-    // 基础 registry 有意忽略目标配置中的 Agent 组合工具；child 深度固定为 1。
+    // 未指定 tools 时也只继承已启用的基础工具，不继承后台任务或组合工具。
+    create
+        .execute(
+            &context,
+            &json!({
+                "name": "composition-default-worker",
+                "instructions": "Use inherited base tools only."
+            }),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+    let default_definition = pipi_core::agents::load_agent("composition-default-worker").unwrap();
+    assert_eq!(default_definition.permissions.tools, vec!["read", "glob"]);
+    assert!(BACKGROUND_TASK_TOOLS
+        .iter()
+        .all(|tool| !default_definition.permissions.tool_enabled(tool)));
+
+    // 即使调用参数绕过模型侧 JSON Schema，也不能授予后台任务工具。
+    for (index, tool) in BACKGROUND_TASK_TOOLS.iter().enumerate() {
+        let name = format!("composition-forbidden-tool-{index}");
+        let result = create
+            .execute(
+                &context,
+                &json!({
+                    "name": name,
+                    "instructions": "This creation must be rejected.",
+                    "tools": [tool]
+                }),
+                &|_| {},
+            )
+            .await;
+        let error = result.expect_err("后台任务工具不得授予新 Agent");
+        assert!(error.contains("基础工具"), "{error}");
+        assert!(pipi_core::agents::load_agent(&name).is_err());
+    }
+
+    // 基础 registry 有意忽略目标配置中的 Agent 组合工具；child 深度固定为 1.
     let child_registry = ToolRegistry::for_context(&context);
     assert!(child_registry.names().contains(&"read"));
     assert!(!child_registry.names().contains(&"run_agent"));
