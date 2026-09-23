@@ -624,7 +624,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
                 wait_for_agent_entry(&entry, CONTROL_TIMEOUT.as_millis() as u64).await;
                 return entry.snapshot(0);
             }
-            return Ok(self.query_persisted_job(owner, job_id, 0).await?);
+            return self.query_persisted_job(owner, job_id, 0).await;
         };
         if !entry.belongs_to(owner) {
             return Err("后台任务不属于当前 Agent session".into());
