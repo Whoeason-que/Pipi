@@ -8,6 +8,7 @@
 //! 错误不在 HTTP 层抛出，而是以 `StreamEvent::Error` 进入事件流 —— 与 pi 的
 //! StreamFn 契约一致。
 
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -92,6 +93,14 @@ const SESSION_HEADER_PROVIDERS: &[(&str, &str)] = &[("opencode.ai/zen/go", "x-op
 
 /// `StreamOptions.timeout_secs` 为 0 时的请求时限（秒）：无进展即中止。
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
+
+/// reqwest client owns the connection pool. Rig clients are request-scoped because
+/// their API key, base URL, and extra headers vary; cloning this client keeps those
+/// per-request settings separate while reusing idle HTTP connections.
+fn shared_http_client() -> &'static reqwest::Client {
+    static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    HTTP_CLIENT.get_or_init(reqwest::Client::new)
+}
 
 /// 我们自己的 User-Agent。供应商文档普遍要求客户端别用通用 SDK / HTTP 库的名字。
 fn pipi_user_agent() -> String {
@@ -609,7 +618,9 @@ impl Provider for RigProvider {
                 match api {
                     Api::AnthropicMessages => {
                         let key = options.api_key.clone().unwrap_or_default();
-                        let mut cb = rig::providers::anthropic::Client::builder().api_key(key);
+                        let mut cb = rig::providers::anthropic::Client::builder()
+                            .http_client(shared_http_client().clone())
+                            .api_key(key);
                         if !model.base_url.is_empty() {
                             cb = cb.base_url(model.base_url.clone());
                         }
@@ -632,7 +643,9 @@ impl Provider for RigProvider {
                     }
                     Api::OpenAICompletions => {
                         let key = options.api_key.clone().unwrap_or_default();
-                        let mut cb = rig::providers::openai::Client::builder().api_key(key);
+                        let mut cb = rig::providers::openai::Client::builder()
+                            .http_client(shared_http_client().clone())
+                            .api_key(key);
                         if !model.base_url.is_empty() {
                             cb = cb.base_url(model.base_url.clone());
                         }
@@ -671,6 +684,11 @@ impl Provider for RigProvider {
 mod tests {
     use super::*;
     use pipi_protocol::Tool;
+
+    #[test]
+    fn rig_calls_share_the_same_http_client_pool() {
+        assert!(std::ptr::eq(shared_http_client(), shared_http_client()));
+    }
 
     fn context() -> Context {
         Context {

@@ -22,6 +22,7 @@ import {
   eventMatchesRun,
   formatRuntimeError,
   groupChatBlocks,
+  messageText,
   INITIAL_CHAT_STATE,
   formatTokens,
   normalizeAgentEvent,
@@ -177,6 +178,11 @@ export default function ChatView({
   const stopPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followTailRef = useRef(true);
   const sendInFlightRef = useRef(false);
+  const performanceRunRef = useRef<{
+    startedAt: number;
+    firstTextMs: number | null;
+    modelRequests: number;
+  } | null>(null);
   const composingRef = useRef(false);
   const compositionEndedAtRef = useRef(0);
 
@@ -243,6 +249,32 @@ export default function ChatView({
       && sessionIdentityRef.current?.runId != null
       && normalized.meta.runId >= sessionIdentityRef.current.runId;
     if (!accepted && !finalRecovery) return;
+    const performanceRun = performanceRunRef.current;
+    if (performanceRun) {
+      const { event } = normalized;
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        performanceRun.modelRequests += 1;
+      } else if (event.type === "retry_start") {
+        // Count the failed attempt as well as the eventual assistant message.
+        performanceRun.modelRequests += 1;
+      } else if (
+        event.type === "message_update"
+        && event.message.role === "assistant"
+        && performanceRun.firstTextMs === null
+        && messageText(event.message).trim()
+      ) {
+        performanceRun.firstTextMs = performance.now() - performanceRun.startedAt;
+      } else if (event.type === "agent_end") {
+        if (import.meta.env.DEV) {
+          console.debug("[pipi:performance] turn", {
+            firstTextMs: performanceRun.firstTextMs,
+            totalMs: performance.now() - performanceRun.startedAt,
+            modelRequests: performanceRun.modelRequests,
+          });
+        }
+        performanceRunRef.current = null;
+      }
+    }
     if (normalized.event.type === "agent_end") {
       // 运行已结束：残留的审批请求在核心侧必然已 fail-closed，收起横幅
       setPendingApproval(null);
@@ -548,6 +580,11 @@ export default function ChatView({
     ignoreEventsUntilNextRunRef.current = false;
     setInput("");
     followTailRef.current = true;
+    performanceRunRef.current = {
+      startedAt: performance.now(),
+      firstTextMs: null,
+      modelRequests: 0,
+    };
     dispatch({ type: "submit_user", key: userKey, text });
     try {
       await invoke("send_prompt", {
@@ -557,6 +594,7 @@ export default function ChatView({
         model: isCustomModel ? sessionModel : null,
       });
     } catch (error) {
+      performanceRunRef.current = null;
       dispatch({ type: "reject_user", key: userKey });
       onError(formatRuntimeError(error));
     } finally {
