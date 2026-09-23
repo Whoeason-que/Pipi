@@ -694,6 +694,18 @@ fn make_rekey(
     })
 }
 
+fn compaction_stream_options(api_key: &str, session_id: &str) -> StreamOptions {
+    StreamOptions {
+        api_key: Some(api_key.to_string()),
+        temperature: None,
+        max_tokens: None,
+        timeout_secs: 300,
+        // 摘要虽是一次性提示词，也必须属于当前会话。OpenCode Go 等供应商
+        // 依赖这个 ID 注入 x-opencode-session，并据此路由请求。
+        session_id: Some(session_id.to_string()),
+    }
+}
+
 /// 压缩本体。`Ok(false)` 表示按触发方式判断「无需压缩」（自动且未达触发线）——
 /// 调用方不应把它当失败；`Err` 才是真的没压成（手动时的「历史还不用压」也走这里）。
 async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
@@ -717,15 +729,8 @@ async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
     (ctx.sink)(envelope(ctx.session_id, AgentEvent::CompactionStart));
     let tokens_before = crate::context::estimate_context_tokens(&history);
 
-    // 摘要是一次性提示词：不带会话标识（供应商按会话做缓存写入，这份 prompt
-    // 不会被复用），用量另计入会话账本。
-    let summary_options = StreamOptions {
-        api_key: Some(ctx.api_key.to_string()),
-        temperature: None,
-        max_tokens: None,
-        timeout_secs: 300,
-        session_id: None,
-    };
+    // 摘要用量另计入会话账本；请求仍携带当前会话 ID，满足供应商的会话路由要求。
+    let summary_options = compaction_stream_options(ctx.api_key, ctx.session_id);
     // provider 实例要活到 compact 调用结束（provider_for 返回 Arc）
     let summarizer = provider_for(ctx.model.api);
     let strategy_env = crate::compaction::StrategyEnv {
@@ -2304,6 +2309,13 @@ mod tests {
     use std::future::pending;
     use std::sync::{Arc, Barrier};
     use std::thread;
+
+    #[test]
+    fn compaction_summary_request_uses_active_session_id() {
+        let options = compaction_stream_options("test-key", "active-session");
+        assert_eq!(options.session_id.as_deref(), Some("active-session"));
+        assert_eq!(options.api_key.as_deref(), Some("test-key"));
+    }
 
     #[test]
     fn temporary_compaction_updates_memory_ledger_without_forking() {
