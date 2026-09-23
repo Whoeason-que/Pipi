@@ -934,7 +934,7 @@ pre.code {
   gap: 7px;
 }
 
-.settings-choice-grid .tool-check,
+.settings-choice-grid .tool-grid-toggle,
 .vertical-choices .tool-check {
   min-width: 0;
   padding: 7px 9px;

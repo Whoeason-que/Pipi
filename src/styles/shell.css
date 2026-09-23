@@ -179,8 +179,11 @@ body.resizing * {
 }
 
 .agent {
-  padding-bottom: 2px;
+  padding: 4px;
   margin-bottom: 6px;
+  background: var(--stripe);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
 }
 
 .agent-row {
@@ -285,6 +288,45 @@ body.resizing * {
 @keyframes agent-running-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
+}
+
+/* 会话折叠按钮（放在 agent-row 最右边） */
+
+.agent-expand-btn,
+.agent-expand-placeholder {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.agent-expand-btn {
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  padding: 0;
+  color: var(--faint);
+  transition: background 0.13s, color 0.13s;
+}
+
+.agent-expand-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.agent-expand-btn .caret {
+  font-size: 8px;
+  color: inherit;
+  transition: transform 0.16s;
+  display: inline-block;
+  line-height: 1;
+}
+
+.agent-expand-btn .caret.open {
+  transform: rotate(90deg);
 }
 
 .sessions {
@@ -1224,6 +1266,92 @@ body.resizing * {
 
 .setting-checks .hint {
   margin-top: 2px;
+}
+
+/* ============ iOS-style toggle switch ============ */
+
+.ios-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ios-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.ios-toggle .slider {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: 42px;
+  height: 24px;
+  background: var(--text-dim, #ccc);
+  border-radius: 12px;
+  transition: background 0.25s ease;
+}
+
+.ios-toggle .slider::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.25s ease;
+}
+
+.ios-toggle input:checked + .slider {
+  background: #34c759;
+}
+
+.ios-toggle input:checked + .slider::before {
+  transform: translateX(18px);
+}
+
+.ios-toggle input:disabled ~ .slider {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ios-toggle input:disabled ~ .toggle-label {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ios-toggle:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.ios-toggle .toggle-label {
+  line-height: 1.4;
+}
+
+/* Grid card variant: smaller slider for compact tool/option grids */
+.tool-grid-toggle .slider {
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+}
+
+.tool-grid-toggle .slider::before {
+  width: 16px;
+  height: 16px;
+}
+
+.tool-grid-toggle input:checked + .slider::before {
+  transform: translateX(14px);
 }
 
 .perm-editor {

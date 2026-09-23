@@ -158,6 +158,8 @@ export default function App() {
   const [archivedSessionsExpanded, setArchivedSessionsExpanded] = useState<
     Record<string, boolean>
   >({});
+  /** 侧栏里哪些 Agent 的会话列表展开了（折叠后只显示 agent-row）。 */
+  const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -522,6 +524,7 @@ export default function App() {
         setSettingsOpen(false);
         setChatOpen(true);
         setSidebarOpen(false);
+        setExpandedAgents((prev) => ({ ...prev, [agentName]: true }));
         setViewSessionId(sessionId);
         setActiveSession(null);
         setChatKey((key) => key + 1);
@@ -563,6 +566,7 @@ export default function App() {
         setSettingsOpen(false);
         setChatOpen(true);
         setSidebarOpen(false);
+        setExpandedAgents((prev) => ({ ...prev, [agentName]: true }));
         setViewSessionId(null);
         setActiveSession(null);
         setChatKey((key) => key + 1);
@@ -945,6 +949,10 @@ export default function App() {
             {visibleAgents.map((a) => {
               const isActiveAgent = selected === a.name && !creating;
               const sessions = sessionsFor(a);
+              const sessionCount = sessionsByAgent[a.name]?.length ?? 0;
+              const isExpanded = expandedAgents[a.name]
+                ?? (isActiveAgent && chatOpen)
+                ?? false;
 
               const isRunning = agentHasRunning(a.name);
               return (
@@ -964,7 +972,6 @@ export default function App() {
                         运行中
                       </span>
                     )}
-                    <span className="agent-count">{sessionsByAgent[a.name]?.length ?? 0}</span>
                     <span className="agent-actions">
                       <button
                         type="button"
@@ -1015,138 +1022,160 @@ export default function App() {
                         <IconTrash />
                       </button>
                     </span>
-                  </div>
-                  <div className="sessions">
-                    {sessions.map((sess) => {
-                      const isCurrent = chatOpen && selected === a.name && viewSessionId === sess.id;
-                      const isRunning = isConversationRunning(a.name, sess.id);
-                      return (
-                        <div
-                          key={sess.id}
-                          className={`session${isCurrent ? " active" : ""}`}
-                          role="button"
-                          tabIndex={0}
-                          aria-current={isCurrent ? "true" : undefined}
-                          title={`${sess.title}（${sess.messageCount} 条消息）`}
-                          onClick={() => void openSession(a.name, sess.id)}
-                          onKeyDown={(event) => {
-                            // 内层按钮（归档/删除）的键盘事件不冒泡成「打开会话」
-                            if (event.target !== event.currentTarget) return;
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              void openSession(a.name, sess.id);
-                            }
-                          }}
-                        >
-                          <div className="session-content">
-                            <span className="session-title">{sess.title}</span>
-                          </div>
-                          <div className="session-meta">
-                            <span className="session-status">
-                              {isRunning ? (
-                                <span className="session-running" title="这条会话正在运行">
-                                  运行中
-                                </span>
-                              ) : (
-                                <span className="session-idle">空闲</span>
-                              )}
-                            </span>
-                            <span className="session-actions">
-                              <button
-                                type="button"
-                                className="icon-btn"
-                                title="归档会话"
-                                aria-label={`归档会话 ${sess.title}`}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void archiveSession(a.name, sess.id);
-                                }}
-                              >
-                                <IconArchive />
-                              </button>
-                              <button
-                                type="button"
-                                className="icon-btn danger"
-                                title="彻底删除会话"
-                                aria-label={`彻底删除会话 ${sess.title}`}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void deleteSession(a.name, sess.id);
-                                }}
-                              >
-                                <IconTrash />
-                              </button>
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {isActiveAgent && chatOpen && !activeSession && (
-                      <div className="session pending">（新会话）</div>
+                    <span className="agent-count">{sessionCount}</span>
+                    {sessionCount > 0 ? (
+                      <button
+                        type="button"
+                        className="agent-expand-btn"
+                        aria-expanded={isExpanded}
+                        title={isExpanded ? "收起会话" : "展开会话"}
+                        aria-label={isExpanded ? "收起会话" : "展开会话"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExpandedAgents((prev) => ({
+                            ...prev,
+                            [a.name]: !isExpanded,
+                          }));
+                        }}
+                      >
+                        <span className={`caret${isExpanded ? " open" : ""}`}>▶</span>
+                      </button>
+                    ) : (
+                      <span className="agent-expand-placeholder" />
                     )}
-                    <div
-                      className="session archived-toggle"
-                      role="button"
-                      tabIndex={0}
-                      aria-expanded={Boolean(archivedSessionsExpanded[a.name])}
-                      onClick={() => void toggleArchivedSessions(a.name)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          void toggleArchivedSessions(a.name);
-                        }
-                      }}
-                    >
-                      <IconArchive />
-                      <span className="session-title dim">已归档</span>
-                      <span className="session-count">{archivedSessions[a.name]?.length ?? ""}</span>
-                      <span className={`caret${archivedSessionsExpanded[a.name] ? " open" : ""}`}>▶</span>
-                    </div>
-                    {archivedSessionsExpanded[a.name] && (
-                      <div className="archived-sessions">
-                        {(archivedSessions[a.name] ?? []).length === 0 ? (
-                          <div className="session pending">没有归档会话</div>
-                        ) : (
-                          (archivedSessions[a.name] ?? []).map((sess) => (
-                            <div key={sess.id} className="session">
-                              <div className="session-content">
-                                <span className="session-title dim">{sess.title}</span>
-                              </div>
-                              <div className="session-meta">
-                                <span className="session-status session-archived-status">已归档</span>
-                                <span className="session-actions">
-                                  <button
-                                    type="button"
-                                    className="icon-btn"
-                                    title="恢复会话"
-                                    aria-label={`恢复会话 ${sess.title}`}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      void restoreSession(a.name, sess.id);
-                                    }}
-                                  >
-                                    <IconRestore />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="icon-btn danger"
-                                    title="彻底删除归档会话"
-                                    aria-label={`彻底删除归档会话 ${sess.title}`}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      void deleteArchivedSession(a.name, sess.id);
-                                    }}
-                                  >
-                                    <IconTrash />
-                                  </button>
-                                </span>
-                              </div>
+                  </div>
+                  {isExpanded && (
+                    <div className="sessions">
+                      {sessions.map((sess) => {
+                              const isCurrent = chatOpen && selected === a.name && viewSessionId === sess.id;
+                              const isRunning = isConversationRunning(a.name, sess.id);
+                              return (
+                                <div
+                                  key={sess.id}
+                                  className={`session${isCurrent ? " active" : ""}`}
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-current={isCurrent ? "true" : undefined}
+                                  title={`${sess.title}（${sess.messageCount} 条消息）`}
+                                  onClick={() => void openSession(a.name, sess.id)}
+                                  onKeyDown={(event) => {
+                                    if (event.target !== event.currentTarget) return;
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      void openSession(a.name, sess.id);
+                                    }
+                                  }}
+                                >
+                                  <div className="session-content">
+                                    <span className="session-title">{sess.title}</span>
+                                  </div>
+                                  <div className="session-meta">
+                                    <span className="session-status">
+                                      {isRunning ? (
+                                        <span className="session-running" title="这条会话正在运行">
+                                          运行中
+                                        </span>
+                                      ) : (
+                                        <span className="session-idle">空闲</span>
+                                      )}
+                                    </span>
+                                    <span className="session-actions">
+                                      <button
+                                        type="button"
+                                        className="icon-btn"
+                                        title="归档会话"
+                                        aria-label={`归档会话 ${sess.title}`}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void archiveSession(a.name, sess.id);
+                                        }}
+                                      >
+                                        <IconArchive />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="icon-btn danger"
+                                        title="彻底删除会话"
+                                        aria-label={`彻底删除会话 ${sess.title}`}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void deleteSession(a.name, sess.id);
+                                        }}
+                                      >
+                                        <IconTrash />
+                                      </button>
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {isActiveAgent && chatOpen && !activeSession && (
+                              <div className="session pending">（新会话）</div>
+                            )}
+                            <div
+                              className="session archived-toggle"
+                              role="button"
+                              tabIndex={0}
+                              aria-expanded={Boolean(archivedSessionsExpanded[a.name])}
+                              onClick={() => void toggleArchivedSessions(a.name)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  void toggleArchivedSessions(a.name);
+                                }
+                              }}
+                            >
+                              <IconArchive />
+                              <span className="session-title dim">已归档</span>
+                              <span className="session-count">{archivedSessions[a.name]?.length ?? ""}</span>
+                              <span className={`caret${archivedSessionsExpanded[a.name] ? " open" : ""}`}>▶</span>
                             </div>
-                          ))
+                            {archivedSessionsExpanded[a.name] && (
+                              <div className="archived-sessions">
+                                {(archivedSessions[a.name] ?? []).length === 0 ? (
+                                  <div className="session pending">没有归档会话</div>
+                                ) : (
+                                  (archivedSessions[a.name] ?? []).map((sess) => (
+                                    <div key={sess.id} className="session">
+                                      <div className="session-content">
+                                        <span className="session-title dim">{sess.title}</span>
+                                      </div>
+                                      <div className="session-meta">
+                                        <span className="session-status session-archived-status">已归档</span>
+                                        <span className="session-actions">
+                                          <button
+                                            type="button"
+                                            className="icon-btn"
+                                            title="恢复会话"
+                                            aria-label={`恢复会话 ${sess.title}`}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void restoreSession(a.name, sess.id);
+                                            }}
+                                          >
+                                            <IconRestore />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="icon-btn danger"
+                                            title="彻底删除归档会话"
+                                            aria-label={`彻底删除归档会话 ${sess.title}`}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void deleteArchivedSession(a.name, sess.id);
+                                            }}
+                                          >
+                                            <IconTrash />
+                                          </button>
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </div>
                         )}
-                      </div>
-                    )}
-                  </div>
                 </div>
               );
             })}
@@ -1721,7 +1750,7 @@ function AgentDetail({
                   <span className="field-label">tools</span>
                   <div className="tool-row settings-choice-grid">
                     {KNOWN_TOOLS.map((tool) => (
-                      <label key={tool} className="tool-check">
+                      <label key={tool} className="ios-toggle tool-grid-toggle">
                         <input
                           type="checkbox"
                           checked={tools.includes(tool)}
@@ -1729,7 +1758,8 @@ function AgentDetail({
                             ? previous.filter((candidate) => candidate !== tool)
                             : [...previous, tool])}
                         />
-                        <span className="mono">{tool}</span>
+                        <span className="slider" />
+                        <span className="toggle-label mono">{tool}</span>
                       </label>
                     ))}
                   </div>
@@ -2202,13 +2232,14 @@ function CreateForm({
             <span className="label">工具</span>
             <div className="tool-row">
               {KNOWN_TOOLS.map((tool) => (
-                <label key={tool} className="tool-check">
+                <label key={tool} className="ios-toggle tool-grid-toggle">
                   <input
                     type="checkbox"
                     checked={tools.includes(tool)}
                     onChange={() => toggleTool(tool)}
                   />
-                  <span className="mono">{tool}</span>
+                  <span className="slider" />
+                  <span className="toggle-label mono">{tool}</span>
                 </label>
               ))}
             </div>
@@ -2487,7 +2518,7 @@ function SettingsView({ settings, onChange, onClose, showLogout }: SettingsViewP
               <section className="settings-block">
                 <span className="label">上下文压缩</span>
                 <div className="setting-checks">
-                  <label className="tool-check">
+                  <label className="ios-toggle">
                     <input
                       type="checkbox"
                       checked={draft.compaction.forkBeforeCompact}
@@ -2501,9 +2532,10 @@ function SettingsView({ settings, onChange, onClose, showLogout }: SettingsViewP
                         }))
                       }
                     />
-                    <span>压缩前分叉新会话（原会话保留为完整记录）</span>
+                    <span className="slider" />
+                    <span className="toggle-label">压缩前分叉新会话（原会话保留为完整记录）</span>
                   </label>
-                  <label className="tool-check">
+                  <label className="ios-toggle">
                     <input
                       type="checkbox"
                       checked={draft.compaction.archiveOriginal}
@@ -2518,7 +2550,8 @@ function SettingsView({ settings, onChange, onClose, showLogout }: SettingsViewP
                         }))
                       }
                     />
-                    <span>分叉后归档原会话</span>
+                    <span className="slider" />
+                    <span className="toggle-label">分叉后归档原会话</span>
                   </label>
                   <div className="hint">关闭分叉即回到原地压缩：摘要会替换当前会话里被压缩的旧轮次。</div>
                 </div>
