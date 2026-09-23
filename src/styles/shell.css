@@ -164,6 +164,40 @@ body.resizing * {
   flex: 1;
 }
 
+.agent-group-heading {
+  user-select: none;
+}
+
+.agent-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.agent-group-toggle:hover {
+  color: var(--fg);
+}
+
+.agent-group-toggle .caret {
+  display: inline-block;
+  font-size: 8px;
+  color: var(--faint);
+  transition: transform 0.16s;
+}
+
+.agent-group-toggle .caret.open {
+  transform: rotate(90deg);
+}
+
 .sb-count {
   font-family: var(--font-mono);
   font-size: 10.5px;

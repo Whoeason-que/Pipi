@@ -168,6 +168,7 @@ impl AgentTool for CreateAgentTool {
             Some(&self.model.id),
             Some(self.model.clone()),
             Some(instructions),
+            true,
         )?;
         let details = serde_json::to_value(&definition).map_err(|error| error.to_string())?;
 

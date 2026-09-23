@@ -158,6 +158,9 @@ export default function App() {
   const [archivedSessionsExpanded, setArchivedSessionsExpanded] = useState<
     Record<string, boolean>
   >({});
+  /** 侧栏的两个 Agent 分类区域分别折叠；默认展开 AGENTS，收起 SUBS。 */
+  const [agentsGroupExpanded, setAgentsGroupExpanded] = useState(true);
+  const [subsGroupExpanded, setSubsGroupExpanded] = useState(false);
   /** 侧栏里哪些 Agent 的会话列表展开了（折叠后只显示 agent-row）。 */
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<string | null>(null);
@@ -869,6 +872,24 @@ export default function App() {
     ));
   }, [agents, query, sessionsByAgent]);
 
+  const regularAgents = agents.filter((agent) => !agent.subagent);
+  const subagents = agents.filter((agent) => agent.subagent);
+  const visibleRegularAgents = visibleAgents.filter((agent) => !agent.subagent);
+  const visibleSubagents = visibleAgents.filter((agent) => agent.subagent);
+  // 搜索命中折叠分组时临时展示结果；清空搜索后仍按用户之前的折叠状态显示。
+  const showAgentsGroup = agentsGroupExpanded || (Boolean(query) && visibleRegularAgents.length > 0);
+  const showSubsGroup = subsGroupExpanded || (Boolean(query) && visibleSubagents.length > 0);
+  const sidebarItems = [
+    { kind: "group" as const, group: "agents" as const },
+    ...(showAgentsGroup
+      ? visibleRegularAgents.map((agent) => ({ kind: "agent" as const, agent }))
+      : []),
+    { kind: "group" as const, group: "subs" as const },
+    ...(showSubsGroup
+      ? visibleSubagents.map((agent) => ({ kind: "agent" as const, agent }))
+      : []),
+  ];
+
   const sessionTotal = useMemo(
     () => Object.values(sessionsByAgent).reduce((total, list) => total + list.length, 0),
     [sessionsByAgent],
@@ -930,23 +951,45 @@ export default function App() {
             </div>
           </div>
 
-          <div className="sb-sec">
-            <span>Agents</span>
-            <span className="spacer" />
-            <span className="sb-count">{agents.length}</span>
-            <button
-              type="button"
-              className="icon-btn add"
-              title="新建 Agent"
-              aria-label="新建 Agent"
-              onClick={startCreating}
-            >
-              <IconPlus />
-            </button>
-          </div>
+          <nav className="agents" aria-label="Agent 分组">
+            {sidebarItems.map((item) => {
+              if (item.kind === "group") {
+                const isAgentsGroup = item.group === "agents";
+                const isExpanded = isAgentsGroup ? showAgentsGroup : showSubsGroup;
+                const groupName = isAgentsGroup ? "AGENTS" : "SUBS";
+                const groupCount = isAgentsGroup ? regularAgents.length : subagents.length;
+                return (
+                  <div key={`group-${item.group}`} className="sb-sec agent-group-heading">
+                    <button
+                      type="button"
+                      className="agent-group-toggle"
+                      aria-expanded={isExpanded}
+                      onClick={() => {
+                        if (isAgentsGroup) setAgentsGroupExpanded((expanded) => !expanded);
+                        else setSubsGroupExpanded((expanded) => !expanded);
+                      }}
+                    >
+                      <span className={`caret${isExpanded ? " open" : ""}`}>▶</span>
+                      <span>{groupName}</span>
+                    </button>
+                    <span className="spacer" />
+                    <span className="sb-count">{groupCount}</span>
+                    {isAgentsGroup && (
+                      <button
+                        type="button"
+                        className="icon-btn add"
+                        title="新建 Agent"
+                        aria-label="新建 Agent"
+                        onClick={startCreating}
+                      >
+                        <IconPlus />
+                      </button>
+                    )}
+                  </div>
+                );
+              }
 
-          <nav className="agents">
-            {visibleAgents.map((a) => {
+              const a = item.agent;
               const isActiveAgent = selected === a.name && !creating;
               const sessions = sessionsFor(a);
               const sessionCount = sessionsByAgent[a.name]?.length ?? 0;
@@ -1355,7 +1398,13 @@ export default function App() {
                   key={current.name}
                   agent={current}
                   providers={settings.providers}
-                  onSaved={refresh}
+                  onSaved={async (subagent) => {
+                    if (subagent !== undefined) {
+                      if (subagent) setSubsGroupExpanded(true);
+                      else setAgentsGroupExpanded(true);
+                    }
+                    await refresh();
+                  }}
                   onBack={() => setSelected(null)}
                   onError={safeSetError}
                   blockedSessionIds={[...blockedSessionIdsRef.current]}
@@ -1429,7 +1478,7 @@ function EmptyState({ hasAgents }: { hasAgents: boolean }) {
 interface AgentDetailProps {
   agent: AgentDefinition;
   providers: ProviderConfig[];
-  onSaved: () => void | Promise<void>;
+  onSaved: (subagent?: boolean) => void | Promise<void>;
   onBack: () => void;
   onError: (msg: string) => void;
   blockedSessionIds: string[];
@@ -1473,6 +1522,7 @@ function AgentDetail({
 
   // —— 元信息 / 权限编辑（agent.json 全字段）——
   const [description, setDescription] = useState(agent.description);
+  const [subagent, setSubagent] = useState(agent.subagent);
   const [workspace, setWorkspace] = useState(agent.workspace ?? "");
   const [tools, setTools] = useState<string[]>(agent.permissions.tools);
   const [bashMode, setBashMode] = useState<BashMode>(bash.mode);
@@ -1509,6 +1559,7 @@ function AgentDetail({
   if (agentNameRef.current !== agent.name) {
     agentNameRef.current = agent.name;
     setDescription(agent.description);
+    setSubagent(agent.subagent);
     setWorkspace(agent.workspace ?? "");
     setTools(agent.permissions.tools);
     setCompactThreshold(agent.compactThresholdPercent);
@@ -1553,6 +1604,7 @@ function AgentDetail({
         model: modelId.trim(),
         provider: draftProvider,
         description: description.trim(),
+        subagent,
         workspace: workspace.trim() || null,
         permissions: {
           tools,
@@ -1576,7 +1628,7 @@ function AgentDetail({
         maxTokens: next.provider?.maxTokens ?? 8192,
         contextWindow: next.provider?.contextWindow ?? 0,
       });
-      await onSaved();
+      await onSaved(next.subagent);
       await resetTestSession();
     } catch (errorValue) {
       onError(formatRuntimeError(errorValue));
@@ -1587,6 +1639,7 @@ function AgentDetail({
 
   const metaDirty =
     description !== agent.description ||
+    subagent !== agent.subagent ||
     (workspace.trim() || null) !== (agent.workspace ?? null) ||
     tools.join(",") !== agent.permissions.tools.join(",") ||
     bashMode !== bash.mode ||
@@ -1714,6 +1767,20 @@ function AgentDetail({
                     placeholder="这个 Agent 是做什么的？"
                     rows={3}
                   />
+                </div>
+                <div className="settings-field">
+                  <span className="field-label">subagent</span>
+                  <label className="ios-toggle">
+                    <input
+                      type="checkbox"
+                      checked={subagent}
+                      disabled={saving}
+                      onChange={(event) => setSubagent(event.target.checked)}
+                    />
+                    <span className="slider" />
+                    <span className="toggle-label">{subagent ? "归入 SUBS" : "归入 AGENTS"}</span>
+                  </label>
+                  <span className="hint">由 Agent 的 create_agent 工具创建时默认开启；可在此更改分组。</span>
                 </div>
                 <div className="settings-field">
                   <label htmlFor="agent-workspace">workspace</label>

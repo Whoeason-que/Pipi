@@ -86,6 +86,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查；Allowlist 模式下白名单外的非危险命令可交互审批救回（拒绝 / 允许一次 / 总是允许——按段写回白名单），黑名单命中、危险命令与沙箱约束不可审批 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、写入文件系统的重定向（`>` `>>` `2>文件`）与从文件读入的重定向（`<文件` `<(cmd)`）在非完全访问下被拒绝。`rm -f` 家族只放行「工作区内、非仓库根 / 工作区根」的绝对路径字面量；`2>/dev/null`、`2>&1`、管道与 heredoc 不受限 |
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |
+| Agent 分组 | `agent.json` → `subagent` | `false`（默认）显示在 AGENTS；Agent 的 `create_agent` 工具创建时写为 `true` 并显示在 SUBS；可在设置中更改 |
 | 压缩阈值 | `agent.json` → `compactThresholdPercent` | 上下文占用达到模型窗口的这个百分比时自动压缩（默认 75）；窗口未知（0）时不压缩 |
 | 请求重试 | `settings.json` → `retry` | 可重试错误的重发策略：`maxAttempts`（含首次，1 = 不重试）/ `baseDelayMs` / `maxDelayMs`；默认 3 次尝试、1s 起指数退避、30s 封顶、25% 抖动，尊重 `Retry-After` |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
@@ -97,7 +98,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 
 首次启动（或 `~/.pipi/agents/Pipi/` 不存在）时，核心会自动播种一个名为 **Pipi** 的默认 Agent：
 启用全部基础工具、`workspace-write` 沙箱、工作目录为自身目录下的 `workspace/`，
-与手动新建的 Agent 完全同构 —— 想改就改 `~/.pipi/agents/Pipi/agent.json`。
+与手动新建的普通 Agent 完全同构（`subagent: false`）—— 想改就改 `~/.pipi/agents/Pipi/agent.json`。
 
 **已存在时一律不覆盖**（哪怕文件被改坏也不动用户数据）；删掉该目录后下次启动会重新播种，
 想彻底移除它请改名而不是删除。
@@ -130,10 +131,11 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 
 ### Agent 组合（第一阶段）
 
-Agent 可以通过三项显式工具组合已有 Agent，而不引入独立的 subagent 类型：
+Agent 可以通过三项显式工具组合已有 Agent：
 
-- `create_agent`：用结构化参数创建一个普通、持久的 Agent；模型、工作目录、
-  沙箱和基础工具从调用者继承，`instructions` 写入新 Agent 的 `AGENTS.md`。
+- `create_agent`：用结构化参数创建一个持久的 Agent，并将 `agent.json` 的
+  `subagent` 设为 `true`；模型、工作目录、沙箱和基础工具从调用者继承，
+  `instructions` 写入新 Agent 的 `AGENTS.md`。设置界面可将它改回普通 Agent。
   新 Agent 不继承三项 Agent 组合工具。
 - `run_agent`：在目标 Agent 下创建一个全新 session。若当前 Agent 同时启用了
   `query_background_tasks` 与 `manage_background_task`，默认提交为托管后台任务并

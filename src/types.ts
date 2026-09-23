@@ -56,6 +56,8 @@ export interface AgentDefinition {
   workspace: string | null;
   permissions: PermissionsConfig;
   mcpServers: McpServer[];
+  /** 是否归入由 Agent 组合工具创建的 Subagent 分组。 */
+  subagent: boolean;
   /** 自动压缩阈值：上下文占用达到模型窗口的这个百分比时压缩（默认 75）。 */
   compactThresholdPercent: number;
 }

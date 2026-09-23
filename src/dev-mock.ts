@@ -15,6 +15,7 @@ const demoAgent: AgentDefinition = {
     sandbox: "workspace-write",
   },
   mcpServers: [],
+  subagent: false,
   compactThresholdPercent: 75,
 };
 
@@ -79,6 +80,7 @@ const demoPeer: AgentDefinition = {
     sandbox: "read-only",
   },
   mcpServers: [],
+  subagent: true,
   compactThresholdPercent: 75,
 };
 
@@ -563,13 +565,16 @@ export function installDevMock(): void {
             ),
           );
         case "save_agent": {
-          // 浏览器演示模式：把保存落回 demoAgent，让「改完刷新」的流程可验证
+          // 浏览器演示模式：把保存落回对应示例 Agent，让「改完刷新」的流程可验证
           const def = args.def as AgentDefinition | undefined;
           const current = def ? testConversationOf(def.name) : undefined;
           if (current?.running) {
             return Promise.reject(new Error("临时测试仍在运行，请先停止再保存设置"));
           }
-          if (def && def.name === demoAgent.name) Object.assign(demoAgent, def);
+          if (def) {
+            const target = [demoAgent, demoPeer].find((agent) => agent.name === def.name);
+            if (target) Object.assign(target, def);
+          }
           if (current) demoConversations.delete(conversationKey(current.agentName, current.sessionId));
           return Promise.resolve(null);
         }

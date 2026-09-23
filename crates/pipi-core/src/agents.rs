@@ -37,6 +37,9 @@ pub struct AgentDefinition {
     /// Stdio MCP 服务器（M3 接入，这里先占位）。
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
+    /// 是否归入由 Agent 组合工具创建的 Subagent 分组。
+    #[serde(default)]
+    pub subagent: bool,
     /// 自动压缩阈值：上下文占用达到模型窗口的这个百分比时压缩（默认 75）。
     /// 越界值由 [`AgentDefinition::compact_threshold_percent`] 兜底成默认值。
     #[serde(default = "default_compact_threshold_percent")]
@@ -429,12 +432,13 @@ pub fn create_agent(
         model,
         provider,
         None,
+        false,
     )
 }
 
-/// 创建 Agent，并允许调用方在创建时直接写入 `AGENTS.md` 的指令正文。
-/// UI 的既有创建入口继续调用 [`create_agent`]；Agent 组合工具走本入口，
-/// 两者共享完全相同的名称、路径、权限和清单校验。
+/// 创建 Agent，并允许调用方在创建时直接写入 `AGENTS.md` 的指令正文及分组标记。
+/// UI 的既有创建入口继续调用 [`create_agent`]（普通 Agent）；Agent 组合工具走本入口
+/// 并传入 `subagent = true`，两者共享名称、路径、权限和清单校验。
 pub fn create_agent_with_instructions(
     name: &str,
     description: &str,
@@ -443,6 +447,7 @@ pub fn create_agent_with_instructions(
     model: Option<&str>,
     provider: Option<Model>,
     instructions: Option<&str>,
+    subagent: bool,
 ) -> Result<AgentDefinition, String> {
     let name = name.trim().to_string();
     validate_agent_name(&name)?;
@@ -481,6 +486,7 @@ pub fn create_agent_with_instructions(
         workspace: workspace.clone(),
         permissions,
         mcp_servers: Vec::new(),
+        subagent,
         compact_threshold_percent: default_compact_threshold_percent(),
     };
     // 与 save_agent 同一套校验（工具名单等）
@@ -1211,6 +1217,7 @@ mod tests {
             workspace: None,
             permissions: PermissionsConfig::default(),
             mcp_servers: Vec::new(),
+            subagent: false,
             compact_threshold_percent: 75,
         };
 
@@ -1279,6 +1286,7 @@ mod tests {
             workspace: None,
             permissions: PermissionsConfig::default(),
             mcp_servers: Vec::new(),
+            subagent: false,
             compact_threshold_percent: 75,
         };
         std::fs::write(
@@ -1310,6 +1318,36 @@ mod tests {
             def.permissions.sandbox,
             crate::permissions::SandboxMode::WorkspaceWrite
         );
+        assert!(!def.subagent);
+        let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
+    #[test]
+    fn subagent_defaults_and_persists_changes() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let legacy: AgentDefinition =
+            serde_json::from_str(r#"{"name":"legacy","permissions":{"tools":["read"]}}"#).unwrap();
+        assert!(!legacy.subagent);
+
+        let explicit: AgentDefinition = serde_json::from_str(
+            r#"{"name":"explicit","subagent":true,"permissions":{"tools":["read"]}}"#,
+        )
+        .unwrap();
+        assert!(explicit.subagent);
+        let json = serde_json::to_string(&explicit).unwrap();
+        assert!(json.contains("\"subagent\":true"), "{json}");
+
+        let name = format!("pipi-subagent-roundtrip-{}", crate::session::new_id());
+        let mut def = create_agent(&name, "", None, None, None, None).unwrap();
+        assert!(!def.subagent);
+
+        def.subagent = true;
+        save_agent(&def).unwrap();
+        assert!(load_agent(&name).unwrap().subagent);
+
+        def.subagent = false;
+        save_agent(&def).unwrap();
+        assert!(!load_agent(&name).unwrap().subagent);
         let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
     }
 
@@ -1331,6 +1369,7 @@ mod tests {
                 ..Default::default()
             },
             mcp_servers: Vec::new(),
+            subagent: false,
             compact_threshold_percent: 75,
         };
         let tools = [crate::types::Tool {
@@ -1396,6 +1435,7 @@ only = ["wanted"]
                 ..Default::default()
             },
             mcp_servers: Vec::new(),
+            subagent: false,
             compact_threshold_percent: 75,
         };
 
@@ -1481,6 +1521,7 @@ only = ["wanted"]
                 ..Default::default()
             },
             mcp_servers: Vec::new(),
+            subagent: false,
             compact_threshold_percent: 75,
         };
 
@@ -1575,6 +1616,7 @@ only = ["wanted"]
             workspace: None,
             permissions: PermissionsConfig::default(),
             mcp_servers: Vec::new(),
+            subagent: false,
             compact_threshold_percent: 75,
         };
 
@@ -1682,6 +1724,7 @@ only = ["wanted"]
             workspace: None,
             permissions: PermissionsConfig::default(),
             mcp_servers: Vec::new(),
+            subagent: false,
             compact_threshold_percent: 75,
         };
 

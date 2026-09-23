@@ -100,6 +100,7 @@ async fn create_run_and_read_agent_output() {
     };
 
     let create = CreateAgentTool::new(model);
+    assert!(create.parameters()["properties"].get("subagent").is_none());
     let created = create
         .execute(
             &context,
@@ -120,6 +121,7 @@ async fn create_run_and_read_agent_output() {
 
     let definition = pipi_core::agents::load_agent("composition-worker").unwrap();
     assert_eq!(definition.permissions.tools, vec!["read"]);
+    assert!(definition.subagent);
     assert_eq!(definition.workspace.as_deref(), workspace.to_str());
     let instructions =
         std::fs::read_to_string(home.join(".pipi/agents/composition-worker/AGENTS.md")).unwrap();
@@ -158,7 +160,7 @@ async fn create_run_and_read_agent_output() {
 
     // 即使目标 Agent 尚未配置模型，启动失败也必须落成可读取的 failed 输出，
     // 不能留下一个遮住旧结果的空 session。
-    pipi_core::agents::create_agent(
+    let manual_definition = pipi_core::agents::create_agent(
         "unconfigured-worker",
         "A worker without a model",
         Some(workspace.to_str().unwrap()),
@@ -171,6 +173,7 @@ async fn create_run_and_read_agent_output() {
         None,
     )
     .unwrap();
+    assert!(!manual_definition.subagent);
     let setup_failure = pipi_app::runtime::run_agent_once(
         "unconfigured-worker",
         "This input should remain readable",

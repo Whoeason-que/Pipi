@@ -2493,6 +2493,7 @@ mod tests {
             workspace: None,
             permissions: Default::default(),
             mcp_servers: Vec::new(),
+            subagent: false,
             compact_threshold_percent: 75,
         };
 
