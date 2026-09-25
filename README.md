@@ -88,6 +88,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |
 | Agent 分组 | `agent.json` → `subagent` | `false`（默认）显示在 AGENTS；Agent 的 `create_agent` 工具创建时写为 `true` 并显示在 SUBS；可在设置中更改 |
 | 压缩阈值 | `agent.json` → `compactThresholdPercent` | 上下文占用达到模型窗口的这个百分比时自动压缩（默认 75）；窗口未知（0）时不压缩 |
+| 压缩后目标 | `agent.json` → `compactTargetPercent` | 可选的压缩后上下文目标，占本次压缩前估算 token 的百分比（1–99）；未设置时仍保留最多 2 万 token 近期原文，避免改变旧 Agent 行为 |
 | 请求重试 | `settings.json` → `retry` | 可重试错误的重发策略：`maxAttempts`（含首次，1 = 不重试）/ `baseDelayMs` / `maxDelayMs`；默认 3 次尝试、1s 起指数退避、30s 封顶、25% 抖动，尊重 `Retry-After` |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 环境契约 | `agent.toml`（项目根 / Agent 定义目录）+ `agent.local.toml` | av 标准：env 声明、工具链断言、资源覆盖；会话启动解析一次，秘密值永不内联 |
@@ -194,6 +195,10 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
   `agent.json` 的 `compactThresholdPercent` 调；窗口未知时为 0 → 不压缩）；
   **手动压缩**（右栏「状态」→ 上下文行的「立即压缩」）跳过阈值 —— 用户点了就压，
   其余路径完全相同（同一个 `run_compaction`，因此同样分叉/归档/换会话）；
+- 「压到多少」独立于触发线：可选的 Agent 级 `compactTargetPercent` 以本次压缩前
+  的估算 token 为基数，先给摘要预留输出预算，再决定保留多少近期原文；未设置时
+  沿用固定 2 万 token 尾部预算。切点只落 user 边界，故目标是近似值；压缩事件
+  展示前后估算 token 与保留比例。该设置不改变何时触发自动压缩；保存后对已打开会话随后启动的轮次或手动压缩生效，正在执行的轮次沿用启动时的设置；
 - 投影式流水线按成本从低到高跑：**先清旧工具输出**（不花 LLM 调用、不动对话
   结构，对齐 Claude Code 的「先清旧工具输出再摘要」与 Anthropic context editing
   的 `clear_tool_uses_*`），仍超预算才硬裁；因为不落盘，改这一档不动会话格式；

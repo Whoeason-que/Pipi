@@ -60,6 +60,8 @@ export interface AgentDefinition {
   subagent: boolean;
   /** 自动压缩阈值：上下文占用达到模型窗口的这个百分比时压缩（默认 75）。 */
   compactThresholdPercent: number;
+  /** 可选：压缩后上下文目标占本次压缩前估算 token 的百分比。 */
+  compactTargetPercent?: number | null;
 }
 
 export interface ProviderConfig {

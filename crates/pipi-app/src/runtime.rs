@@ -454,6 +454,14 @@ impl RuntimeState {
             return Err("临时测试仍在运行或托管后台任务未结束，请先停止/终止后再保存设置".into());
         }
         agents::save_agent(def)?;
+        // 已打开的正式会话持有 Agent 快照；只刷新压缩控制项，让用户保存后
+        // 立即压缩该会话时用上新设置。正在执行的一轮仍用启动时的快照。
+        for (key, session) in sessions.iter_mut() {
+            if key.agent_name == def.name && !session.temporary {
+                session.agent.compact_threshold_percent = def.compact_threshold_percent;
+                session.agent.compact_target_percent = def.compact_target_percent;
+            }
+        }
         sessions.retain(|key, session| !(key.agent_name == def.name && session.temporary));
         Ok(())
     }
@@ -1812,7 +1820,8 @@ impl RuntimeState {
         let budget = crate::compaction::Budget::from_window(
             model.context_window,
             def.compact_threshold_percent(),
-        );
+        )
+        .with_target_percent(def.compact_target_percent());
         let sessions_dir = def.sessions_dir();
         let runtime_settings = load_settings();
         let settings = runtime_settings.compaction;
@@ -2171,7 +2180,8 @@ impl RuntimeState {
         let budget = crate::compaction::Budget::from_window(
             model.context_window,
             def.compact_threshold_percent(),
-        );
+        )
+        .with_target_percent(def.compact_target_percent());
         let config = AgentLoopConfig {
             model: model.clone(),
             provider: provider_for(model.api),
@@ -2507,6 +2517,7 @@ mod tests {
             mcp_servers: Vec::new(),
             subagent: false,
             compact_threshold_percent: 75,
+            compact_target_percent: None,
         };
 
         // 未配置 key 时的校验

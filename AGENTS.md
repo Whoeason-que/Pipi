@@ -85,7 +85,9 @@ src/                React + TypeScript 前端
   `validate_result` 把关（fail-closed），预算参数集中在 `Budget::from_window`。
   改压缩必须跑 `tests/compaction_corpus.rs`（真实会话 + 合成语料的不变量回归）。
   触发口径只有一处：`Budget::trigger_tokens`（窗口 × 百分比，Agent 级
-  `agent.json.compactThresholdPercent`，默认 75）；手动压缩与自动压缩共用
+  `agent.json.compactThresholdPercent`，默认 75）；可选的
+  `agent.json.compactTargetPercent` 只决定摘要后保留多少近期原文，以压缩前估算
+  token 为基数，缺失时继续使用固定 2 万 token 预算，不改变触发线。手动压缩与自动压缩共用
   `runtime::run_compaction`，差别只在 `CompactionTrigger`（手动跳过阈值预检，
   并且要在首尾补一对 AgentStart/AgentEnd —— 前端靠 agent_end 落 running）。
   压缩默认**分叉 + 归档**（settings 的 `compaction.forkBeforeCompact` /

@@ -28,8 +28,11 @@ use crate::types::{AbortSignal, Message, Model, StreamOptions, Usage};
 /// 保留近期原文轮次的 token 预算（对齐 pi 的 keepRecentTokens 默认值）。
 pub const KEEP_RECENT_TOKENS: u64 = 20_000;
 
-/// 摘要正文的 token 上限（约 4000 字；防摘要失控，无需等于 reserve 全额）。
-pub const SUMMARY_MAX_TOKENS: u32 = 1_024;
+/// 摘要请求的最大输出预算（含模型的思考 token）。对齐 pi：最多使用预留空间的 80%。
+pub const SUMMARY_MAX_TOKENS: u32 = (DEFAULT_RESERVE_TOKENS as u32) * 4 / 5;
+
+/// 小窗口仍给摘要留出基本的输出空间；这不是大窗口的固定上限。
+const MIN_SUMMARY_MAX_TOKENS: u32 = 1_024;
 
 /// 旧工具输出清理：最近这么多个工具输出保持原样（还在用的细节别动）。
 pub const TOOL_OUTPUT_KEEP: usize = 6;
@@ -58,8 +61,10 @@ pub struct Budget {
     pub reserve: u64,
     /// 保留近期原文轮次的 token 预算。
     pub keep_recent: u64,
-    /// 摘要正文的 token 上限。
+    /// 摘要请求的输出 token 上限。
     pub summary_max: u32,
+    /// 可选的压缩后上下文目标（占压缩前估算 token 的百分比）；None 保持旧尾部预算。
+    pub target_percent: Option<u8>,
     /// 保留最近几个工具输出的原文。
     pub tool_output_keep: usize,
     /// 小于这个字符数的工具输出不值得清理。
@@ -73,15 +78,29 @@ impl Budget {
     /// `threshold_percent` 越界（0 或 >100）时退回默认值 —— 手改过的
     /// agent.json 不该让压缩失效或变得不可预期。
     pub fn from_window(context_window: u64, threshold_percent: u8) -> Budget {
+        let threshold_percent = normalize_threshold_percent(threshold_percent);
+        let trigger_tokens = context_window.saturating_mul(threshold_percent as u64) / 100;
+        // keep_budget 会为摘要扣两倍预算；小窗口最多用剩余空间的 1/4，
+        // 这样还有至少一半可用于保留近期原文（直到 keep_recent 上限）。
+        let available = trigger_tokens.saturating_sub(DEFAULT_RESERVE_TOKENS);
+        let summary_max =
+            (available / 4).clamp(MIN_SUMMARY_MAX_TOKENS as u64, SUMMARY_MAX_TOKENS as u64) as u32;
         Budget {
             context_window,
-            threshold_percent: normalize_threshold_percent(threshold_percent),
+            threshold_percent,
             reserve: DEFAULT_RESERVE_TOKENS,
             keep_recent: KEEP_RECENT_TOKENS,
-            summary_max: SUMMARY_MAX_TOKENS,
+            summary_max,
+            target_percent: None,
             tool_output_keep: TOOL_OUTPUT_KEEP,
             tool_output_min_chars: TOOL_OUTPUT_MIN_CHARS,
         }
+    }
+
+    /// 只改变摘要后的目标，不改变自动压缩的触发线。
+    pub fn with_target_percent(mut self, target_percent: Option<u8>) -> Budget {
+        self.target_percent = target_percent.filter(|value| (1..=99).contains(value));
+        self
     }
 
     /// 触发阈值：占用超过「窗口 × 百分比」才值得动用压缩。
@@ -96,10 +115,27 @@ impl Budget {
 
     /// 保留尾部的预算：先给摘要自身与模型回复留位置，再收敛到 `keep_recent` 以内。
     pub fn keep_budget(&self) -> u64 {
+        self.max_tail_budget().min(self.keep_recent)
+    }
+
+    fn max_tail_budget(&self) -> u64 {
         self.trigger_tokens()
             .saturating_sub(self.reserve)
             .saturating_sub(self.summary_max as u64 * 2)
-            .min(self.keep_recent)
+    }
+
+    /// 本次摘要保留原文的预算。显式目标包含摘要，因此先扣摘要输出上限；
+    /// 实际结果还会受 user 轮次边界和 token 估算误差影响。
+    pub fn keep_budget_for(&self, tokens_before: u64) -> u64 {
+        match self.target_percent {
+            None => self.keep_budget(),
+            Some(percent) => {
+                let target_tokens = tokens_before.saturating_mul(percent as u64) / 100;
+                target_tokens
+                    .saturating_sub(self.summary_max as u64)
+                    .min(self.max_tail_budget())
+            }
+        }
     }
 }
 
@@ -514,14 +550,27 @@ mod tests {
         // 默认 75%：20 万窗口 → 15 万触发
         let budget = Budget::from_window(200_000, DEFAULT_THRESHOLD_PERCENT);
         assert_eq!(budget.trigger_tokens(), 150_000);
+        assert_eq!(budget.summary_max, SUMMARY_MAX_TOKENS);
         assert_eq!(budget.keep_budget(), KEEP_RECENT_TOKENS);
+        assert_eq!(budget.keep_budget_for(440_000), KEEP_RECENT_TOKENS);
+        let target = budget.with_target_percent(Some(20));
+        assert_eq!(target.trigger_tokens(), budget.trigger_tokens());
+        assert_eq!(
+            target.keep_budget_for(440_000),
+            88_000 - SUMMARY_MAX_TOKENS as u64
+        );
+        assert_eq!(
+            target.with_target_percent(Some(0)).keep_budget_for(440_000),
+            KEEP_RECENT_TOKENS
+        );
         // 百分比可调：50% 更早压
         assert_eq!(Budget::from_window(200_000, 50).trigger_tokens(), 100_000);
         // 窗口小：保留预算被触发线压住，不会超过可用空间
         let small = Budget::from_window(30_000, 75);
+        assert_eq!(small.summary_max, 1_529);
         assert_eq!(
             small.keep_budget(),
-            22_500 - DEFAULT_RESERVE_TOKENS - SUMMARY_MAX_TOKENS as u64 * 2
+            22_500 - DEFAULT_RESERVE_TOKENS - small.summary_max as u64 * 2
         );
         // 越界百分比退回默认（手改 agent.json 不该让压缩失效）
         assert_eq!(Budget::from_window(200_000, 0).threshold_percent, 75);

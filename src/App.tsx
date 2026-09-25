@@ -1530,6 +1530,7 @@ function AgentDetail({
   const [sandbox, setSandbox] = useState<SandboxMode>(agent.permissions.sandbox);
   // 自动压缩阈值（窗口占用的百分比，1–100）
   const [compactThreshold, setCompactThreshold] = useState(agent.compactThresholdPercent);
+  const [compactTarget, setCompactTarget] = useState(agent.compactTargetPercent?.toString() ?? "");
   useEffect(() => {
     let active = true;
     setTestSession(null);
@@ -1563,6 +1564,7 @@ function AgentDetail({
     setWorkspace(agent.workspace ?? "");
     setTools(agent.permissions.tools);
     setCompactThreshold(agent.compactThresholdPercent);
+    setCompactTarget(agent.compactTargetPercent?.toString() ?? "");
     setBashMode(bash.mode);
     setCommands(bash.commands.join("\n"));
     setSandbox(agent.permissions.sandbox);
@@ -1597,6 +1599,11 @@ function AgentDetail({
       onError("请选择或填写默认模型后再保存");
       return;
     }
+    const targetPercent = compactTarget.trim() === "" ? null : Number(compactTarget);
+    if (targetPercent !== null && (!Number.isInteger(targetPercent) || targetPercent < 1 || targetPercent > 99)) {
+      onError("压缩后目标比例须为 1–99 的整数，或留空使用默认行为");
+      return;
+    }
     setSaving(true);
     try {
       const next: AgentDefinition = {
@@ -1622,6 +1629,7 @@ function AgentDetail({
         },
         // 越界值在核心侧也会兜底，但先在这里夹一次，免得写进文件的是脏值
         compactThresholdPercent: Math.min(100, Math.max(1, Math.round(compactThreshold))),
+        compactTargetPercent: targetPercent,
       };
       await invoke("save_agent", { def: next });
       setSavedLimits({
@@ -1645,7 +1653,8 @@ function AgentDetail({
     bashMode !== bash.mode ||
     (bashMode === "allowAll" ? "" : commands) !== bash.commands.join("\n") ||
     sandbox !== agent.permissions.sandbox ||
-    Math.min(100, Math.max(1, Math.round(compactThreshold))) !== agent.compactThresholdPercent;
+    Math.min(100, Math.max(1, Math.round(compactThreshold))) !== agent.compactThresholdPercent ||
+    (compactTarget.trim() === "" ? null : Number(compactTarget)) !== (agent.compactTargetPercent ?? null);
   const configurationDirty = providerDirty || metaDirty;
 
   if (!testSession) {
@@ -1807,6 +1816,24 @@ function AgentDetail({
                     <span>%</span>
                   </div>
                   <span className="hint">上下文占用达到模型窗口的该比例时自动压缩。</span>
+                </div>
+                <div className="settings-field compact-threshold-field">
+                  <label htmlFor="agent-compact-target">压缩后目标比例</label>
+                  <div className="inline-value">
+                    <input
+                      id="agent-compact-target"
+                      className="mono"
+                      type="number"
+                      min={1}
+                      max={99}
+                      step={1}
+                      value={compactTarget}
+                      onChange={(event) => setCompactTarget(event.target.value)}
+                      placeholder="默认"
+                    />
+                    <span>%</span>
+                  </div>
+                  <span className="hint">相对本次压缩前的上下文，目标包含摘要；留空沿用近期 2 万 token 的原文预算。实际结果受完整轮次边界影响。</span>
                 </div>
               </section>
             )}

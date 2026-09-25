@@ -860,6 +860,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           const saved =
             event.tokensBefore != null && event.tokensAfter != null
               ? `：${formatTokens(event.tokensBefore)} → ${formatTokens(event.tokensAfter)} tok`
+                + (event.tokensBefore > 0
+                  ? `（估算保留约 ${Math.round(event.tokensAfter / event.tokensBefore * 100)}%）`
+                  : "")
               : "";
           const nextEntry: ChatEntry = {
             key: pendingKey ?? action.key,

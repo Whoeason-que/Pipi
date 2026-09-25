@@ -327,6 +327,13 @@ struct Case {
 impl Case {
     /// 打开种子会话 → 发一条消息 → 等到压缩完成。
     fn run(compaction: pipi_core::settings::CompactionSettings) -> Case {
+        Self::run_with_target(compaction, None)
+    }
+
+    fn run_with_target(
+        compaction: pipi_core::settings::CompactionSettings,
+        target: Option<u8>,
+    ) -> Case {
         let home = temp_home();
         let (addr, _, _) = spawn_endpoint();
         let base_url = format!("http://{addr}/v1");
@@ -344,6 +351,11 @@ impl Case {
         state
             .open_session("compaction-e2e", &old_id)
             .expect("打开会话");
+        if let Some(target) = target {
+            let mut updated = agents::load_agent("compaction-e2e").expect("读取 Agent");
+            updated.compact_target_percent = Some(target);
+            state.save_agent_definition(&updated).expect("保存压缩目标");
+        }
         let (sink, seen) = collect_events();
         state
             .send_prompt("compaction-e2e", Some(&old_id), "继续", None, sink)
@@ -419,6 +431,29 @@ impl Drop for Case {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.home);
     }
+}
+
+#[test]
+fn saved_target_applies_to_already_open_session() {
+    let _guard = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let case = Case::run_with_target(
+        pipi_core::settings::CompactionSettings {
+            fork_before_compact: false,
+            archive_original: false,
+        },
+        Some(20),
+    );
+    let messages = case
+        .runtime
+        .block_on(case.state.session_messages("compaction-e2e", &case.old_id))
+        .expect("读取压缩后历史");
+    assert!(
+        messages.len() <= 10,
+        "20% 目标应显著缩短近期原文，实际 {} 条",
+        messages.len()
+    );
 }
 
 #[test]

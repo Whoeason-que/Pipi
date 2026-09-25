@@ -44,6 +44,9 @@ pub struct AgentDefinition {
     /// 越界值由 [`AgentDefinition::compact_threshold_percent`] 兜底成默认值。
     #[serde(default = "default_compact_threshold_percent")]
     pub compact_threshold_percent: u8,
+    /// 可选的压缩后上下文目标比例；缺失时继续保留最多 20K 近期原文。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_target_percent: Option<u8>,
 }
 
 fn default_compact_threshold_percent() -> u8 {
@@ -55,6 +58,12 @@ impl AgentDefinition {
     /// 手改过的 agent.json 不该让压缩失效。
     pub fn compact_threshold_percent(&self) -> u8 {
         crate::compaction::normalize_threshold_percent(self.compact_threshold_percent)
+    }
+
+    /// 无效的手写比例退回未配置行为，避免把历史压到不可预期的目标。
+    pub fn compact_target_percent(&self) -> Option<u8> {
+        self.compact_target_percent
+            .filter(|value| (1..=99).contains(value))
     }
 }
 
@@ -488,6 +497,7 @@ pub fn create_agent_with_instructions(
         mcp_servers: Vec::new(),
         subagent,
         compact_threshold_percent: default_compact_threshold_percent(),
+        compact_target_percent: None,
     };
     // 与 save_agent 同一套校验（工具名单等）
     validate_definition(&def)?;
@@ -1219,6 +1229,7 @@ mod tests {
             mcp_servers: Vec::new(),
             subagent: false,
             compact_threshold_percent: 75,
+            compact_target_percent: None,
         };
 
         assert!(agent_dir("linked-agent").is_none());
@@ -1288,6 +1299,7 @@ mod tests {
             mcp_servers: Vec::new(),
             subagent: false,
             compact_threshold_percent: 75,
+            compact_target_percent: None,
         };
         std::fs::write(
             &external_manifest,
@@ -1371,6 +1383,7 @@ mod tests {
             mcp_servers: Vec::new(),
             subagent: false,
             compact_threshold_percent: 75,
+            compact_target_percent: None,
         };
         let tools = [crate::types::Tool {
             name: "read".into(),
@@ -1437,6 +1450,7 @@ only = ["wanted"]
             mcp_servers: Vec::new(),
             subagent: false,
             compact_threshold_percent: 75,
+            compact_target_percent: None,
         };
 
         // 声明替换约定发现；skills 按名过滤
@@ -1523,6 +1537,7 @@ only = ["wanted"]
             mcp_servers: Vec::new(),
             subagent: false,
             compact_threshold_percent: 75,
+            compact_target_percent: None,
         };
 
         let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
@@ -1618,6 +1633,7 @@ only = ["wanted"]
             mcp_servers: Vec::new(),
             subagent: false,
             compact_threshold_percent: 75,
+            compact_target_percent: None,
         };
 
         let result = build_tool_context(&def, None, crate::types::AbortSignal::new());
@@ -1726,6 +1742,7 @@ only = ["wanted"]
             mcp_servers: Vec::new(),
             subagent: false,
             compact_threshold_percent: 75,
+            compact_target_percent: None,
         };
 
         // 未知工具 / 空工具名单
@@ -1892,6 +1909,29 @@ only = ["wanted"]
         // 序列化键名与前端类型对齐（此刻 def 是上面那个 40 的）
         let json = serde_json::to_string(&def).unwrap();
         assert!(json.contains("\"compactThresholdPercent\":40"), "{json}");
+    }
+
+    #[test]
+    fn compact_target_is_optional_and_uses_camel_case() {
+        let minimal = r#"{"name":"t","permissions":{"tools":["read"]}}"#;
+        let def: AgentDefinition = serde_json::from_str(minimal).unwrap();
+        assert_eq!(def.compact_target_percent(), None);
+        assert!(!serde_json::to_string(&def)
+            .unwrap()
+            .contains("compactTargetPercent"));
+
+        let custom = r#"{"name":"t","permissions":{"tools":["read"]},"compactTargetPercent":20}"#;
+        let def: AgentDefinition = serde_json::from_str(custom).unwrap();
+        assert_eq!(def.compact_target_percent(), Some(20));
+        assert!(serde_json::to_string(&def)
+            .unwrap()
+            .contains("\"compactTargetPercent\":20"));
+
+        for value in [0, 100, 200] {
+            let text = format!(r#"{{"name":"t","compactTargetPercent":{value}}}"#);
+            let def: AgentDefinition = serde_json::from_str(&text).unwrap();
+            assert_eq!(def.compact_target_percent(), None);
+        }
     }
 
     #[test]

@@ -6,7 +6,7 @@
 //! usage 带回上层（计入会话账本）。
 
 use super::{file_operations, Plan, Preparation, Replacement, StrategyEnv};
-use crate::types::{AbortSignal, Context, Message, StreamEvent, StreamOptions, Usage};
+use crate::types::{AbortSignal, Context, Message, StopReason, StreamEvent, StreamOptions, Usage};
 
 /// 摘要调用的系统提示：限定为总结者角色，禁止把对话接下去（对齐 pi）。
 const SUMMARY_SYSTEM_PROMPT: &str = "You are a context summarization assistant. \
@@ -33,12 +33,18 @@ impl Replacement for LlmSummarize {
     ) -> super::BoxFuture<'a, Result<Plan, String>> {
         Box::pin(async move {
             // 保留尾部的切点（尾部无可行 user 边界时保留空段，全部摘要化）
-            let keep_start = find_keep_start(prep.messages, prep.budget.keep_budget())
-                .ok_or_else(|| "历史无需压缩：尚未超出保留预算".to_string())?;
+            let keep_start =
+                find_keep_start(prep.messages, prep.budget.keep_budget_for(prep.tokens()))
+                    .ok_or_else(|| "历史无需压缩：尚未超出保留预算".to_string())?;
             let to_summarize = &prep.messages[..keep_start];
 
-            let (summary_text, usage) =
-                summarize(to_summarize, prep.previous_summary(), env).await?;
+            let (summary_text, usage) = summarize(
+                to_summarize,
+                prep.previous_summary(),
+                prep.budget.summary_max,
+                env,
+            )
+            .await?;
 
             // 摘要末尾追加文件操作清单（对齐 pi 的 formatFileOperations）：
             // 继续工作时最需要知道动过哪些文件。
@@ -183,6 +189,7 @@ fn message_text(message: &Message) -> String {
 async fn summarize(
     messages: &[Message],
     previous_summary: Option<&str>,
+    summary_max: u32,
     env: &StrategyEnv<'_>,
 ) -> Result<(String, Option<Usage>), String> {
     let context = Context {
@@ -194,7 +201,13 @@ async fn summarize(
         tools: vec![],
     };
     let mut options = env.options.clone();
-    options.max_tokens = Some(env.model.max_tokens.min(super::SUMMARY_MAX_TOKENS));
+    // Budget 的摘要预算就是实际请求上限；model.max_tokens=0 表示未声明上限。
+    let model_max = if env.model.max_tokens == 0 {
+        u32::MAX
+    } else {
+        env.model.max_tokens
+    };
+    options.max_tokens = Some(model_max.min(summary_max));
 
     let mut failures: u32 = 0;
     loop {
@@ -260,17 +273,19 @@ async fn summarize_once(
     let mut summary_text = String::new();
     let mut usage: Option<Usage> = None;
     let mut failure: Option<SummarizeFailure> = None;
+    let mut stop_reason: Option<StopReason> = None;
     // 流必须走到终态事件才算成功：干净 EOF 会把半截摘要当成功返回（曾经的缺口）
     let mut saw_done = false;
     while let Some(event) = rx.recv().await {
         match event {
             StreamEvent::TextDelta { delta, .. } => summary_text.push_str(&delta),
             StreamEvent::Done {
+                reason,
                 message,
                 usage: done_usage,
-                ..
             } => {
                 usage = Some(done_usage);
+                stop_reason = Some(reason);
                 // 以最终消息为准（Thinking 等非文本块被排除）
                 let text = message_text(&message);
                 if !text.trim().is_empty() {
@@ -306,10 +321,19 @@ async fn summarize_once(
             hint: Some(crate::retry::RetryHint::plain()),
         });
     }
+    if stop_reason == Some(StopReason::Length) {
+        return Err(SummarizeFailure::Fatal(format!(
+            "摘要调用达到长度上限（请求最多 {} 个输出 token，实际输出 {} 个），未保存可能截断的摘要",
+            options.max_tokens.unwrap_or_default(),
+            usage.as_ref().map_or(0, |u| u.output),
+        )));
+    }
     if summary_text.trim().is_empty() {
-        return Err(SummarizeFailure::Fatal(
-            "摘要调用失败：模型未返回摘要内容".into(),
-        ));
+        return Err(SummarizeFailure::Fatal(format!(
+            "摘要调用失败：模型未返回摘要内容（结束原因：{:?}，输出 {} 个 token）",
+            stop_reason.unwrap_or_default(),
+            usage.as_ref().map_or(0, |u| u.output),
+        )));
     }
     Ok((summary_text, usage))
 }
@@ -318,6 +342,184 @@ async fn summarize_once(
 mod tests {
     use super::*;
     use crate::compaction::tests::{assistant_text, tool_result};
+    use crate::provider::{EventStream, Provider};
+    use crate::types::{Api, ContentBlock, Model};
+    use std::sync::Mutex;
+
+    struct SummaryProvider {
+        reason: StopReason,
+        content: Vec<ContentBlock>,
+        usage: Usage,
+        requested_max_tokens: Mutex<Vec<u32>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for SummaryProvider {
+        async fn stream(
+            &self,
+            _model: &Model,
+            _context: &Context,
+            options: &StreamOptions,
+            _abort: AbortSignal,
+        ) -> EventStream {
+            self.requested_max_tokens
+                .lock()
+                .unwrap()
+                .push(options.max_tokens.unwrap());
+            let message = Message::Assistant {
+                content: self.content.clone(),
+                api: String::new(),
+                provider: String::new(),
+                model: String::new(),
+                usage: self.usage,
+                stop_reason: self.reason,
+                error_message: None,
+                timestamp: 0,
+                duration_ms: None,
+            };
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            tx.send(StreamEvent::Done {
+                reason: self.reason,
+                usage: self.usage,
+                message: Box::new(message),
+            })
+            .await
+            .unwrap();
+            rx
+        }
+    }
+
+    async fn summary_reply(
+        model_max: u32,
+        summary_max: u32,
+        reason: StopReason,
+        text: &str,
+        output_tokens: u64,
+    ) -> (Result<(String, Option<Usage>), String>, u32) {
+        let content = if text.is_empty() {
+            vec![ContentBlock::Thinking {
+                thinking: "reasoning only".into(),
+                thinking_signature: None,
+            }]
+        } else {
+            vec![ContentBlock::Text { text: text.into() }]
+        };
+        let provider = SummaryProvider {
+            reason,
+            content,
+            usage: Usage {
+                output: output_tokens,
+                ..Default::default()
+            },
+            requested_max_tokens: Mutex::new(Vec::new()),
+        };
+        let model = Model {
+            id: "test".into(),
+            name: String::new(),
+            api: Api::OpenAICompletions,
+            base_url: String::new(),
+            max_tokens: model_max,
+            context_window: 1_000_000,
+        };
+        let options = StreamOptions::default();
+        let env = StrategyEnv {
+            provider: &provider,
+            model: &model,
+            options: &options,
+            abort: AbortSignal::new(),
+            retry: crate::retry::RetryPolicy::NONE,
+        };
+        let result = summarize(&[Message::user_text("history")], None, summary_max, &env).await;
+        let requested = provider.requested_max_tokens.lock().unwrap();
+        (result, requested[0])
+    }
+
+    #[tokio::test]
+    async fn summary_request_uses_budget_bounded_by_model_limit() {
+        let budget = super::super::Budget::from_window(1_000_000, 75);
+        let (result, requested) = summary_reply(
+            384_000,
+            budget.summary_max,
+            StopReason::Stop,
+            "complete summary",
+            500,
+        )
+        .await;
+        assert_eq!(requested, super::super::SUMMARY_MAX_TOKENS);
+        assert_eq!(result.unwrap().0, "complete summary");
+
+        let (result, requested) =
+            summary_reply(2_048, budget.summary_max, StopReason::Stop, "summary", 100).await;
+        assert_eq!(requested, 2_048);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn length_stop_does_not_persist_partial_summary() {
+        let (result, requested) =
+            summary_reply(384_000, 4_096, StopReason::Length, "partial summary", 4_096).await;
+        assert_eq!(requested, 4_096);
+        assert!(result.unwrap_err().contains("未保存可能截断的摘要"));
+    }
+
+    #[tokio::test]
+    async fn reasoning_only_reply_reports_output_usage() {
+        let (result, requested) = summary_reply(384_000, 4_096, StopReason::Stop, "", 1_024).await;
+        assert_eq!(requested, 4_096);
+        let error = result.unwrap_err();
+        assert!(error.contains("模型未返回摘要内容"));
+        assert!(error.contains("输出 1024 个 token"));
+    }
+
+    #[tokio::test]
+    async fn target_percent_changes_the_kept_user_turns() {
+        let provider = SummaryProvider {
+            reason: StopReason::Stop,
+            content: vec![ContentBlock::Text {
+                text: "summary".into(),
+            }],
+            usage: Usage::default(),
+            requested_max_tokens: Mutex::new(Vec::new()),
+        };
+        let model = Model {
+            id: "test".into(),
+            name: String::new(),
+            api: Api::OpenAICompletions,
+            base_url: String::new(),
+            max_tokens: 8_192,
+            context_window: 100_000,
+        };
+        let options = StreamOptions::default();
+        let env = StrategyEnv {
+            provider: &provider,
+            model: &model,
+            options: &options,
+            abort: AbortSignal::new(),
+            retry: crate::retry::RetryPolicy::NONE,
+        };
+        let messages = vec![
+            Message::user_text("a".repeat(40_000)),
+            Message::user_text("b".repeat(6_000)),
+            Message::user_text("c".repeat(6_000)),
+        ];
+        let budget = super::super::Budget {
+            summary_max: 100,
+            keep_recent: 2_000,
+            ..super::super::Budget::from_window(100_000, 75)
+        };
+        let legacy = Preparation::new(&messages, budget);
+        let strategy = LlmSummarize;
+        assert_eq!(
+            strategy.run(&legacy, &env).await.unwrap().keep_from,
+            Some(2)
+        );
+
+        let target = Preparation::new(&messages, budget.with_target_percent(Some(50)));
+        assert_eq!(
+            strategy.run(&target, &env).await.unwrap().keep_from,
+            Some(1)
+        );
+    }
 
     #[test]
     fn renders_all_message_kinds() {
