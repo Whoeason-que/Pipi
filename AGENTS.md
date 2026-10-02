@@ -66,6 +66,17 @@ src/                React + TypeScript 前端
   `pipi-harness` / `av`）。历史上 `pipi_core::{
   types,tools,permissions,provider,harness,skills,truncate,project_doc}` 与
   `pipi-app` 的整包 glob 均已删除，不要再加回来。
+- Cargo 是 workspace 结构（edition 2024，rust-version 1.90）：版本 / edition 在根
+  `Cargo.toml` 的 `[workspace.package]`，依赖版本与内部路径依赖都在
+  `[workspace.dependencies]`，成员一律用 `version.workspace = true` /
+  `{ workspace = true }` 继承，不要在成员里硬编码版本。一个坑：
+  `default-features` 只有在工作区条目里也显式写了才会被成员覆盖（不写就静默
+  忽略、默认特性照开）——`av` 的 `search` 与 `reqwest` 靠这条维持「不同成员用
+  不同默认特性」，别删工作区条目里的 `default-features`。
+- 测试里改写进程环境（`HOME` / `AV_HOME`）走 `crate::set_env_var` /
+  `crate::remove_env_var`：edition 2024 起 `std::env::set_var` 是 unsafe，
+  unsafe 块与 `SAFETY` 说明收敛在那里；调用方必须先持有本 crate 的
+  `HOME_LOCK` / `AV_HOME_LOCK`（集成测试文件各自有同名锁）。
 - Agent 数据根目录是 `~/.pipi/agents/<name>/`，结构见 README；不要把 Agent 状态存到别处。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息用用户可读的中文。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
