@@ -1258,7 +1258,7 @@ mod tests {
         symlink(&external, &linked).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         let def = AgentDefinition {
             name: "linked-agent".into(),
             description: String::new(),
@@ -1278,7 +1278,7 @@ mod tests {
         assert!(ensure_agent_dir("linked-agent").is_err());
         assert!(list_agents().unwrap().is_empty());
 
-        std::env::set_var("HOME", previous_home);
+        crate::set_env_var("HOME", previous_home);
         std::fs::remove_dir_all(&home).unwrap();
         std::fs::remove_dir_all(&external).unwrap();
     }
@@ -1302,10 +1302,10 @@ mod tests {
         symlink(&external, home.join(".pipi/agents")).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         assert!(list_agents().is_err());
         assert!(ensure_agent_dir("root-link-agent").is_err());
-        std::env::set_var("HOME", previous_home);
+        crate::set_env_var("HOME", previous_home);
 
         std::fs::remove_dir_all(&home).unwrap();
         std::fs::remove_dir_all(&external).unwrap();
@@ -1349,11 +1349,11 @@ mod tests {
         symlink(&external_manifest, agent.join("agent.json")).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         assert!(load_agent("manifest-link-agent").is_err());
         assert!(save_agent(&def).is_err());
         assert!(list_agents().unwrap().is_empty());
-        std::env::set_var("HOME", previous_home);
+        crate::set_env_var("HOME", previous_home);
 
         let external_contents = std::fs::read_to_string(&external_manifest).unwrap();
         assert!(external_contents.contains("external"));
@@ -1599,9 +1599,9 @@ only = ["wanted"]
         fs::create_dir_all(&home).unwrap();
         let previous_home = std::env::var("HOME").unwrap();
         let previous_av = std::env::var("AV_HOME").ok();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         // 避免外部覆盖影响 store 位置（av 家目录 = $AV_HOME 或 ~/.av）
-        std::env::remove_var("AV_HOME");
+        crate::remove_env_var("AV_HOME");
 
         // 1) 真实安装管线装进 store（与 `av skill install` 同一实现）
         let source = home.join("source").join("pdf");
@@ -1676,10 +1676,10 @@ only = ["wanted"]
         let error = build_system_prompt_with_tools(&def, &[]).unwrap_err();
         assert!(error.contains("agent.lock"), "{error}");
 
-        std::env::set_var("HOME", previous_home);
+        crate::set_env_var("HOME", previous_home);
         match previous_av {
-            Some(value) => std::env::set_var("AV_HOME", value),
-            None => std::env::remove_var("AV_HOME"),
+            Some(value) => crate::set_env_var("AV_HOME", value),
+            None => crate::remove_env_var("AV_HOME"),
         }
         let _ = fs::remove_dir_all(&home);
     }
@@ -1759,7 +1759,7 @@ only = ["wanted"]
         symlink(&external, agent_dir.join("skills")).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         let def = AgentDefinition {
             name: "skills-link-agent".into(),
             description: String::new(),
@@ -1774,7 +1774,7 @@ only = ["wanted"]
         };
 
         let result = build_tool_context(&def, None, pipi_protocol::AbortSignal::new());
-        std::env::set_var("HOME", previous_home);
+        crate::set_env_var("HOME", previous_home);
         std::fs::remove_dir_all(&home).unwrap();
         std::fs::remove_dir_all(&external).unwrap();
 
@@ -1802,7 +1802,7 @@ only = ["wanted"]
         let home = std::env::temp_dir().join(format!("pipi-edit-{}", crate::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         create_agent("editor", "d", None, None, None, None).unwrap();
 
         // AGENTS.md 可读写
@@ -1830,7 +1830,7 @@ only = ["wanted"]
         std::fs::remove_file(home.join(".pipi/agents/editor/AGENTS.md")).unwrap();
         assert!(write_agent_file("editor", "AGENTS.md", "x").is_err());
 
-        std::env::set_var("HOME", prev);
+        crate::set_env_var("HOME", prev);
         std::fs::remove_dir_all(&home).unwrap();
     }
 
@@ -1924,7 +1924,7 @@ only = ["wanted"]
         let home = std::env::temp_dir().join(format!("pipi-home-{}", crate::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         let result = create_agent(
             "tester",
             "测试用",
@@ -1943,7 +1943,7 @@ only = ["wanted"]
         // HOME 尚未恢复：此时解析 workspace 才指向临时 HOME
         let def = result.unwrap();
         let resolved_workspace = def.resolve_workspace().unwrap();
-        std::env::set_var("HOME", &prev);
+        crate::set_env_var("HOME", &prev);
 
         let dir = home.join(".pipi/agents/tester");
         assert!(dir.join("agent.json").is_file());
@@ -1960,9 +1960,9 @@ only = ["wanted"]
         assert_eq!(resolved_workspace, dir.join("workspace"));
 
         // 重复创建被拒
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         assert!(create_agent("tester", "", None, None, None, None).is_err());
-        std::env::set_var("HOME", &prev);
+        crate::set_env_var("HOME", &prev);
     }
 
     #[test]
@@ -1972,9 +1972,9 @@ only = ["wanted"]
         std::fs::create_dir_all(&home).unwrap();
         let ws = std::env::temp_dir().join(format!("pipi-ws-{}", crate::session::new_id()));
         let prev = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         let result = create_agent("ws-agent", "", Some(ws.to_str().unwrap()), None, None, None);
-        std::env::set_var("HOME", &prev);
+        crate::set_env_var("HOME", &prev);
         let def = result.unwrap();
         assert_eq!(def.workspace.as_deref(), Some(ws.to_str().unwrap()));
         assert!(!home.join(".pipi/agents/ws-agent/workspace").exists());
@@ -1987,7 +1987,7 @@ only = ["wanted"]
         let home = std::env::temp_dir().join(format!("pipi-home-{}", crate::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         let provider = Model {
             id: "claude-3-7-sonnet-20250219".into(),
             name: "Claude 3.7 Sonnet".into(),
@@ -2009,7 +2009,7 @@ only = ["wanted"]
         assert_eq!(def.provider, Some(provider));
 
         let loaded = load_agent("model-agent");
-        std::env::set_var("HOME", &prev);
+        crate::set_env_var("HOME", &prev);
         let loaded = loaded.unwrap();
         assert_eq!(loaded.model, "claude-3-7-sonnet-20250219");
         assert!(loaded.provider.is_some());
@@ -2078,7 +2078,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-home-seed-{}", crate::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
 
         // 目录缺失 → 播种；骨架与 README「Agent 的组成」一致
         let created = ensure_default_agent()
@@ -2121,7 +2121,7 @@ only = ["wanted"]
             "播种不得覆盖用户对 AGENTS.md 的改动"
         );
 
-        std::env::set_var("HOME", &prev);
+        crate::set_env_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -2132,7 +2132,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-home-fill-{}", crate::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
 
         create_agent("helper", "已有的 Agent", None, None, None, None).unwrap();
         assert_eq!(
@@ -2151,7 +2151,7 @@ only = ["wanted"]
         assert!(ensure_default_agent().unwrap().is_none());
         assert_eq!(list_agents().unwrap().len(), 2);
 
-        std::env::set_var("HOME", &prev);
+        crate::set_env_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -2162,7 +2162,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-home-arch-{}", crate::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
 
         let name = "arch-lifecycle";
         create_agent(name, "归档生命周期", None, None, None, None).unwrap();
@@ -2213,7 +2213,7 @@ only = ["wanted"]
         // 删除不存在的 Agent → 报错
         assert!(delete_agent("no-such-agent").is_err());
 
-        std::env::set_var("HOME", &prev);
+        crate::set_env_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -2224,7 +2224,7 @@ only = ["wanted"]
         let home = std::env::temp_dir().join(format!("pipi-home-dot-{}", crate::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
 
         let name = "dot-dir-agent";
         create_agent(name, "点目录防漏", None, None, None, None).unwrap();
@@ -2234,7 +2234,7 @@ only = ["wanted"]
         std::fs::write(archive_agent_dir.join("agent.json"), "{ broken json").unwrap();
         assert!(!list_agents().unwrap().iter().any(|a| a.name == name));
 
-        std::env::set_var("HOME", &prev);
+        crate::set_env_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
     }
 }

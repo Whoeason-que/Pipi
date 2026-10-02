@@ -1,11 +1,12 @@
 [package]
 name = "pipi-error"
-version = "26.9.3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Pipi 跨层稳定错误码与重试提示"
-edition = "2021"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 
 [dev-dependencies]
-serde_json = "1"
+serde_json = { workspace = true }

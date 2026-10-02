@@ -22,7 +22,8 @@ fn send_prompt_runs_without_an_ambient_reactor() {
     let home = std::env::temp_dir().join(format!("pipi-spawn-regression-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");
-    std::env::set_var("HOME", &home);
+    // SAFETY: 本二进制只有这一个用例，且写入发生在启动运行时/工作线程之前
+    unsafe { std::env::set_var("HOME", &home) };
 
     // 端点指向必然拒绝连接的本地端口：这一轮只需「被调度并产生事件」，不碰真网络
     let model = Model {

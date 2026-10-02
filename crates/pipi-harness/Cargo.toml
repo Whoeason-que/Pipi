@@ -1,7 +1,8 @@
 [package]
 name = "pipi-harness"
-version = "26.9.3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Pipi 的纯 harness：项目上下文发现与系统提示词渲染"
-edition = "2021"
 
 [dependencies]

@@ -1,22 +1,23 @@
 [package]
 name = "pipi-server"
-version = "26.9.3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Pipi 的 Web/远程运行时服务"
-edition = "2021"
 
 [[bin]]
 name = "pipi-server"
 path = "src/main.rs"
 
 [dependencies]
-axum = { version = "0.8", features = ["ws"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
-pipi-core = { path = "../pipi-core" }
-pipi-app = { path = "../pipi-app" }
-pipi-protocol = { path = "../pipi-protocol" }
-pipi-tools = { path = "../pipi-tools" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync"] }
-tower-http = { version = "0.6", features = ["fs", "cors"] }
-tower = "0.5"
+axum = { workspace = true }
+futures-util = { workspace = true, features = ["sink"] }
+pipi-core = { workspace = true }
+pipi-app = { workspace = true }
+pipi-protocol = { workspace = true }
+pipi-tools = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync"] }
+tower-http = { workspace = true }
+tower = { workspace = true }

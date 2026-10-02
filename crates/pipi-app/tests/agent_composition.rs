@@ -53,7 +53,8 @@ async fn create_run_and_read_agent_output() {
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    std::env::set_var("HOME", &home);
+    // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
+    unsafe { std::env::set_var("HOME", &home) };
 
     let model = Model {
         id: "composition-model".into(),
@@ -363,7 +364,8 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    std::env::set_var("HOME", &home);
+    // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
+    unsafe { std::env::set_var("HOME", &home) };
 
     let (addr, counter) = spawn_scripted_mock(vec![
         sse_tool_call(

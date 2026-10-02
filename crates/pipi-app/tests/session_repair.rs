@@ -39,7 +39,8 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    std::env::set_var("HOME", &home);
+    // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
+    unsafe { std::env::set_var("HOME", &home) };
 
     pipi_core::agents::create_agent(
         "repair-worker",
@@ -142,7 +143,8 @@ async fn completed_tail_is_left_untouched() {
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    std::env::set_var("HOME", &home);
+    // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
+    unsafe { std::env::set_var("HOME", &home) };
 
     pipi_core::agents::create_agent(
         "intact-worker",

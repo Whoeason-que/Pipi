@@ -329,6 +329,10 @@ mod tests {
 
     #[test]
     fn api_key_env_precedence() {
+        // 改写进程环境前持锁：见 `set_env_var` 的安全约定
+        let _guard = crate::HOME_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let provider = ProviderConfig {
             id: "t".into(),
             name: "T".into(),
@@ -337,9 +341,9 @@ mod tests {
             env_key: Some("PIPI_TEST_KEY".into()),
             api_key: Some("plain".into()),
         };
-        std::env::set_var("PIPI_TEST_KEY", "from-env");
+        crate::set_env_var("PIPI_TEST_KEY", "from-env");
         assert_eq!(provider.resolve_api_key().as_deref(), Some("from-env"));
-        std::env::remove_var("PIPI_TEST_KEY");
+        crate::remove_env_var("PIPI_TEST_KEY");
         assert_eq!(provider.resolve_api_key().as_deref(), Some("plain"));
     }
 

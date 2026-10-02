@@ -1,26 +1,26 @@
 [package]
 name = "pipi-core"
-version = "26.9.3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Pipi 核心：从 pi 移植的 agent 循环、工具与 LLM provider 层"
-edition = "2021"
 
 [dependencies]
 # search feature 关闭：skills.sh 搜索只属于 av CLI，不把第二个 HTTP 栈链进应用
-av = { path = "../av", default-features = false }
-pipi-error = { path = "../pipi-error" }
-pipi-protocol = { path = "../pipi-protocol" }
-pipi-tools = { path = "../pipi-tools" }
-pipi-harness = { path = "../pipi-harness" }
-pipi-provider = { path = "../pipi-provider" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-# 与 pipi-provider / rig 同一版本（0.13 起 TLS 特性改名为 rustls）：两个版本会
-# 让同一进程里存在两套 HTTP/TLS 栈
-reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
-async-trait = "0.1"
-dirs = "6"
-uuid = { version = "1", features = ["v4"] }
-glob = "0.3"
-fastrand = "2"
+# （工作区条目里写的 default-features = false 就是为这条服务）
+av = { workspace = true }
+pipi-error = { workspace = true }
+pipi-protocol = { workspace = true }
+pipi-tools = { workspace = true }
+pipi-harness = { workspace = true }
+pipi-provider = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true, features = ["json", "stream", "rustls"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
+futures-util = { workspace = true }
+async-trait = { workspace = true }
+dirs = { workspace = true }
+uuid = { workspace = true }
+glob = { workspace = true }
+fastrand = { workspace = true }

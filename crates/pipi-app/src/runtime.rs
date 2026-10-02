@@ -2488,7 +2488,7 @@ mod tests {
             pipi_core::session::new_id()
         ));
         std::fs::create_dir_all(empty_home.join(".pipi")).unwrap();
-        std::env::set_var("HOME", &empty_home);
+        crate::set_env_var("HOME", &empty_home);
 
         let default_model = Model {
             id: "gpt-4o".into(),
@@ -2521,8 +2521,8 @@ mod tests {
         };
 
         // 未配置 key 时的校验
-        std::env::remove_var("ANTHROPIC_API_KEY");
-        std::env::remove_var("OPENAI_API_KEY");
+        crate::remove_env_var("ANTHROPIC_API_KEY");
+        crate::remove_env_var("OPENAI_API_KEY");
 
         // 回退默认模型
         let err = super::resolve_model(&def, None, None).unwrap_err();
@@ -2533,12 +2533,12 @@ mod tests {
         assert!(err.contains("api.anthropic.com"));
 
         // 配上 key 后成功解析
-        std::env::set_var("ANTHROPIC_API_KEY", "test-key");
+        crate::set_env_var("ANTHROPIC_API_KEY", "test-key");
         let (resolved, key) = super::resolve_model(&def, Some(&session_model), None).unwrap();
         assert_eq!(resolved.id, "claude-sonnet-4-5");
         assert_eq!(key, "test-key");
-        std::env::remove_var("ANTHROPIC_API_KEY");
-        std::env::set_var("HOME", &previous_home);
+        crate::remove_env_var("ANTHROPIC_API_KEY");
+        crate::set_env_var("HOME", &previous_home);
         let _ = std::fs::remove_dir_all(&empty_home);
     }
 }
@@ -2640,7 +2640,7 @@ mod child_timeout_tests {
         ));
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
 
         let base_url = format!("http://{addr}/v1");
         pipi_core::settings::save_settings(&pipi_core::settings::Settings {

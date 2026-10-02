@@ -145,7 +145,8 @@ fn temp_home() -> std::path::PathBuf {
     ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");
-    std::env::set_var("HOME", &home);
+    // SAFETY: 调用方先取 HOME_LOCK（见文件头约定），环境改动互斥
+    unsafe { std::env::set_var("HOME", &home) };
     home
 }
 

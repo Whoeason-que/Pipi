@@ -1437,7 +1437,7 @@ mod tests {
         ));
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        std::env::set_var("HOME", &home);
+        crate::set_env_var("HOME", &home);
         let permissions = pipi_tools::permissions::PermissionsConfig {
             tools: pipi_tools::permissions::BACKGROUND_TASK_TOOLS
                 .iter()

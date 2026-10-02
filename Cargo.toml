@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "crates/av",
     "crates/pipi-error",
@@ -12,6 +12,66 @@ members = [
     "crates/pipi-server",
     "src-tauri",
 ]
+
+# 版本与 edition 只在这里写一次，成员用 `version.workspace = true` 继承。
+[workspace.package]
+version = "26.9.3"
+edition = "2024"
+# 当前依赖树要求的最低 rustc（edition 2024 本身只要 1.85；这里被 rig →
+# ordered-float 5.5 抬到 1.90）。依赖升级抬高它时，这里同步更新。
+rust-version = "1.90"
+
+# 依赖版本只在这里写一次，成员用 `{ workspace = true }` 继承；成员追加的
+# features 是叠加（不是覆盖）。
+#
+# 注意 `default-features`：成员里写的值只有在工作区条目里也显式写了才生效，
+# 否则会被静默忽略、默认特性照开。av 与 reqwest 依赖这条维持「不同成员用不同
+# 默认特性」（见各自条目），新增依赖时别顺手删掉。
+[workspace.dependencies]
+# 内部 crate：路径只写一次
+av = { path = "crates/av", default-features = false }
+pipi-app = { path = "crates/pipi-app" }
+pipi-core = { path = "crates/pipi-core" }
+pipi-error = { path = "crates/pipi-error" }
+pipi-harness = { path = "crates/pipi-harness" }
+pipi-protocol = { path = "crates/pipi-protocol" }
+pipi-provider = { path = "crates/pipi-provider" }
+pipi-tools = { path = "crates/pipi-tools" }
+
+# 第三方
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
+dirs = "6"
+fastrand = "2"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+glob = "0.3"
+http = "1"
+infer = "0.19"
+nix = { version = "0.30", default-features = false, features = ["signal"] }
+regex = "1.13"
+# 与 rig 同一版本（0.13 起 TLS 特性改名为 rustls）：两个版本会让同一进程里
+# 存在两套 HTTP/TLS 栈。pipi-provider 需要默认特性，pipi-core 不要默认特性，
+# 所以这里显式写 default-features = false，provider 再覆盖回 true。
+reqwest = { version = "0.13", default-features = false }
+rig = "0.42.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+shlex = "1"
+similar = "2.7"
+tauri = { version = "2", features = [] }
+tauri-build = "2"
+tempfile = "3"
+tokio = { version = "1" }
+tokio-util = "0.7"
+toml = "0.9"
+toml_edit = "0.22"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+uuid = { version = "1", features = ["v4"] }
+walkdir = "2.5"
 
 [profile.release]
 codegen-units = 1

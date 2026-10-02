@@ -23,7 +23,8 @@ fn temp_home() -> PathBuf {
     let home = std::env::temp_dir().join(format!("pipi-request-paths-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");
-    std::env::set_var("HOME", &home);
+    // SAFETY: 本二进制只有这一个用例，且写入发生在启动任何工作线程之前
+    unsafe { std::env::set_var("HOME", &home) };
     home
 }
 

@@ -426,6 +426,8 @@ mod tests {
     use std::fs;
 
     /// 安装类测试会改 `AV_HOME`（进程级环境变量），串行执行避免互相踩踏。
+    /// 也是下面 `unsafe` 的依据：edition 2024 起 `std::env::set_var` 是 unsafe
+    /// （环境块不是线程安全的），持锁后改动互斥。
     static AV_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     struct AvHomeGuard {
@@ -439,7 +441,8 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let previous = std::env::var("AV_HOME").ok();
-            std::env::set_var("AV_HOME", dir);
+            // SAFETY: 持 AV_HOME_LOCK，同一测试二进制内的 AV_HOME 改动互斥
+            unsafe { std::env::set_var("AV_HOME", dir) };
             Self {
                 previous,
                 _lock: lock,
@@ -449,9 +452,12 @@ mod tests {
 
     impl Drop for AvHomeGuard {
         fn drop(&mut self) {
-            match &self.previous {
-                Some(value) => std::env::set_var("AV_HOME", value),
-                None => std::env::remove_var("AV_HOME"),
+            // SAFETY: `_lock` 在 drop 体之后才释放，此处仍持 AV_HOME_LOCK
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var("AV_HOME", value),
+                    None => std::env::remove_var("AV_HOME"),
+                }
             }
         }
     }
