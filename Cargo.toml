@@ -17,9 +17,9 @@ members = [
 [workspace.package]
 version = "26.9.3"
 edition = "2024"
-# 当前依赖树要求的最低 rustc（edition 2024 本身只要 1.85；这里被 rig →
-# ordered-float 5.5 抬到 1.90）。依赖升级抬高它时，这里同步更新。
-rust-version = "1.90"
+# 当前依赖树要求的最低 rustc（edition 2024 本身只要 1.85；这里被 rig 0.43
+# 整套抬到 1.95）。依赖升级抬高它时，这里同步更新。
+rust-version = "1.95"
 
 # 依赖版本只在这里写一次，成员用 `{ workspace = true }` 继承；成员追加的
 # features 是叠加（不是覆盖）。
@@ -41,34 +41,36 @@ pipi-tools = { path = "crates/pipi-tools" }
 # 第三方
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
-base64 = "0.22"
-dirs = "6"
+base64 = "0.23"
+# 只用于解析用户 HOME（`~/.pipi` / `~/.av` 的数据根）：换 std 的同名函数在
+# Windows 上走另一套 API，而 tauri 自身也依赖 dirs，留着它零成本
+dirs = "7"
 fastrand = "2"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 glob = "0.3"
 http = "1"
-infer = "0.19"
-nix = { version = "0.30", default-features = false, features = ["signal"] }
+infer = "0.22"
+nix = { version = "0.31", default-features = false, features = ["signal"] }
 regex = "1.13"
 # 与 rig 同一版本（0.13 起 TLS 特性改名为 rustls）：两个版本会让同一进程里
 # 存在两套 HTTP/TLS 栈。pipi-provider 需要默认特性，pipi-core 不要默认特性，
 # 所以这里显式写 default-features = false，provider 再覆盖回 true。
 reqwest = { version = "0.13", default-features = false }
-rig = "0.42.0"
+rig = "0.43.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
-shlex = "1"
-similar = "2.7"
+sha2 = "0.11"
+shlex = "2"
+similar = "3.2"
 tauri = { version = "2", features = [] }
 tauri-build = "2"
 tempfile = "3"
 tokio = { version = "1" }
 tokio-util = "0.7"
-toml = "0.9"
-toml_edit = "0.22"
+toml = "1"
+toml_edit = "0.25"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "cors"] }
+tower-http = { version = "0.7", features = ["fs", "cors"] }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2.5"

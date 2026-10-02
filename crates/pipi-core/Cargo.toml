@@ -20,7 +20,9 @@ reqwest = { workspace = true, features = ["json", "stream", "rustls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
 futures-util = { workspace = true }
 async-trait = { workspace = true }
-dirs = { workspace = true }
 uuid = { workspace = true }
-glob = { workspace = true }
 fastrand = { workspace = true }
+
+[dev-dependencies]
+# 只有测试用它定位用户 HOME（agents.rs 的 HOME_LOCK 用例）
+dirs = { workspace = true }

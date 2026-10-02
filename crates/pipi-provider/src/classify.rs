@@ -4,7 +4,7 @@
 //! 用户中止语义留给 agent loop 的重试策略层，防止双层重试。
 
 use pipi_error::RetryHint;
-use rig::completion::CompletionError;
+use rig::ProviderError;
 use rig::http_client;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,20 +15,14 @@ pub enum RetryVerdict {
 
 /// 把 rig 的结构化错误分类。只有 rig 无法结构化的两个字符串变体使用保守的
 /// 特征词匹配；无法确认的错误一律终态。
-pub fn classify_rig_error(err: &CompletionError) -> (RetryVerdict, Option<RetryHint>) {
+///
+/// rig 0.43 的错误边界：带状态的失败统一是 `ProviderResponse`（传输层不再抛
+/// 状态码），无状态的传输失败是 `Http`，流被截断是 `Truncated`。
+pub fn classify_rig_error(err: &ProviderError) -> (RetryVerdict, Option<RetryHint>) {
     match err {
-        CompletionError::ProviderResponse(response) => classify_status(
-            response.status.map(|status| status.as_u16()),
-            retry_after_from_headers(response.headers.as_deref()),
-            Some(&response.body),
-        ),
-        CompletionError::HttpError(http_error) => match http_error {
-            http_client::Error::InvalidStatusCode(status) => {
-                classify_status(Some(status.as_u16()), None, None)
-            }
-            http_client::Error::InvalidStatusCodeWithMessage(status, body) => {
-                classify_status(Some(status.as_u16()), None, Some(body))
-            }
+        ProviderError::ProviderResponse(response) => classify_response(response),
+        ProviderError::InvalidAuthentication(response) => classify_response(response),
+        ProviderError::Http(http_error) => match &**http_error {
             http_client::Error::InvalidStatusCodeWithDetails {
                 status,
                 body,
@@ -43,14 +37,30 @@ pub fn classify_rig_error(err: &CompletionError) -> (RetryVerdict, Option<RetryH
             }
             _ => (RetryVerdict::Terminal, None),
         },
-        CompletionError::ProviderError(message) if transport_flavored(message) => {
+        // 流在结束帧之前断了（干净 EOF、代理掐断）：可重试
+        ProviderError::Truncated => (RetryVerdict::Retryable, Some(RetryHint::plain())),
+        // 中继过来的报告带着它自己的判定
+        ProviderError::Relayed(report) if report.retryable => {
             (RetryVerdict::Retryable, Some(RetryHint::plain()))
         }
-        CompletionError::ResponseError(message) if stream_truncation_flavored(message) => {
+        ProviderError::Provider(message) if transport_flavored(message) => {
+            (RetryVerdict::Retryable, Some(RetryHint::plain()))
+        }
+        ProviderError::Response(message) if stream_truncation_flavored(message) => {
             (RetryVerdict::Retryable, Some(RetryHint::plain()))
         }
         _ => (RetryVerdict::Terminal, None),
     }
+}
+
+fn classify_response(
+    response: &rig::ProviderResponseError,
+) -> (RetryVerdict, Option<RetryHint>) {
+    classify_status(
+        response.status.map(|status| status.as_u16()),
+        retry_after_from_headers(response.headers.as_ref()),
+        Some(&response.body),
+    )
 }
 
 /// 按 HTTP 状态码分类（`None` = 捕获不到状态码的传输失败）。
@@ -165,10 +175,32 @@ mod tests {
     fn structured_retry_after_is_extracted() {
         let mut headers = http::HeaderMap::new();
         headers.insert(http::header::RETRY_AFTER, "3".parse().unwrap());
-        let error = CompletionError::ProviderResponse(
-            rig::ProviderResponseError::new(http::StatusCode::TOO_MANY_REQUESTS, "rate limited")
-                .with_headers(Some(Box::new(headers))),
-        );
+        let mut response =
+            rig::ProviderResponseError::new(http::StatusCode::TOO_MANY_REQUESTS, "rate limited");
+        response.headers = Some(headers);
+        let error = ProviderError::ProviderResponse(response);
         assert_eq!(classify_rig_error(&error).1.unwrap().after_ms, Some(3_000));
+    }
+
+    #[test]
+    fn truncated_streams_are_retryable_but_completed_errors_are_terminal() {
+        assert_eq!(
+            classify_rig_error(&ProviderError::Truncated).0,
+            RetryVerdict::Retryable
+        );
+        assert_eq!(
+            classify_rig_error(&ProviderError::Response("bad request shape".into())).0,
+            RetryVerdict::Terminal
+        );
+    }
+
+    #[test]
+    fn relayed_reports_keep_their_own_verdict() {
+        let mut report = rig::ErrorReport::from(&ProviderError::Provider("boom".into()));
+        report.retryable = true;
+        assert_eq!(
+            classify_rig_error(&ProviderError::Relayed(Box::new(report))).0,
+            RetryVerdict::Retryable
+        );
     }
 }

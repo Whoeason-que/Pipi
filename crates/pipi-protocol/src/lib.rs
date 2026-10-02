@@ -35,11 +35,6 @@ impl Api {
         }
     }
 
-    /// OpenAI 兼容协议的 `prompt_tokens` 已包含缓存；Anthropic 的 input
-    /// tokens 不包含缓存。provider 适配层据此把用量归一化为 Pipi/pi 口径。
-    pub fn prompt_tokens_include_cache(&self) -> bool {
-        matches!(self, Self::OpenAICompletions)
-    }
 }
 
 /// 助手消息内容块。JSON 标签与 pi 保持兼容。

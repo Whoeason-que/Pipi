@@ -7,20 +7,34 @@
 //!
 //! 错误不在 HTTP 层抛出，而是以 `StreamEvent::Error` 进入事件流 —— 与 pi 的
 //! StreamFn 契约一致。
+//!
+//! rig 0.43 换成了「wire + transport + fold」架构，与 0.42 的几处映射偏差：
+//! - core 不再自带 HTTP transport：reqwest 由 `rig-reqwest` 提供，客户端 =
+//!   配置（`AnthropicConfig` / `OpenAIConfig`）`.connect(transport)`；
+//! - client 级的 `http_headers` 没了，额外请求头改走 transport 中间件
+//!   （见 [`ExtraHeaders`]）；
+//! - 流事件换成 [`rig::streaming::StreamEvent`] 的 part 生命周期
+//!   （Start / Text / Reasoning / Arguments / End），用量与结束原因只在
+//!   `Streamed::finish()` 的响应里；
+//! - `Usage` 七个计数都是 `Option<u64>`，且各供应商统一成
+//!   「`input_tokens` 含缓存读写」一套口径（见 [`from_rig_usage`]）。
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use http::{HeaderMap, HeaderName, HeaderValue};
-use rig::client::CompletionClient;
-use rig::completion::{CompletionError, CompletionRequestBuilder, FinishReason, Usage as RigUsage};
+use rig::completion::{CompletionRequest, FinishReason, ToolDefinition, Usage as RigUsage};
+use rig::http_client::{DynHttpClient, HttpMiddleware};
 use rig::message::{
-    AssistantContent, Message as RigMessage, ReasoningContent,
+    AssistantContent, CallId, Message as RigMessage, ReasoningContent, ToolName,
     ToolResultContent as RigToolResultContent,
 };
-use rig::streaming::StreamedAssistantContent;
+use rig::providers::anthropic::AnthropicConfig;
+use rig::providers::openai::OpenAIConfig;
+use rig::streaming::{Item as RigItem, StreamEvent as RigStreamEvent};
 use serde_json::{Value, json};
 use tokio::sync::mpsc::{self, Sender};
 
@@ -48,13 +62,6 @@ impl StreamError {
         Self {
             message: message.into(),
             retry: None,
-        }
-    }
-
-    fn retryable(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            retry: Some(RetryHint::plain()),
         }
     }
 
@@ -127,6 +134,38 @@ fn extra_headers(base_url: &str, session_id: Option<&str>) -> Option<HeaderMap> 
     Some(headers)
 }
 
+/// 把 [`extra_headers`] 注入 transport：rig 0.43 移除了 client 级的
+/// `http_headers`，额外请求头只能在这一层加。
+struct ExtraHeaders(HeaderMap);
+
+impl HttpMiddleware for ExtraHeaders {
+    fn before_request_headers<'a>(
+        &'a self,
+        _method: &'a http::Method,
+        _uri: &'a http::Uri,
+        headers: &'a mut HeaderMap,
+    ) -> rig::wasm_compat::WasmBoxedFuture<'a, rig::http_client::Result<()>> {
+        Box::pin(async move {
+            for (name, value) in &self.0 {
+                headers.insert(name, value.clone());
+            }
+            Ok(())
+        })
+    }
+}
+
+/// rig 0.43 的 transport：core 不再自带 HTTP 栈，reqwest 由 `rig-reqwest` 提供。
+/// 复用同一份 `reqwest::Client`，连接池因此仍跨请求共享。
+fn rig_transport(extra: Option<HeaderMap>) -> DynHttpClient {
+    let transport = DynHttpClient::new(rig::rig_reqwest::ReqwestClient::from(
+        shared_http_client().clone(),
+    ));
+    match extra {
+        Some(headers) => transport.with_middleware(ExtraHeaders(headers)),
+        None => transport,
+    }
+}
+
 /// rig 适配器。按 [`Api`] 分派到 rig 的对应 provider client。
 pub struct RigProvider {
     api: Api,
@@ -147,8 +186,8 @@ fn send_error(tx: &Sender<StreamEvent>, error: StreamError) {
 
 /// 把 rig 错误转成带分类的 [`StreamError`]；分类表位于本 crate，provider
 /// 只记录重试事实，不进行重发。
-fn classify_with(prefix: &str, error: CompletionError) -> StreamError {
-    let (verdict, hint) = classify_rig_error(&error);
+fn classify_with(prefix: &str, error: &rig::ProviderError) -> StreamError {
+    let (verdict, hint) = classify_rig_error(error);
     let message = format!("{prefix}: {error}");
     match verdict {
         RetryVerdict::Retryable => StreamError::retryable_with(message, hint),
@@ -160,9 +199,25 @@ fn classify_with(prefix: &str, error: CompletionError) -> StreamError {
 // 请求映射：Pipi 模型 → rig
 // ---------------------------------------------------------------------------
 
-/// 把会话历史映射为 rig 消息。system prompt 不进 messages（走 builder 的
+/// 思考块重放时的 issuer：rig 0.43 要求 reasoning 只能被「签发它的那家」读回，
+/// 各 wire 用方言名做 issuer（anthropic / openai）。签发错家会被静默丢弃。
+fn thinking_issuer(api: Api) -> &'static str {
+    match api {
+        Api::AnthropicMessages => "anthropic",
+        Api::OpenAICompletions => "openai",
+    }
+}
+
+fn tool_name(name: &str) -> ToolName {
+    ToolName::new(name).unwrap_or_else(|_| {
+        ToolName::new("tool").expect("非空兜底名不应失败")
+    })
+}
+
+/// 把会话历史映射为 rig 消息。system prompt 不进 messages（走请求的
 /// preamble）。我们的 ToolResult 对应 rig 的 user 角色 ToolResult 块。
-pub fn to_rig_messages(context: &Context) -> Vec<RigMessage> {
+pub fn to_rig_messages(context: &Context, api: Api) -> Vec<RigMessage> {
+    let issuer = thinking_issuer(api);
     let mut out = Vec::new();
     for msg in &context.messages {
         match msg {
@@ -183,13 +238,16 @@ pub fn to_rig_messages(context: &Context) -> Vec<RigMessage> {
                         ContentBlock::Thinking {
                             thinking,
                             thinking_signature,
-                        } => AssistantContent::Reasoning(rig::message::Reasoning {
-                            id: None,
-                            content: vec![ReasoningContent::Text {
-                                text: thinking.clone(),
-                                signature: thinking_signature.clone(),
-                            }],
-                        }),
+                        } => AssistantContent::Reasoning(
+                            rig::message::Reasoning {
+                                id: None,
+                                content: vec![ReasoningContent::Text {
+                                    text: thinking.clone(),
+                                    signature: thinking_signature.clone(),
+                                }],
+                            }
+                            .sealed(issuer),
+                        ),
                         ContentBlock::ToolCall {
                             id,
                             name,
@@ -197,12 +255,11 @@ pub fn to_rig_messages(context: &Context) -> Vec<RigMessage> {
                         } => {
                             let _ = content;
                             AssistantContent::ToolCall(rig::message::ToolCall {
-                                id: make_call_id(id),
+                                id: CallId::from_wire(id.clone()),
                                 function: rig::message::ToolFunction {
-                                    name: name.clone(),
+                                    name: tool_name(name),
                                     arguments: arguments.clone(),
                                 },
-                                provider: None,
                                 signature: None,
                                 additional_params: None,
                             })
@@ -218,7 +275,7 @@ pub fn to_rig_messages(context: &Context) -> Vec<RigMessage> {
             }
             Message::ToolResult {
                 tool_call_id,
-                tool_name,
+                tool_name: name,
                 content,
                 is_error,
                 ..
@@ -239,9 +296,8 @@ pub fn to_rig_messages(context: &Context) -> Vec<RigMessage> {
                 out.push(RigMessage::User {
                     content: vec![rig::message::UserContent::ToolResult(
                         rig::message::ToolResult {
-                            call: make_call_id(tool_call_id),
-                            provider: None,
-                            name: tool_name.clone(),
+                            call: CallId::from_wire(tool_call_id.clone()),
+                            name: tool_name(name),
                             content: vec![RigToolResultContent::Text(rig::message::Text::new(
                                 text,
                             ))],
@@ -254,21 +310,17 @@ pub fn to_rig_messages(context: &Context) -> Vec<RigMessage> {
     out
 }
 
-fn make_call_id(id: &str) -> rig::message::ToolCallId {
-    rig::message::ToolCallId::new(id).unwrap_or_else(|| {
-        rig::message::ToolCallId::new(uuid::Uuid::new_v4().simple().to_string()).unwrap()
-    })
-}
-
 /// 工具定义同构映射。
-pub fn to_rig_tools(context: &Context) -> Vec<rig::completion::ToolDefinition> {
+pub fn to_rig_tools(context: &Context) -> Vec<ToolDefinition> {
     context
         .tools
         .iter()
-        .map(|t| rig::completion::ToolDefinition {
-            name: t.name.clone(),
-            description: t.description.clone(),
-            parameters: t.parameters.clone(),
+        .map(|t| {
+            ToolDefinition::new(
+                tool_name(&t.name),
+                t.description.clone(),
+                t.parameters.clone(),
+            )
         })
         .collect()
 }
@@ -279,27 +331,22 @@ pub fn to_rig_tools(context: &Context) -> Vec<rig::completion::ToolDefinition> {
 
 /// rig 的用量 → Pipi（pi 口径）的 [`Usage`]。
 ///
-/// rig 不统一口径：OpenAI 兼容路径把 `prompt_tokens` 原样塞进 `input_tokens`
-/// （**已含**缓存命中部分），Anthropic 路径的 `input_tokens` 则不含缓存。若照抄，
-/// `input` 与 `cache_read` 就重叠了 —— 上层按 `cache_read / (input + cache_read)`
-/// 算命中率会永远得到 50%，上下文占用也翻倍。这里按协议归一化成 pi 的口径：
-/// `input` 只计未命中部分，`input + cache_read + cache_write` 才是提示词总量。
-fn from_rig_usage(u: &RigUsage, api: Api) -> Usage {
-    let cache_read = u.cached_input_tokens;
-    let cache_write = u.cache_creation_input_tokens;
-    let input = if api.prompt_tokens_include_cache() {
-        u.input_tokens
-            .saturating_sub(cache_read)
-            .saturating_sub(cache_write)
-    } else {
-        u.input_tokens
-    };
+/// rig 0.43 起各家统一成一套口径：`input_tokens` **包含**缓存读与缓存写。
+/// Pipi 沿用 pi 的口径：`input` 只计未命中部分，`input + cache_read +
+/// cache_write` 才是提示词总量。若照抄，`input` 与 `cache_read` 就重叠了 ——
+/// 上层按 `cache_read / (input + cache_read)` 算命中率会永远得到 50%，
+/// 上下文占用也翻倍。这里统一扣掉缓存部分。
+fn from_rig_usage(u: &RigUsage) -> Usage {
+    let cache_read = u.cached_input_tokens.unwrap_or(0);
+    let cache_write = u.cache_creation_input_tokens.unwrap_or(0);
+    let prompt = u.input_tokens.unwrap_or(0);
+    let output = u.output_tokens.unwrap_or(0);
     let mut usage = Usage {
-        input,
-        output: u.output_tokens,
+        input: prompt.saturating_sub(cache_read).saturating_sub(cache_write),
+        output,
         cache_read,
         cache_write,
-        total_tokens: u.total_tokens,
+        total_tokens: u.total_tokens.unwrap_or(0),
     };
     // 端点没报总数时自行汇总（归一化之后才等于 wire 上的 prompt + completion）
     if usage.total_tokens == 0 {
@@ -327,65 +374,94 @@ fn map_finish_reason(reason: Option<&FinishReason>, has_tool_calls: bool) -> Sto
 
 /// 流式累积器：从事件流构建最终助手消息，保证 Done 里的 Message
 /// 与我们发出的事件一致。
+///
+/// rig 0.43 的事件带 part 下标（文本 / 思考 / 每个工具调用各占一个），
+/// 按 part 归位可以避免并行工具调用的参数互相串台。
 #[derive(Default)]
 struct Accumulator {
     blocks: Vec<ContentBlock>,
+    /// rig 的 part 下标 → `blocks` 下标
+    parts: HashMap<usize, usize>,
 }
 
 impl Accumulator {
-    fn text_delta(&mut self, delta: &str) {
-        match self.blocks.last_mut() {
-            Some(ContentBlock::Text { text }) => text.push_str(delta),
-            _ => self.blocks.push(ContentBlock::Text {
-                text: delta.to_string(),
-            }),
+    /// 该 part 已有的块下标；类型不符或还没建块时按 `make` 新建一个。
+    fn ensure_block(
+        &mut self,
+        part: usize,
+        is_kind: impl Fn(&ContentBlock) -> bool,
+        make: impl FnOnce() -> ContentBlock,
+    ) -> usize {
+        if let Some(&idx) = self.parts.get(&part)
+            && is_kind(&self.blocks[idx])
+        {
+            return idx;
+        }
+        self.blocks.push(make());
+        let idx = self.blocks.len() - 1;
+        self.parts.insert(part, idx);
+        idx
+    }
+
+    fn text_delta(&mut self, part: usize, delta: &str) {
+        let idx = self.ensure_block(
+            part,
+            |b| matches!(b, ContentBlock::Text { .. }),
+            || ContentBlock::Text {
+                text: String::new(),
+            },
+        );
+        if let ContentBlock::Text { text } = &mut self.blocks[idx] {
+            text.push_str(delta);
         }
     }
 
-    fn thinking_delta(&mut self, delta: &str) {
-        match self.blocks.last_mut() {
-            Some(ContentBlock::Thinking { thinking, .. }) => thinking.push_str(delta),
-            _ => self.blocks.push(ContentBlock::Thinking {
-                thinking: delta.to_string(),
+    fn thinking_delta(&mut self, part: usize, delta: &str) {
+        let idx = self.ensure_block(
+            part,
+            |b| matches!(b, ContentBlock::Thinking { .. }),
+            || ContentBlock::Thinking {
+                thinking: String::new(),
                 thinking_signature: None,
-            }),
+            },
+        );
+        if let ContentBlock::Thinking { thinking, .. } = &mut self.blocks[idx] {
+            thinking.push_str(delta);
         }
     }
 
-    fn tool_call_delta(&mut self, delta: &str) {
-        // 参数片段以 Value::String 暂存，tool_call_end 时替换为解析后的块
-        if let Some(ContentBlock::ToolCall { arguments, .. }) = self.blocks.last_mut() {
+    fn tool_call_delta(&mut self, part: usize, delta: &str) {
+        // 参数片段以 Value::String 暂存，finalize 时替换为解析后的块
+        let idx = self.ensure_block(
+            part,
+            |b| matches!(b, ContentBlock::ToolCall { .. }),
+            || ContentBlock::ToolCall {
+                id: String::new(),
+                name: String::new(),
+                arguments: Value::String(String::new()),
+            },
+        );
+        if let ContentBlock::ToolCall { arguments, .. } = &mut self.blocks[idx] {
             let raw = arguments.as_str().map(str::to_string).unwrap_or_default();
             *arguments = Value::String(format!("{raw}{delta}"));
         }
     }
 
-    fn tool_call_start(&mut self, id: &str, name: &str) {
-        self.blocks.push(ContentBlock::ToolCall {
+    fn tool_call_end(&mut self, part: usize, id: &str, name: &str, arguments: Value) {
+        let idx = self.ensure_block(
+            part,
+            |b| matches!(b, ContentBlock::ToolCall { .. }),
+            || ContentBlock::ToolCall {
+                id: String::new(),
+                name: String::new(),
+                arguments: json!({}),
+            },
+        );
+        self.blocks[idx] = ContentBlock::ToolCall {
             id: id.to_string(),
             name: name.to_string(),
-            arguments: json!({}),
-        });
-    }
-
-    fn tool_call_end(&mut self, id: &str, name: &str, arguments: Value) {
-        if let Some(pos) = self
-            .blocks
-            .iter()
-            .rposition(|b| matches!(b, ContentBlock::ToolCall { .. }))
-        {
-            self.blocks[pos] = ContentBlock::ToolCall {
-                id: id.to_string(),
-                name: name.to_string(),
-                arguments,
-            };
-        } else {
-            self.blocks.push(ContentBlock::ToolCall {
-                id: id.to_string(),
-                name: name.to_string(),
-                arguments,
-            });
-        }
+            arguments,
+        };
     }
 
     fn finalize(
@@ -432,37 +508,42 @@ impl Accumulator {
     }
 }
 
-/// 流式生命周期：构造 client → builder → 迭代映射 → Done。
-/// 两个协议的 builder 泛型不同，用宏在分派点统一流程。
+/// 流式生命周期：构造请求 → 迭代映射 → finish 取用量/结束原因 → Done。
+/// 两个协议的 wire 类型不同（Messages / Chat），用宏在分派点统一流程。
 macro_rules! run_with_model {
-    ($tx:expr, $abort:expr, $model:expr, $context:expr, $options:expr, $completion_model:expr) => {{
+    ($tx:expr, $abort:expr, $model:expr, $context:expr, $options:expr, $rig_model:expr) => {{
         let tx = $tx;
         let model: &Model = &$model;
         let context: &Context = &$context;
         let options: &StreamOptions = &$options;
         let started = Instant::now();
 
-        // rig 语义：builder 的 prompt 是最后一条消息，messages 是它之前的历史
-        let mut msgs = to_rig_messages(context);
+        // rig 语义：请求的 prompt 是最后一条消息，messages 是它之前的历史
+        let mut msgs = to_rig_messages(context, model.api);
         let Some(prompt) = msgs.pop() else {
             return Err(StreamError::terminal("空消息历史"));
         };
-        let mut builder = CompletionRequestBuilder::new($completion_model, prompt)
+        let mut request = CompletionRequest::new(prompt)
             .messages(msgs)
-            .temperature_opt(options.temperature.map(f64::from));
+            .temperature(options.temperature.map(f64::from));
         if let Some(max_tokens) = options.max_tokens {
-            builder = builder.max_tokens(max_tokens as u64);
+            request = request.max_tokens(max_tokens as u64);
         }
         if let Some(system) = &context.system_prompt {
-            builder = builder.preamble(system.clone());
+            request = request.preamble(system.clone());
         }
         if !context.tools.is_empty() {
-            builder = builder.tools(to_rig_tools(context));
+            request = request.tools(to_rig_tools(context));
         }
 
-        // 请求级时限（无进展超时）：从发起请求到首个事件、以及相邻事件之间，
-        // 超过时限没有任何数据即中止 —— 挂死的连接变成可见错误，而不是让会话
-        // 无限期停在「运行中」。持续有增量的长响应不受影响。
+        // rig 0.43：编码/校验失败在这里返回；传输失败是流里的最后一个事件项。
+        let mut stream = $rig_model
+            .stream(request)
+            .map_err(|e| classify_with("请求失败", &e))?;
+
+        // 请求级时限（无进展超时）：首个事件、以及相邻事件之间超过时限没有
+        // 任何数据即中止 —— 挂死的连接变成可见错误，而不是让会话无限期停在
+        // 「运行中」。持续有增量的长响应不受影响。
         let idle_secs = if options.timeout_secs == 0 {
             DEFAULT_REQUEST_TIMEOUT_SECS
         } else {
@@ -470,25 +551,7 @@ macro_rules! run_with_model {
         };
         let idle = std::time::Duration::from_secs(idle_secs);
 
-        // 建连阶段同样与中止竞速：点停止不必等连接建立或超时
-        let mut stream = tokio::select! {
-            _ = $abort.wait_aborted() => return Ok(()),
-            connected = tokio::time::timeout(idle, builder.stream()) => match connected {
-                Ok(Ok(stream)) => stream,
-                Ok(Err(e)) => return Err(classify_with("请求失败", e)),
-                Err(_) => {
-                    return Err(StreamError::retryable_with(
-                        format!("请求超时：{idle_secs} 秒内未开始响应（端点无响应或网络不可达）"),
-                        Some(RetryHint::timeout()),
-                    ))
-                }
-            },
-        };
-
         let mut acc = Accumulator::default();
-        let mut finish: Option<FinishReason> = None;
-        let mut usage = RigUsage::default();
-        let mut saw_final = false;
         let mut timed_out = false;
 
         loop {
@@ -499,41 +562,45 @@ macro_rules! run_with_model {
                 _ = tokio::time::sleep(idle) => { timed_out = true; None }
             };
             let Some(item) = item else { break };
-            match item.map_err(|e| classify_with("流错误", e))? {
-                StreamedAssistantContent::Text(t) => {
-                    acc.text_delta(&t.text);
+            let event = item.map_err(|e| classify_with("流错误", &e))?;
+            match event {
+                RigItem::Event(RigStreamEvent::Text { part, text }) => {
+                    acc.text_delta(part.index(), &text);
                     let _ = tx
-                        .send(StreamEvent::TextDelta { content_index: 0, delta: t.text })
+                        .send(StreamEvent::TextDelta {
+                            content_index: 0,
+                            delta: text,
+                        })
                         .await;
                 }
-                StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
-                    acc.thinking_delta(&reasoning);
+                RigItem::Event(RigStreamEvent::Reasoning { part, text }) => {
+                    acc.thinking_delta(part.index(), &text);
                     let _ = tx
-                        .send(StreamEvent::ThinkingDelta { content_index: 0, delta: reasoning })
+                        .send(StreamEvent::ThinkingDelta {
+                            content_index: 0,
+                            delta: text,
+                        })
                         .await;
                 }
-                StreamedAssistantContent::Reasoning { .. } => {
-                    // 聚合块：delta 已覆盖，忽略
-                }
-                StreamedAssistantContent::ToolCallDelta { content, .. } => {
-                    use rig::streaming::ToolCallDeltaContent as D;
-                    let fragment = match &content {
-                        D::Delta(s) => s.clone(),
-                        D::Name(_) => String::new(),
-                    };
-                    if !fragment.is_empty() {
-                        acc.tool_call_delta(&fragment);
+                RigItem::Event(RigStreamEvent::Arguments { part, json }) => {
+                    if !json.is_empty() {
+                        acc.tool_call_delta(part.index(), &json);
                         let _ = tx
-                            .send(StreamEvent::ToolCallDelta { content_index: 0, delta: fragment })
+                            .send(StreamEvent::ToolCallDelta {
+                                content_index: 0,
+                                delta: json,
+                            })
                             .await;
                     }
                 }
-                StreamedAssistantContent::ToolCall { tool_call, .. } => {
-                    let id = tool_call.id.to_string();
-                    let name = tool_call.function.name.clone();
-                    let arguments = tool_call.function.arguments.clone();
-                    acc.tool_call_start(&id, &name);
-                    acc.tool_call_end(&id, &name, arguments.clone());
+                RigItem::Event(RigStreamEvent::End {
+                    part,
+                    content: AssistantContent::ToolCall(call),
+                }) => {
+                    let id = call.id.to_string();
+                    let name = call.function.name.as_str().to_string();
+                    let arguments = call.function.arguments.clone();
+                    acc.tool_call_end(part.index(), &id, &name, arguments.clone());
                     let _ = tx
                         .send(StreamEvent::ToolCallEnd {
                             content_index: 0,
@@ -541,12 +608,13 @@ macro_rules! run_with_model {
                         })
                         .await;
                 }
-                StreamedAssistantContent::Final(f) => {
-                    usage = f.usage;
-                    finish = f.finish_reason.clone();
-                    saw_final = true;
-                }
-                StreamedAssistantContent::Unknown(_) => {}
+                // 文本 / 思考 / 图片的 End 是聚合块：delta 已覆盖，忽略
+                RigItem::Event(
+                    RigStreamEvent::Start { .. }
+                    | RigStreamEvent::End { .. },
+                ) => {}
+                // 未建模的供应商载荷：跳过（与 0.42 的 Unknown 处理一致）
+                RigItem::Unknown(_) => {}
             }
         }
 
@@ -564,21 +632,20 @@ macro_rules! run_with_model {
             return Ok(());
         }
 
-        if !saw_final {
-            // 流在终态事件之前结束（干净 EOF、代理掐断等）：过去这里静默结束，
-            // 被上层误报成「已中止」；现在明确报成可重试的中断。
-            return Err(StreamError::retryable(
-                "流提前结束：未收到结束帧（连接被中断或代理截断）",
-            ));
-        }
+        // 流被截断（干净 EOF、代理掐断等）由 rig 报成 Truncated 的最后一项，
+        // 上面已按可重试分类；能走到这里说明收到过结束帧。
+        let response = stream
+            .finish()
+            .await
+            .map_err(|e| classify_with("流错误", &e))?;
 
         let duration_ms = started.elapsed().as_millis() as u64;
         let has_tools = acc
             .blocks
             .iter()
             .any(|b| matches!(b, ContentBlock::ToolCall { .. }));
-        let reason = map_finish_reason(finish.as_ref(), has_tools);
-        let usage_mapped = from_rig_usage(&usage, model.api);
+        let reason = map_finish_reason(response.finish_reason().as_ref(), has_tools);
+        let usage_mapped = from_rig_usage(&response.usage);
         let message = acc.finalize(&model.id, usage_mapped, reason, duration_ms);
         let _ = tx
             .send(StreamEvent::Done {
@@ -615,59 +682,41 @@ impl Provider for RigProvider {
                 abort: AbortSignal,
                 tx: &Sender<StreamEvent>,
             ) -> Result<(), StreamError> {
+                let key = options.api_key.clone().unwrap_or_default();
+                let transport =
+                    rig_transport(extra_headers(&model.base_url, options.session_id.as_deref()));
                 match api {
                     Api::AnthropicMessages => {
-                        let key = options.api_key.clone().unwrap_or_default();
-                        let mut cb = rig::providers::anthropic::Client::builder()
-                            .http_client(shared_http_client().clone())
-                            .api_key(key);
+                        let mut config = AnthropicConfig::new(key);
                         if !model.base_url.is_empty() {
-                            cb = cb.base_url(model.base_url.clone());
+                            config = config.with_base_url(&model.base_url);
                         }
-                        if let Some(headers) =
-                            extra_headers(&model.base_url, options.session_id.as_deref())
-                        {
-                            cb = cb.http_headers(headers);
-                        }
-                        let client = cb.build().map_err(|e| {
-                            StreamError::terminal(format!("Client 初始化失败: {e}"))
-                        })?;
                         run_with_model!(
                             tx,
                             abort,
                             model,
                             context,
                             options,
-                            client.completion_model(&model.id)
+                            config.connect(transport).completion(&model.id)
                         )
                     }
                     Api::OpenAICompletions => {
-                        let key = options.api_key.clone().unwrap_or_default();
-                        let mut cb = rig::providers::openai::Client::builder()
-                            .http_client(shared_http_client().clone())
-                            .api_key(key);
+                        let mut config = OpenAIConfig::new(key);
                         if !model.base_url.is_empty() {
-                            cb = cb.base_url(model.base_url.clone());
+                            config = config.with_base_url(&model.base_url);
                         }
-                        if let Some(headers) =
-                            extra_headers(&model.base_url, options.session_id.as_deref())
-                        {
-                            cb = cb.http_headers(headers);
-                        }
-                        let client = cb.build().map_err(|e| {
-                            StreamError::terminal(format!("Client 初始化失败: {e}"))
-                        })?;
-                        // 统一走 Chat Completions（`/chat/completions`）：rig 0.42 的 openai 客户端
-                        // 默认是 Responses API（`/responses`），而「openai-completions」协议在中转商、
-                        // 本地运行时那里就是 Chat Completions 的兼容层 —— 只有官方 OpenAI 才认
-                        // /responses。协议名与实现必须一致，否则绝大多数兼容端点直接 404。
+                        // 统一走 Chat Completions（`/chat/completions`）：
+                        // 「openai-completions」协议在中转商、本地运行时那里就是
+                        // Chat Completions 的兼容层 —— 只有官方 OpenAI 才认
+                        // /responses。协议名与实现必须一致，否则绝大多数兼容
+                        // 端点直接 404。
                         run_with_model!(
                             tx,
                             abort,
                             model,
                             context,
                             options,
-                            client.completions_api().completion_model(&model.id)
+                            config.connect(transport).chat(&model.id)
                         )
                     }
                 }
@@ -729,7 +778,7 @@ mod tests {
 
     #[test]
     fn maps_messages_to_rig() {
-        let msgs = to_rig_messages(&context());
+        let msgs = to_rig_messages(&context(), Api::AnthropicMessages);
         // user → assistant(toolcall) → user(toolresult)
         assert_eq!(msgs.len(), 3);
         assert!(matches!(msgs[0], RigMessage::User { .. }));
@@ -737,7 +786,7 @@ mod tests {
         match &msgs[2] {
             RigMessage::User { content } => match &content[0] {
                 rig::message::UserContent::ToolResult(tr) => {
-                    assert_eq!(tr.name, "read");
+                    assert_eq!(tr.name.as_str(), "read");
                     assert_eq!(tr.call.to_string(), "t1");
                 }
                 other => panic!("expected tool result, got {other:?}"),
@@ -750,7 +799,7 @@ mod tests {
     fn maps_tools_to_rig() {
         let tools = to_rig_tools(&context());
         assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "read");
+        assert_eq!(tools[0].name.as_str(), "read");
         assert_eq!(tools[0].parameters["type"], json!("object"));
     }
 
@@ -773,39 +822,19 @@ mod tests {
     }
 
     #[test]
-    fn maps_usage_with_cache() {
-        // Anthropic 口径：input_tokens 不含缓存，原样透传
-        let u = RigUsage {
-            input_tokens: 100,
-            output_tokens: 20,
-            total_tokens: 0,
-            cached_input_tokens: 80,
-            cache_creation_input_tokens: 5,
-            tool_use_prompt_tokens: 0,
-            reasoning_tokens: 0,
-        };
-        let mapped = from_rig_usage(&u, Api::AnthropicMessages);
-        assert_eq!(mapped.input, 100);
-        assert_eq!(mapped.cache_read, 80);
-        assert_eq!(mapped.cache_write, 5);
-        // total 未上报时自行汇总
-        assert_eq!(mapped.total_tokens, 205);
-    }
-
-    #[test]
-    fn openai_usage_subtracts_cached_tokens_from_input() {
-        // OpenAI 兼容口径：prompt_tokens 已含 cached_tokens，必须扣掉，
+    fn usage_subtracts_cached_tokens_from_input() {
+        // rig 0.43 的统一口径：input_tokens 已含缓存读写，必须扣掉，
         // 否则 input 与 cache_read 重叠 —— 命中率会恒为 50%
         let u = RigUsage {
-            input_tokens: 1000,
-            output_tokens: 50,
-            total_tokens: 1050,
-            cached_input_tokens: 900,
-            cache_creation_input_tokens: 0,
-            tool_use_prompt_tokens: 0,
-            reasoning_tokens: 0,
+            input_tokens: Some(1000),
+            output_tokens: Some(50),
+            total_tokens: Some(1050),
+            cached_input_tokens: Some(900),
+            cache_creation_input_tokens: Some(0),
+            tool_use_prompt_tokens: Some(0),
+            reasoning_tokens: Some(0),
         };
-        let mapped = from_rig_usage(&u, Api::OpenAICompletions);
+        let mapped = from_rig_usage(&u);
         assert_eq!(mapped.input, 100);
         assert_eq!(mapped.cache_read, 900);
         // 提示词总量回到 wire 上的 prompt_tokens，总数不变
@@ -818,18 +847,37 @@ mod tests {
     }
 
     #[test]
-    fn openai_usage_without_total_stays_consistent() {
+    fn usage_with_cache_write_is_also_subtracted() {
+        let u = RigUsage {
+            input_tokens: Some(100),
+            output_tokens: Some(20),
+            total_tokens: None,
+            cached_input_tokens: Some(80),
+            cache_creation_input_tokens: Some(5),
+            tool_use_prompt_tokens: None,
+            reasoning_tokens: None,
+        };
+        let mapped = from_rig_usage(&u);
+        assert_eq!(mapped.input, 15);
+        assert_eq!(mapped.cache_read, 80);
+        assert_eq!(mapped.cache_write, 5);
+        // total 未上报时自行汇总
+        assert_eq!(mapped.total_tokens, 120);
+    }
+
+    #[test]
+    fn usage_without_total_stays_consistent() {
         // 端点不报 total_tokens：汇总值也要等于 prompt + completion（不能把命中算两遍）
         let u = RigUsage {
-            input_tokens: 610_566,
-            output_tokens: 165,
-            total_tokens: 0,
-            cached_input_tokens: 610_432,
-            cache_creation_input_tokens: 0,
-            tool_use_prompt_tokens: 0,
-            reasoning_tokens: 0,
+            input_tokens: Some(610_566),
+            output_tokens: Some(165),
+            total_tokens: None,
+            cached_input_tokens: Some(610_432),
+            cache_creation_input_tokens: Some(0),
+            tool_use_prompt_tokens: None,
+            reasoning_tokens: None,
         };
-        let mapped = from_rig_usage(&u, Api::OpenAICompletions);
+        let mapped = from_rig_usage(&u);
         assert_eq!(mapped.input, 134);
         assert_eq!(mapped.total_tokens, 610_731);
         assert_eq!(mapped.total_tokens, mapped.total());
@@ -839,29 +887,37 @@ mod tests {
     }
 
     #[test]
-    fn openai_usage_saturates_when_cache_exceeds_prompt() {
+    fn usage_saturates_when_cache_exceeds_prompt() {
         // 端点口径混乱（cached > prompt）时不能下溢成天文数字
         let u = RigUsage {
-            input_tokens: 10,
-            output_tokens: 1,
-            total_tokens: 11,
-            cached_input_tokens: 500,
-            cache_creation_input_tokens: 0,
-            tool_use_prompt_tokens: 0,
-            reasoning_tokens: 0,
+            input_tokens: Some(10),
+            output_tokens: Some(1),
+            total_tokens: Some(11),
+            cached_input_tokens: Some(500),
+            cache_creation_input_tokens: Some(0),
+            tool_use_prompt_tokens: None,
+            reasoning_tokens: None,
         };
-        let mapped = from_rig_usage(&u, Api::OpenAICompletions);
+        let mapped = from_rig_usage(&u);
         assert_eq!(mapped.input, 0);
+    }
+
+    #[test]
+    fn usage_missing_counters_read_as_zero() {
+        // 计数缺失（None）与上报 0 在 Pipi 口径里都记 0；总数仍能自洽
+        let u = RigUsage::default();
+        let mapped = from_rig_usage(&u);
+        assert_eq!(mapped.input, 0);
+        assert_eq!(mapped.total_tokens, 0);
     }
 
     #[test]
     fn accumulator_finalizes_tool_args_and_duration() {
         let mut acc = Accumulator::default();
-        acc.text_delta("hi");
-        acc.tool_call_start("t1", "bash");
-        acc.tool_call_delta("{\"c");
-        acc.tool_call_delta("md\":\"ls\"}");
-        acc.tool_call_end("t1", "bash", json!({"cmd": "ls"}));
+        acc.text_delta(0, "hi");
+        acc.tool_call_delta(1, "{\"c");
+        acc.tool_call_delta(1, "md\":\"ls\"}");
+        acc.tool_call_end(1, "t1", "bash", json!({"cmd": "ls"}));
         let msg = acc.finalize("m", Usage::default(), StopReason::ToolUse, 1234);
         let Message::Assistant {
             content,
@@ -880,6 +936,36 @@ mod tests {
                 name: "bash".into(),
                 arguments: json!({"cmd": "ls"}),
             }
+        );
+    }
+
+    #[test]
+    fn accumulator_keeps_parallel_tool_calls_apart() {
+        // 两个工具调用的参数片段交错到达：按 part 归位，不能互相串台
+        let mut acc = Accumulator::default();
+        acc.tool_call_delta(0, "{\"a\":1}");
+        acc.tool_call_delta(1, "{\"b\":2}");
+        acc.tool_call_delta(0, "");
+        acc.tool_call_end(0, "t1", "one", json!({"a": 1}));
+        acc.tool_call_end(1, "t2", "two", json!({"b": 2}));
+        let msg = acc.finalize("m", Usage::default(), StopReason::ToolUse, 1);
+        let Message::Assistant { content, .. } = msg else {
+            panic!("expected assistant");
+        };
+        assert_eq!(
+            content,
+            vec![
+                ContentBlock::ToolCall {
+                    id: "t1".into(),
+                    name: "one".into(),
+                    arguments: json!({"a": 1}),
+                },
+                ContentBlock::ToolCall {
+                    id: "t2".into(),
+                    name: "two".into(),
+                    arguments: json!({"b": 2}),
+                },
+            ]
         );
     }
 
@@ -919,5 +1005,39 @@ mod tests {
         // 空串视为没有会话 ID，不得塞空值头（HeaderValue 允许空串，但供应商侧无法路由）
         let headers = extra_headers("https://opencode.ai/zen/go/v1", Some("")).unwrap();
         assert!(headers.get("x-opencode-session").is_none());
+    }
+
+    #[test]
+    fn thinking_blocks_replay_with_the_matching_issuer() {
+        // reasoning 只能被签发它的那家读回：两套协议的 issuer 必须与自己一致
+        assert_eq!(thinking_issuer(Api::AnthropicMessages), "anthropic");
+        assert_eq!(thinking_issuer(Api::OpenAICompletions), "openai");
+        let context = Context {
+            system_prompt: None,
+            messages: vec![Message::Assistant {
+                content: vec![ContentBlock::Thinking {
+                    thinking: "hmm".into(),
+                    thinking_signature: Some("sig".into()),
+                }],
+                api: String::new(),
+                provider: String::new(),
+                model: "m".into(),
+                usage: Usage::default(),
+                stop_reason: StopReason::Stop,
+                error_message: None,
+                timestamp: 0,
+                duration_ms: None,
+            }],
+            tools: Vec::new(),
+        };
+        let msgs = to_rig_messages(&context, Api::AnthropicMessages);
+        let RigMessage::Assistant { content, .. } = &msgs[0] else {
+            panic!("expected assistant");
+        };
+        let AssistantContent::Reasoning(sealed) = &content[0] else {
+            panic!("expected reasoning");
+        };
+        assert_eq!(sealed.issuer().as_str(), "anthropic");
+        assert!(sealed.open(sealed.issuer()).is_some());
     }
 }

@@ -11,7 +11,6 @@ path = "src/main.rs"
 
 [dependencies]
 axum = { workspace = true }
-futures-util = { workspace = true, features = ["sink"] }
 pipi-core = { workspace = true }
 pipi-app = { workspace = true }
 pipi-protocol = { workspace = true }
