@@ -5,7 +5,8 @@ description = "Pipi 核心：从 pi 移植的 agent 循环、工具与 LLM provi
 edition = "2021"
 
 [dependencies]
-av = { path = "../av" }
+# search feature 关闭：skills.sh 搜索只属于 av CLI，不把第二个 HTTP 栈链进应用
+av = { path = "../av", default-features = false }
 pipi-error = { path = "../pipi-error" }
 pipi-protocol = { path = "../pipi-protocol" }
 pipi-tools = { path = "../pipi-tools" }

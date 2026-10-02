@@ -85,9 +85,9 @@ fn default_true() -> bool {
     true
 }
 
-/// 所有 Agent 数据的根：`~/.pipi/agents`
+/// 所有 Agent 数据的根：`~/.pipi/agents`（路径布局由 av 统一定义）。
 pub fn agents_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".pipi").join("agents"))
+    av::paths::agents_root()
 }
 
 /// 归档区目录名（agents 根与各 Agent 的 sessions 目录共用）：
@@ -163,19 +163,11 @@ pub fn agent_dir(name: &str) -> Option<PathBuf> {
     checked_agent_dir(name).ok()
 }
 
-/// 展开 `~` 前缀（仅支持 `~` 与 `~/...`）。
+/// 展开 `~` 前缀（仅支持 `~` 与 `~/...`；规则复用 av 的同一份实现）。
 pub fn expand_tilde(path: &str) -> String {
-    if path == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home.to_string_lossy().into_owned();
-        }
-    }
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(rest).to_string_lossy().into_owned();
-        }
-    }
-    path.to_string()
+    av::discovery::expand_tilde(path)
+        .to_string_lossy()
+        .into_owned()
 }
 
 impl AgentDefinition {
@@ -827,6 +819,14 @@ pub fn build_tool_context(
     let resolved = av::resolve_env(&layers, &av::collect_process_env(), &runtime_vars)?;
     av::check_requires(&merged.requires, &resolved.vars)?;
 
+    // 声明启用的 store 技能：只读解析（不联网；缺失即 fail-closed），
+    // 内容目录进受信任读取根 —— 模型用 read 工具按需加载 SKILL.md 与随附文件。
+    for skill in load_declared_store_skills(&layers)? {
+        if !read_roots.contains(&skill.dir) {
+            read_roots.push(skill.dir);
+        }
+    }
+
     Ok((
         crate::tools::ToolContext {
             workspace,
@@ -903,6 +903,45 @@ fn merge_skill_scopes(
         .collect()
 }
 
+/// 解析声明启用的 store 技能（av `[resources.skills].use` + 同层 `agent.lock`）。
+///
+/// 会话启动只读、不联网；缺锁/缺条目/缺内容一律 fail-closed，错误里带
+/// `av skill sync` 提示（与 `av check`/`av doctor` 同一口径）。
+fn load_declared_store_skills(
+    layers: &[av::Layer],
+) -> Result<Vec<av::store::ResolvedSkill>, String> {
+    match av::store::winning_use(layers) {
+        Some(declared) => av::store::resolve_declared_skills(declared.names, &declared.lock_path)
+            .map_err(|e| format!("声明技能不可用（{}）：{e}", declared.layer.label)),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// 把声明的 store 技能追加在约定目录之后（同名先发现者赢）。
+fn merge_store_skills(
+    mut skills: Vec<crate::skills::SkillMeta>,
+    store_skills: Vec<av::skills::SkillMeta>,
+) -> Vec<crate::skills::SkillMeta> {
+    let mut seen_names: std::collections::HashSet<String> =
+        skills.iter().map(|skill| skill.name.clone()).collect();
+    for skill in store_skills {
+        if seen_names.insert(skill.name.clone()) {
+            skills.push(skill);
+        }
+    }
+    skills
+}
+
+/// pipi-core 技能元信息 → harness 渲染所需的元信息。
+fn harness_skill_metadata(skill: crate::skills::SkillMeta) -> crate::harness::SkillMetadata {
+    crate::harness::SkillMetadata {
+        name: skill.name,
+        description: skill.description,
+        disable_model_invocation: skill.disable_model_invocation,
+        path: skill.path.display().to_string(),
+    }
+}
+
 /// 加载声明式上下文文件（`[resources].instructions` 的 Some(list) 分支）。
 ///
 /// fail-closed：缺失、非常规文件、逃逸包含根、内容为空均报错；项目层预算
@@ -972,9 +1011,8 @@ pub fn build_system_prompt_with_tools(
     let dir = def.dir();
     let workspace = def.resolve_workspace();
     let mut context_files = Vec::new();
-    let mut skills = Vec::new();
 
-    let (cwd, append_system_prompt) = if let Some(workspace) = &workspace {
+    let (cwd, append_system_prompt, skills) = if let Some(workspace) = &workspace {
         let (agent_layer, project_layers) = collect_contract_layers(def, Some(workspace))?;
         let mut layers = Vec::new();
         if let Some(layer) = &agent_layer {
@@ -1099,20 +1137,18 @@ pub fn build_system_prompt_with_tools(
             .as_ref()
             .and_then(|resources| resources.skills.as_ref())
             .map(|skills| (skills.only.as_deref(), skills.exclude.as_deref()));
+        // 声明的 store 技能（`use`）追加在约定目录之后，同名先发现者赢
+        let declared_store = load_declared_store_skills(&layers)?;
         let filtered = crate::skills::filter_skills_by_name(
-            merge_skill_scopes(agent_skills, project_skills),
+            merge_store_skills(
+                merge_skill_scopes(agent_skills, project_skills),
+                declared_store.into_iter().map(|skill| skill.meta).collect(),
+            ),
             skills_filter.as_ref().and_then(|(only, _)| *only),
             skills_filter.as_ref().and_then(|(_, exclude)| *exclude),
         )?;
-        skills = filtered
-            .into_iter()
-            .map(|skill| crate::harness::SkillMetadata {
-                name: skill.name,
-                description: skill.description,
-                disable_model_invocation: skill.disable_model_invocation,
-                path: skill.path.display().to_string(),
-            })
-            .collect();
+        let skills: Vec<crate::harness::SkillMetadata> =
+            filtered.into_iter().map(harness_skill_metadata).collect();
 
         (
             workspace.display().to_string(),
@@ -1120,6 +1156,7 @@ pub fn build_system_prompt_with_tools(
                 workspace,
                 &def.permissions.sandbox,
             )),
+            skills,
         )
     } else {
         // 无 workspace：agent 层 instructions 三态仍生效（无项目层，技能沿用现状）
@@ -1148,7 +1185,14 @@ pub fn build_system_prompt_with_tools(
                 dir.as_deref(),
             )),
         }
-        (String::new(), None)
+        // 无 workspace：仍可声明 agent 层契约里的 store 技能
+        let agent_only_layers: Vec<av::Layer> = agent_layer.iter().cloned().collect();
+        let skills: Vec<crate::harness::SkillMetadata> =
+            load_declared_store_skills(&agent_only_layers)?
+                .into_iter()
+                .map(|skill| harness_skill_metadata(skill.meta))
+                .collect();
+        (String::new(), None, skills)
     };
 
     Ok(crate::harness::build_system_prompt(
@@ -1545,6 +1589,103 @@ only = ["wanted"]
         assert!(prompt.contains("repo skill pack"), "{prompt}");
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    /// 声明启用的 store 技能（av `[resources.skills].use` + `agent.lock`）：
+    /// 安装后进入系统提示与 read_roots；锁/内容缺失即 fail-closed 并提示 `av skill sync`。
+    #[test]
+    fn declared_store_skills_are_injected_and_missing_fails_closed() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "pipi-store-skills-home-{}",
+            crate::session::new_id()
+        ));
+        fs::create_dir_all(&home).unwrap();
+        let previous_home = std::env::var("HOME").unwrap();
+        let previous_av = std::env::var("AV_HOME").ok();
+        std::env::set_var("HOME", &home);
+        // 避免外部覆盖影响 store 位置（av 家目录 = $AV_HOME 或 ~/.av）
+        std::env::remove_var("AV_HOME");
+
+        // 1) 真实安装管线装进 store（与 `av skill install` 同一实现）
+        let source = home.join("source").join("pdf");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(
+            source.join("SKILL.md"),
+            "---\nname: pdf\ndescription: STORE-DECLARED-PDF\n---\nbody",
+        )
+        .unwrap();
+        let spec = av::sources::SourceSpec::Local {
+            path: fs::canonicalize(&source).unwrap(),
+        };
+        let report =
+            av::install::install_source(&spec, &av::install::Selection::All, false, &mut |_| {})
+                .unwrap();
+        let entry = report.installed[0].entry.clone();
+
+        // 2) 项目契约：声明 use + 同层 agent.lock
+        let root = home.join("project");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(
+            root.join("agent.toml"),
+            "schema = 1\n\n[resources.skills]\nuse = [\"pdf\"]\n",
+        )
+        .unwrap();
+        let mut lock = av::store::SkillLock::empty();
+        lock.set_entry(entry.clone());
+        let lock_path = root.join("agent.lock");
+        lock.write(&lock_path).unwrap();
+
+        let def = AgentDefinition {
+            name: "__pipi_store_skills__".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: Some(root.to_string_lossy().into_owned()),
+            permissions: PermissionsConfig {
+                tools: vec!["read".into(), "bash".into()],
+                ..Default::default()
+            },
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+
+        // 3) 提示词注入 + 内容目录进受信任读取根
+        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        assert!(prompt.contains("<name>pdf</name>"), "{prompt}");
+        assert!(prompt.contains("STORE-DECLARED-PDF"), "{prompt}");
+        let (ctx, _) = build_tool_context(&def, None, crate::types::AbortSignal::new()).unwrap();
+        let content_dir_name = av::store::content_dir_name(&entry.content_hash).unwrap();
+        assert!(
+            ctx.read_roots.iter().any(|path| {
+                path.file_name().and_then(|name| name.to_str()) == Some(content_dir_name)
+            }),
+            "store 技能目录应在 read_roots：{:?}",
+            ctx.read_roots
+        );
+
+        // 4) store 内容缺失：两处路径都应 fail-closed 且带 av skill sync 提示
+        av::store::remove_version("pdf", &entry.content_hash).unwrap();
+        let error = build_system_prompt_with_tools(&def, &[]).unwrap_err();
+        assert!(error.contains("av skill sync"), "{error}");
+        let error = build_tool_context(&def, None, crate::types::AbortSignal::new())
+            .err()
+            .expect("内容缺失应 fail-closed");
+        assert!(error.contains("av skill sync"), "{error}");
+
+        // 5) 缺锁文件：fail-closed
+        fs::remove_file(&lock_path).unwrap();
+        let error = build_system_prompt_with_tools(&def, &[]).unwrap_err();
+        assert!(error.contains("agent.lock"), "{error}");
+
+        std::env::set_var("HOME", previous_home);
+        match previous_av {
+            Some(value) => std::env::set_var("AV_HOME", value),
+            None => std::env::remove_var("AV_HOME"),
+        }
+        let _ = fs::remove_dir_all(&home);
     }
 
     #[test]

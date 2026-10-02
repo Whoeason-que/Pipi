@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1"
-av = { path = "../av" }
+av = { path = "../av", default-features = false }
 pipi-core = { path = "../pipi-core" }
 pipi-tools = { path = "../pipi-tools" }
 serde = { version = "1", features = ["derive"] }

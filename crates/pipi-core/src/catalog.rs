@@ -353,7 +353,7 @@ fn has_version_segment(url: &str) -> bool {
 }
 
 pub fn cache_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".pipi").join("cache").join("models.json"))
+    av::paths::catalog_cache_path()
 }
 
 /// 缓存的默认刷新策略（纯函数，便于单测）。
@@ -647,7 +647,8 @@ pub fn build_catalog(
 /// 共享 HTTP 客户端：连接池与 TLS 会话复用（原来每次拉取都新建 Client）。
 /// 构建失败会连错误一起缓存：初始化失败的成因（TLS 后端缺失等）不会自愈。
 fn http_client() -> Result<reqwest::Client, String> {
-    static CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> = std::sync::OnceLock::new();
+    static CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
+        std::sync::OnceLock::new();
     CLIENT
         .get_or_init(|| {
             reqwest::Client::builder()
