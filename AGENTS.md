@@ -27,8 +27,9 @@ crates/pipi-tools/  内置 bash/read/write/edit/glob/grep/memory、命令权限�
 crates/pipi-harness/ 纯项目上下文发现与 system prompt 渲染（不依赖运行时）
 crates/pipi-provider/ rig 的 provider HTTP/SSE 适配与错误分类（不做重发）
 crates/pipi-core/   Rust 领域核心（不依赖 Tauri）：agent_loop / session / context /
-                    skills / stats / project_doc / settings / agents / catalog（models.dev）/
-                    以兼容 re-export 维持旧有 tools/provider/harness 路径
+                    compaction / stats / settings / agents / catalog（models.dev）；
+                    基础工具、权限、协议、prompt 渲染、技能包管理直接依赖
+                    pipi-tools / pipi-protocol / pipi-harness / av，不做转口 re-export
 crates/pipi-app/    应用服务层：会话槽、后台调度、审批交互和宿主事件协议；Tauri /
                     Web server 共同依赖它，不在壳层复制运行时逻辑
 src-tauri/          Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务逻辑
@@ -60,6 +61,11 @@ src/                React + TypeScript 前端
 - 消息 / 会话的 JSON 字段名与 pi 保持一致（`role`、`toolResult`、`toolCall`、`parentId`……），移植改动不许悄悄改格式。
 - 可复用领域逻辑进 `pipi-core`；会话槽、后台编排与宿主事件只进 `pipi-app`；
   `src-tauri` 是薄壳，不写业务逻辑。
+- 不设转口 re-export：类型与逻辑由属主 crate 导出，消费者在自己的
+  `Cargo.toml` 里直接依赖（`pipi-protocol` / `pipi-tools` / `pipi-provider` /
+  `pipi-harness` / `av`）。历史上 `pipi_core::{
+  types,tools,permissions,provider,harness,skills,truncate,project_doc}` 与
+  `pipi-app` 的整包 glob 均已删除，不要再加回来。
 - Agent 数据根目录是 `~/.pipi/agents/<name>/`，结构见 README；不要把 Agent 状态存到别处。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息用用户可读的中文。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：

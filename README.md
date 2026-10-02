@@ -317,24 +317,24 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
 
 | pi | crate / 模块 | 备注 |
 | --- | --- | --- |
-| `packages/ai` types | `pipi-protocol`（经 `types` 兼容导出） | 消息/内容块/事件协议，JSON 字段名与上游一致 |
-| `packages/ai` api adapters | `pipi-provider`（经 `pipi-core::provider` 兼容导出） | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
+| `packages/ai` types | `pipi-protocol` | 消息/内容块/事件协议，JSON 字段名与上游一致 |
+| `packages/ai` api adapters | `pipi-provider` | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
 | `packages/agent` agent-loop | `agent_loop` | 事件流 + steering/follow-up + 工具批次执行；steering 已接线到 UI（运行中插话，迟到消息在运行结束收割、下次运行重放，不丢失） |
 | `packages/agent` harness/tools | `pipi-tools` + `tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/glob/grep；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
 | `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
-| `packages/agent` harness prompt/resources | `pipi-harness`（经 `pipi-core::harness` 兼容导出） | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
+| `packages/agent` harness prompt/resources | `pipi-harness` | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
 | `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
 | （Pipi 应用层） | `pipi-app::runtime` | 会话槽、后台 Agent 编排和宿主事件协议；Tauri 与 Web server 共用，IPC payload 不变 |
 | `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
 | `packages/agent` compaction（LLM 摘要替换） | `compaction` | 见下文「上下文压缩」：摘要替换旧轮次 + 保留近期原文（keepRecentTokens=20000）；摘要骨架 prompt、旧摘要经 `<previous-summary>` 交回 update 版指令、文件操作清单追加在摘要末尾；落盘为 `compaction` 条目（含 `keep_from_entry`），重开/分叉时回放 |
-| `packages/agent` skills（frontmatter） | `skills` | 渐进式披露：索引常驻上下文，全文模型按需 read |
+| `packages/agent` skills（frontmatter） | `av::skills` | 渐进式披露：索引常驻上下文，全文模型按需 read；技能包管理（store/锁/安装）见「agent.toml 契约」一节 |
 
 有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/
 prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-tools::permissions`
 （命令权限）、`agents`（Agent 注册表）、`catalog`（模型目录，models.dev）、
 memory 工具（含渐进召回注入）、glob/grep 检索工具。
 
-**用量口径**（`types::Usage`，与 pi 的 `AssistantMessage["usage"]` 一致）：`input`
+**用量口径**（`pipi_protocol::Usage`，与 pi 的 `AssistantMessage["usage"]` 一致）：`input`
 只计**未命中缓存**的提示词 token，命中/写入分别落在 `cache_read` / `cache_write`，
 于是「提示词总量 = input + cache_read + cache_write」、「命中率 = cache_read / 提示词
 总量」这两条算式在各协议下都成立。各协议的上报口径不同 —— OpenAI 兼容的
@@ -377,13 +377,13 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
 （Apache-2.0，见 `crates/pipi-tools/src/permissions/safety.rs` 的 attribution）：
 
 - `SandboxMode`（read-only / workspace-write / danger-full-access）→
-  `permissions::SandboxMode`，语义一致（kebab-case 序列化兼容）。
+  `pipi_tools::permissions::SandboxMode`，语义一致（kebab-case 序列化兼容）。
 - `is_dangerous_command`（rm -f 家族 + sudo/env/trap/bash-c 包装器解包 +
-  深度上限 fail-closed）→ `permissions::safety`。上游用 tree-sitter 解析
+  深度上限 fail-closed）→ `pipi_tools::permissions::safety`。上游用 tree-sitter 解析
   `bash -c` 脚本，我们不引入该依赖：脚本含语法关键字/命令替换时按危险
   处理（fail-closed）。
 - AGENTS.md 项目文档发现（`core/src/agents_md.rs`：项目根定位 + 根→近
-  逐层收集 + 字节预算）→ `project_doc`。
+  逐层收集 + 字节预算）→ `pipi-harness` 的资源发现（`resources.rs`）。
 - 环境上下文注入（`environment_context`：cwd/沙箱/平台/日期）→
   `context::environment_context`。
 - bash 输出截断时的 spill 文件来自 pi 的 output-capture：完整输出落盘、
