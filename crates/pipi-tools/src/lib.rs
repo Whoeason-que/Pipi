@@ -20,7 +20,7 @@ pub mod types {
     pub use pipi_protocol::{AbortSignal, Tool, ToolResultContent};
 }
 
-/// 工具自身需要的临时唯一 ID（bash spill 与测试 fixture）。它不是 Agent
+/// 工具自身需要的临时唯一 ID（临时目录命名、测试 fixture）。它不是 Agent
 /// session 的 JSONL 身份，不能依赖 `pipi-core::session`。
 pub mod session {
     pub fn new_id() -> String {

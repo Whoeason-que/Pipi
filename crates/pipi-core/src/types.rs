@@ -9,19 +9,3 @@ pub use pipi_protocol::{
     BackgroundTaskSnapshot, BackgroundTaskStatus, ContentBlock, Context, ErrorEnvelope, Message,
     Model, StopReason, StreamEvent, StreamOptions, Tool, ToolResultContent, Usage,
 };
-
-#[cfg(test)]
-mod tests {
-    use super::AbortSignal;
-
-    #[test]
-    fn abort_signal_can_be_reset_for_next_turn() {
-        let signal = AbortSignal::new();
-        signal.abort();
-        assert!(signal.is_aborted());
-
-        signal.reset();
-
-        assert!(!signal.is_aborted());
-    }
-}

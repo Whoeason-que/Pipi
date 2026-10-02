@@ -6,9 +6,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use super::{resolve_read_path, AgentTool, ToolContext, ToolOutput};
-use crate::truncate::{
-    count_lines, format_size, truncate_head, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES,
-};
+use crate::truncate::{format_size, truncate_head, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
 use crate::types::ToolResultContent;
 
 pub struct ReadTool;
@@ -91,7 +89,10 @@ impl AgentTool for ReadTool {
 
         let text = String::from_utf8_lossy(&bytes);
         let all_lines: Vec<&str> = text.split('\n').collect();
-        let total_file_lines = count_lines(&text);
+        // 行数只有这一个口径（与 pi 一致）：越界判定、剩余行数、提示文案都用它。
+        // 另算一份 count_lines 会让「of N lines」与边界判断互相矛盾
+        //（文件以换行结尾时两者差 1）。
+        let total_file_lines = all_lines.len();
         let start_line = offset.map(|o| o.saturating_sub(1)).unwrap_or(0);
         let start_line_display = start_line + 1;
         if start_line >= all_lines.len() {

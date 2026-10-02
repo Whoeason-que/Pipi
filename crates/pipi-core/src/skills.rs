@@ -4,6 +4,9 @@
 //! 目录扫描。pi 的做法（也是 pi 拒绝做复杂技能系统的原因）：只有技能的
 //! 名称与描述常驻上下文，模型需要时用 read 工具读 SKILL.md 全文 ——
 //! 索引 + 按需读取就是全部机制，不需要专用工具。
+//!
+//! 本模块只负责**发现与解析**：目录来自 av 契约的 `[resources.skills].sources`
+//! （见 `agents.rs`），索引渲染在 `pipi-harness` 的 system prompt 里。
 
 use std::collections::HashSet;
 use std::fs;
@@ -20,37 +23,8 @@ pub struct SkillMeta {
     pub path: PathBuf,
 }
 
-/// 加载 Agent 全局技能与当前工作区的项目技能元数据。
-///
-/// 全局 `agent/skills` 先于项目 `<cwd>/.pi/skills`，同名技能保留先发现者。
-/// 只返回名称、描述和 canonical 路径，SKILL.md 正文仍由模型按需读取。
-pub fn load_skill_metadata(agent_dir: Option<&Path>, cwd: Option<&Path>) -> Vec<SkillMeta> {
-    let mut skills = Vec::new();
-    let mut seen_paths = HashSet::new();
-    let mut seen_names = HashSet::new();
-
-    if let Some(agent_dir) = agent_dir {
-        load_bounded_skill_dir(
-            &agent_dir.join("skills"),
-            agent_dir,
-            &mut seen_paths,
-            &mut seen_names,
-            &mut skills,
-        );
-    }
-    if let Some(cwd) = cwd {
-        load_bounded_skill_dir(
-            &cwd.join(".pi").join("skills"),
-            cwd,
-            &mut seen_paths,
-            &mut seen_names,
-            &mut skills,
-        );
-    }
-
-    skills
-}
-
+/// 扫描一个技能目录：containment_root 之外的路径一律拒绝（canonical 之后判定），
+/// 跨调用按路径与技能名去重（先发现者赢）。约定目录与 av 契约 sources 共用。
 fn load_bounded_skill_dir(
     skills_dir: &Path,
     containment_root: &Path,
@@ -210,53 +184,6 @@ pub fn parse_frontmatter(content: &str) -> (Vec<(String, String)>, String) {
     (pairs, body)
 }
 
-/// 扫描技能目录：`<dir>/<skill>/SKILL.md`。
-/// name 取 frontmatter 的 name，缺省用目录名（pi 的行为）。
-pub fn scan_skills(skills_dir: &Path) -> Vec<SkillMeta> {
-    let mut skills = Vec::new();
-    let Ok(entries) = fs::read_dir(skills_dir) else {
-        return skills;
-    };
-    for entry in entries.flatten() {
-        let dir = entry.path();
-        let skill_file = dir.join("SKILL.md");
-        if !skill_file.is_file() {
-            continue;
-        }
-        let Ok(content) = fs::read_to_string(&skill_file) else {
-            continue;
-        };
-        let (frontmatter, _body) = parse_frontmatter(&content);
-        let dir_name = dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default()
-            .to_string();
-        let name = frontmatter
-            .iter()
-            .find(|(k, _)| k == "name")
-            .map(|(_, v)| v.clone())
-            .filter(|v| !v.is_empty())
-            .unwrap_or(dir_name);
-        let description = frontmatter
-            .iter()
-            .find(|(k, _)| k == "description")
-            .map(|(_, v)| v.clone())
-            .filter(|v| !v.is_empty());
-        let disable_model_invocation = frontmatter
-            .iter()
-            .any(|(key, value)| key == "disable-model-invocation" && value == "true");
-        skills.push(SkillMeta {
-            name,
-            description,
-            disable_model_invocation,
-            path: skill_file,
-        });
-    }
-    skills.sort_by(|a, b| a.name.cmp(&b.name));
-    skills
-}
-
 /// 按声明的 sources 扫描技能（av 契约 `[resources.skills].sources`）。
 ///
 /// 每个 source 独立做包含检查（canonical 路径必须落在 containment_root 内），
@@ -314,33 +241,6 @@ pub fn filter_skills_by_name(
         .collect())
 }
 
-/// 渲染技能索引段（注入系统提示；全文由模型按需 read）。
-pub fn render_skill_index(skills: &[SkillMeta]) -> String {
-    let visible_skills = skills
-        .iter()
-        .filter(|skill| !skill.disable_model_invocation)
-        .collect::<Vec<_>>();
-    if visible_skills.is_empty() {
-        return String::new();
-    }
-    let mut out = String::from("\n\n## Skills\n\n以下技能可用。需要时用 read 工具读取对应 SKILL.md 的完整内容再按其行事：\n");
-    for skill in visible_skills {
-        match &skill.description {
-            Some(desc) => out.push_str(&format!(
-                "\n- **{}** — {desc}\n  ({})",
-                skill.name,
-                skill.path.display()
-            )),
-            None => out.push_str(&format!(
-                "\n- **{}**\n  ({})",
-                skill.name,
-                skill.path.display()
-            )),
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,30 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_and_index() {
-        let dir = std::env::temp_dir().join(format!("pipi-skills-{}", crate::session::new_id()));
-        make_skill(
-            &dir,
-            "git-safety",
-            "---\nname: git-safety\ndescription: 安全用 git\n---\n正文",
-        );
-        make_skill(&dir, "deploy", "# 无 frontmatter\n");
-        let skills = scan_skills(&dir);
-        assert_eq!(skills.len(), 2);
-        // name 排序：deploy < git-safety
-        assert_eq!(skills[0].name, "deploy");
-        assert_eq!(skills[0].description, None);
-        assert_eq!(skills[1].name, "git-safety");
-        assert_eq!(skills[1].description.as_deref(), Some("安全用 git"));
-
-        let index = render_skill_index(&skills);
-        assert!(index.contains("## Skills"));
-        assert!(index.contains("**git-safety** — 安全用 git"));
-        assert!(index.contains("SKILL.md"));
-    }
-
-    #[test]
-    fn loads_global_then_recursive_project_skills() {
+    fn loads_sources_in_order_and_falls_back_to_nested_discovery() {
         let root =
             std::env::temp_dir().join(format!("pipi-skill-loader-{}", crate::session::new_id()));
         let agent = root.join("agent");
@@ -414,7 +291,10 @@ mod tests {
         )
         .unwrap();
 
-        let skills = load_skill_metadata(Some(&agent), Some(&workspace));
+        let skills = load_skill_sources(
+            &[global.clone(), workspace.join(".pi/skills")],
+            &root,
+        );
 
         assert_eq!(
             skills
@@ -446,7 +326,8 @@ mod tests {
         )
         .unwrap();
 
-        let skills = load_skill_metadata(None, Some(&workspace));
+        let skills =
+            load_skill_sources(&[workspace.join(".pi/skills")], &workspace);
 
         assert_eq!(
             skills
@@ -471,7 +352,7 @@ mod tests {
             "---\nname: disabled\ndescription: explicit only\ndisable-model-invocation: true\n---\nbody",
         );
 
-        let skills = load_skill_metadata(None, Some(&workspace));
+        let skills = load_skill_sources(std::slice::from_ref(&project), &workspace);
 
         assert_eq!(skills.len(), 1);
         assert!(skills[0].disable_model_invocation);
@@ -479,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn global_skill_wins_over_project_duplicate_name() {
+    fn earlier_source_wins_over_later_duplicate_name() {
         let root =
             std::env::temp_dir().join(format!("pipi-skill-duplicate-{}", crate::session::new_id()));
         let agent = root.join("agent");
@@ -499,7 +380,7 @@ mod tests {
             "---\nname: shared\ndescription: project\n---\nbody",
         );
 
-        let skills = load_skill_metadata(Some(&agent), Some(&workspace));
+        let skills = load_skill_sources(&[global.clone(), project.clone()], &root);
 
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].description.as_deref(), Some("global"));
@@ -529,7 +410,7 @@ mod tests {
             "---\nname: valid-name\ndescription: valid\n---\nbody",
         );
 
-        let skills = load_skill_metadata(None, Some(&workspace));
+        let skills = load_skill_sources(std::slice::from_ref(&project), &workspace);
 
         assert_eq!(
             skills
@@ -547,10 +428,8 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("pipi-skill-external-{}", crate::session::new_id()));
         let agent = root.join("agent");
-        let workspace = root.join("workspace");
         let external = root.join("external");
         fs::create_dir_all(&agent).unwrap();
-        fs::create_dir_all(&workspace).unwrap();
         fs::create_dir_all(&external).unwrap();
         make_skill(
             &external,
@@ -563,16 +442,10 @@ mod tests {
         #[cfg(windows)]
         std::os::windows::fs::symlink_dir(&external, agent.join("skills")).unwrap();
 
-        let skills = load_skill_metadata(Some(&agent), Some(&workspace));
+        let skills = load_skill_sources(&[agent.join("skills")], &agent);
 
         assert!(skills.is_empty());
         fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn empty_dir_renders_nothing() {
-        assert_eq!(render_skill_index(&[]), "");
-        assert!(scan_skills(Path::new("/nonexistent-pipi-skills")).is_empty());
     }
 
     #[test]

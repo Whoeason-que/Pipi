@@ -38,8 +38,9 @@ fn untruncated(content: String) -> TruncationResult {
     }
 }
 
-/// 统计逻辑行数（与 pi 的 splitLinesForCounting 一致：结尾换行不算新行）。
-pub fn count_lines(content: &str) -> usize {
+/// 统计逻辑行数（结尾换行不算新行）。只服务于本模块的截断提示，
+/// 不对外暴露 —— read 工具的越界/剩余判定另有 `split('\n')` 口径。
+fn count_lines(content: &str) -> usize {
     if content.is_empty() {
         0
     } else if content.ends_with('\n') {
