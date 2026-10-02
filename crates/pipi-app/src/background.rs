@@ -831,8 +831,8 @@ impl Drop for JobEntry {
         // as a last-resort cleanup; normal user termination still gets TERM +
         // grace period + KILL through terminate_child.
         #[cfg(unix)]
-        unsafe {
-            let _ = libc::kill(-(pid as i32), libc::SIGKILL);
+        {
+            let _ = pipi_tools::process::kill_process_group(pid);
         }
     }
 }
@@ -1231,13 +1231,10 @@ async fn terminate_child(child: &mut Child) -> Result<std::process::ExitStatus, 
     #[cfg(unix)]
     {
         if let Some(pid) = child.id() {
-            let result = unsafe { libc::kill(-(pid as i32), libc::SIGTERM) };
-            if result != 0 {
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() != Some(libc::ESRCH) {
-                    return Err(format!("无法终止后台任务进程组: {error}"));
-                }
-            }
+            // 整组 TERM（进程组在 spawn 时用 process_group(0) 建立）；
+            // 目标组已消失（ESRCH）不是错误，helper 内部已按成功处理
+            pipi_tools::process::terminate_process_group(pid)
+                .map_err(|error| format!("无法终止后台任务: {error}"))?;
         }
     }
     #[cfg(not(unix))]
@@ -1250,7 +1247,7 @@ async fn terminate_child(child: &mut Child) -> Result<std::process::ExitStatus, 
         Err(_) => {
             #[cfg(unix)]
             if let Some(pid) = child.id() {
-                let _ = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+                let _ = pipi_tools::process::kill_process_group(pid);
             }
             #[cfg(not(unix))]
             child

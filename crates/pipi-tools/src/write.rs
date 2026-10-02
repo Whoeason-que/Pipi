@@ -49,13 +49,13 @@ impl AgentTool for WriteTool {
             ctx.ensure_writable(&abs)?;
             abs
         };
-        if let Some(parent) = abs.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| format!("Could not create parent directories: {e}"))?;
-        }
-        tokio::fs::write(&abs, content)
+        // 原子替换：覆盖到一半崩溃也不会把原文件毁成半截（父目录由写入助手创建）。
+        // 写入是同步的文件系统调用，放到 blocking 线程池，别占住运行时 worker。
+        let target = abs.clone();
+        let contents = content.to_string();
+        tokio::task::spawn_blocking(move || crate::fs_atomic::write_atomic(&target, contents))
             .await
+            .map_err(|e| format!("Could not write file: {path}. {e}"))?
             .map_err(|e| format!("Could not write file: {path}. {e}"))?;
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());

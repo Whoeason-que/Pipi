@@ -219,13 +219,12 @@ pub fn load_settings() -> Settings {
 }
 
 /// 保存设置（pretty JSON + 换行，与 agent.json 一致）。
+/// 原子替换：桌面壳与 Web 服务可能并发保存，崩溃也不能留下截断的 settings.json
+/// （坏文件会被 `load_settings` 当成默认值，用户的配置就此静默丢失）。
 pub fn save_settings(settings: &Settings) -> Result<(), String> {
     let path = settings_path().ok_or_else(|| "无法定位用户主目录".to_string())?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    fs::write(&path, text + "\n").map_err(|e| e.to_string())
+    pipi_tools::fs_atomic::write_atomic(&path, text + "\n").map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

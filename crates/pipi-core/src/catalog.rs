@@ -375,18 +375,11 @@ fn read_cache() -> Option<ModelCatalog> {
 
 fn write_cache(catalog: &ModelCatalog) -> Result<(), String> {
     let path = cache_path().ok_or("无法定位 ~/.pipi")?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("创建缓存目录失败: {e}"))?;
-    }
     let text = serde_json::to_string(catalog).map_err(|e| format!("序列化目录失败: {e}"))?;
-    // 先写临时文件再原子替换：进程中途崩溃也不会留下截断的缓存
+    // 原子替换：进程中途崩溃也不会留下截断的缓存
     // （截断的 models.json 会被 read_cache 当作「没有缓存」，下次冷启动又要拉 4.6MB）。
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, text).map_err(|e| format!("写入目录缓存失败: {e}"))?;
-    std::fs::rename(&tmp, &path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("替换目录缓存失败: {e}")
-    })
+    // tempfile 的唯一命名也避免了并发刷新时互相覆盖同一个 .tmp。
+    pipi_tools::fs_atomic::write_atomic(&path, text).map_err(|e| format!("写入目录缓存失败: {e}"))
 }
 
 fn validate_endpoint(
@@ -651,11 +644,22 @@ pub fn build_catalog(
     build_with(CURATION, MANUAL, upstream, fetched_at, MIN_PROVIDERS)
 }
 
+/// 共享 HTTP 客户端：连接池与 TLS 会话复用（原来每次拉取都新建 Client）。
+/// 构建失败会连错误一起缓存：初始化失败的成因（TLS 后端缺失等）不会自愈。
+fn http_client() -> Result<reqwest::Client, String> {
+    static CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(FETCH_TIMEOUT_SECS))
+                .build()
+                .map_err(|e| format!("HTTP 客户端初始化失败: {e}"))
+        })
+        .clone()
+}
+
 async fn fetch_upstream() -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(FETCH_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| format!("HTTP 客户端初始化失败: {e}"))?;
+    let client = http_client()?;
     let response = client
         .get(REMOTE)
         .send()
@@ -689,11 +693,16 @@ fn resolve_catalog(
     }
 }
 
+/// 目录刷新的单飞锁：桌面壳与 Web 服务可能同时触发刷新（冷启动 + 用户点刷新），
+/// 没有它每个调用方都会各拉一份 4.6MB。持锁期间后来者看到的是刚写好的缓存。
+static CATALOG_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// 取目录：缓存优先（未过期直接用），刷新失败退回缓存，两者都没有则报错。
 ///
 /// `source` 语义：`models.dev` = 本次联网刷新的结果；`cache` = 读的是本地缓存
 /// （此时 `stale=true` 表示缓存已过期且本次刷新失败）。
 pub async fn load_catalog(refresh: bool) -> Result<ModelCatalog, String> {
+    let _single_flight = CATALOG_LOCK.lock().await;
     let cached = read_cache();
     if !refresh {
         if let Some(catalog) = &cached {

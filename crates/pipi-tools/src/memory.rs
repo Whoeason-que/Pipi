@@ -78,13 +78,10 @@ impl AgentTool for MemoryTool {
                 let path = args["path"].as_str().ok_or("缺少 path")?;
                 let content = args["content"].as_str().ok_or("缺少 content")?;
                 let abs = resolve_in_memory_dir(&self.memory_dir, path)?;
-                if let Some(parent) = abs.parent() {
-                    tokio::fs::create_dir_all(parent)
-                        .await
-                        .map_err(|e| format!("无法创建记忆目录: {e}"))?;
-                }
-                tokio::fs::write(&abs, content)
+                let contents = content.to_string();
+                tokio::task::spawn_blocking(move || crate::fs_atomic::write_atomic(&abs, contents))
                     .await
+                    .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?
                     .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?;
                 Ok(ToolOutput::text(format!("Saved memory to {path}")))
             }

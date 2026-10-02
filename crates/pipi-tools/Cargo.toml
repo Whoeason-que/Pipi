@@ -8,12 +8,17 @@ edition = "2021"
 async-trait = "0.1"
 base64 = "0.22"
 glob = "0.3"
+infer = "0.19"
 pipi-protocol = { path = "../pipi-protocol" }
 regex = "1.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 shlex = "1"
 similar = "2.7"
+tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2.5"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30", default-features = false, features = ["signal"] }

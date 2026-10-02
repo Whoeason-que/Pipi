@@ -98,16 +98,10 @@ pub fn with_jitter(delay: Duration, sample: f64) -> Duration {
     delay.mul_f64(factor)
 }
 
-/// 取一个 [0, 1) 的采样（不需要引入 rand：`RandomState` 由进程熵播种）。
+/// 取一个 [0, 1) 的采样。用 `fastrand`（thread-local，无全局锁）而不是自己拿
+/// `RandomState` 拼哈希：后者是拿哈希的雪崩性当随机数用，分布没有保证。
 pub fn jitter_sample() -> f64 {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let mut hasher = RandomState::new().build_hasher();
-    hasher.write_u64(COUNTER.fetch_add(1, Ordering::Relaxed));
-    (hasher.finish() % 1_000_000) as f64 / 1_000_000.0
+    fastrand::f64()
 }
 
 #[cfg(test)]

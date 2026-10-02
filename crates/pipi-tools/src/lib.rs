@@ -4,10 +4,12 @@
 
 pub mod bash;
 pub mod edit;
+pub mod fs_atomic;
 pub mod glob;
 pub mod grep;
 pub mod memory;
 pub mod permissions;
+pub mod process;
 pub mod read;
 pub mod truncate;
 pub mod write;

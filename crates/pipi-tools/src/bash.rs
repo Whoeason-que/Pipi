@@ -2,6 +2,7 @@
 //! 合并 stdout/stderr、tail 截断（2000 行 / 50KB）、可选超时；在其上叠加
 //! Pipi 的命令权限检查（allowlist / denylist），并流式回报部分输出。
 
+use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -15,6 +16,40 @@ use crate::truncate::{format_size, truncate_tail, DEFAULT_MAX_BYTES, DEFAULT_MAX
 use crate::types::ToolResultContent;
 
 pub struct BashTool;
+
+/// 超时 / 中止时终止整棵进程树（`killpg` 覆盖孙进程），并回收直接子进程。
+async fn terminate_child_tree(child: &mut tokio::process::Child) {
+    if let Some(pid) = child.id() {
+        if let Err(error) = crate::process::kill_process_group(pid) {
+            eprintln!("pipi: {error}");
+        }
+    }
+    // 非 unix 平台没有进程组；未取到 pid 时也退回直接杀子进程
+    let _ = child.start_kill();
+}
+
+/// 兜底：工具 future 在跑到收尾之前被 drop（任务取消、运行时关闭）时，
+/// 整组仍在跑的孙进程会失去约束，这里补一次组终止。正常路径必须 `disarm()`，
+/// 否则已回收的 PID 可能被系统复用，误杀无关进程组。
+struct GroupGuard(Option<u32>);
+
+impl GroupGuard {
+    fn new(pid: Option<u32>) -> Self {
+        Self(pid)
+    }
+
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for GroupGuard {
+    fn drop(&mut self) {
+        if let Some(pid) = self.0 {
+            let _ = crate::process::kill_process_group(pid);
+        }
+    }
+}
 
 const MAX_TIMEOUT_SECONDS: f64 = 2_147_483_647.0 / 1000.0;
 
@@ -99,7 +134,8 @@ impl AgentTool for BashTool {
             .await
             .map_err(|e| format!("工作目录不可用: {e}"))?;
 
-        let mut child = Command::new("bash")
+        let mut builder = Command::new("bash");
+        builder
             .arg("-c")
             .arg(command)
             .current_dir(&ctx.workspace)
@@ -109,9 +145,15 @@ impl AgentTool for BashTool {
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        // 单独进程组：超时 / 中止时给整组发信号。只杀直接子进程会留下孙进程，
+        // 它们继续握着 stdout/stderr 管道，读取任务等不到 EOF（工具表现为卡住）。
+        #[cfg(unix)]
+        builder.process_group(0);
+        let mut child = builder
             .spawn()
             .map_err(|e| format!("无法启动 bash: {e}"))?;
+        let mut group = GroupGuard::new(child.id());
 
         let mut stdout = child.stdout.take().expect("stdout piped");
         let mut stderr = child.stderr.take().expect("stderr piped");
@@ -172,22 +214,26 @@ impl AgentTool for BashTool {
 
             tokio::select! {
                 st = child.wait() => break st,
+                // 中止是事件驱动的（AbortSignal 内部是 CancellationToken）：
+                // 停止按钮不再等下一次轮询
+                _ = ctx.abort.wait_aborted() => {
+                    aborted = true;
+                    terminate_child_tree(&mut child).await;
+                    break child.wait().await;
+                }
                 _ = tokio::time::sleep(Duration::from_millis(100)) => {
                     if let Some(t) = timeout {
                         if started.elapsed() >= Duration::from_secs(t) {
                             timed_out = true;
-                            let _ = child.kill().await;
+                            terminate_child_tree(&mut child).await;
                             break child.wait().await;
                         }
-                    }
-                    if ctx.abort.is_aborted() {
-                        aborted = true;
-                        let _ = child.kill().await;
-                        break child.wait().await;
                     }
                 }
             }
         };
+        // 子进程已回收：解除兜底守卫，避免 PID 复用后误杀无关进程组
+        group.disarm();
         let _ = t_out.await;
         let _ = t_err.await;
 
@@ -196,10 +242,19 @@ impl AgentTool for BashTool {
         let mut output_text = truncation.content.clone();
         let mut full_output_path: Option<String> = None;
         if truncation.truncated {
-            // pi 的 spill 行为：完整输出写入临时文件，路径附在提示里
-            let spill =
-                std::env::temp_dir().join(format!("pipi-bash-{}.txt", crate::session::new_id()));
-            if tokio::fs::write(&spill, &full).await.is_ok() {
+            // pi 的 spill 行为：完整输出写入临时文件，路径附在提示里。
+            // tempfile 负责唯一命名与 0600 权限；keep() 保留文件供后续 read。
+            let spill = tempfile::Builder::new()
+                .prefix("pipi-bash-")
+                .suffix(".txt")
+                .tempfile()
+                .and_then(|mut file| {
+                    file.write_all(full.as_bytes())?;
+                    file.flush()?;
+                    file.keep().map(|(_file, path)| path).map_err(Into::into)
+                })
+                .ok();
+            if let Some(spill) = spill {
                 full_output_path = Some(spill.to_string_lossy().into_owned());
             }
             let total = truncation.total_lines;
@@ -316,5 +371,124 @@ mod tests {
             _ => panic!("expected text output"),
         };
         assert_eq!(text.trim(), "from-av:absent");
+    }
+
+    /// 建一个最小 ToolContext（bash 用）。
+    fn test_context(workspace: std::path::PathBuf, abort: crate::types::AbortSignal) -> ToolContext {
+        ToolContext {
+            workspace,
+            memory_dir: None,
+            read_roots: Vec::new(),
+            permissions: std::sync::Arc::new(crate::permissions::PermissionsConfig::default()),
+            sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
+            abort,
+            approver: None,
+        }
+    }
+
+    fn test_workspace(tag: &str) -> std::path::PathBuf {
+        let workspace =
+            std::env::temp_dir().join(format!("pipi-bash-{tag}-{}", crate::session::new_id()));
+        std::fs::create_dir_all(&workspace).unwrap();
+        workspace
+    }
+
+    /// 进程是否已经终止（消失，或在等 init 回收的僵尸态）。
+    #[cfg(unix)]
+    fn process_terminated(pid: i32) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                // `pid (comm) state ...`：comm 里可能有 ')'，取最后一个 ')' 之后的部分
+                Ok(stat) => stat
+                    .rsplit(')')
+                    .next()
+                    .map(|rest| rest.trim_start().starts_with('Z'))
+                    .unwrap_or(false),
+                Err(_) => true,
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            use nix::sys::signal::kill;
+            use nix::unistd::Pid;
+            kill(Pid::from_raw(pid), None).is_err()
+        }
+    }
+
+    #[cfg(unix)]
+    async fn assert_process_terminated(pid: i32) {
+        for _ in 0..150 {
+            if process_terminated(pid) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("孙进程 {pid} 仍在运行：进程组没有被完整终止");
+    }
+
+    fn read_pid_file(workspace: &std::path::Path) -> i32 {
+        let text = std::fs::read_to_string(workspace.join("bg.pid")).expect("后台进程 pid 文件");
+        text.trim().parse().expect("pid")
+    }
+
+    /// 超时不能只杀直接子进程：后台孙进程继续握着 stdout/stderr 时，
+    /// 读取任务等不到 EOF（工具卡死），孙进程还留在系统里。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timeout_terminates_the_whole_process_tree() {
+        let workspace = test_workspace("timeout-tree");
+        let ctx = test_context(workspace.clone(), crate::types::AbortSignal::new());
+        let result = BashTool
+            .execute(
+                &ctx,
+                &serde_json::json!({
+                    "command": "sleep 30 & echo $! > bg.pid; wait",
+                    "timeout": 1
+                }),
+                &|_| {},
+            )
+            .await;
+        let error = result.expect_err("超时应报错");
+        assert!(error.contains("timed out"), "错误信息应说明超时: {error}");
+        assert_process_terminated(read_pid_file(&workspace)).await;
+        std::fs::remove_dir_all(&workspace).ok();
+    }
+
+    /// 中止（停止按钮）同样终止整棵树，并且立刻返回 ——
+    /// 旧实现要等下一次 100ms 轮询，且会被孙进程拖住。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn abort_terminates_the_whole_process_tree() {
+        let workspace = test_workspace("abort-tree");
+        let abort = crate::types::AbortSignal::new();
+        let task = tokio::spawn({
+            let workspace = workspace.clone();
+            let abort = abort.clone();
+            async move {
+                let ctx = test_context(workspace, abort);
+                BashTool
+                    .execute(
+                        &ctx,
+                        &serde_json::json!({ "command": "sleep 30 & echo $! > bg.pid; wait" }),
+                        &|_| {},
+                    )
+                    .await
+            }
+        });
+        // 等命令真正跑起来（pid 文件是 shell 写的）
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let started = Instant::now();
+        abort.abort();
+        let result = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("中止后应立即返回，不能被孙进程拖住")
+            .expect("任务不应 panic");
+        assert!(started.elapsed() < Duration::from_secs(3), "中止收尾不应耗时过久");
+        let error = result.expect_err("中止应报错");
+        assert!(error.contains("aborted"), "错误信息应说明中止: {error}");
+        assert_process_terminated(read_pid_file(&workspace)).await;
+        std::fs::remove_dir_all(&workspace).ok();
     }
 }

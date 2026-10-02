@@ -13,10 +13,13 @@ pipi-harness = { path = "../pipi-harness" }
 pipi-provider = { path = "../pipi-provider" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+# 与 pipi-provider / rig 同一版本（0.13 起 TLS 特性改名为 rustls）：两个版本会
+# 让同一进程里存在两套 HTTP/TLS 栈
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 async-trait = "0.1"
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
 glob = "0.3"
+fastrand = "2"

@@ -211,8 +211,11 @@ impl AgentTool for EditTool {
             if has_bom { "\u{FEFF}" } else { "" },
             restore_line_endings(new_content.clone(), original_ending)
         );
-        tokio::fs::write(&abs, final_content)
+        // 原子替换（同步 fs 调用走 blocking 线程池，别占住运行时 worker）
+        let target = abs.clone();
+        tokio::task::spawn_blocking(move || crate::fs_atomic::write_atomic(&target, final_content))
             .await
+            .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?
             .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());

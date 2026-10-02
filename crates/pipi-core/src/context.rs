@@ -22,28 +22,41 @@ pub const DEFAULT_RESERVE_TOKENS: u64 = 16_384;
 const ESTIMATED_IMAGE_CHARS: usize = 4800;
 
 /// 估算单条消息的 token（pi 的 chars/4 保守启发式）。
+///
+/// 注意用**字符数**而不是字节数：Rust 的 `String::len()` 是 UTF-8 字节长度，
+/// 中文一个字算 3 个，会让触发线和保留预算整体提前（CJK 会话压缩过早）。
+/// 未知模型的真实口径无从得知，这里保持 pi 的字符启发式，不做模型级 tokenizer。
 pub fn estimate_tokens(message: &Message) -> u64 {
-    let chars: usize = match message {
-        Message::User { content, .. } => content.len(),
+    fn chars(text: &str) -> usize {
+        text.chars().count()
+    }
+
+    let count: usize = match message {
+        Message::User { content, .. } => chars(content),
         Message::Assistant { content, .. } => content
             .iter()
             .map(|block| match block {
-                ContentBlock::Text { text } => text.len(),
-                ContentBlock::Thinking { thinking, .. } => thinking.len(),
+                ContentBlock::Text { text } => chars(text),
+                ContentBlock::Thinking { thinking, .. } => chars(thinking),
                 ContentBlock::ToolCall {
                     name, arguments, ..
-                } => name.len() + serde_json::to_string(arguments).unwrap_or_default().len(),
+                } => {
+                    chars(name)
+                        + serde_json::to_string(arguments)
+                            .map(|json| chars(&json))
+                            .unwrap_or_default()
+                }
             })
             .sum(),
         Message::ToolResult { content, .. } => content
             .iter()
             .map(|c| match c {
-                ToolResultContent::Text { text } => text.len(),
+                ToolResultContent::Text { text } => chars(text),
                 ToolResultContent::Image { .. } => ESTIMATED_IMAGE_CHARS,
             })
             .sum(),
     };
-    chars.div_ceil(4) as u64
+    count.div_ceil(4) as u64
 }
 
 /// 估算整段消息历史的 token。

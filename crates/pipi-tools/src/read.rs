@@ -13,19 +13,17 @@ use crate::types::ToolResultContent;
 
 pub struct ReadTool;
 
+/// 图片识别交给 `infer`（同一批魔数，但覆盖面更全）。
+/// BMP 仍然只识别不转码：转码需要完整的图像解码器，当前不值这个依赖。
+/// 返回 (mime, 是否可直接作为附件发送)。
 fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
-        Some("image/png")
-    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        Some("image/jpeg")
-    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        Some("image/gif")
-    } else if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        Some("image/webp")
-    } else if bytes.starts_with(b"BM") {
-        Some("image/bmp")
-    } else {
-        None
+    match infer::get(bytes)?.mime_type() {
+        "image/png" => Some("image/png"),
+        "image/jpeg" => Some("image/jpeg"),
+        "image/gif" => Some("image/gif"),
+        "image/webp" => Some("image/webp"),
+        "image/bmp" => Some("image/bmp"),
+        _ => None,
     }
 }
 
@@ -180,6 +178,15 @@ mod tests {
             Some("image/jpeg")
         );
         assert_eq!(detect_image_mime(b"GIF89a...."), Some("image/gif"));
+        // RIFF....WEBP：infer 需要完整的容器头
+        assert_eq!(
+            detect_image_mime(b"RIFF\x24\x00\x00\x00WEBPVP8 "),
+            Some("image/webp")
+        );
+        assert_eq!(detect_image_mime(b"BM\x36\x00\x00\x00\x00\x00"), Some("image/bmp"));
+        // 不在附件白名单内的格式（如 SVG 文本、TIFF）不当作图片
+        assert_eq!(detect_image_mime(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"), None);
+        assert_eq!(detect_image_mime(b"II*\x00\x08\x00\x00\x00"), None);
         assert_eq!(detect_image_mime(b"hello"), None);
     }
 
