@@ -1,7 +1,7 @@
 [package]
 name = "av"
 version = "26.9.3"
-description = "Agent 运行时环境契约：agent.toml 的解析、发现、合并与环境解析"
+description = "Agent 运行时环境契约：agent.toml 的解析、发现、合并、环境解析与技能包管理"
 edition = "2021"
 
 [dependencies]
@@ -10,6 +10,15 @@ serde_json = "1"
 toml = "0.9"
 dirs = "6"
 glob = "0.3"
+sha2 = "0.10"
+tempfile = "3"
+toml_edit = "0.22"
+# skills.sh 搜索客户端；pipi-core 以 default-features = false 依赖，不链入应用
+ureq = { version = "3", optional = true, default-features = false, features = ["rustls"] }
+
+[features]
+default = ["search"]
+search = ["dep:ureq"]
 
 [lib]
 name = "av"

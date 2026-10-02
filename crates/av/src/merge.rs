@@ -84,6 +84,9 @@ pub fn merge_layers(layers: &[Layer]) -> Result<Merged, String> {
                 if let Some(sources) = &skills.sources {
                     target.sources = Some(sources.clone());
                 }
+                if let Some(use_names) = &skills.use_ {
+                    target.use_ = Some(use_names.clone());
+                }
                 if let Some(only) = &skills.only {
                     target.only = Some(only.clone());
                 }
@@ -182,11 +185,11 @@ mod tests {
     fn resources_merge_field_wise() {
         let low = layer(
             "agent.toml",
-            "schema = 1\n[resources]\nmax-bytes = 100\n[resources.skills]\nsources = [\"agent-skills\"]\nonly = [\"a\"]",
+            "schema = 1\n[resources]\nmax-bytes = 100\n[resources.skills]\nsources = [\"agent-skills\"]\nonly = [\"a\"]\nuse = [\"low\"]",
         );
         let high = layer(
             "agent.local.toml",
-            "schema = 1\n[resources.skills]\nexclude = [\"b\"]",
+            "schema = 1\n[resources.skills]\nexclude = [\"b\"]\nuse = [\"high\"]",
         );
 
         let merged = merge_layers(&[low, high]).unwrap();
@@ -199,6 +202,24 @@ mod tests {
         );
         assert_eq!(skills.only.as_deref(), Some(&["a".to_string()][..]));
         assert_eq!(skills.exclude.as_deref(), Some(&["b".to_string()][..]));
+        // use 与其它数组一致：高层整体替换，缺席保留
+        assert_eq!(
+            skills.use_.as_deref(),
+            Some(&["high".to_string()][..]),
+            "高层 use 应整体替换低层"
+        );
+    }
+
+    #[test]
+    fn use_absence_preserves_low_layer() {
+        let low = layer(
+            "agent.toml",
+            "schema = 1\n[resources.skills]\nuse = [\"pdf\"]",
+        );
+        let high = layer("agent.local.toml", "schema = 1\n[resources]\nmax-bytes = 1");
+        let merged = merge_layers(&[low, high]).unwrap();
+        let skills = merged.resources.as_ref().unwrap().skills.as_ref().unwrap();
+        assert_eq!(skills.use_.as_deref(), Some(&["pdf".to_string()][..]));
     }
 
     #[test]

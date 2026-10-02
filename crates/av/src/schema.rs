@@ -108,12 +108,17 @@ pub struct Resources {
 }
 
 /// `[resources.skills]`：sources 按层替换约定目录；only/exclude 按技能名
-/// glob 过滤合并后的技能集，exclude 优先。
+/// glob 过滤合并后的技能集，exclude 优先；use 声明启用全局 store 中的技能。
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct SkillsFilter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sources: Option<Vec<String>>,
+    /// 声明启用全局 store（`~/.av/skills`）中的技能，按技能名引用。
+    /// 三态：缺席 = 不启用；列表 = 启用这些技能；`[]` = 显式禁用全部 store 技能。
+    /// 解析结果记录在同层 `agent.lock`（缺失即 fail-closed，见 `store` 模块）。
+    #[serde(rename = "use", default, skip_serializing_if = "Option::is_none")]
+    pub use_: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub only: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -121,7 +126,7 @@ pub struct SkillsFilter {
 }
 
 impl AgentToml {
-    /// fail-closed 校验：schema 版本 + env 段的命名空间与变量名合法性。
+    /// fail-closed 校验：schema 版本 + env 段与 resources 段的命名空间与形状合法性。
     pub fn validate(&self) -> Result<(), String> {
         if self.schema != SUPPORTED_SCHEMA {
             return Err(format!(
@@ -131,6 +136,40 @@ impl AgentToml {
         }
         if let Some(env) = &self.env {
             env.validate()?;
+        }
+        if let Some(resources) = &self.resources {
+            resources.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl Resources {
+    /// 资源段校验：当前覆盖 `skills.use` 的技能名形状与去重（fail-closed）。
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(skills) = &self.skills {
+            skills.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl SkillsFilter {
+    /// 校验 `use` 中的技能名：形状合法且不重复。
+    pub fn validate(&self) -> Result<(), String> {
+        let Some(names) = &self.use_ else {
+            return Ok(());
+        };
+        let mut seen = std::collections::HashSet::new();
+        for name in names {
+            if !crate::skills::valid_skill_name(name) {
+                return Err(format!(
+                    "use 中的技能名 {name:?} 形状非法（小写字母/数字/-，不以 - 开头结尾、无连续 --，≤64 字符）"
+                ));
+            }
+            if !seen.insert(name.as_str()) {
+                return Err(format!("use 中出现重复技能名：{name:?}"));
+            }
         }
         Ok(())
     }
@@ -326,5 +365,34 @@ exclude = ["experimental-*"]
         assert!(parse("schema = 1\n[env]\npath-prepEND = [\"/x\"]").is_err());
         parse("schema = 1\n[env]\npath-prepend = [\"/x\"]").unwrap();
         assert!(parse("schema = 1\n[resources]\nmaxBytes = 1").is_err());
+    }
+
+    #[test]
+    fn skills_use_parses_and_validates() {
+        let config =
+            parse("schema = 1\n[resources.skills]\nuse = [\"pdf\", \"git-safety\"]").unwrap();
+        config.validate().unwrap();
+        assert_eq!(
+            config.resources.unwrap().skills.unwrap().use_.as_deref(),
+            Some(&["pdf".to_string(), "git-safety".to_string()][..])
+        );
+
+        // 空列表 = 显式禁用，合法
+        let config = parse("schema = 1\n[resources.skills]\nuse = []").unwrap();
+        config.validate().unwrap();
+        assert_eq!(
+            config.resources.unwrap().skills.unwrap().use_,
+            Some(Vec::new())
+        );
+
+        // 形状非法 / 重复：fail-closed
+        for text in [
+            "schema = 1\n[resources.skills]\nuse = [\"PDF\"]",
+            "schema = 1\n[resources.skills]\nuse = [\"a_b\"]",
+            "schema = 1\n[resources.skills]\nuse = [\"pdf\", \"pdf\"]",
+        ] {
+            let config = parse(text).unwrap();
+            assert!(config.validate().is_err(), "应拒绝：{text}");
+        }
     }
 }
