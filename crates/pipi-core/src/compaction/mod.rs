@@ -22,8 +22,8 @@ pub use llm::LlmSummarize;
 pub use tool_output::{ToolOutputPrune, CLEARED_TOOL_RESULT_PREFIX};
 
 use crate::context::{estimate_context_tokens, prune_cut_index, DEFAULT_RESERVE_TOKENS};
-use crate::provider::Provider;
-use crate::types::{AbortSignal, Message, Model, StreamOptions, Usage};
+use pipi_protocol::{AbortSignal, Message, Model, StreamOptions, Usage};
+use pipi_provider::Provider;
 
 /// 保留近期原文轮次的 token 预算（对齐 pi 的 keepRecentTokens 默认值）。
 pub const KEEP_RECENT_TOKENS: u64 = 20_000;
@@ -269,7 +269,7 @@ fn pairing_damage(messages: &[Message]) -> (usize, usize) {
         .iter()
         .flat_map(|message| message.tool_calls())
         .filter_map(|block| match block {
-            crate::types::ContentBlock::ToolCall { id, .. } => Some(id.as_str()),
+            pipi_protocol::ContentBlock::ToolCall { id, .. } => Some(id.as_str()),
             _ => None,
         })
         .collect();
@@ -457,7 +457,7 @@ fn file_operations(messages: &[Message]) -> (Vec<String>, Vec<String>) {
             continue;
         };
         for block in content {
-            let crate::types::ContentBlock::ToolCall {
+            let pipi_protocol::ContentBlock::ToolCall {
                 name, arguments, ..
             } = block
             else {
@@ -484,7 +484,7 @@ fn file_operations(messages: &[Message]) -> (Vec<String>, Vec<String>) {
 mod tests {
     use super::*;
     use crate::context::estimate_tokens;
-    use crate::types::{ContentBlock, StopReason};
+    use pipi_protocol::{ContentBlock, StopReason};
 
     pub(super) fn assistant_text(text: &str) -> Message {
         Message::Assistant {
@@ -504,7 +504,7 @@ mod tests {
         Message::ToolResult {
             tool_call_id: "t1".into(),
             tool_name: "bash".into(),
-            content: vec![crate::types::ToolResultContent::Text { text: text.into() }],
+            content: vec![pipi_protocol::ToolResultContent::Text { text: text.into() }],
             is_error: false,
             details: None,
             timestamp: 0,
@@ -672,7 +672,7 @@ mod tests {
         let orphan = |id: &str| Message::ToolResult {
             tool_call_id: id.into(),
             tool_name: "bash".into(),
-            content: vec![crate::types::ToolResultContent::Text { text: "x".into() }],
+            content: vec![pipi_protocol::ToolResultContent::Text { text: "x".into() }],
             is_error: false,
             details: None,
             timestamp: 0,
@@ -781,7 +781,7 @@ mod tests {
             let Message::ToolResult { content, .. } = message else {
                 unreachable!()
             };
-            let crate::types::ToolResultContent::Text { text } = &content[0] else {
+            let pipi_protocol::ToolResultContent::Text { text } = &content[0] else {
                 unreachable!()
             };
             assert!(
@@ -792,7 +792,7 @@ mod tests {
         let Message::ToolResult { content, .. } = tool_outputs[7] else {
             unreachable!()
         };
-        let crate::types::ToolResultContent::Text { text } = &content[0] else {
+        let pipi_protocol::ToolResultContent::Text { text } = &content[0] else {
             unreachable!()
         };
         assert!(

@@ -8,13 +8,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pipi_app::runtime::{RuntimeEvent, RuntimeState};
-use pipi_core::permissions::{
-    BashPermissions, PermissionsConfig, SandboxMode, BACKGROUND_TASK_TOOLS,
-};
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
-use pipi_core::tools::{AgentTool, ToolContext, ToolRegistry};
-use pipi_core::types::{AbortSignal, Api, Model, ToolResultContent};
+use pipi_protocol::{AbortSignal, Api, Model, ToolResultContent};
+use pipi_tools::permissions::{
+    BashPermissions, PermissionsConfig, SandboxMode, BACKGROUND_TASK_TOOLS,
+};
+use pipi_tools::{AgentTool, ToolContext, ToolRegistry};
 use serde_json::json;
 
 /// 本文件内所有改写 HOME 的测试共用此锁：同一进程内并行测试会互相看到
@@ -476,7 +476,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     let tool_result = messages
         .iter()
         .find_map(|m| match m {
-            pipi_core::types::Message::ToolResult { content, .. } => Some(
+            pipi_protocol::Message::ToolResult { content, .. } => Some(
                 content
                     .iter()
                     .filter_map(|block| match block {
@@ -498,11 +498,11 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         .iter()
         .rev()
         .find_map(|m| match m {
-            pipi_core::types::Message::Assistant { content, .. } => Some(
+            pipi_protocol::Message::Assistant { content, .. } => Some(
                 content
                     .iter()
                     .filter_map(|block| match block {
-                        pipi_core::types::ContentBlock::Text { text } => Some(text.clone()),
+                        pipi_protocol::ContentBlock::Text { text } => Some(text.clone()),
                         _ => None,
                     })
                     .collect::<Vec<_>>()

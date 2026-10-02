@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use pipi_app::runtime::{EventEmitter, RuntimeState};
 use pipi_core::agents;
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
-use pipi_core::types::{Api, Model};
+use pipi_protocol::{Api, Model};
 
 fn temp_home() -> PathBuf {
     let home = std::env::temp_dir().join(format!("pipi-request-paths-{}", std::process::id()));

@@ -4,8 +4,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use pipi_core::permissions::{BashPermissions, PermissionsConfig, SandboxMode};
-use pipi_core::types::{ContentBlock, Message, StopReason, ToolResultContent, Usage};
+use pipi_protocol::{ContentBlock, Message, StopReason, ToolResultContent, Usage};
+use pipi_tools::permissions::{BashPermissions, PermissionsConfig, SandboxMode};
 
 static HOME_LOCK: Mutex<()> = Mutex::new(());
 

@@ -11,16 +11,16 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::{AgentTool, ToolContext, ToolOutput};
 use crate::agents;
-use crate::permissions::{BACKGROUND_TASK_TOOLS, DEFAULT_TOOLS};
 use crate::session::{active_path, list_session_summaries, load_session, rebuild_messages};
 use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskOwner, BackgroundTaskService,
 };
-use crate::types::{
+use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, ContentBlock, Message, Model, StopReason, ToolResultContent,
 };
+use pipi_tools::permissions::{BACKGROUND_TASK_TOOLS, DEFAULT_TOOLS};
+use pipi_tools::{AgentTool, ToolContext, ToolOutput};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -541,7 +541,7 @@ fn validate_session_id(session_id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{now_millis, Usage};
+    use pipi_protocol::{now_millis, Usage};
     use std::collections::BTreeMap;
     use std::sync::Mutex;
 
@@ -624,7 +624,7 @@ mod tests {
             memory_dir: None,
             read_roots: Vec::new(),
             permissions: Arc::new(Default::default()),
-            sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            sandbox: pipi_tools::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
             approver: None,

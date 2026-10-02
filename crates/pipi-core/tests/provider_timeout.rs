@@ -8,8 +8,8 @@
 use std::io::{Read, Write};
 use std::time::Duration;
 
-use pipi_core::provider::provider_for;
-use pipi_core::types::{AbortSignal, Api, Context, Message, Model, StreamEvent, StreamOptions};
+use pipi_protocol::{AbortSignal, Api, Context, Message, Model, StreamEvent, StreamOptions};
+use pipi_provider::provider_for;
 
 /// 读掉一个 HTTP 请求（丢弃内容，保证响应前请求体已读完）。
 fn drain_request(stream: &mut std::net::TcpStream) {

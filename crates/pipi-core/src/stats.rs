@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 
 use serde::Serialize;
 
-use crate::types::{Message, Usage};
+use pipi_protocol::{Message, Usage};
 
 /// 滚动窗口大小（hermes：Rolling over the last 10 calls）。
 pub const ROLLING_WINDOW: usize = 10;
@@ -207,7 +207,7 @@ pub fn message_stats(message: &Message) -> (Option<f64>, Option<f64>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ContentBlock, StopReason, Usage};
+    use pipi_protocol::{ContentBlock, StopReason, Usage};
 
     fn assistant(usage: Usage, duration_ms: u64) -> Message {
         Message::Assistant {

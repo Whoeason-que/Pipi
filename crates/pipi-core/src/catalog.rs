@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::Api;
+use pipi_protocol::Api;
 
 /// 上游目录。
 const REMOTE: &str = "https://models.dev/api.json";

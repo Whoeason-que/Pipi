@@ -14,10 +14,10 @@ use std::time::Duration;
 
 use tokio::sync::oneshot;
 
-use crate::agents;
-use crate::permissions::CommandApprover;
 use crate::runtime::{EventEmitter, RuntimeEvent};
-use crate::types::AbortSignal;
+use pipi_core::agents;
+use pipi_protocol::AbortSignal;
+use pipi_tools::permissions::CommandApprover;
 
 /// 用户对一次审批请求的决定。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -212,23 +212,22 @@ impl InteractiveApprover {
             // Agent 定义读取失败时仍按本次批准放行，只是无从持久化
             return Ok(());
         };
-        if def.permissions.bash.mode != crate::permissions::BashMode::Allowlist {
+        if def.permissions.bash.mode != pipi_tools::permissions::BashMode::Allowlist {
             return Ok(());
         }
-        let missing =
-            crate::permissions::split_segments(command)
-                .map(|segments| {
-                    segments
-                        .into_iter()
-                        .filter(|segment| {
-                            !def.permissions.bash.commands.iter().any(|entry| {
-                                crate::permissions::matches_entry(entry, &segment.text)
-                            })
+        let missing = pipi_tools::permissions::split_segments(command)
+            .map(|segments| {
+                segments
+                    .into_iter()
+                    .filter(|segment| {
+                        !def.permissions.bash.commands.iter().any(|entry| {
+                            pipi_tools::permissions::matches_entry(entry, &segment.text)
                         })
-                        .map(|segment| segment.text)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+                    })
+                    .map(|segment| segment.text)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         if missing.is_empty() {
             return Ok(());
         }

@@ -12,8 +12,9 @@
 
 use std::path::Path;
 
-use crate::permissions::SandboxMode;
-use crate::types::{ContentBlock, Message, ToolResultContent};
+use pipi_harness::escape_path_for_prompt;
+use pipi_protocol::{ContentBlock, Message, ToolResultContent};
+use pipi_tools::permissions::SandboxMode;
 
 /// 为 compaction 预留的 token（经验值，对齐 pi 的预留思路）。
 pub const DEFAULT_RESERVE_TOKENS: u64 = 16_384;
@@ -125,7 +126,7 @@ pub fn missing_tool_result(tool_call_id: &str, tool_name: &str) -> Message {
         }],
         is_error: true,
         details: None,
-        timestamp: crate::types::now_millis(),
+        timestamp: pipi_protocol::now_millis(),
     }
 }
 
@@ -189,9 +190,6 @@ fn flush_pending(out: &mut Vec<Message>, pending: &mut Vec<(String, String)>) {
     }
 }
 
-/// `pipi-harness` 的兼容导出，供运行环境上下文沿用相同的路径转义规则。
-pub(crate) use pipi_harness::escape_path_for_prompt;
-
 /// 运行环境上下文块（codex 思路，简化渲染）。
 pub fn environment_context(workspace: &Path, sandbox: &SandboxMode) -> String {
     let cwd = escape_path_for_prompt(&workspace.display().to_string());
@@ -227,7 +225,7 @@ fn today() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{StopReason, Usage};
+    use pipi_protocol::{StopReason, Usage};
 
     fn assistant_text(text: &str) -> Message {
         Message::Assistant {
@@ -328,7 +326,7 @@ mod tests {
 #[cfg(test)]
 mod pairing_tests {
     use super::*;
-    use crate::types::{ContentBlock, StopReason, Usage};
+    use pipi_protocol::{ContentBlock, StopReason, Usage};
 
     fn assistant_with_calls(calls: &[(&str, &str)]) -> Message {
         Message::Assistant {

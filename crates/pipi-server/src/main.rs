@@ -19,7 +19,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use pipi_app::approval::ApprovalDecision;
-use pipi_core::agents::{self, AgentDefinition, PermissionsConfig};
+use pipi_core::agents::{self, AgentDefinition};
+use pipi_tools::permissions::PermissionsConfig;
 
 use pipi_app::runtime::{self, EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::settings::{self, Settings};
@@ -363,7 +364,7 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             let workspace = optional_string(args, "workspace")?;
             let permissions = optional_value::<PermissionsConfig>(args, "permissions")?;
             let model = optional_string(args, "model")?;
-            let provider = optional_value::<pipi_core::types::Model>(args, "provider")?;
+            let provider = optional_value::<pipi_protocol::Model>(args, "provider")?;
             to_value(agents::create_agent(
                 &name,
                 &description,
@@ -479,7 +480,7 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             let agent_name = required_string(args, "agentName")?;
             let session_id = optional_string(args, "sessionId")?;
             let prompt = required_string(args, "prompt")?;
-            let model = optional_value::<pipi_core::types::Model>(args, "model")?;
+            let model = optional_value::<pipi_protocol::Model>(args, "model")?;
             let events = state.events.clone();
             let emitter: EventEmitter = Arc::new(move |event| {
                 let _ = events.send(event);
@@ -523,7 +524,7 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
         "set_session_model" => {
             let agent_name = required_string(args, "agentName")?;
             let session_id = required_string(args, "sessionId")?;
-            let model = optional_value::<pipi_core::types::Model>(args, "model")?;
+            let model = optional_value::<pipi_protocol::Model>(args, "model")?;
             state
                 .runtime
                 .set_session_model(&agent_name, &session_id, model)?;

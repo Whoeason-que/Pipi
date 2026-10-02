@@ -19,7 +19,7 @@ use pipi_app::runtime::{EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::agents;
 use pipi_core::session::SessionWriter;
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
-use pipi_core::types::{Api, Message, Model};
+use pipi_protocol::{Api, Message, Model};
 
 /// 本文件的用例都改写进程级 `HOME`，必须串行执行（同 `session_repair.rs`）。
 static HOME_LOCK: Mutex<()> = Mutex::new(());

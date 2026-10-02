@@ -23,11 +23,11 @@ use pipi_core::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskCommand,
     BackgroundTaskOwner, BackgroundTaskQuery, BackgroundTaskService, BackgroundTaskSpec,
 };
-use pipi_core::tools::ToolOutput;
-use pipi_core::types::{
+use pipi_protocol::{
     now_millis, AbortSignal, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskOutput,
     BackgroundTaskSnapshot, BackgroundTaskStatus, ToolResultContent,
 };
+use pipi_tools::ToolOutput;
 
 const MAX_OUTPUT_BYTES: usize = 512 * 1024;
 const TERMINATE_GRACE: Duration = Duration::from_secs(2);
@@ -1438,12 +1438,12 @@ mod tests {
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
         std::env::set_var("HOME", &home);
-        let permissions = pipi_core::permissions::PermissionsConfig {
-            tools: pipi_core::permissions::BACKGROUND_TASK_TOOLS
+        let permissions = pipi_tools::permissions::PermissionsConfig {
+            tools: pipi_tools::permissions::BACKGROUND_TASK_TOOLS
                 .iter()
                 .map(|name| (*name).to_string())
                 .collect(),
-            sandbox: pipi_core::permissions::SandboxMode::DangerFullAccess,
+            sandbox: pipi_tools::permissions::SandboxMode::DangerFullAccess,
             ..Default::default()
         };
         pipi_core::agents::create_agent(
@@ -1610,9 +1610,9 @@ mod tests {
             "agent-child",
             "background child",
             Some(workspace.to_str().unwrap()),
-            Some(pipi_core::permissions::PermissionsConfig {
+            Some(pipi_tools::permissions::PermissionsConfig {
                 tools: vec!["read".into()],
-                sandbox: pipi_core::permissions::SandboxMode::WorkspaceWrite,
+                sandbox: pipi_tools::permissions::SandboxMode::WorkspaceWrite,
                 ..Default::default()
             }),
             None,

@@ -18,3 +18,5 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 pipi-core = { path = "../crates/pipi-core" }
 pipi-app = { path = "../crates/pipi-app" }
+pipi-protocol = { path = "../crates/pipi-protocol" }
+pipi-tools = { path = "../crates/pipi-tools" }

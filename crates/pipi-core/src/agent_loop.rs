@@ -17,12 +17,12 @@ use futures_util::future::join_all;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::provider::Provider;
-use crate::tools::{validate_args, AgentTool, ToolContext, ToolOutput, ToolRegistry};
-use crate::types::{
+use pipi_protocol::{
     AbortSignal, ContentBlock, Context, Message, Model, StopReason, StreamEvent, StreamOptions,
     ToolResultContent,
 };
+use pipi_provider::Provider;
+use pipi_tools::{validate_args, AgentTool, ToolContext, ToolOutput, ToolRegistry};
 
 /// 对外事件。与 pi 的 AgentEvent 同名同层；`Serialize` 后可直接发给前端。
 #[derive(Debug, Clone, Serialize)]
@@ -342,12 +342,12 @@ async fn stream_assistant_response(
                 usage: Default::default(),
                 stop_reason: StopReason::Pending,
                 error_message: None,
-                timestamp: crate::types::now_millis(),
+                timestamp: pipi_protocol::now_millis(),
                 duration_ms: None,
             }
         };
 
-        let failure: (String, Option<crate::retry::RetryHint>) = loop {
+        let failure: (String, Option<pipi_error::RetryHint>) = loop {
             match rx.recv().await {
                 None => {
                     if abort.is_aborted() {
@@ -357,7 +357,7 @@ async fn stream_assistant_response(
                     // `流提前结束` 会走上面的 Error 分支，这里是兜底）
                     break (
                         STREAM_TRUNCATED.into(),
-                        Some(crate::retry::RetryHint::plain()),
+                        Some(pipi_error::RetryHint::plain()),
                     );
                 }
                 Some(StreamEvent::Start) => {
@@ -558,7 +558,7 @@ fn tool_result_message(
         content: result.content.clone(),
         is_error,
         details: result.details.clone(),
-        timestamp: crate::types::now_millis(),
+        timestamp: pipi_protocol::now_millis(),
     }
 }
 
@@ -833,7 +833,7 @@ async fn execute_parallel(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Api, Usage};
+    use pipi_protocol::{Api, Usage};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     // ----- 测试用的脚本化 Provider 与计数工具 -----
@@ -851,7 +851,7 @@ mod tests {
             _context: &Context,
             _options: &StreamOptions,
             _abort: AbortSignal,
-        ) -> crate::provider::EventStream {
+        ) -> pipi_provider::EventStream {
             let (tx, rx) = tokio::sync::mpsc::channel(64);
             let index = self.call.fetch_add(1, Ordering::SeqCst);
             let turn = self
@@ -958,7 +958,7 @@ mod tests {
     fn error_turn(message: &str, retryable: bool) -> Vec<StreamEvent> {
         vec![StreamEvent::Error {
             message: message.into(),
-            retry: retryable.then(crate::retry::RetryHint::plain),
+            retry: retryable.then(pipi_error::RetryHint::plain),
         }]
     }
 
@@ -971,7 +971,7 @@ mod tests {
             },
             StreamEvent::Error {
                 message: message.into(),
-                retry: Some(crate::retry::RetryHint::plain()),
+                retry: Some(pipi_error::RetryHint::plain()),
             },
         ]
     }
@@ -990,7 +990,7 @@ mod tests {
             },
             StreamEvent::Error {
                 message: message.into(),
-                retry: Some(crate::retry::RetryHint::plain()),
+                retry: Some(pipi_error::RetryHint::plain()),
             },
         ]
     }
@@ -1042,7 +1042,7 @@ mod tests {
                 memory_dir: None,
                 read_roots: Vec::new(),
                 permissions: Arc::new(Default::default()),
-                sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+                sandbox: pipi_tools::permissions::SandboxMode::DangerFullAccess,
                 resolved_env: Arc::new(std::collections::BTreeMap::new()),
                 abort: AbortSignal::new(),
                 approver: None,
@@ -1473,7 +1473,7 @@ mod tests {
                 context: &Context,
                 options: &StreamOptions,
                 abort: AbortSignal,
-            ) -> crate::provider::EventStream {
+            ) -> pipi_provider::EventStream {
                 if self.inner.call.load(Ordering::SeqCst) == 0 {
                     self.follow_up.push(Message::user_text("follow-up"));
                 }
@@ -1535,7 +1535,7 @@ mod tests {
                 context: &Context,
                 options: &StreamOptions,
                 abort: AbortSignal,
-            ) -> crate::provider::EventStream {
+            ) -> pipi_provider::EventStream {
                 // 只在第一轮推 —— 否则每轮都注入新消息，循环永不停止
                 if self.inner.call.load(Ordering::SeqCst) == 0 {
                     self.steering.push(Message::user_text("wait, also do X"));
@@ -1619,7 +1619,7 @@ mod tests {
             context: &Context,
             options: &StreamOptions,
             abort: AbortSignal,
-        ) -> crate::provider::EventStream {
+        ) -> pipi_provider::EventStream {
             self.abort.abort();
             self.inner.stream(model, context, options, abort).await
         }
@@ -1695,7 +1695,7 @@ mod tests {
             context: &Context,
             options: &StreamOptions,
             abort: AbortSignal,
-        ) -> crate::provider::EventStream {
+        ) -> pipi_provider::EventStream {
             let roles = context
                 .messages
                 .iter()

@@ -9,7 +9,7 @@
 //! 重算即可，live 与重开自然一致。幂等由占位符前缀保证 —— 二次应用是空操作。
 
 use super::{Plan, Preparation, Projection};
-use crate::types::{Message, ToolResultContent};
+use pipi_protocol::{Message, ToolResultContent};
 
 /// 占位符前缀：既是给模型看的说明，也是「已清理」的幂等标记。
 pub const CLEARED_TOOL_RESULT_PREFIX: &str = "[工具输出已清理";
@@ -137,7 +137,7 @@ fn cleared_message(
 mod tests {
     use super::*;
     use crate::compaction::{Budget, Preparation, DEFAULT_THRESHOLD_PERCENT};
-    use crate::types::ContentBlock;
+    use pipi_protocol::ContentBlock;
 
     fn tool_result(text: &str) -> Message {
         Message::ToolResult {
@@ -162,7 +162,7 @@ mod tests {
                 provider: String::new(),
                 model: String::new(),
                 usage: Default::default(),
-                stop_reason: crate::types::StopReason::Stop,
+                stop_reason: pipi_protocol::StopReason::Stop,
                 error_message: None,
                 timestamp: 0,
                 duration_ms: None,

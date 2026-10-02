@@ -11,30 +11,30 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
-use crate::agent_loop::Emitter as LoopEmitter;
-use crate::agent_loop::{
-    run_agent_loop, AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode,
-};
-use crate::agents::{self, AgentDefinition};
 use crate::approval::{
     ApprovalDecision, ApprovalGate, ApprovalRequestEnvelope, InteractiveApprover,
 };
 use crate::background::BackgroundTaskManager;
-use crate::provider::provider_for;
-pub use crate::session::SessionSummary;
-use crate::session::{list_session_summaries, load_session, EntryKind, SessionWriter};
-use crate::settings::load_settings;
-use crate::stats::SessionStatsTracker;
-use crate::tools::agent::{
+use pipi_core::agent_loop::Emitter as LoopEmitter;
+use pipi_core::agent_loop::{
+    run_agent_loop, AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode,
+};
+use pipi_core::agents::{self, AgentDefinition};
+pub use pipi_core::session::SessionSummary;
+use pipi_core::session::{list_session_summaries, load_session, EntryKind, SessionWriter};
+use pipi_core::settings::load_settings;
+use pipi_core::stats::SessionStatsTracker;
+use pipi_core::tools::agent::{
     result_from_messages, AgentRunResult, AgentRunStatus, AgentRunner, ChildProgressTx,
     CreateAgentTool, ReadAgentTool, RunAgentTool,
 };
-use crate::tools::background::{
+use pipi_core::tools::background::{
     BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskService,
     ManageBackgroundTaskTool, QueryBackgroundTasksTool, SubmitBackgroundTaskTool,
 };
-use crate::tools::ToolRegistry;
-use crate::types::{AbortSignal, Message, Model, StopReason, StreamOptions};
+use pipi_protocol::{AbortSignal, Message, Model, StopReason, StreamOptions};
+use pipi_provider::provider_for;
+use pipi_tools::ToolRegistry;
 
 static NEXT_RUN_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -55,7 +55,7 @@ pub struct StatsEventEnvelope {
     pub agent_name: String,
     pub session_id: String,
     pub run_id: usize,
-    pub stats: crate::stats::SessionStats,
+    pub stats: pipi_core::stats::SessionStats,
 }
 
 /// 发给宿主的会话错误。
@@ -308,7 +308,7 @@ impl RuntimeState {
     /// 归档会话：移动到 `sessions/.archive/`。
     ///
     /// 空闲会话即使仍在前端打开，也会在移动前自动从运行时会话槽脱离；实际移动
-    /// 是 [`crate::session::archive_session_file`]。压缩换会话后的内部归档仍然
+    /// 是 [`pipi_core::session::archive_session_file`]。压缩换会话后的内部归档仍然
     /// 直接走那个自由函数（那时旧 id 已不再是打开的会话）。
     pub fn archive_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
@@ -321,7 +321,7 @@ impl RuntimeState {
         let Some(dir) = src.parent() else {
             return Err("无法解析会话目录".into());
         };
-        crate::session::archive_session_file(dir, session_id).map(|_| ())
+        pipi_core::session::archive_session_file(dir, session_id).map(|_| ())
     }
 
     /// 恢复归档会话：移回 `sessions/`。
@@ -548,7 +548,7 @@ fn writer_session_id(writer: &Arc<Mutex<SessionWriter>>) -> Result<String, Strin
 /// 只处理**尾部**：悬挂的 assistant 消息此时就是文件 tip，追加的 tool 结果
 /// 成为它的子节点，消息顺序天然正确，会话记录被修复成合法状态（append-only，
 /// 不重写任何已有条目）。历史中段的悬挂无法原地修复（树的顺序不可变），
-/// 由发送前的 [`crate::context::repair_tool_pairing`] 兜底 —— 对齐 pi 的
+/// 由发送前的 [`pipi_core::context::repair_tool_pairing`] 兜底 —— 对齐 pi 的
 /// post-tools / recovery 在回合结束时结算「orphaned / aborted」调用的做法。
 fn settle_unanswered_tail(
     writer: &mut SessionWriter,
@@ -561,7 +561,7 @@ fn settle_unanswered_tail(
         .tool_calls()
         .iter()
         .filter_map(|call| match call {
-            crate::types::ContentBlock::ToolCall { id, name, .. } => {
+            pipi_protocol::ContentBlock::ToolCall { id, name, .. } => {
                 Some((id.clone(), name.clone()))
             }
             _ => None,
@@ -572,7 +572,7 @@ fn settle_unanswered_tail(
     }
     let mut appended = Vec::with_capacity(calls.len());
     for (id, name) in calls {
-        let result = crate::context::missing_tool_result(&id, &name);
+        let result = pipi_core::context::missing_tool_result(&id, &name);
         writer
             .append_message(&result)
             .map_err(|error| error.to_string())?;
@@ -591,7 +591,7 @@ fn settle_unanswered_persistent_tail(writer: &mut SessionWriter) -> Result<Vec<M
         .persistent_path()
         .ok_or_else(|| "临时会话没有可修复的持久化尾部".to_string())?;
     let entries = load_session(path).map_err(|error| error.to_string())?;
-    let messages = crate::session::rebuild_messages(&crate::session::active_path(&entries));
+    let messages = pipi_core::session::rebuild_messages(&pipi_core::session::active_path(&entries));
     settle_unanswered_tail(writer, &messages)
 }
 
@@ -620,9 +620,9 @@ fn append_child_timeout_terminal(
 
 /// 投影式压缩流水线的 transform 钩子（组装请求时应用，不落盘）。
 fn projection_transform(
-    budget: crate::compaction::Budget,
-) -> crate::agent_loop::TransformContextHook {
-    Arc::new(move |messages: Vec<Message>| crate::compaction::project(messages, budget))
+    budget: pipi_core::compaction::Budget,
+) -> pipi_core::agent_loop::TransformContextHook {
+    Arc::new(move |messages: Vec<Message>| pipi_core::compaction::project(messages, budget))
 }
 
 /// 把「保留区间下标」换算成条目 id（compaction 条目的 `keep_from_entry`）。
@@ -671,15 +671,15 @@ struct CompactionContext<'a> {
     run_id: usize,
     model: &'a Model,
     api_key: &'a str,
-    budget: crate::compaction::Budget,
+    budget: pipi_core::compaction::Budget,
     messages: &'a Arc<tokio::sync::Mutex<Vec<Message>>>,
     writer: &'a Arc<Mutex<SessionWriter>>,
     stats: &'a Arc<Mutex<SessionStatsTracker>>,
     abort: AbortSignal,
     sessions_dir: Option<&'a std::path::Path>,
-    settings: crate::settings::CompactionSettings,
+    settings: pipi_core::settings::CompactionSettings,
     /// 摘要调用失败重发策略（与对话共用，见 `retry` 模块）。
-    retry: crate::retry::RetryPolicy,
+    retry: pipi_core::retry::RetryPolicy,
     sink: &'a EventEmitter,
     trigger: CompactionTrigger,
     /// 压缩分叉换了会话 id 后，把 map 里的条目搬到新键（None = 不需要，如子 Agent）。
@@ -719,7 +719,7 @@ fn compaction_stream_options(api_key: &str, session_id: &str) -> StreamOptions {
 async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
     let history = ctx.messages.lock().await.clone();
     if ctx.trigger == CompactionTrigger::Auto
-        && !crate::compaction::needs_compaction(&history, ctx.budget)
+        && !pipi_core::compaction::needs_compaction(&history, ctx.budget)
     {
         return Ok(false);
     }
@@ -735,26 +735,26 @@ async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
         })
     };
     (ctx.sink)(envelope(ctx.session_id, AgentEvent::CompactionStart));
-    let tokens_before = crate::context::estimate_context_tokens(&history);
+    let tokens_before = pipi_core::context::estimate_context_tokens(&history);
 
     // 摘要用量另计入会话账本；请求仍携带当前会话 ID，满足供应商的会话路由要求。
     let summary_options = compaction_stream_options(ctx.api_key, ctx.session_id);
     // provider 实例要活到 compact 调用结束（provider_for 返回 Arc）
     let summarizer = provider_for(ctx.model.api);
-    let strategy_env = crate::compaction::StrategyEnv {
+    let strategy_env = pipi_core::compaction::StrategyEnv {
         provider: summarizer.as_ref(),
         model: ctx.model,
         options: &summary_options,
         abort: ctx.abort.clone(),
         retry: ctx.retry,
     };
-    let compacted = crate::compaction::compact(&history, ctx.budget, &strategy_env).await?;
+    let compacted = pipi_core::compaction::compact(&history, ctx.budget, &strategy_env).await?;
 
     // 落盘的摘要正文是**未包裹**的原文（回放时统一包裹，见 session::summary_message）。
     let summary = compacted
         .messages
         .first()
-        .and_then(crate::session::summary_text)
+        .and_then(pipi_core::session::summary_text)
         .unwrap_or_default()
         .to_string();
     // 保留区间的起点条目 id：回放据此留住这段原文（缺了它就退回旧行为）。
@@ -765,7 +765,7 @@ async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
         .ok()
         .and_then(|writer| writer.tip_id().map(str::to_string))
         .unwrap_or_default();
-    let record = crate::session::CompactionRecord {
+    let record = pipi_core::session::CompactionRecord {
         summary: &summary,
         strategy: compacted.strategy,
         keep_from_entry: &keep_from_entry,
@@ -781,7 +781,7 @@ async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
             tracker.record_ledger(&usage);
         }
     }
-    let tokens_after = crate::context::estimate_context_tokens(&ctx.messages.lock().await);
+    let tokens_after = pipi_core::context::estimate_context_tokens(&ctx.messages.lock().await);
     // 换会话：先发 SessionSwitched（envelope 用旧 id，前端此刻身份还是旧的），
     // 把身份切到新 id，再发后续事件 —— 顺序反了会导致前端收不到切换、running 卡住。
     if let Some(new_id) = &switched {
@@ -824,8 +824,8 @@ async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
 fn persist_compaction(
     writer: &Arc<Mutex<SessionWriter>>,
     sessions_dir: Option<&std::path::Path>,
-    record: &crate::session::CompactionRecord<'_>,
-    settings: crate::settings::CompactionSettings,
+    record: &pipi_core::session::CompactionRecord<'_>,
+    settings: pipi_core::settings::CompactionSettings,
 ) -> Result<Option<String>, String> {
     // 临时测试上下文需要摘要替换，但绝不能分叉或写入 sessions 目录。内存账本
     // 仍追加 compaction entry，以保持 message id 映射与正式会话一致。
@@ -867,7 +867,7 @@ fn persist_compaction(
 fn fork_and_write_compaction(
     writer: &Arc<Mutex<SessionWriter>>,
     sessions_dir: Option<&std::path::Path>,
-    record: &crate::session::CompactionRecord<'_>,
+    record: &pipi_core::session::CompactionRecord<'_>,
     archive_original: bool,
 ) -> Result<String, String> {
     let sessions_dir = sessions_dir.ok_or_else(|| "无法解析会话目录".to_string())?;
@@ -883,7 +883,7 @@ fn fork_and_write_compaction(
         (path, id)
     };
 
-    let mut forked = crate::session::fork_session(&source_path, sessions_dir, None)?;
+    let mut forked = pipi_core::session::fork_session(&source_path, sessions_dir, None)?;
     let new_id = forked
         .path()
         .file_stem()
@@ -909,7 +909,7 @@ fn fork_and_write_compaction(
     }
 
     if archive_original {
-        if let Err(error) = crate::session::archive_session_file(sessions_dir, &source_id) {
+        if let Err(error) = pipi_core::session::archive_session_file(sessions_dir, &source_id) {
             // 归档失败不回滚：新会话已经可用，原会话留在活跃列表里即可
             eprintln!("pipi: 原会话归档失败（保留在活跃列表）: {error}");
         }
@@ -1137,7 +1137,7 @@ pub(crate) async fn run_agent_once_inner_with_sink(
             .provenance
             .iter()
             .filter(|(_, source)| source.as_str() != av::resolve::PROCESS_SOURCE)
-            .map(|(key, source)| crate::session::EnvDeclared {
+            .map(|(key, source)| pipi_core::session::EnvDeclared {
                 key: key.clone(),
                 source: source.clone(),
             })
@@ -1195,13 +1195,13 @@ pub(crate) async fn run_agent_once_inner_with_sink(
             };
             match envelope.event {
                 AgentEvent::ToolExecutionStart { tool_name, .. } => {
-                    let _ = progress.send(crate::tools::ToolOutput::text(format!(
+                    let _ = progress.send(pipi_tools::ToolOutput::text(format!(
                         "子 Agent 正在调用工具 {tool_name}"
                     )));
                 }
                 AgentEvent::MessageEnd { message } if message.role() == "assistant" => {
                     let turn = turns.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = progress.send(crate::tools::ToolOutput::text(format!(
+                    let _ = progress.send(pipi_tools::ToolOutput::text(format!(
                         "子 Agent 完成第 {turn} 轮回复"
                     )));
                 }
@@ -1238,7 +1238,7 @@ pub(crate) async fn run_agent_once_inner_with_sink(
         // 子 Agent 运行同样走投影式压缩流水线（清旧工具输出 → 硬裁），
         // 阈值用子 Agent 自己的 agent.json 配置
         transform_context: (context_window > 0).then(|| {
-            projection_transform(crate::compaction::Budget::from_window(
+            projection_transform(pipi_core::compaction::Budget::from_window(
                 context_window,
                 definition.compact_threshold_percent(),
             ))
@@ -1308,9 +1308,9 @@ impl RuntimeState {
         path: &std::path::Path,
     ) -> Result<Session, String> {
         let entries = load_session(path).map_err(|e| e.to_string())?;
-        let active = crate::session::active_path(&entries);
-        let mut messages = crate::session::rebuild_messages(&active);
-        let active_model = crate::session::active_model_from_entries(&entries);
+        let active = pipi_core::session::active_path(&entries);
+        let mut messages = pipi_core::session::rebuild_messages(&active);
+        let active_model = pipi_core::session::active_model_from_entries(&entries);
         let effective_model = active_model.as_ref().or(def.provider.as_ref());
         let context_max = effective_model
             .map(|provider| provider.context_window)
@@ -1496,7 +1496,7 @@ impl RuntimeState {
             ));
         }
 
-        let writer = crate::session::fork_session(&source_path, &dir, up_to_entry_id)?;
+        let writer = pipi_core::session::fork_session(&source_path, &dir, up_to_entry_id)?;
         let new_session_path = writer.path().to_path_buf();
         let new_session_id = new_session_path
             .file_stem()
@@ -1505,9 +1505,9 @@ impl RuntimeState {
             .to_string();
 
         let entries = load_session(&new_session_path).map_err(|e| e.to_string())?;
-        let active = crate::session::active_path(&entries);
-        let mut messages = crate::session::rebuild_messages(&active);
-        let active_model = crate::session::active_model_from_entries(&entries);
+        let active = pipi_core::session::active_path(&entries);
+        let mut messages = pipi_core::session::rebuild_messages(&active);
+        let active_model = pipi_core::session::active_model_from_entries(&entries);
         let effective_model = active_model.clone().or_else(|| def.provider.clone());
         let context_max = effective_model
             .as_ref()
@@ -1743,7 +1743,7 @@ impl RuntimeState {
         wait_ms: u64,
         include_completed: bool,
         limit: usize,
-    ) -> Result<Vec<crate::types::BackgroundTaskSnapshot>, String> {
+    ) -> Result<Vec<pipi_protocol::BackgroundTaskSnapshot>, String> {
         let run_id = {
             let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
             let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
@@ -1755,7 +1755,7 @@ impl RuntimeState {
         self.background
             .query(
                 &owner,
-                crate::tools::background::BackgroundTaskQuery {
+                pipi_core::tools::background::BackgroundTaskQuery {
                     job_id,
                     after_seq,
                     wait_ms,
@@ -1774,7 +1774,7 @@ impl RuntimeState {
         job_id: &str,
         action: &str,
         data: Option<String>,
-    ) -> Result<crate::types::BackgroundTaskSnapshot, String> {
+    ) -> Result<pipi_protocol::BackgroundTaskSnapshot, String> {
         let run_id = {
             let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
             let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
@@ -1783,8 +1783,8 @@ impl RuntimeState {
             session.running.current_run_id()
         };
         let command = match action {
-            "terminate" => crate::tools::background::BackgroundTaskCommand::Terminate,
-            "writeStdin" => crate::tools::background::BackgroundTaskCommand::WriteStdin(
+            "terminate" => pipi_core::tools::background::BackgroundTaskCommand::Terminate,
+            "writeStdin" => pipi_core::tools::background::BackgroundTaskCommand::WriteStdin(
                 data.ok_or("writeStdin 需要 data")?,
             ),
             _ => return Err("action 必须是 terminate 或 writeStdin".into()),
@@ -1817,7 +1817,7 @@ impl RuntimeState {
         let current_model = session.model.lock().ok().and_then(|model| model.clone());
         // 与发送消息同一套解析：会话模型优先，回退 Agent 默认
         let (model, api_key) = resolve_model(&def, current_model.as_ref(), None)?;
-        let budget = crate::compaction::Budget::from_window(
+        let budget = pipi_core::compaction::Budget::from_window(
             model.context_window,
             def.compact_threshold_percent(),
         )
@@ -1952,7 +1952,7 @@ impl RuntimeState {
         &self,
         agent_name: &str,
         session_id: &str,
-    ) -> Result<crate::stats::SessionStats, String> {
+    ) -> Result<pipi_core::stats::SessionStats, String> {
         let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         match sessions.get(&SessionKey::new(agent_name, session_id)) {
             Some(session) => Ok(session.stats.lock().map_err(|e| e.to_string())?.snapshot()),
@@ -2071,7 +2071,7 @@ impl RuntimeState {
                 .provenance
                 .iter()
                 .filter(|(_, source)| source.as_str() != av::resolve::PROCESS_SOURCE)
-                .map(|(key, source)| crate::session::EnvDeclared {
+                .map(|(key, source)| pipi_core::session::EnvDeclared {
                     key: key.clone(),
                     source: source.clone(),
                 })
@@ -2177,7 +2177,7 @@ impl RuntimeState {
         )));
 
         // 压缩预算集中一处（窗口 × Agent 的阈值百分比）：投影式与替换式共用
-        let budget = crate::compaction::Budget::from_window(
+        let budget = pipi_core::compaction::Budget::from_window(
             model.context_window,
             def.compact_threshold_percent(),
         )
@@ -2338,7 +2338,7 @@ mod tests {
             .unwrap();
         let source_tip = ledger.tip_id().unwrap().to_string();
         let writer = Arc::new(Mutex::new(ledger));
-        let record = crate::session::CompactionRecord {
+        let record = pipi_core::session::CompactionRecord {
             summary: "内存摘要",
             strategy: "summary",
             keep_from_entry: &keep_from,
@@ -2350,7 +2350,7 @@ mod tests {
             &writer,
             None,
             &record,
-            crate::settings::CompactionSettings {
+            pipi_core::settings::CompactionSettings {
                 fork_before_compact: true,
                 archive_original: true,
             },
@@ -2485,7 +2485,7 @@ mod tests {
         let empty_home = std::env::temp_dir().join(format!(
             "pipi-resolve-model-home-{}-{}",
             std::process::id(),
-            crate::session::new_id()
+            pipi_core::session::new_id()
         ));
         std::fs::create_dir_all(empty_home.join(".pipi")).unwrap();
         std::env::set_var("HOME", &empty_home);
@@ -2493,7 +2493,7 @@ mod tests {
         let default_model = Model {
             id: "gpt-4o".into(),
             name: "GPT-4o".into(),
-            api: crate::types::Api::OpenAICompletions,
+            api: pipi_protocol::Api::OpenAICompletions,
             base_url: "https://api.openai.com/v1".into(),
             max_tokens: 4096,
             context_window: 128000,
@@ -2501,7 +2501,7 @@ mod tests {
         let session_model = Model {
             id: "claude-sonnet-4-5".into(),
             name: "Claude Sonnet".into(),
-            api: crate::types::Api::AnthropicMessages,
+            api: pipi_protocol::Api::AnthropicMessages,
             base_url: "https://api.anthropic.com".into(),
             max_tokens: 8192,
             context_window: 200000,
@@ -2552,7 +2552,7 @@ mod child_timeout_tests {
         let sessions = std::env::temp_dir().join(format!(
             "pipi-timeout-pairing-{}-{}",
             std::process::id(),
-            crate::session::new_id()
+            pipi_core::session::new_id()
         ));
         std::fs::create_dir_all(&sessions).unwrap();
         let writer = Arc::new(Mutex::new(SessionWriter::create(&sessions).unwrap()));
@@ -2560,7 +2560,7 @@ mod child_timeout_tests {
 
         let user = Message::user_text("run a tool");
         let tool_call = Message::Assistant {
-            content: vec![crate::types::ContentBlock::ToolCall {
+            content: vec![pipi_protocol::ContentBlock::ToolCall {
                 id: "call-timeout".into(),
                 name: "bash".into(),
                 arguments: serde_json::json!({ "command": "sleep 30" }),
@@ -2571,7 +2571,7 @@ mod child_timeout_tests {
             usage: Default::default(),
             stop_reason: StopReason::ToolUse,
             error_message: None,
-            timestamp: crate::types::now_millis(),
+            timestamp: pipi_protocol::now_millis(),
             duration_ms: None,
         };
         {
@@ -2583,7 +2583,7 @@ mod child_timeout_tests {
         let model = Model {
             id: "test-model".into(),
             name: "Test model".into(),
-            api: crate::types::Api::OpenAICompletions,
+            api: pipi_protocol::Api::OpenAICompletions,
             base_url: String::new(),
             max_tokens: 1,
             context_window: 0,
@@ -2591,7 +2591,8 @@ mod child_timeout_tests {
         append_child_timeout_terminal(&writer, &model, std::time::Duration::from_secs(1)).unwrap();
 
         let entries = load_session(&path).unwrap();
-        let messages = crate::session::rebuild_messages(&crate::session::active_path(&entries));
+        let messages =
+            pipi_core::session::rebuild_messages(&pipi_core::session::active_path(&entries));
         assert_eq!(messages.len(), 4);
         assert!(matches!(
             &messages[2],
@@ -2635,19 +2636,19 @@ mod child_timeout_tests {
         let home = std::env::temp_dir().join(format!(
             "pipi-child-timeout-{}-{}",
             std::process::id(),
-            crate::session::new_id()
+            pipi_core::session::new_id()
         ));
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
         std::env::set_var("HOME", &home);
 
         let base_url = format!("http://{addr}/v1");
-        crate::settings::save_settings(&crate::settings::Settings {
-            theme: crate::settings::Theme::Dark,
-            providers: vec![crate::settings::ProviderConfig {
+        pipi_core::settings::save_settings(&pipi_core::settings::Settings {
+            theme: pipi_core::settings::Theme::Dark,
+            providers: vec![pipi_core::settings::ProviderConfig {
                 id: "silent".into(),
                 name: "Silent".into(),
-                api: crate::types::Api::OpenAICompletions,
+                api: pipi_protocol::Api::OpenAICompletions,
                 base_url: base_url.clone(),
                 env_key: None,
                 api_key: Some("test-key".into()),
@@ -2662,16 +2663,16 @@ mod child_timeout_tests {
             "timeout-worker",
             "A worker whose endpoint never responds",
             Some(workspace.to_str().unwrap()),
-            Some(crate::permissions::PermissionsConfig {
+            Some(pipi_tools::permissions::PermissionsConfig {
                 tools: vec!["read".into()],
                 bash: Default::default(),
-                sandbox: crate::permissions::SandboxMode::WorkspaceWrite,
+                sandbox: pipi_tools::permissions::SandboxMode::WorkspaceWrite,
             }),
             None,
-            Some(crate::types::Model {
+            Some(pipi_protocol::Model {
                 id: "silent-model".into(),
                 name: "Silent Model".into(),
-                api: crate::types::Api::OpenAICompletions,
+                api: pipi_protocol::Api::OpenAICompletions,
                 base_url,
                 max_tokens: 64,
                 context_window: 4096,
@@ -2697,7 +2698,7 @@ mod child_timeout_tests {
 
         // 终态已落盘：read_agent 读到 Failed 而不是 pending
         let reread =
-            crate::tools::agent::read_agent_output("timeout-worker", Some(&result.session_id))
+            pipi_core::tools::agent::read_agent_output("timeout-worker", Some(&result.session_id))
                 .unwrap();
         assert_eq!(reread.status, AgentRunStatus::Failed);
 

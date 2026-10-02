@@ -6,7 +6,7 @@
 //! usage 带回上层（计入会话账本）。
 
 use super::{file_operations, Plan, Preparation, Replacement, StrategyEnv};
-use crate::types::{AbortSignal, Context, Message, StopReason, StreamEvent, StreamOptions, Usage};
+use pipi_protocol::{AbortSignal, Context, Message, StopReason, StreamEvent, StreamOptions, Usage};
 
 /// 摘要调用的系统提示：限定为总结者角色，禁止把对话接下去（对齐 pi）。
 const SUMMARY_SYSTEM_PROMPT: &str = "You are a context summarization assistant. \
@@ -98,11 +98,11 @@ fn render_message(message: &Message) -> String {
             let mut parts = Vec::new();
             for block in content {
                 match block {
-                    crate::types::ContentBlock::Text { text } => {
+                    pipi_protocol::ContentBlock::Text { text } => {
                         parts.push(format!("[assistant]\n{text}"))
                     }
-                    crate::types::ContentBlock::Thinking { .. } => {}
-                    crate::types::ContentBlock::ToolCall {
+                    pipi_protocol::ContentBlock::Thinking { .. } => {}
+                    pipi_protocol::ContentBlock::ToolCall {
                         name, arguments, ..
                     } => parts.push(format!(
                         "[assistant tool call: {name}] {}",
@@ -125,8 +125,8 @@ fn render_message(message: &Message) -> String {
             let body: String = content
                 .iter()
                 .map(|c| match c {
-                    crate::types::ToolResultContent::Text { text } => text.clone(),
-                    crate::types::ToolResultContent::Image { .. } => "[image]".into(),
+                    pipi_protocol::ToolResultContent::Text { text } => text.clone(),
+                    pipi_protocol::ToolResultContent::Image { .. } => "[image]".into(),
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -171,7 +171,7 @@ fn message_text(message: &Message) -> String {
         Message::Assistant { content, .. } => content
             .iter()
             .filter_map(|block| match block {
-                crate::types::ContentBlock::Text { text } => Some(text.as_str()),
+                pipi_protocol::ContentBlock::Text { text } => Some(text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -239,7 +239,7 @@ enum SummarizeFailure {
     Fatal(String),
     Retryable {
         message: String,
-        hint: Option<crate::retry::RetryHint>,
+        hint: Option<pipi_error::RetryHint>,
     },
 }
 
@@ -318,7 +318,7 @@ async fn summarize_once(
     if !saw_done {
         return Err(SummarizeFailure::Retryable {
             message: "流提前结束：未收到结束帧".into(),
-            hint: Some(crate::retry::RetryHint::plain()),
+            hint: Some(pipi_error::RetryHint::plain()),
         });
     }
     if stop_reason == Some(StopReason::Length) {
@@ -342,8 +342,8 @@ async fn summarize_once(
 mod tests {
     use super::*;
     use crate::compaction::tests::{assistant_text, tool_result};
-    use crate::provider::{EventStream, Provider};
-    use crate::types::{Api, ContentBlock, Model};
+    use pipi_protocol::{Api, ContentBlock, Model};
+    use pipi_provider::{EventStream, Provider};
     use std::sync::Mutex;
 
     struct SummaryProvider {

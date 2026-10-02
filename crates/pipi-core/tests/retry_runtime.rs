@@ -12,11 +12,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pipi_core::agent_loop::{run_agent_loop, AgentContext, AgentEvent, AgentLoopConfig};
-use pipi_core::permissions::SandboxMode;
-use pipi_core::provider::provider_for;
 use pipi_core::retry::RetryPolicy;
-use pipi_core::tools::{ToolContext, ToolRegistry};
-use pipi_core::types::{AbortSignal, Api, Message, Model, StopReason, StreamOptions};
+use pipi_protocol::{AbortSignal, Api, Message, Model, StopReason, StreamOptions};
+use pipi_provider::provider_for;
+use pipi_tools::permissions::SandboxMode;
+use pipi_tools::{ToolContext, ToolRegistry};
 use serde_json::json;
 
 /// OpenAI 流式文本回合的 SSE 响应体。
@@ -215,7 +215,7 @@ async fn retryable_429_is_resent_after_the_requested_delay() {
         } => {
             assert_eq!(*stop_reason, StopReason::Stop, "{error_message:?}");
             assert!(
-                matches!(&content[0], pipi_core::types::ContentBlock::Text { text } if text == "恢复后的回复")
+                matches!(&content[0], pipi_protocol::ContentBlock::Text { text } if text == "恢复后的回复")
             );
         }
         other => panic!("期望成功的助手消息，得到 {other:?}"),

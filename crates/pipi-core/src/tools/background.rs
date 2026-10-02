@@ -11,8 +11,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::{AgentTool, ToolContext, ToolOutput};
-use crate::types::{BackgroundTaskInfo, BackgroundTaskSnapshot, ToolResultContent};
+use pipi_protocol::{BackgroundTaskInfo, BackgroundTaskSnapshot, ToolResultContent};
+use pipi_tools::{AgentTool, ToolContext, ToolOutput};
 
 const MAX_COMMAND_BYTES: usize = 16 * 1024;
 const MAX_WAIT_MS: u64 = 60_000;
@@ -171,9 +171,9 @@ impl AgentTool for SubmitBackgroundTaskTool {
         validate_managed_command(command)?;
 
         match ctx.permissions.assess_bash_classified(command, &ctx.workspace) {
-            crate::permissions::BashAssessment::Allowed => {}
-            crate::permissions::BashAssessment::HardDenied(message) => return Err(message),
-            crate::permissions::BashAssessment::NeedsApproval { .. } => match &ctx.approver {
+            pipi_tools::permissions::BashAssessment::Allowed => {}
+            pipi_tools::permissions::BashAssessment::HardDenied(message) => return Err(message),
+            pipi_tools::permissions::BashAssessment::NeedsApproval { .. } => match &ctx.approver {
                 Some(approver) => approver.approve(command).await?,
                 None => {
                     return Err(
@@ -384,7 +384,7 @@ fn parse_usize(args: &Value, name: &str) -> Result<Option<usize>, String> {
 
 fn resolve_workspace_cwd(ctx: &ToolContext, requested: Option<&str>) -> Result<PathBuf, String> {
     let path = requested
-        .map(|value| crate::tools::resolve_path(&ctx.workspace, value))
+        .map(|value| pipi_tools::resolve_path(&ctx.workspace, value))
         .transpose()?
         .unwrap_or_else(|| ctx.workspace.clone());
     let canonical =
@@ -408,7 +408,7 @@ fn validate_managed_command(command: &str) -> Result<(), String> {
     if has_unquoted_background_operator(command) {
         return Err("后台任务不接受 shell 的单独 '&'；请让 Pipi 托管任务生命周期".into());
     }
-    let segments = crate::permissions::split_segments(command)?;
+    let segments = pipi_tools::permissions::split_segments(command)?;
     if segments.iter().any(|segment| {
         segment
             .argv
@@ -496,7 +496,7 @@ fn format_snapshot(snapshot: &BackgroundTaskSnapshot) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::BackgroundTaskStatus;
+    use pipi_protocol::BackgroundTaskStatus;
 
     #[test]
     fn rejects_shell_detachment_but_allows_quoted_ampersand_and_and() {

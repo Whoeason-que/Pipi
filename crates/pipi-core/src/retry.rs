@@ -5,9 +5,7 @@
 
 use std::time::Duration;
 
-/// 服务端等待提示是跨 crate 的稳定错误元数据；兼容既有调用点从 `retry`
-/// 重导出，实际定义在没有业务依赖的 `pipi-error`。
-pub use pipi_error::RetryHint;
+use pipi_error::RetryHint;
 
 /// 重试策略（全局设置 `retry` 段）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

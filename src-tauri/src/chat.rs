@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use pipi_app::approval::ApprovalDecision;
 use pipi_app::runtime::{self, EventEmitter, RuntimeEvent, SessionInfo};
-use pipi_core::types::{Message, Model};
+use pipi_protocol::{Message, Model};
 
 pub use pipi_app::runtime::RuntimeState as ChatState;
 
@@ -98,7 +98,7 @@ pub async fn query_background_tasks(
     wait_ms: Option<u64>,
     include_completed: Option<bool>,
     limit: Option<usize>,
-) -> Result<Vec<pipi_core::types::BackgroundTaskSnapshot>, String> {
+) -> Result<Vec<pipi_protocol::BackgroundTaskSnapshot>, String> {
     state
         .query_background_tasks(
             &agent_name,
@@ -120,7 +120,7 @@ pub async fn manage_background_task(
     job_id: String,
     action: String,
     data: Option<String>,
-) -> Result<pipi_core::types::BackgroundTaskSnapshot, String> {
+) -> Result<pipi_protocol::BackgroundTaskSnapshot, String> {
     state
         .manage_background_task(&agent_name, &session_id, &job_id, &action, data)
         .await

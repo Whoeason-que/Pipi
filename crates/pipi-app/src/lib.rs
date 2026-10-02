@@ -4,8 +4,6 @@
 //! 宿主事件的应用服务。Tauri 与 Web server 共用这一层，因此不会各自复制
 //! Agent 调度逻辑或改变 IPC event 的载荷。
 
-pub use pipi_core::*;
-
 pub mod approval;
 pub mod background;
 pub mod runtime;

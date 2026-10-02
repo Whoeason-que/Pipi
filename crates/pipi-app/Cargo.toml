@@ -8,6 +8,8 @@ edition = "2021"
 async-trait = "0.1"
 av = { path = "../av", default-features = false }
 pipi-core = { path = "../pipi-core" }
+pipi-protocol = { path = "../pipi-protocol" }
+pipi-provider = { path = "../pipi-provider" }
 pipi-tools = { path = "../pipi-tools" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

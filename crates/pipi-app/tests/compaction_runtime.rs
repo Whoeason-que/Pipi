@@ -17,7 +17,7 @@ use pipi_app::runtime::{EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::agents;
 use pipi_core::session::{load_session, EntryKind, SessionWriter};
 use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
-use pipi_core::types::{Api, Message, Model};
+use pipi_protocol::{Api, Message, Model};
 
 /// 本文件的用例都改写进程级 `HOME`，必须串行执行（同 `session_repair.rs`）。
 static HOME_LOCK: Mutex<()> = Mutex::new(());
@@ -209,10 +209,10 @@ fn seed_history_turns(sessions_dir: &std::path::Path, turns: u32) -> (String, St
         writer
             .append_message(&Message::Assistant {
                 content: vec![
-                    pipi_core::types::ContentBlock::Text {
+                    pipi_protocol::ContentBlock::Text {
                         text: format!("先读文件（第 {turn} 轮）。"),
                     },
-                    pipi_core::types::ContentBlock::ToolCall {
+                    pipi_protocol::ContentBlock::ToolCall {
                         id: call_id.clone(),
                         name: "read".into(),
                         arguments: serde_json::json!({ "path": format!("src/m{turn}.rs") }),
@@ -222,7 +222,7 @@ fn seed_history_turns(sessions_dir: &std::path::Path, turns: u32) -> (String, St
                 provider: String::new(),
                 model: "compaction-model".into(),
                 usage: Default::default(),
-                stop_reason: pipi_core::types::StopReason::ToolUse,
+                stop_reason: pipi_protocol::StopReason::ToolUse,
                 error_message: None,
                 timestamp: 0,
                 duration_ms: None,
@@ -232,7 +232,7 @@ fn seed_history_turns(sessions_dir: &std::path::Path, turns: u32) -> (String, St
             .append_message(&Message::ToolResult {
                 tool_call_id: call_id,
                 tool_name: "read".into(),
-                content: vec![pipi_core::types::ToolResultContent::Text {
+                content: vec![pipi_protocol::ToolResultContent::Text {
                     text: format!("// m{turn}\n{}", "fn f() {}\n".repeat(400)),
                 }],
                 is_error: false,
@@ -404,7 +404,7 @@ impl Case {
     /// 压缩条目里的（keep_from_entry, strategy, usage, summary）。
     fn compaction_entry(
         path: &std::path::Path,
-    ) -> (String, String, Option<pipi_core::types::Usage>, String) {
+    ) -> (String, String, Option<pipi_protocol::Usage>, String) {
         let entries = load_session(path).expect("读回会话");
         entries
             .iter()

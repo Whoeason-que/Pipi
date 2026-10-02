@@ -9,11 +9,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::permissions::KNOWN_TOOLS;
-use crate::types::{Model, Tool};
-
-// 供 Tauri 命令层与上层应用统一从 agents 引用
-pub use crate::permissions::PermissionsConfig;
+use pipi_protocol::{Model, Tool};
+use pipi_tools::permissions::{PermissionsConfig, KNOWN_TOOLS};
 
 /// Agent 清单，对应 `agent.json`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -455,7 +452,7 @@ pub fn create_agent_with_instructions(
 
     // 新建 Agent 默认使用受限沙箱；旧 agent.json 的 serde 默认仍保持兼容。
     let permissions = permissions.unwrap_or_else(|| PermissionsConfig {
-        sandbox: crate::permissions::SandboxMode::WorkspaceWrite,
+        sandbox: pipi_tools::permissions::SandboxMode::WorkspaceWrite,
         ..Default::default()
     });
 
@@ -681,7 +678,7 @@ pub fn list_agent_md_files(agent_name: &str) -> Result<Vec<String>, String> {
         out.push("AGENTS.md".to_string());
     }
     let mut rels = Vec::new();
-    crate::tools::memory::collect_markdown(&dir.join("memory"), 0, &mut rels);
+    pipi_tools::memory::collect_markdown(&dir.join("memory"), 0, &mut rels);
     rels.sort();
     for rel in rels {
         out.push(format!("memory/{rel}"));
@@ -732,19 +729,19 @@ fn truncate_summary(value: &str) -> String {
 /// 生成 memory 渐进召回索引（空目录返回空 —— 零打扰）。
 /// `path` 是绝对路径：模型用 read 工具直接加载正文（memory 目录在
 /// build_tool_context 里加入了 read_roots）。
-pub fn memory_index(def: &AgentDefinition) -> Vec<crate::harness::MemoryFileMeta> {
+pub fn memory_index(def: &AgentDefinition) -> Vec<pipi_harness::MemoryFileMeta> {
     let Some(dir) = def.memory_dir() else {
         return Vec::new();
     };
     let mut rels = Vec::new();
-    crate::tools::memory::collect_markdown(&dir, 0, &mut rels);
+    pipi_tools::memory::collect_markdown(&dir, 0, &mut rels);
     rels.sort();
     rels.into_iter()
         .map(|rel| {
             let summary = fs::read_to_string(dir.join(&rel))
                 .map(|content| memory_summary(&content))
                 .unwrap_or_default();
-            crate::harness::MemoryFileMeta {
+            pipi_harness::MemoryFileMeta {
                 path: dir.join(&rel).display().to_string(),
                 summary,
             }
@@ -759,8 +756,8 @@ pub fn memory_index(def: &AgentDefinition) -> Vec<crate::harness::MemoryFileMeta
 pub fn build_tool_context(
     def: &AgentDefinition,
     session_id: Option<String>,
-    abort: crate::types::AbortSignal,
-) -> Result<(crate::tools::ToolContext, av::ResolvedEnv), String> {
+    abort: pipi_protocol::AbortSignal,
+) -> Result<(pipi_tools::ToolContext, av::ResolvedEnv), String> {
     let workspace = def.resolve_workspace().ok_or("无法解析工作目录")?;
     fs::create_dir_all(&workspace).map_err(|e| format!("工作目录不可用: {e}"))?;
     let workspace =
@@ -828,7 +825,7 @@ pub fn build_tool_context(
     }
 
     Ok((
-        crate::tools::ToolContext {
+        pipi_tools::ToolContext {
             workspace,
             memory_dir: def.memory_dir(),
             read_roots,
@@ -892,9 +889,9 @@ fn resolve_declared_sources(raw: &[String], base_dir: &Path) -> Vec<PathBuf> {
 
 /// 跨层合并技能（agent 层在前，同名先发现者赢）。
 fn merge_skill_scopes(
-    agent_skills: Vec<crate::skills::SkillMeta>,
-    project_skills: Vec<crate::skills::SkillMeta>,
-) -> Vec<crate::skills::SkillMeta> {
+    agent_skills: Vec<av::skills::SkillMeta>,
+    project_skills: Vec<av::skills::SkillMeta>,
+) -> Vec<av::skills::SkillMeta> {
     let mut seen_names = std::collections::HashSet::new();
     agent_skills
         .into_iter()
@@ -919,9 +916,9 @@ fn load_declared_store_skills(
 
 /// 把声明的 store 技能追加在约定目录之后（同名先发现者赢）。
 fn merge_store_skills(
-    mut skills: Vec<crate::skills::SkillMeta>,
+    mut skills: Vec<av::skills::SkillMeta>,
     store_skills: Vec<av::skills::SkillMeta>,
-) -> Vec<crate::skills::SkillMeta> {
+) -> Vec<av::skills::SkillMeta> {
     let mut seen_names: std::collections::HashSet<String> =
         skills.iter().map(|skill| skill.name.clone()).collect();
     for skill in store_skills {
@@ -933,8 +930,8 @@ fn merge_store_skills(
 }
 
 /// pipi-core 技能元信息 → harness 渲染所需的元信息。
-fn harness_skill_metadata(skill: crate::skills::SkillMeta) -> crate::harness::SkillMetadata {
-    crate::harness::SkillMetadata {
+fn harness_skill_metadata(skill: av::skills::SkillMeta) -> pipi_harness::SkillMetadata {
+    pipi_harness::SkillMetadata {
         name: skill.name,
         description: skill.description,
         disable_model_invocation: skill.disable_model_invocation,
@@ -951,7 +948,7 @@ fn load_declared_context_files(
     base_dir: &Path,
     containment_root: &Path,
     project_budget: Option<usize>,
-) -> Result<Vec<crate::harness::ContextFile>, String> {
+) -> Result<Vec<pipi_harness::ContextFile>, String> {
     let mut files = Vec::new();
     let mut remaining = project_budget.unwrap_or(usize::MAX);
     for raw in raw_paths {
@@ -981,14 +978,13 @@ fn load_declared_context_files(
             return Err(format!("上下文文件为空：{}", canonical.display()));
         }
         let content = if project_budget.is_some() {
-            let truncated =
-                crate::harness::resources::truncate_to_char_boundary(&content, remaining);
+            let truncated = pipi_harness::resources::truncate_to_char_boundary(&content, remaining);
             remaining = remaining.saturating_sub(truncated.len());
             truncated
         } else {
             content
         };
-        files.push(crate::harness::ContextFile {
+        files.push(pipi_harness::ContextFile {
             path: resolved.display().to_string(),
             content,
         });
@@ -1043,7 +1039,7 @@ pub fn build_system_prompt_with_tools(
                     None,
                 )?);
             }
-            None => context_files.extend(crate::harness::resources::load_agent_context_files(
+            None => context_files.extend(pipi_harness::resources::load_agent_context_files(
                 dir.as_deref(),
             )),
         }
@@ -1053,7 +1049,7 @@ pub fn build_system_prompt_with_tools(
             .resources
             .as_ref()
             .and_then(|resources| resources.max_bytes)
-            .unwrap_or(crate::project_doc::DEFAULT_PROJECT_DOC_MAX_BYTES);
+            .unwrap_or(pipi_harness::DEFAULT_PROJECT_DOC_MAX_BYTES);
         match project_layers.iter().rev().find_map(|layer| {
             layer
                 .config
@@ -1075,7 +1071,7 @@ pub fn build_system_prompt_with_tools(
                     Some(project_budget),
                 )?);
             }
-            None => context_files.extend(crate::harness::resources::load_project_scope_files(
+            None => context_files.extend(pipi_harness::resources::load_project_scope_files(
                 workspace,
                 project_budget,
             )),
@@ -1097,9 +1093,9 @@ pub fn build_system_prompt_with_tools(
                 match &declared_sources {
                     Some(sources) => {
                         let resolved = resolve_declared_sources(sources, &base);
-                        crate::skills::load_skill_sources(&resolved, &containment)
+                        av::skills::load_skill_sources(&resolved, &containment)
                     }
-                    None => crate::skills::load_skill_sources(
+                    None => av::skills::load_skill_sources(
                         &[dir.as_ref().expect("agent 层存在则目录存在").join("skills")],
                         &containment,
                     ),
@@ -1123,12 +1119,12 @@ pub fn build_system_prompt_with_tools(
                     av::find_project_root(workspace).unwrap_or_else(|| workspace.to_path_buf()),
                 )
                 .map_err(|e| format!("无法规范化项目根：{e}"))?;
-                crate::skills::load_skill_sources(&resolved, &containment)
+                av::skills::load_skill_sources(&resolved, &containment)
             }
             None => {
                 let skills_dir = workspace.join(".pi").join("skills");
                 fs::canonicalize(workspace)
-                    .map(|canonical| crate::skills::load_skill_sources(&[skills_dir], &canonical))
+                    .map(|canonical| av::skills::load_skill_sources(&[skills_dir], &canonical))
                     .unwrap_or_default()
             }
         };
@@ -1139,7 +1135,7 @@ pub fn build_system_prompt_with_tools(
             .map(|skills| (skills.only.as_deref(), skills.exclude.as_deref()));
         // 声明的 store 技能（`use`）追加在约定目录之后，同名先发现者赢
         let declared_store = load_declared_store_skills(&layers)?;
-        let filtered = crate::skills::filter_skills_by_name(
+        let filtered = av::skills::filter_skills_by_name(
             merge_store_skills(
                 merge_skill_scopes(agent_skills, project_skills),
                 declared_store.into_iter().map(|skill| skill.meta).collect(),
@@ -1147,7 +1143,7 @@ pub fn build_system_prompt_with_tools(
             skills_filter.as_ref().and_then(|(only, _)| *only),
             skills_filter.as_ref().and_then(|(_, exclude)| *exclude),
         )?;
-        let skills: Vec<crate::harness::SkillMetadata> =
+        let skills: Vec<pipi_harness::SkillMetadata> =
             filtered.into_iter().map(harness_skill_metadata).collect();
 
         (
@@ -1181,13 +1177,13 @@ pub fn build_system_prompt_with_tools(
                     None,
                 )?);
             }
-            None => context_files.extend(crate::harness::resources::load_agent_context_files(
+            None => context_files.extend(pipi_harness::resources::load_agent_context_files(
                 dir.as_deref(),
             )),
         }
         // 无 workspace：仍可声明 agent 层契约里的 store 技能
         let agent_only_layers: Vec<av::Layer> = agent_layer.iter().cloned().collect();
-        let skills: Vec<crate::harness::SkillMetadata> =
+        let skills: Vec<pipi_harness::SkillMetadata> =
             load_declared_store_skills(&agent_only_layers)?
                 .into_iter()
                 .map(|skill| harness_skill_metadata(skill.meta))
@@ -1195,8 +1191,8 @@ pub fn build_system_prompt_with_tools(
         (String::new(), None, skills)
     };
 
-    Ok(crate::harness::build_system_prompt(
-        crate::harness::BuildSystemPromptOptions {
+    Ok(pipi_harness::build_system_prompt(
+        pipi_harness::BuildSystemPromptOptions {
             selected_tools: Some(def.permissions.tools.clone()),
             tool_snippets: tools
                 .iter()
@@ -1372,7 +1368,7 @@ mod tests {
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         assert_eq!(
             def.permissions.sandbox,
-            crate::permissions::SandboxMode::WorkspaceWrite
+            pipi_tools::permissions::SandboxMode::WorkspaceWrite
         );
         assert!(!def.subagent);
         let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
@@ -1429,7 +1425,7 @@ mod tests {
             compact_threshold_percent: 75,
             compact_target_percent: None,
         };
-        let tools = [crate::types::Tool {
+        let tools = [pipi_protocol::Tool {
             name: "read".into(),
             description: "Read files".into(),
             parameters: serde_json::json!({}),
@@ -1508,7 +1504,7 @@ only = ["wanted"]
         let (ctx, _) = build_tool_context(
             &def,
             Some("sess-1".into()),
-            crate::types::AbortSignal::new(),
+            pipi_protocol::AbortSignal::new(),
         )
         .unwrap();
         assert_eq!(
@@ -1656,7 +1652,7 @@ only = ["wanted"]
         let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
         assert!(prompt.contains("<name>pdf</name>"), "{prompt}");
         assert!(prompt.contains("STORE-DECLARED-PDF"), "{prompt}");
-        let (ctx, _) = build_tool_context(&def, None, crate::types::AbortSignal::new()).unwrap();
+        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
         let content_dir_name = av::store::content_dir_name(&entry.content_hash).unwrap();
         assert!(
             ctx.read_roots.iter().any(|path| {
@@ -1670,7 +1666,7 @@ only = ["wanted"]
         av::store::remove_version("pdf", &entry.content_hash).unwrap();
         let error = build_system_prompt_with_tools(&def, &[]).unwrap_err();
         assert!(error.contains("av skill sync"), "{error}");
-        let error = build_tool_context(&def, None, crate::types::AbortSignal::new())
+        let error = build_tool_context(&def, None, pipi_protocol::AbortSignal::new())
             .err()
             .expect("内容缺失应 fail-closed");
         assert!(error.contains("av skill sync"), "{error}");
@@ -1724,7 +1720,7 @@ only = ["wanted"]
         let memory_dir = def.memory_dir().unwrap();
         fs::write(memory_dir.join("note.md"), "hello").unwrap();
 
-        let (ctx, _) = build_tool_context(&def, None, crate::types::AbortSignal::new()).unwrap();
+        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
         let read_root = ctx
             .read_roots
             .iter()
@@ -1732,7 +1728,7 @@ only = ["wanted"]
             .expect("memory dir should be a trusted read root");
 
         // read 工具路径解析能通过 memory 根
-        let resolved = crate::tools::resolve_read_path(
+        let resolved = pipi_tools::resolve_read_path(
             &ctx.workspace,
             &ctx.read_roots,
             &memory_dir.join("note.md").display().to_string(),
@@ -1777,7 +1773,7 @@ only = ["wanted"]
             compact_target_percent: None,
         };
 
-        let result = build_tool_context(&def, None, crate::types::AbortSignal::new());
+        let result = build_tool_context(&def, None, pipi_protocol::AbortSignal::new());
         std::env::set_var("HOME", previous_home);
         std::fs::remove_dir_all(&home).unwrap();
         std::fs::remove_dir_all(&external).unwrap();
@@ -1935,8 +1931,8 @@ only = ["wanted"]
             None,
             Some(PermissionsConfig {
                 tools: vec!["read".into(), "bash".into()],
-                bash: crate::permissions::BashPermissions {
-                    mode: crate::permissions::BashMode::Allowlist,
+                bash: pipi_tools::permissions::BashPermissions {
+                    mode: pipi_tools::permissions::BashMode::Allowlist,
                     commands: vec!["git".into()],
                 },
                 sandbox: Default::default(),
@@ -1995,7 +1991,7 @@ only = ["wanted"]
         let provider = Model {
             id: "claude-3-7-sonnet-20250219".into(),
             name: "Claude 3.7 Sonnet".into(),
-            api: crate::types::Api::AnthropicMessages,
+            api: pipi_protocol::Api::AnthropicMessages,
             base_url: "https://api.anthropic.com".into(),
             max_tokens: 8192,
             context_window: 200000,
@@ -2104,7 +2100,7 @@ only = ["wanted"]
         // 默认权限：全部基础工具 + 受限沙箱（PermissionsConfig::default 的沙箱是 DangerFullAccess，不能被沿用）
         assert_eq!(
             created.permissions.sandbox,
-            crate::permissions::SandboxMode::WorkspaceWrite
+            pipi_tools::permissions::SandboxMode::WorkspaceWrite
         );
         assert!(created.permissions.tools.iter().any(|tool| tool == "bash"));
         assert!(

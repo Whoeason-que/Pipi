@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{now_millis, Message, Model, Usage};
+use pipi_protocol::{now_millis, Message, Model, Usage};
 
 /// 条目类型。pi 还有 branch_summary / custom；Pipi 增量新增 compaction
 /// （摘要式上下文压缩的落点：其之前的消息被摘要替换，回放时丢弃）
@@ -627,7 +627,7 @@ pub fn rebuild_messages(entries: &[&SessionEntry]) -> Vec<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ContentBlock;
+    use pipi_protocol::ContentBlock;
 
     fn temp_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("pipi-test-{}", new_id()));
@@ -667,7 +667,7 @@ mod tests {
             provider: "test".into(),
             model: "m".into(),
             usage: Default::default(),
-            stop_reason: crate::types::StopReason::Stop,
+            stop_reason: pipi_protocol::StopReason::Stop,
             error_message: None,
             timestamp: now_millis(),
             duration_ms: None,
@@ -996,7 +996,7 @@ mod tests {
             .append_model_change(&Model {
                 id: "m".into(),
                 name: "m".into(),
-                api: crate::types::Api::AnthropicMessages,
+                api: pipi_protocol::Api::AnthropicMessages,
                 base_url: String::new(),
                 max_tokens: 4096,
                 context_window: 100_000,
@@ -1092,7 +1092,7 @@ mod tests {
         let model1 = Model {
             id: "gpt-4o".into(),
             name: "GPT-4o".into(),
-            api: crate::types::Api::OpenAICompletions,
+            api: pipi_protocol::Api::OpenAICompletions,
             base_url: "https://api.openai.com/v1".into(),
             max_tokens: 4096,
             context_window: 128000,
@@ -1100,7 +1100,7 @@ mod tests {
         let model2 = Model {
             id: "claude-sonnet-4-5".into(),
             name: "Claude Sonnet".into(),
-            api: crate::types::Api::AnthropicMessages,
+            api: pipi_protocol::Api::AnthropicMessages,
             base_url: "https://api.anthropic.com".into(),
             max_tokens: 8192,
             context_window: 200000,

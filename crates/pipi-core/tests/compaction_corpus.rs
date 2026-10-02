@@ -10,7 +10,7 @@
 use pipi_core::compaction::{project, Budget, DEFAULT_THRESHOLD_PERCENT};
 use pipi_core::context::estimate_context_tokens;
 use pipi_core::session::{active_path, load_session, replay};
-use pipi_core::types::{ContentBlock, Message, StopReason, ToolResultContent};
+use pipi_protocol::{ContentBlock, Message, StopReason, ToolResultContent};
 
 // ---------------------------------------------------------------------------
 // 合成语料

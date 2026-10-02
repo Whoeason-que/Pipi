@@ -1,10 +1,11 @@
 //! Tauri 命令层 —— 只是把 pipi-core / pipi-app 的能力暴露给前端，不含业务逻辑。
 
 use pipi_app::runtime::RuntimeState;
-use pipi_core::agents::{self, AgentDefinition, PermissionsConfig};
+use pipi_core::agents::{self, AgentDefinition};
 use pipi_core::catalog::ModelCatalog;
 use pipi_core::settings::{self, Settings};
-use pipi_core::types::Model;
+use pipi_protocol::Model;
+use pipi_tools::permissions::PermissionsConfig;
 use tauri::State;
 
 #[tauri::command]
