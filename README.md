@@ -40,6 +40,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 └── agents/my-agent/
     ├── agent.json          # Agent 清单：模型、工作目录、权限、沙箱、压缩阈值、MCP 服务器等
     ├── agent.toml          # 环境契约（av 标准）：env 声明、工具链断言、资源覆盖（可选）
+    ├── agent.lock          # 技能解析锁：use 声明过的技能 → 精确修订 + 内容哈希（可选）
     ├── AGENTS.md           # 系统级指令，每次运行注入上下文
     ├── skills/             # 技能包（SKILL.md + 随附文件）
     │   └── git-safety/
@@ -48,6 +49,15 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
     ├── workspace/          # Agent 目录内的默认工作区（也可指向任意本地路径）
     ├── jobs/               # 托管后台任务的状态 JSONL 与完整输出日志
     └── sessions/           # 运行记录（JSONL，append-only）
+```
+
+全局技能 store 由 av 独立管理（`AV_HOME` 可覆盖，默认 `~/.av`）：
+
+```
+~/.av/
+├── skills.lock                     # store 索引：每个已装版本的来源、修订与内容哈希
+└── skills/<name>/<hash16>/         # 不可变内容目录，名字 = 内容 sha256 前 16 位
+    └── SKILL.md                    # 同名不同版本并存，不同项目可锁不同修订
 ```
 
 项目侧还有一份可选的项目层契约：`<项目根>/agent.toml`（随仓库提交）与
@@ -66,7 +76,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 `manage_background_task`，都是显式选择的组合能力，不会因升级或新建 Agent 而自动
 开启。其余能力来自组合：
 
-- **Skills** —— 用 Markdown 写的能力包，渐进式加载：只有描述常驻上下文，正文在被触发时才进入（同 pi 的做法）。
+- **Skills** —— 用 Markdown 写的能力包，渐进式加载：只有描述常驻上下文，正文在被触发时才进入（同 pi 的做法）。技能可以像库一样**安装到系统**（`av skill install`，全局 store `~/.av/skills`），再由契约里的一行 `use` 声明启用（见下文契约一节）。
 - **MCP** —— 标准工具协议，在 `agent.json` 里声明即可接入。
 - 不做大而全的设置面板，做一组可组合的文件。
 
@@ -81,7 +91,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 工作目录 | `agent.json` → `workspace` | Agent 可操作的文件系统范围，可指向任意本地项目（如 `~/projects/my-app`），缺省为 Agent 目录内的 `workspace/` |
 | 模型 | `agent.json` → `provider` | OpenAI / Anthropic 兼容 API（流式）；`model` 字段仅作展示标签 |
 | 系统指令 | `AGENTS.md` | 人直接读写的 Markdown，每次运行注入为系统提示 |
-| 技能 | `skills/<name>/SKILL.md` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3） |
+| 技能 | `skills/<name>/SKILL.md`；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
 | 记忆 | `memory/*.md` | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
 | 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查；Allowlist 模式下白名单外的非危险命令可交互审批救回（拒绝 / 允许一次 / 总是允许——按段写回白名单），黑名单命中、危险命令与沙箱约束不可审批 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、写入文件系统的重定向（`>` `>>` `2>文件`）与从文件读入的重定向（`<文件` `<(cmd)`）在非完全访问下被拒绝。`rm -f` 家族只放行「工作区内、非仓库根 / 工作区根」的绝对路径字面量；`2>/dev/null`、`2>&1`、管道与 heredoc 不受限 |
@@ -91,7 +101,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 压缩后目标 | `agent.json` → `compactTargetPercent` | 可选的压缩后上下文目标，占本次压缩前估算 token 的百分比（1–99）；未设置时仍保留最多 2 万 token 近期原文，避免改变旧 Agent 行为 |
 | 请求重试 | `settings.json` → `retry` | 可重试错误的重发策略：`maxAttempts`（含首次，1 = 不重试）/ `baseDelayMs` / `maxDelayMs`；默认 3 次尝试、1s 起指数退避、30s 封顶、25% 抖动，尊重 `Retry-After` |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
-| 环境契约 | `agent.toml`（项目根 / Agent 定义目录）+ `agent.local.toml` | av 标准：env 声明、工具链断言、资源覆盖；会话启动解析一次，秘密值永不内联 |
+| 环境契约 | `agent.toml`（项目根 / Agent 定义目录）+ `agent.local.toml` + `agent.lock` | av 标准：env 声明、工具链断言、资源覆盖与技能包管理（`av skill`）；会话启动解析一次，秘密值永不内联 |
 | 会话 | `sessions/*.jsonl` | Append-only 的运行记录，一文件一会话，树状条目（id/parentId）支持分叉 |
 | 后台任务 | `jobs/<job-id>.jsonl` + `.log` | shell 进程与 child Agent 的生命周期、状态和输出；任务按 Agent/session 所有，重启只显示 orphaned，不按旧 PID 或 future 自动接管 |
 
@@ -434,17 +444,46 @@ instructions = ["AGENTS.md"]          # 三态：缺席=约定发现 | 列表=�
 max-bytes = 16384                     # 项目层字节预算（缺省 16KiB）
 [resources.skills]
 sources = [".pi/skills"]              # 按层替换约定目录
+use = ["pdf", "commit-helper"]        # 启用全局 store（~/.av/skills）里已安装的技能
 only = ["git-safety", "review-*"]     # 按技能名 glob 白名单
 exclude = ["experimental-*"]          # 黑名单（优先于 only）
 ```
+
+### 技能包管理（av skill）
+
+像 uv 管 Python 依赖那样管技能：**安装 ≠ 启用**，声明与解析分离。
+
+- **全局 store**：`~/.av/skills/<name>/<hash16>/`（`AV_HOME` 可覆盖）。
+  内容目录以内容 sha256 命名、一经发布不可变；同名不同版本并存，
+  不同项目可以锁不同修订。
+- **安装**：`av skill search <关键词>` 在 skills.sh 搜索；`av skill install
+  <来源>` 只装进 store；`av skill add <来源>` 一步完成安装 + 在契约里写
+  `use` + 生成同层 `agent.lock`。来源支持 `owner/repo[@ref][#子目录]`
+  （GitHub 短名，skills.sh 生态约定）、`gitlab:owner/repo`、完整 git URL
+  （https/ssh/git@）、本地目录与 GitHub/GitLab 的 tree 网页 URL；
+  git 走系统 `git`，浅取到精确 commit（不引入 git 库，也不做归档直链下载）。
+- **声明启用**：契约里 `[resources.skills] use = [...]`（三态：缺席 =
+  不启用 | 列表 = 启用这些 | `[]` = 显式禁用；与其它数组一致，最高声明层
+  整体替换）。解析结果记录在同目录 `agent.lock`：来源、ref、精确 commit、
+  内容哈希、来源内路径。
+- **会话启动只读、不联网**：逐名解析到 store 内容目录，注入技能索引
+  （目录同时进受信任读取根，模型用 `read` 按需加载全文）；缺锁、缺条目、
+  缺内容一律 fail-closed 并提示 `av skill sync` —— 不在会话启动时静默联网安装。
+- **可复现**：克隆下来的仓库带着 `agent.toml` + `agent.lock`，`av skill
+  sync` 按锁重建（git 源取锁定 revision，复现内容哈希必须一致，否则拒绝
+  安装）；`av skill verify` 重算哈希查漂移；`av skill update` 重解析 ref 到
+  新修订；`av skill remove <名称> [--purge]` 移除声明（`--purge` 才动 store）。
+- **供应链约束**：拒绝符号链接与路径逃逸，单技能限额（≤500 文件 /
+  ≤5 MiB）；`sync` 先打印将安装的来源清单，非交互环境需要 `--yes`。
 
 与 pi / codex 的既有约定对齐：项目层文件与 AGENTS.md 同属"随仓库走的
 指令"，但**项目层文件不得声明身份与权限段**（`[model]`、`[permissions]`、
 `[tools]`、`[mcp.*]` 出现即硬错误）——克隆来的仓库不能放宽沙箱或更换模型；
 改动只发生在用户自己的 Agent 定义文件里。
 
-CLI（调试用）：`av check`（静态校验）、`av env`（打印最终环境，秘密
-脱敏，`--json`）、`av doctor`（requires 实测）。
+CLI：`av check`（静态校验，含声明技能是否已锁且已装）、`av env`（打印最终
+环境，秘密脱敏，`--json`）、`av doctor`（requires 实测 + 技能内容哈希深检）、
+`av skill search|install|add|sync|list|verify|update|remove`（技能包管理）。
 
 ## 开发
 

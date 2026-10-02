@@ -17,8 +17,10 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 ## 代码结构
 
 ```
-crates/av/          agent.toml 环境契约（独立工具）：schema / 发现 / 合并 /
-                    env 解析 / requires；lib 供 pipi-core 复用，bin 为调试 CLI
+crates/av/          agent.toml 环境契约 + 技能包管理（独立工具）：schema / 发现 /
+                    合并 / env 解析 / requires / SKILL.md 发现与全局 store
+                    （~/.av/skills：安装、锁文件、同步）；lib 供 pipi-core 复用，
+                    bin 为 av CLI（check/env/doctor/skill）
 crates/pipi-error/  跨层稳定错误语义（错误码、RetryHint）
 crates/pipi-protocol/ 持久化与 transport DTO（JSONL/IPC 消息、流事件、AbortSignal）
 crates/pipi-tools/  内置 bash/read/write/edit/glob/grep/memory、命令权限与截断
@@ -46,7 +48,8 @@ src/                React + TypeScript 前端
 | `npm run tauri dev` | 启动开发模式（前端 + 桌面壳） |
 | `npm run tauri build` | 打包 |
 | `cargo test -p pipi-core` | 核心单元测试（改核心必跑） |
-| `cargo test -p av` | agent.toml 契约测试（改 av 必跑） |
+| `cargo test -p av` | av 契约 + 技能包管理测试（改 av 必跑；含本地 git 安装端到端） |
+| `cargo run -p av -- skill list` | 调试 av CLI（`check`/`env`/`doctor`/`skill …`；`AV_HOME` 可隔离） |
 | `cargo check --workspace` | 全量编译检查 |
 | `cd src-tauri && cargo clippy` | Rust lint |
 | `npx tsc --noEmit` | 前端类型检查 |
@@ -129,3 +132,15 @@ src/                React + TypeScript 前端
   保留命名空间、项目层文件不得声明身份与权限段 —— 改 schema/合并/解析
   逻辑必须带测试，宁可拒绝不可放行；工具子进程环境一律取
   `ToolContext.resolved_env`（会话启动解析一次），不许在 spawn 点读进程环境。
+- 技能包管理（`crates/av::store`/`sources`/`install`）：全局 store 在
+  `~/.av/skills/<name>/<hash16>/`（内容寻址、发布后不可变，同名多版本并存）。
+  **安装 ≠ 启用** —— `[resources.skills].use` 声明才生效，同层 `agent.lock`
+  是解析权威；**会话启动只读、不联网**，缺锁/缺内容即 fail-closed 并提示
+  `av skill sync`；写入只发生在显式 CLI（`av skill install/add/sync/update/
+  remove`）。git 一律 spawn 系统 `git`（不引 git2），来源不接受符号链接，
+  单技能限额 500 文件 / 5 MiB。改 store/lock/sources/install 必须带测试
+  （篡改、逃逸、限额、修订钉扎、锁不一致拒绝），并保持 `av` CLI 的 `--json`
+  与退出码 0/1 约定。`~/.pipi` 与 `~/.av` 的路径拼装一律走 `av::paths`
+  （`PIPI_HOME`/`AV_HOME` 可覆盖），不许在别处手写。`search` feature 只属于
+  av CLI（pipi-core/pipi-app 以 `default-features = false` 依赖 av），不要
+  把 HTTP 客户端链进桌面应用。
