@@ -19,9 +19,9 @@ mod llm;
 mod tool_output;
 
 pub use llm::LlmSummarize;
-pub use tool_output::{ToolOutputPrune, CLEARED_TOOL_RESULT_PREFIX};
+pub use tool_output::{CLEARED_TOOL_RESULT_PREFIX, ToolOutputPrune};
 
-use crate::context::{estimate_context_tokens, prune_cut_index, DEFAULT_RESERVE_TOKENS};
+use crate::context::{DEFAULT_RESERVE_TOKENS, estimate_context_tokens, prune_cut_index};
 use pipi_protocol::{AbortSignal, Message, Model, StreamOptions, Usage};
 use pipi_provider::Provider;
 
@@ -235,10 +235,10 @@ pub fn validate(messages: &[Message], plan: &Plan) -> Result<(), String> {
         }
         // 保留段的第一条不能是工具结果 —— 它的 assistant tool_call 已被摘要
         // 带走，端点会按协议拒绝（与 prune_oldest 同一不变量）。
-        if let Some(first) = messages.get(start) {
-            if first.role() == "toolResult" {
-                return Err("保留起点落在工具结果上：会孤立 toolResult".into());
-            }
+        if let Some(first) = messages.get(start)
+            && first.role() == "toolResult"
+        {
+            return Err("保留起点落在工具结果上：会孤立 toolResult".into());
         }
     }
     Ok(())
@@ -600,51 +600,61 @@ mod tests {
             tool_result("body"),
         ];
         // 下标越界
-        assert!(validate(
-            &messages,
-            &Plan {
-                rewrites: vec![(9, tool_result("x"))],
-                ..Default::default()
-            }
-        )
-        .is_err());
+        assert!(
+            validate(
+                &messages,
+                &Plan {
+                    rewrites: vec![(9, tool_result("x"))],
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
         // 就地改写不得改角色
-        assert!(validate(
-            &messages,
-            &Plan {
-                rewrites: vec![(2, assistant_text("x"))],
-                ..Default::default()
-            }
-        )
-        .is_err());
+        assert!(
+            validate(
+                &messages,
+                &Plan {
+                    rewrites: vec![(2, assistant_text("x"))],
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
         // 就地改写与保留混用（下标会错位）
-        assert!(validate(
-            &messages,
-            &Plan {
-                rewrites: vec![(2, tool_result("x"))],
-                keep_from: Some(1),
-                ..Default::default()
-            }
-        )
-        .is_err());
+        assert!(
+            validate(
+                &messages,
+                &Plan {
+                    rewrites: vec![(2, tool_result("x"))],
+                    keep_from: Some(1),
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
         // 保留起点落在工具结果上
-        assert!(validate(
-            &messages,
-            &Plan {
-                keep_from: Some(2),
-                ..Default::default()
-            }
-        )
-        .is_err());
+        assert!(
+            validate(
+                &messages,
+                &Plan {
+                    keep_from: Some(2),
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
         // 合法：只保留尾部
-        assert!(validate(
-            &messages,
-            &Plan {
-                keep_from: Some(1),
-                ..Default::default()
-            }
-        )
-        .is_ok());
+        assert!(
+            validate(
+                &messages,
+                &Plan {
+                    keep_from: Some(1),
+                    ..Default::default()
+                }
+            )
+            .is_ok()
+        );
     }
 
     #[test]

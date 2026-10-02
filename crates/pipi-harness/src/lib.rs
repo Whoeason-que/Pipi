@@ -9,7 +9,7 @@ pub mod resources;
 pub mod system_prompt;
 
 pub use system_prompt::{
-    build_system_prompt, BuildSystemPromptOptions, ContextFile, MemoryFileMeta, SkillMetadata,
+    BuildSystemPromptOptions, ContextFile, MemoryFileMeta, SkillMetadata, build_system_prompt,
 };
 
 /// 单个项目文档的默认字节预算（对齐 codex 的 project_doc_max_bytes）。

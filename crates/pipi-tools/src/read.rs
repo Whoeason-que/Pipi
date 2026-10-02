@@ -3,10 +3,10 @@
 
 use async_trait::async_trait;
 use base64::Engine;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{resolve_read_path, AgentTool, ToolContext, ToolOutput};
-use crate::truncate::{format_size, truncate_head, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
+use super::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
+use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_head};
 use crate::types::ToolResultContent;
 
 pub struct ReadTool;
@@ -260,9 +260,11 @@ mod tests {
             &skill.content[0],
             ToolResultContent::Text { text } if text == "trusted skill"
         ));
-        assert!(read(&ctx, outside.to_string_lossy().into_owned())
-            .await
-            .is_err());
+        assert!(
+            read(&ctx, outside.to_string_lossy().into_owned())
+                .await
+                .is_err()
+        );
         assert!(read(&ctx, "../outside.txt".into()).await.is_err());
 
         tokio::fs::remove_dir_all(base).await.unwrap();

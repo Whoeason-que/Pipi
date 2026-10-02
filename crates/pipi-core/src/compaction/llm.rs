@@ -5,7 +5,7 @@
 //! 清单。新增的是「产出 [`Plan`] 而不是直接改历史」，以及把摘要调用的
 //! usage 带回上层（计入会话账本）。
 
-use super::{file_operations, Plan, Preparation, Replacement, StrategyEnv};
+use super::{Plan, Preparation, Replacement, StrategyEnv, file_operations};
 use pipi_protocol::{AbortSignal, Context, Message, StopReason, StreamEvent, StreamOptions, Usage};
 
 /// 摘要调用的系统提示：限定为总结者角色，禁止把对话接下去（对齐 pi）。

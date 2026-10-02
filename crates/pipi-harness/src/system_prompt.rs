@@ -248,7 +248,7 @@ fn escape_xml(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_system_prompt, BuildSystemPromptOptions, ContextFile, SkillMetadata};
+    use super::{BuildSystemPromptOptions, ContextFile, SkillMetadata, build_system_prompt};
     use std::collections::HashMap;
 
     fn options() -> BuildSystemPromptOptions {
@@ -369,8 +369,10 @@ mod tests {
         let root = prompt.find("path=\"root/AGENTS.md\"").unwrap();
         let near = prompt.find("path=\"src/AGENTS.md\"").unwrap();
         assert!(root < near);
-        assert!(prompt
-            .contains("<project_context>\n\nProject-specific instructions and guidelines:\n\n"));
+        assert!(
+            prompt
+                .contains("<project_context>\n\nProject-specific instructions and guidelines:\n\n")
+        );
         assert!(
             prompt.ends_with("</project_context>\n\nCurrent working directory: /work/project\n")
         );
@@ -418,8 +420,11 @@ mod tests {
 
         let prompt = build_system_prompt(options);
 
-        assert!(prompt
-            .contains(r#"<project_instructions path="docs/quotes&quot;&lt;&gt;&amp;/AGENTS.md">"#));
+        assert!(
+            prompt.contains(
+                r#"<project_instructions path="docs/quotes&quot;&lt;&gt;&amp;/AGENTS.md">"#
+            )
+        );
     }
 
     #[test]
@@ -440,7 +445,9 @@ mod tests {
 
         let prompt = build_system_prompt(options);
 
-        assert!(prompt.contains("Current working directory: work/path\\n&lt;inject&gt;&amp;&quot;"));
+        assert!(
+            prompt.contains("Current working directory: work/path\\n&lt;inject&gt;&amp;&quot;")
+        );
         assert!(!prompt.contains("Current working directory: work/path\n<inject>"));
     }
 }

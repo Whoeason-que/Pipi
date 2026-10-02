@@ -17,16 +17,16 @@ use crate::approval::{
 use crate::background::BackgroundTaskManager;
 use pipi_core::agent_loop::Emitter as LoopEmitter;
 use pipi_core::agent_loop::{
-    run_agent_loop, AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode,
+    AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode, run_agent_loop,
 };
 use pipi_core::agents::{self, AgentDefinition};
 pub use pipi_core::session::SessionSummary;
-use pipi_core::session::{list_session_summaries, load_session, EntryKind, SessionWriter};
+use pipi_core::session::{EntryKind, SessionWriter, list_session_summaries, load_session};
 use pipi_core::settings::load_settings;
 use pipi_core::stats::SessionStatsTracker;
 use pipi_core::tools::agent::{
-    result_from_messages, AgentRunResult, AgentRunStatus, AgentRunner, ChildProgressTx,
-    CreateAgentTool, ReadAgentTool, RunAgentTool,
+    AgentRunResult, AgentRunStatus, AgentRunner, ChildProgressTx, CreateAgentTool, ReadAgentTool,
+    RunAgentTool, result_from_messages,
 };
 use pipi_core::tools::background::{
     BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskService,
@@ -776,10 +776,10 @@ async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
     // 一致，否则重开会话会退回未压缩。
     let switched = persist_compaction(ctx.writer, ctx.sessions_dir, &record, ctx.settings)?;
     *ctx.messages.lock().await = compacted.messages;
-    if let Some(usage) = compacted.usage {
-        if let Ok(mut tracker) = ctx.stats.lock() {
-            tracker.record_ledger(&usage);
-        }
+    if let Some(usage) = compacted.usage
+        && let Ok(mut tracker) = ctx.stats.lock()
+    {
+        tracker.record_ledger(&usage);
     }
     let tokens_after = pipi_core::context::estimate_context_tokens(&ctx.messages.lock().await);
     // 换会话：先发 SessionSwitched（envelope 用旧 id，前端此刻身份还是旧的），
@@ -908,11 +908,11 @@ fn fork_and_write_compaction(
         drop(previous); // 关闭原文件句柄 —— 归档前必须做到
     }
 
-    if archive_original {
-        if let Err(error) = pipi_core::session::archive_session_file(sessions_dir, &source_id) {
-            // 归档失败不回滚：新会话已经可用，原会话留在活跃列表里即可
-            eprintln!("pipi: 原会话归档失败（保留在活跃列表）: {error}");
-        }
+    if archive_original
+        && let Err(error) = pipi_core::session::archive_session_file(sessions_dir, &source_id)
+    {
+        // 归档失败不回滚：新会话已经可用，原会话留在活跃列表里即可
+        eprintln!("pipi: 原会话归档失败（保留在活跃列表）: {error}");
     }
     Ok(new_id)
 }
@@ -1129,7 +1129,7 @@ pub(crate) async fn run_agent_once_inner_with_sink(
                     &session_id,
                     prompt,
                     error,
-                )
+                );
             }
         };
     {
@@ -1152,7 +1152,7 @@ pub(crate) async fn run_agent_once_inner_with_sink(
     let (model, api_key) = match resolve_model(&definition, None, Some(&resolved_env.vars)) {
         Ok(resolved) => resolved,
         Err(error) => {
-            return persist_agent_start_failure(&writer, &definition, &session_id, prompt, error)
+            return persist_agent_start_failure(&writer, &definition, &session_id, prompt, error);
         }
     };
     // 有意只构造基础工具。即使目标 agent.json 显式启用了 Agent 组合工具，
@@ -1162,7 +1162,7 @@ pub(crate) async fn run_agent_once_inner_with_sink(
     let system_prompt = match agents::build_system_prompt_with_tools(&definition, &wire_tools) {
         Ok(system_prompt) => system_prompt,
         Err(error) => {
-            return persist_agent_start_failure(&writer, &definition, &session_id, prompt, error)
+            return persist_agent_start_failure(&writer, &definition, &session_id, prompt, error);
         }
     };
     let user_message = Message::user_text(prompt);
@@ -1362,12 +1362,12 @@ impl RuntimeState {
         let context_max = effective_model
             .map(|provider| provider.context_window)
             .filter(|window| *window > 0);
-        if let Some(target) = &active_model {
-            if Some(target) != def.provider.as_ref() {
-                writer
-                    .append_model_change(target)
-                    .map_err(|e| e.to_string())?;
-            }
+        if let Some(target) = &active_model
+            && Some(target) != def.provider.as_ref()
+        {
+            writer
+                .append_model_change(target)
+                .map_err(|e| e.to_string())?;
         }
         let session = Session {
             agent: def.clone(),
@@ -1694,15 +1694,15 @@ impl RuntimeState {
                     .append_model_change(target)
                     .map_err(|e| e.to_string())?;
             }
-            if let Some(target) = &effective_target {
-                if let Ok(mut tracker) = session.stats.lock() {
-                    let context_max = if target.context_window > 0 {
-                        Some(target.context_window)
-                    } else {
-                        None
-                    };
-                    tracker.set_context_max(context_max);
-                }
+            if let Some(target) = &effective_target
+                && let Ok(mut tracker) = session.stats.lock()
+            {
+                let context_max = if target.context_window > 0 {
+                    Some(target.context_window)
+                } else {
+                    None
+                };
+                tracker.set_context_max(context_max);
             }
             *current_model_slot = model;
         }
@@ -1990,13 +1990,13 @@ impl RuntimeState {
         let reuse_key = session_id
             .map(|id| SessionKey::new(agent_name, id))
             .filter(|key| sessions.contains_key(key));
-        if let Some(key) = &reuse_key {
-            if sessions[key].running.is_running() {
-                return Err(format!(
-                    "会话「{}」正在运行，请等待完成或先停止",
-                    key.session_id
-                ));
-            }
+        if let Some(key) = &reuse_key
+            && sessions[key].running.is_running()
+        {
+            return Err(format!(
+                "会话「{}」正在运行，请等待完成或先停止",
+                key.session_id
+            ));
         }
         // 载入 / 新建都在 map 之外完成，全部前置步骤成功后才插进 map ——
         // 中途失败必须保持 map 不变，否则半成品会被下一次 send_prompt 当成可复用的。
@@ -2027,24 +2027,24 @@ impl RuntimeState {
             .or_else(|| reuse_key.as_ref().map(|key| &sessions[key]))
             .ok_or("无法创建会话")?;
         // 若复用已有会话且传入了明确的模型变更请求
-        if reuse_key.is_some() {
-            if let Some(target) = &model {
-                let mut current_model_slot = session.model.lock().map_err(|e| e.to_string())?;
-                if current_model_slot.as_ref() != Some(target) {
-                    let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
-                    writer
-                        .append_model_change(target)
-                        .map_err(|e| e.to_string())?;
-                    if let Ok(mut tracker) = session.stats.lock() {
-                        let context_max = if target.context_window > 0 {
-                            Some(target.context_window)
-                        } else {
-                            None
-                        };
-                        tracker.set_context_max(context_max);
-                    }
-                    *current_model_slot = Some(target.clone());
+        if reuse_key.is_some()
+            && let Some(target) = &model
+        {
+            let mut current_model_slot = session.model.lock().map_err(|e| e.to_string())?;
+            if current_model_slot.as_ref() != Some(target) {
+                let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
+                writer
+                    .append_model_change(target)
+                    .map_err(|e| e.to_string())?;
+                if let Ok(mut tracker) = session.stats.lock() {
+                    let context_max = if target.context_window > 0 {
+                        Some(target.context_window)
+                    } else {
+                        None
+                    };
+                    tracker.set_context_max(context_max);
                 }
+                *current_model_slot = Some(target.clone());
             }
         }
 

@@ -89,10 +89,11 @@ fn collect_skill_files(
 
     let declared_skill = directory.join("SKILL.md");
     if declared_skill.exists() {
-        if let Ok(path) = fs::canonicalize(&declared_skill) {
-            if path.starts_with(containment_root) && path.is_file() {
-                files.push(path);
-            }
+        if let Ok(path) = fs::canonicalize(&declared_skill)
+            && path.starts_with(containment_root)
+            && path.is_file()
+        {
+            files.push(path);
         }
         return;
     }

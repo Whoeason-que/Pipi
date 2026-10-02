@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use pipi_app::runtime::{EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::agents;
 use pipi_core::session::SessionWriter;
-use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
+use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
 use pipi_protocol::{Api, Message, Model};
 
 /// 本文件的用例都改写进程级 `HOME`，必须串行执行（同 `session_repair.rs`）。
@@ -759,14 +759,18 @@ fn archive_and_delete_idle_open_sessions_without_leaving_view() {
         .expect("启动运行中会话");
     assert!(wait_until(5_000, || state
         .session_running("agent-lifecycle", &running_id)));
-    assert!(state
-        .archive_session("agent-lifecycle", &running_id)
-        .expect_err("运行中会话不得归档")
-        .contains("正在运行或有托管后台任务"));
-    assert!(state
-        .delete_session("agent-lifecycle", &running_id)
-        .expect_err("运行中会话不得删除")
-        .contains("正在运行或有托管后台任务"));
+    assert!(
+        state
+            .archive_session("agent-lifecycle", &running_id)
+            .expect_err("运行中会话不得归档")
+            .contains("正在运行或有托管后台任务")
+    );
+    assert!(
+        state
+            .delete_session("agent-lifecycle", &running_id)
+            .expect_err("运行中会话不得删除")
+            .contains("正在运行或有托管后台任务")
+    );
     state
         .stop_run("agent-lifecycle", &running_id)
         .expect("停止运行中会话");
@@ -893,10 +897,12 @@ fn temporary_test_session_is_memory_only_and_independent() {
 
     // 离开普通会话会释放空闲正式会话，但必须保留临时工作台上下文。
     state.new_session("agent-test").expect("释放空闲会话");
-    assert!(state
-        .session_info("agent-test", &replacement.session_id)
-        .expect("读取临时会话")
-        .is_some());
+    assert!(
+        state
+            .session_info("agent-test", &replacement.session_id)
+            .expect("读取临时会话")
+            .is_some()
+    );
 
     state
         .stop_run("agent-test", &persistent.session_id)

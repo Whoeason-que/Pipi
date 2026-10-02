@@ -2,9 +2,9 @@
 //! 自动创建父目录，存在则覆盖。
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{resolve_path, resolve_write_path, AgentTool, ToolContext, ToolOutput};
+use super::{AgentTool, ToolContext, ToolOutput, resolve_path, resolve_write_path};
 use crate::types::ToolResultContent;
 
 pub struct WriteTool;

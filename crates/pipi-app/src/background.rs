@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot, Notify};
+use tokio::sync::{Notify, mpsc, oneshot};
 
 use pipi_core::agents;
 use pipi_core::tools::agent::{AgentRunResult, AgentRunStatus};
@@ -24,8 +24,8 @@ use pipi_core::tools::background::{
     BackgroundTaskOwner, BackgroundTaskQuery, BackgroundTaskService, BackgroundTaskSpec,
 };
 use pipi_protocol::{
-    now_millis, AbortSignal, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskOutput,
-    BackgroundTaskSnapshot, BackgroundTaskStatus, ToolResultContent,
+    AbortSignal, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskOutput,
+    BackgroundTaskSnapshot, BackgroundTaskStatus, ToolResultContent, now_millis,
 };
 use pipi_tools::ToolOutput;
 
@@ -1491,10 +1491,12 @@ mod tests {
         }
         let snapshot = snapshot.expect("后台任务应在测试窗口内完成");
         assert_eq!(snapshot.task.status, BackgroundTaskStatus::Completed);
-        assert!(snapshot
-            .output
-            .iter()
-            .any(|chunk| chunk.text.contains("first")));
+        assert!(
+            snapshot
+                .output
+                .iter()
+                .any(|chunk| chunk.text.contains("first"))
+        );
         let cursor = snapshot.next_seq;
         let incremental = manager
             .query(
@@ -1523,10 +1525,12 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(reopened[0]
-            .output
-            .iter()
-            .any(|chunk| chunk.text.contains("second")));
+        assert!(
+            reopened[0]
+                .output
+                .iter()
+                .any(|chunk| chunk.text.contains("second"))
+        );
 
         let interactive = manager
             .submit(BackgroundTaskSpec {
@@ -1561,10 +1565,12 @@ mod tests {
                 .await
                 .unwrap();
             if !current[0].task.status.is_active() {
-                assert!(current[0]
-                    .output
-                    .iter()
-                    .any(|chunk| chunk.text.contains("got:hello")));
+                assert!(
+                    current[0]
+                        .output
+                        .iter()
+                        .any(|chunk| chunk.text.contains("got:hello"))
+                );
                 interactive_done = true;
                 break;
             }
@@ -1668,11 +1674,13 @@ mod tests {
         assert_eq!(child_done.task.kind, BackgroundTaskKind::Agent);
         assert_eq!(child_done.task.status, BackgroundTaskStatus::Failed);
         assert!(child_done.task.child_session_id.is_some());
-        assert!(child_done
-            .task
-            .result
-            .as_deref()
-            .is_some_and(|result| result.contains("还未配置默认模型")));
+        assert!(
+            child_done
+                .task
+                .result
+                .as_deref()
+                .is_some_and(|result| result.contains("还未配置默认模型"))
+        );
         let child_session_id = child_done.task.child_session_id.as_deref();
         assert!(child_session_events.lock().unwrap().iter().any(
             |(agent_name, session_id, _run_id)| {

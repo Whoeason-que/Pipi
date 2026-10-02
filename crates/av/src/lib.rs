@@ -30,10 +30,10 @@ pub mod sources;
 pub mod store;
 
 pub use discovery::{
-    discover, find_project_root, load_contract_file, resolve_path, Discovered, Layer,
+    Discovered, Layer, discover, find_project_root, load_contract_file, resolve_path,
 };
-pub use merge::{merge_layers, Merged, MergedEnv};
+pub use merge::{Merged, MergedEnv, merge_layers};
 pub use requires::{check_requires, lookup_command, probe_version, version_satisfies};
-pub use resolve::{collect_process_env, resolve_env, ResolvedEnv};
+pub use resolve::{ResolvedEnv, collect_process_env, resolve_env};
 pub use schema::AgentToml;
-pub use skills::{filter_skills_by_name, load_skill_sources, parse_frontmatter, SkillMeta};
+pub use skills::{SkillMeta, filter_skills_by_name, load_skill_sources, parse_frontmatter};

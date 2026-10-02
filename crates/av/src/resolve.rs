@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use crate::discovery::Layer;
 use crate::merge::merge_layers;
-use crate::schema::{validate_env_key, validate_env_value, Inherit, SecretRef};
+use crate::schema::{Inherit, SecretRef, validate_env_key, validate_env_value};
 
 /// 进程环境变量的来源标签。
 pub const PROCESS_SOURCE: &str = "process";

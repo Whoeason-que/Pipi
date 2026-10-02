@@ -42,12 +42,11 @@ pub struct ProviderConfig {
 impl ProviderConfig {
     /// 解析实际可用的 API key：环境变量优先，回退明文。
     pub fn resolve_api_key(&self) -> Option<String> {
-        if let Some(env_key) = &self.env_key {
-            if let Ok(value) = std::env::var(env_key) {
-                if !value.trim().is_empty() {
-                    return Some(value);
-                }
-            }
+        if let Some(env_key) = &self.env_key
+            && let Ok(value) = std::env::var(env_key)
+            && !value.trim().is_empty()
+        {
+            return Some(value);
         }
         self.api_key.clone().filter(|k| !k.trim().is_empty())
     }
@@ -58,12 +57,11 @@ impl ProviderConfig {
         &self,
         env: &std::collections::BTreeMap<String, String>,
     ) -> Option<String> {
-        if let Some(env_key) = &self.env_key {
-            if let Some(value) = env.get(env_key) {
-                if !value.trim().is_empty() {
-                    return Some(value.clone());
-                }
-            }
+        if let Some(env_key) = &self.env_key
+            && let Some(value) = env.get(env_key)
+            && !value.trim().is_empty()
+        {
+            return Some(value.clone());
         }
         self.api_key.clone().filter(|k| !k.trim().is_empty())
     }

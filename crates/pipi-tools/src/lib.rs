@@ -192,10 +192,10 @@ pub fn validate_args(parameters: &Value, args: &Value) -> Result<(), String> {
     }
     if let Some(required) = parameters["required"].as_array() {
         for name in required {
-            if let Some(name) = name.as_str() {
-                if args.get(name).is_none() {
-                    return Err(format!("缺少必需参数: {name}"));
-                }
+            if let Some(name) = name.as_str()
+                && args.get(name).is_none()
+            {
+                return Err(format!("缺少必需参数: {name}"));
             }
         }
     }
@@ -238,12 +238,12 @@ impl ToolRegistry {
         if ctx.permissions.tool_enabled("bash") {
             tools.push(Arc::new(bash::BashTool));
         }
-        if ctx.permissions.tool_enabled("memory") {
-            if let Some(dir) = &ctx.memory_dir {
-                tools.push(Arc::new(memory::MemoryTool {
-                    memory_dir: dir.clone(),
-                }));
-            }
+        if ctx.permissions.tool_enabled("memory")
+            && let Some(dir) = &ctx.memory_dir
+        {
+            tools.push(Arc::new(memory::MemoryTool {
+                memory_dir: dir.clone(),
+            }));
         }
         ToolRegistry { tools }
     }

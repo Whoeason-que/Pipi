@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use pipi_protocol::{now_millis, Message, Model, Usage};
+use pipi_protocol::{Message, Model, Usage, now_millis};
 
 /// 条目类型。pi 还有 branch_summary / custom；Pipi 增量新增 compaction
 /// （摘要式上下文压缩的落点：其之前的消息被摘要替换，回放时丢弃）
@@ -1055,13 +1055,15 @@ mod tests {
 
         let mut forked = fork_session(&source_path, &dir, None).unwrap();
         // 活跃路径已带 Env 条目 → 分叉出的会话不应再记一条
-        assert!(forked
-            .append_env(vec![EnvDeclared {
-                key: "AV_AGENT".into(),
-                source: "runtime".into(),
-            }])
-            .unwrap()
-            .is_none());
+        assert!(
+            forked
+                .append_env(vec![EnvDeclared {
+                    key: "AV_AGENT".into(),
+                    source: "runtime".into(),
+                }])
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

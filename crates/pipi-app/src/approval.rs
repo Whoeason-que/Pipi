@@ -320,9 +320,10 @@ mod tests {
 
         // 已决请求不可再次决议；未知 ID 同样拒绝
         assert!(gate.resolve(&request_id, ApprovalDecision::Allow).is_err());
-        assert!(gate
-            .resolve("nonexistent", ApprovalDecision::Allow)
-            .is_err());
+        assert!(
+            gate.resolve("nonexistent", ApprovalDecision::Allow)
+                .is_err()
+        );
 
         // 拒绝无会话记忆：同命令会再次询问
         let pending = {

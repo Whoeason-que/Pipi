@@ -248,23 +248,21 @@ fn verify_and_publish(
 
 /// 在来源根里定位锁记录指向的技能：优先 `skill_path`，失败则按名发现。
 fn locate_skill(root: &Path, entry: &SkillLockEntry) -> Result<SourceSkill, String> {
-    if let Some(skill_path) = entry.skill_path.as_deref() {
-        if skill_path != "." {
-            let dir = fs_canonical(root.join(skill_path));
-            if let Ok(dir) = dir {
-                if dir.starts_with(root) {
-                    if let Some(meta) = crate::skills::read_skill_meta(&dir) {
-                        if meta.name == entry.name {
-                            return Ok(SourceSkill {
-                                name: meta.name.clone(),
-                                dir,
-                                relative: skill_path.to_string(),
-                                meta,
-                            });
-                        }
-                    }
-                }
-            }
+    if let Some(skill_path) = entry.skill_path.as_deref()
+        && skill_path != "."
+    {
+        let dir = fs_canonical(root.join(skill_path));
+        if let Ok(dir) = dir
+            && dir.starts_with(root)
+            && let Some(meta) = crate::skills::read_skill_meta(&dir)
+            && meta.name == entry.name
+        {
+            return Ok(SourceSkill {
+                name: meta.name.clone(),
+                dir,
+                relative: skill_path.to_string(),
+                meta,
+            });
         }
     }
     let discovery = sources::discover_source_skills(root, None)?;
@@ -510,10 +508,12 @@ mod tests {
         assert!(report.installed.iter().all(|skill| !skill.unchanged));
         let index = store::read_index().unwrap();
         assert_eq!(index.skills.len(), 2);
-        assert!(index
-            .skills
-            .iter()
-            .all(|entry| entry.installed_at.is_some()));
+        assert!(
+            index
+                .skills
+                .iter()
+                .all(|entry| entry.installed_at.is_some())
+        );
         for skill in &report.installed {
             assert!(skill.dir.join("SKILL.md").is_file());
             assert_eq!(
@@ -649,9 +649,11 @@ mod tests {
         assert_ne!(updated.content_hash, entry.content_hash);
         assert!(updated.updated_at.is_some());
         let index = store::read_index().unwrap();
-        assert!(index
-            .get_version(&updated.name, &updated.content_hash)
-            .is_some());
+        assert!(
+            index
+                .get_version(&updated.name, &updated.content_hash)
+                .is_some()
+        );
 
         // 再 refresh：已是最新
         assert!(refresh_entry(&updated, &mut noop_log()).unwrap().is_none());

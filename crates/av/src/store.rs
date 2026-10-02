@@ -996,9 +996,11 @@ mod tests {
         assert!(resolved[0].dir.ends_with(content_dir_name(&hash).unwrap()));
 
         // 空声明 → 空结果（不读锁）
-        assert!(resolve_declared_skills_in(&store, &[], &lock_path)
-            .unwrap()
-            .is_empty());
+        assert!(
+            resolve_declared_skills_in(&store, &[], &lock_path)
+                .unwrap()
+                .is_empty()
+        );
 
         // 缺锁文件 fail-closed
         let error =

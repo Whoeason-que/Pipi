@@ -4,11 +4,11 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use av::{
-    collect_process_env, discover, lookup_command, merge_layers, probe_version, resolve_env,
-    version_satisfies, Discovered, Merged, ResolvedEnv,
+    Discovered, Merged, ResolvedEnv, collect_process_env, discover, lookup_command, merge_layers,
+    probe_version, resolve_env, version_satisfies,
 };
 
-use super::{parse_args, USAGE};
+use super::{USAGE, parse_args};
 
 pub fn run(command: &str, args: &[String]) -> Result<(), String> {
     if !matches!(command, "check" | "env" | "doctor") {
@@ -137,25 +137,25 @@ fn doctor(path: &std::path::Path) -> Result<(), String> {
     }
 
     // 声明技能的内容哈希深检（相当于 `av skill verify --declared`）
-    if let Some(declared) = av::store::winning_use(&resolved.discovered.layers) {
-        if !declared.names.is_empty() {
-            let skills = av::store::resolve_declared_skills(declared.names, &declared.lock_path)?;
-            for skill in skills {
-                match av::store::verify_entry(&skill.entry)? {
-                    av::store::VerifyOutcome::Ok => {
-                        println!("✓ skill {}（内容哈希一致）", skill.entry.name)
-                    }
-                    av::store::VerifyOutcome::Missing => {
-                        println!("✗ skill {}：store 内容缺失", skill.entry.name);
-                        all_ok = false;
-                    }
-                    av::store::VerifyOutcome::Mismatch { actual } => {
-                        println!(
-                            "✗ skill {}：内容漂移（{} ≠ {}）",
-                            skill.entry.name, actual, skill.entry.content_hash
-                        );
-                        all_ok = false;
-                    }
+    if let Some(declared) = av::store::winning_use(&resolved.discovered.layers)
+        && !declared.names.is_empty()
+    {
+        let skills = av::store::resolve_declared_skills(declared.names, &declared.lock_path)?;
+        for skill in skills {
+            match av::store::verify_entry(&skill.entry)? {
+                av::store::VerifyOutcome::Ok => {
+                    println!("✓ skill {}（内容哈希一致）", skill.entry.name)
+                }
+                av::store::VerifyOutcome::Missing => {
+                    println!("✗ skill {}：store 内容缺失", skill.entry.name);
+                    all_ok = false;
+                }
+                av::store::VerifyOutcome::Mismatch { actual } => {
+                    println!(
+                        "✗ skill {}：内容漂移（{} ≠ {}）",
+                        skill.entry.name, actual, skill.entry.content_hash
+                    );
+                    all_ok = false;
                 }
             }
         }

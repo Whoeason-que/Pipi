@@ -136,7 +136,7 @@ fn cleared_message(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compaction::{Budget, Preparation, DEFAULT_THRESHOLD_PERCENT};
+    use crate::compaction::{Budget, DEFAULT_THRESHOLD_PERCENT, Preparation};
     use pipi_protocol::ContentBlock;
 
     fn tool_result(text: &str) -> Message {

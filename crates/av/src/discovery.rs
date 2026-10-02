@@ -125,15 +125,15 @@ fn load_layer(path: &Path, label: &str) -> Result<Layer, String> {
 
 /// 展开 `~`（及其后跟 `/` 的形式）；`~user` 不展开，按字面处理。
 pub fn expand_tilde(raw: &str) -> PathBuf {
-    if raw == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home;
-        }
+    if raw == "~"
+        && let Some(home) = dirs::home_dir()
+    {
+        return home;
     }
-    if let Some(rest) = raw.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(rest);
-        }
+    if let Some(rest) = raw.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(rest);
     }
     PathBuf::from(raw)
 }

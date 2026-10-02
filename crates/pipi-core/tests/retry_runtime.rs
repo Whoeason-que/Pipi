@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pipi_core::agent_loop::{run_agent_loop, AgentContext, AgentEvent, AgentLoopConfig};
+use pipi_core::agent_loop::{AgentContext, AgentEvent, AgentLoopConfig, run_agent_loop};
 use pipi_core::retry::RetryPolicy;
 use pipi_protocol::{AbortSignal, Api, Message, Model, StopReason, StreamOptions};
 use pipi_provider::provider_for;

@@ -8,11 +8,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pipi_app::runtime::{RuntimeEvent, RuntimeState};
-use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
+use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
 use pipi_protocol::{AbortSignal, Api, Model, ToolResultContent};
 use pipi_tools::permissions::{
-    BashPermissions, PermissionsConfig, SandboxMode, BACKGROUND_TASK_TOOLS,
+    BACKGROUND_TASK_TOOLS, BashPermissions, PermissionsConfig, SandboxMode,
 };
 use pipi_tools::{AgentTool, ToolContext, ToolRegistry};
 use serde_json::json;
@@ -128,9 +128,11 @@ async fn create_run_and_read_agent_output() {
     let definition = pipi_core::agents::load_agent("composition-worker").unwrap();
     assert_eq!(definition.permissions.tools, vec!["read"]);
     assert!(definition.subagent);
-    assert!(BACKGROUND_TASK_TOOLS
-        .iter()
-        .all(|tool| !definition.permissions.tool_enabled(tool)));
+    assert!(
+        BACKGROUND_TASK_TOOLS
+            .iter()
+            .all(|tool| !definition.permissions.tool_enabled(tool))
+    );
     assert_eq!(definition.workspace.as_deref(), workspace.to_str());
     let instructions =
         std::fs::read_to_string(home.join(".pipi/agents/composition-worker/AGENTS.md")).unwrap();
@@ -150,9 +152,11 @@ async fn create_run_and_read_agent_output() {
         .unwrap();
     let default_definition = pipi_core::agents::load_agent("composition-default-worker").unwrap();
     assert_eq!(default_definition.permissions.tools, vec!["read", "glob"]);
-    assert!(BACKGROUND_TASK_TOOLS
-        .iter()
-        .all(|tool| !default_definition.permissions.tool_enabled(tool)));
+    assert!(
+        BACKGROUND_TASK_TOOLS
+            .iter()
+            .all(|tool| !default_definition.permissions.tool_enabled(tool))
+    );
 
     // 即使调用参数绕过模型侧 JSON Schema，也不能授予后台任务工具。
     for (index, tool) in BACKGROUND_TASK_TOOLS.iter().enumerate() {

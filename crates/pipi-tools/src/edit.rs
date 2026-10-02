@@ -3,9 +3,9 @@
 //! 多个 edit 都对原始内容匹配、按位置排序后应用并检查重叠。
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{resolve_path, resolve_write_path, AgentTool, ToolContext, ToolOutput};
+use super::{AgentTool, ToolContext, ToolOutput, resolve_path, resolve_write_path};
 use crate::types::ToolResultContent;
 
 pub struct EditTool;
@@ -42,7 +42,7 @@ pub fn apply_edits(content: &str, edits: &[Edit], path: &str) -> Result<String, 
             n => {
                 return Err(format!(
                     "oldText matches {n} locations in {path}; it must be unique. Add surrounding context to make it unique."
-                ))
+                ));
             }
         }
     }
@@ -74,11 +74,7 @@ pub fn strip_bom(s: &str) -> (bool, &str) {
 }
 
 pub fn detect_line_ending(s: &str) -> &'static str {
-    if s.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    }
+    if s.contains("\r\n") { "\r\n" } else { "\n" }
 }
 
 pub fn normalize_to_lf(s: &str) -> String {
@@ -107,11 +103,11 @@ pub fn diff_summary(base: &str, new: &str) -> (String, Option<usize>) {
                 first_changed = Some(idx + 1);
                 break;
             }
-        } else if change.tag() == similar::ChangeTag::Insert {
-            if let Some(idx) = change.new_index() {
-                first_changed = Some(idx + 1);
-                break;
-            }
+        } else if change.tag() == similar::ChangeTag::Insert
+            && let Some(idx) = change.new_index()
+        {
+            first_changed = Some(idx + 1);
+            break;
         }
     }
     let unified = diff.unified_diff().context_radius(2).to_string();

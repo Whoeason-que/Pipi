@@ -7,22 +7,22 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 use super::{AgentTool, ToolContext, ToolOutput};
-use crate::truncate::{format_size, truncate_tail, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
+use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
 use crate::types::ToolResultContent;
 
 pub struct BashTool;
 
 /// 超时 / 中止时终止整棵进程树（`killpg` 覆盖孙进程），并回收直接子进程。
 async fn terminate_child_tree(child: &mut tokio::process::Child) {
-    if let Some(pid) = child.id() {
-        if let Err(error) = crate::process::kill_process_group(pid) {
-            eprintln!("pipi: {error}");
-        }
+    if let Some(pid) = child.id()
+        && let Err(error) = crate::process::kill_process_group(pid)
+    {
+        eprintln!("pipi: {error}");
     }
     // 非 unix 平台没有进程组；未取到 pid 时也退回直接杀子进程
     let _ = child.start_kill();
@@ -220,13 +220,12 @@ impl AgentTool for BashTool {
                     break child.wait().await;
                 }
                 _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                    if let Some(t) = timeout {
-                        if started.elapsed() >= Duration::from_secs(t) {
+                    if let Some(t) = timeout
+                        && started.elapsed() >= Duration::from_secs(t) {
                             timed_out = true;
                             terminate_child_tree(&mut child).await;
                             break child.wait().await;
                         }
-                    }
                 }
             }
         };
@@ -302,10 +301,10 @@ impl AgentTool for BashTool {
             });
         }
         let status = status.map_err(|e| format!("等待命令结束失败: {e}"))?;
-        if let Some(code) = status.code() {
-            if code != 0 {
-                return Err(format!("{output_text}\n\nCommand exited with code {code}"));
-            }
+        if let Some(code) = status.code()
+            && code != 0
+        {
+            return Err(format!("{output_text}\n\nCommand exited with code {code}"));
         }
 
         Ok(ToolOutput {

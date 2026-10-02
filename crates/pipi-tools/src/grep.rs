@@ -7,11 +7,11 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use regex::{Regex, RegexBuilder};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use walkdir::WalkDir;
 
-use super::{resolve_read_path, AgentTool, ToolContext, ToolOutput};
-use crate::truncate::{truncate_head, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
+use super::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
+use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_head};
 use crate::types::ToolResultContent;
 
 /// 单次搜索的文件数上限（截断前的硬上限）。

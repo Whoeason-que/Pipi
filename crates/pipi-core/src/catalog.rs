@@ -705,28 +705,26 @@ static CATALOG_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub async fn load_catalog(refresh: bool) -> Result<ModelCatalog, String> {
     let _single_flight = CATALOG_LOCK.lock().await;
     let cached = read_cache();
-    if !refresh {
-        if let Some(catalog) = &cached {
-            if catalog
-                .fetched_at
-                .map(|at| is_fresh(at, now_secs()))
-                .unwrap_or(false)
-            {
-                let mut hit = catalog.clone();
-                hit.source = "cache".to_string();
-                hit.stale = false;
-                return Ok(hit);
-            }
-        }
+    if !refresh
+        && let Some(catalog) = &cached
+        && catalog
+            .fetched_at
+            .map(|at| is_fresh(at, now_secs()))
+            .unwrap_or(false)
+    {
+        let mut hit = catalog.clone();
+        hit.source = "cache".to_string();
+        hit.stale = false;
+        return Ok(hit);
     }
     let fetched = fetch_upstream()
         .await
         .and_then(|raw| build_catalog(&raw, now_secs()));
     let resolved = resolve_catalog(cached, fetched)?;
-    if resolved.source == "models.dev" {
-        if let Err(error) = write_cache(&resolved) {
-            eprintln!("pipi: 写入模型目录缓存失败：{error}");
-        }
+    if resolved.source == "models.dev"
+        && let Err(error) = write_cache(&resolved)
+    {
+        eprintln!("pipi: 写入模型目录缓存失败：{error}");
     }
     Ok(resolved)
 }
@@ -862,39 +860,47 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("版本段"), "{err}");
         // 有 baseUrlNote 说明出处则放行（novita 的实测形态）
-        assert!(validate_endpoint(
-            "novita-ai",
-            Api::OpenAICompletions,
-            "https://api.novita.ai/openai",
-            Some("官方 llms.txt")
-        )
-        .is_ok());
+        assert!(
+            validate_endpoint(
+                "novita-ai",
+                Api::OpenAICompletions,
+                "https://api.novita.ai/openai",
+                Some("官方 llms.txt")
+            )
+            .is_ok()
+        );
         // anthropic 协议不看版本段
-        assert!(validate_endpoint(
-            "anthropic",
-            Api::AnthropicMessages,
-            "https://api.anthropic.com",
-            None
-        )
-        .is_ok());
+        assert!(
+            validate_endpoint(
+                "anthropic",
+                Api::AnthropicMessages,
+                "https://api.anthropic.com",
+                None
+            )
+            .is_ok()
+        );
     }
 
     #[test]
     fn 非本地端点必须是_https() {
-        assert!(validate_endpoint(
-            "x",
-            Api::OpenAICompletions,
-            "http://api.example.com/v1",
-            None
-        )
-        .is_err());
-        assert!(validate_endpoint(
-            "x",
-            Api::OpenAICompletions,
-            "https://api.example.com/v1",
-            None
-        )
-        .is_ok());
+        assert!(
+            validate_endpoint(
+                "x",
+                Api::OpenAICompletions,
+                "http://api.example.com/v1",
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            validate_endpoint(
+                "x",
+                Api::OpenAICompletions,
+                "https://api.example.com/v1",
+                None
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -1065,10 +1071,12 @@ mod tests {
         let raw = fetch_upstream().await.expect("应能拉到 models.dev");
         let catalog = build_catalog(&raw, now_secs()).expect("应能构建目录");
         assert!(catalog.providers.len() >= MIN_PROVIDERS);
-        assert!(catalog
-            .providers
-            .iter()
-            .all(|p| !p.models.is_empty() || p.local));
+        assert!(
+            catalog
+                .providers
+                .iter()
+                .all(|p| !p.models.is_empty() || p.local)
+        );
 
         // 钉住几家关键 provider 的协议与端点：上游静默漂移（改名/换协议/换端点）时
         // 这个测试会红，而不是让用户少看到几家。

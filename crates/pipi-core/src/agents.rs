@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use pipi_protocol::{Model, Tool};
-use pipi_tools::permissions::{PermissionsConfig, KNOWN_TOOLS};
+use pipi_tools::permissions::{KNOWN_TOOLS, PermissionsConfig};
 
 /// Agent 清单，对应 `agent.json`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -325,8 +325,7 @@ pub fn delete_archived_agent(name: &str) -> Result<(), String> {
 pub const DEFAULT_AGENT_NAME: &str = "Pipi";
 
 /// 播种默认 Agent 时写入的描述（同时作为它 AGENTS.md 的首段）。
-const DEFAULT_AGENT_DESCRIPTION: &str =
-    "Pipi 自带的默认 Agent：开箱可用；工作目录、技能与记忆都在 ~/.pipi/agents/Pipi/ 下，改文件即生效";
+const DEFAULT_AGENT_DESCRIPTION: &str = "Pipi 自带的默认 Agent：开箱可用；工作目录、技能与记忆都在 ~/.pipi/agents/Pipi/ 下，改文件即生效";
 
 /// 确保默认 Agent 存在；**目录已存在时一律不动**（哪怕 manifest 被改坏，也不覆盖用户数据）。
 ///
@@ -351,11 +350,7 @@ pub fn ensure_default_agent() -> Result<Option<AgentDefinition>, String> {
         Ok(def) => Ok(Some(def)),
         Err(error) => {
             // 并发播种（桌面端与 Web 端同时启动）：另一边先建好了，不算失败。
-            if dir.exists() {
-                Ok(None)
-            } else {
-                Err(error)
-            }
+            if dir.exists() { Ok(None) } else { Err(error) }
         }
     }
 }
@@ -784,12 +779,11 @@ pub fn build_tool_context(
     };
     // memory 渐进召回：正文由模型用 read 按需加载，memory 目录须在受信任
     // 读取根内（memory 工具本身仍走自己的 memory_dir 约束）。
-    if let Some(memory_dir) = def.memory_dir() {
-        if memory_dir.is_dir() {
-            if let Ok(canonical_memory) = fs::canonicalize(&memory_dir) {
-                read_roots.push(canonical_memory);
-            }
-        }
+    if let Some(memory_dir) = def.memory_dir()
+        && memory_dir.is_dir()
+        && let Ok(canonical_memory) = fs::canonicalize(&memory_dir)
+    {
+        read_roots.push(canonical_memory);
     }
 
     // av 环境契约：会话启动时解析一次，本会话所有工具子进程共用同一份
@@ -1814,9 +1808,11 @@ only = ["wanted"]
 
         // memory 新文件可创建并读写
         write_agent_file("editor", "memory/user-prefs.md", "偏好： concise\n").unwrap();
-        assert!(read_agent_file("editor", "memory/user-prefs.md")
-            .unwrap()
-            .contains("偏好"));
+        assert!(
+            read_agent_file("editor", "memory/user-prefs.md")
+                .unwrap()
+                .contains("偏好")
+        );
 
         // 拒绝：绝对路径、逃逸、agent.json、其他扩展名、过深路径
         assert!(read_agent_file("editor", "/etc/passwd").is_err());
@@ -1839,32 +1835,36 @@ only = ["wanted"]
         assert!(create_agent("", "d", None, None, None, None).is_err());
         assert!(create_agent("bad name", "d", None, None, None, None).is_err());
         assert!(create_agent("../escape", "d", None, None, None, None).is_err());
-        assert!(create_agent(
-            "x",
-            "d",
-            None,
-            Some(PermissionsConfig {
-                tools: vec!["nuclear".into()],
-                bash: Default::default(),
-                sandbox: Default::default(),
-            }),
-            None,
-            None,
-        )
-        .is_err());
-        assert!(create_agent(
-            "x",
-            "d",
-            None,
-            Some(PermissionsConfig {
-                tools: vec![],
-                bash: Default::default(),
-                sandbox: Default::default(),
-            }),
-            None,
-            None,
-        )
-        .is_err());
+        assert!(
+            create_agent(
+                "x",
+                "d",
+                None,
+                Some(PermissionsConfig {
+                    tools: vec!["nuclear".into()],
+                    bash: Default::default(),
+                    sandbox: Default::default(),
+                }),
+                None,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            create_agent(
+                "x",
+                "d",
+                None,
+                Some(PermissionsConfig {
+                    tools: vec![],
+                    bash: Default::default(),
+                    sandbox: Default::default(),
+                }),
+                None,
+                None,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -2053,16 +2053,20 @@ only = ["wanted"]
         let minimal = r#"{"name":"t","permissions":{"tools":["read"]}}"#;
         let def: AgentDefinition = serde_json::from_str(minimal).unwrap();
         assert_eq!(def.compact_target_percent(), None);
-        assert!(!serde_json::to_string(&def)
-            .unwrap()
-            .contains("compactTargetPercent"));
+        assert!(
+            !serde_json::to_string(&def)
+                .unwrap()
+                .contains("compactTargetPercent")
+        );
 
         let custom = r#"{"name":"t","permissions":{"tools":["read"]},"compactTargetPercent":20}"#;
         let def: AgentDefinition = serde_json::from_str(custom).unwrap();
         assert_eq!(def.compact_target_percent(), Some(20));
-        assert!(serde_json::to_string(&def)
-            .unwrap()
-            .contains("\"compactTargetPercent\":20"));
+        assert!(
+            serde_json::to_string(&def)
+                .unwrap()
+                .contains("\"compactTargetPercent\":20")
+        );
 
         for value in [0, 100, 200] {
             let text = format!(r#"{{"name":"t","compactTargetPercent":{value}}}"#);
@@ -2172,10 +2176,12 @@ only = ["wanted"]
         // 归档：活跃列表消失、归档列表出现、目录真的移动了
         archive_agent(name).unwrap();
         assert!(!list_agents().unwrap().iter().any(|a| a.name == name));
-        assert!(list_archived_agents()
-            .unwrap()
-            .iter()
-            .any(|a| a.name == name));
+        assert!(
+            list_archived_agents()
+                .unwrap()
+                .iter()
+                .any(|a| a.name == name)
+        );
         let dir = agents_dir().unwrap();
         assert!(dir.join(ARCHIVE_DIR).join(name).is_dir());
         assert!(!dir.join(name).exists());
@@ -2186,10 +2192,12 @@ only = ["wanted"]
         // 恢复：回到活跃区
         restore_agent(name).unwrap();
         assert!(list_agents().unwrap().iter().any(|a| a.name == name));
-        assert!(!list_archived_agents()
-            .unwrap()
-            .iter()
-            .any(|a| a.name == name));
+        assert!(
+            !list_archived_agents()
+                .unwrap()
+                .iter()
+                .any(|a| a.name == name)
+        );
 
         // 恢复一个不存在的归档 Agent → 报错
         assert!(restore_agent("no-such-archived-agent").is_err());
@@ -2205,10 +2213,12 @@ only = ["wanted"]
         });
         // 上一步用 create+archive 保证该名字存在
         delete_archived_agent("arch-lifecycle-2").unwrap();
-        assert!(!list_archived_agents()
-            .unwrap()
-            .iter()
-            .any(|a| a.name == "arch-lifecycle-2"));
+        assert!(
+            !list_archived_agents()
+                .unwrap()
+                .iter()
+                .any(|a| a.name == "arch-lifecycle-2")
+        );
 
         // 删除不存在的 Agent → 报错
         assert!(delete_agent("no-such-agent").is_err());

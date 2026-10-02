@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 
 use pipi_app::runtime::{EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::agents;
-use pipi_core::session::{load_session, EntryKind, SessionWriter};
-use pipi_core::settings::{save_settings, ProviderConfig, Settings, Theme};
+use pipi_core::session::{EntryKind, SessionWriter, load_session};
+use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
 use pipi_protocol::{Api, Message, Model};
 
 /// 本文件的用例都改写进程级 `HOME`，必须串行执行（同 `session_repair.rs`）。
@@ -706,10 +706,12 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
     assert_ne!(new_id, old_id, "手动压缩同样分叉到新会话");
     assert!(sessions_dir.join(format!("{new_id}.jsonl")).is_file());
     assert!(!std::path::Path::new(&old_path).exists(), "原会话应已归档");
-    assert!(sessions_dir
-        .join(pipi_core::agents::ARCHIVE_DIR)
-        .join(format!("{old_id}.jsonl"))
-        .is_file());
+    assert!(
+        sessions_dir
+            .join(pipi_core::agents::ARCHIVE_DIR)
+            .join(format!("{old_id}.jsonl"))
+            .is_file()
+    );
     let _ = std::fs::remove_dir_all(&home);
 }
 

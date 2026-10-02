@@ -12,12 +12,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Json, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use pipi_app::approval::ApprovalDecision;
 use pipi_core::agents::{self, AgentDefinition};
 use pipi_tools::permissions::PermissionsConfig;
@@ -26,7 +26,7 @@ use pipi_app::runtime::{self, EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::settings::{self, Settings};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tower_http::services::{ServeDir, ServeFile};
@@ -192,15 +192,14 @@ fn is_https_request(headers: &header::HeaderMap) -> bool {
     if let Some(proto) = headers
         .get("x-forwarded-proto")
         .and_then(|v| v.to_str().ok())
+        && proto.eq_ignore_ascii_case("https")
     {
-        if proto.eq_ignore_ascii_case("https") {
-            return true;
-        }
+        return true;
     }
-    if let Some(cf) = headers.get("cf-visitor").and_then(|v| v.to_str().ok()) {
-        if cf.contains("https") {
-            return true;
-        }
+    if let Some(cf) = headers.get("cf-visitor").and_then(|v| v.to_str().ok())
+        && cf.contains("https")
+    {
+        return true;
     }
     false
 }

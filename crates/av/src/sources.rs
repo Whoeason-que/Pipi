@@ -376,10 +376,11 @@ fn run_git(args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
 
 /// 把一个 ref（分支/标签/commit；None = 远端 HEAD）解析为精确 commit。
 pub fn resolve_revision(url: &str, reference: Option<&str>) -> Result<String, String> {
-    if let Some(reference) = reference {
-        if reference.len() == 40 && reference.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Ok(reference.to_string());
-        }
+    if let Some(reference) = reference
+        && reference.len() == 40
+        && reference.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return Ok(reference.to_string());
     }
     let pattern = reference.unwrap_or("HEAD");
     let output = run_git(&["ls-remote", url, pattern], None)?;

@@ -15,14 +15,14 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::future::join_all;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use pipi_protocol::{
     AbortSignal, ContentBlock, Context, Message, Model, StopReason, StreamEvent, StreamOptions,
     ToolResultContent,
 };
 use pipi_provider::Provider;
-use pipi_tools::{validate_args, AgentTool, ToolContext, ToolOutput, ToolRegistry};
+use pipi_tools::{AgentTool, ToolContext, ToolOutput, ToolRegistry, validate_args};
 
 /// 对外事件。与 pi 的 AgentEvent 同名同层；`Serialize` 后可直接发给前端。
 #[derive(Debug, Clone, Serialize)]
@@ -619,22 +619,21 @@ fn prepare_call(call: &ContentBlock, config: &AgentLoopConfig, abort: &AbortSign
             return Prepared::Immediate {
                 result: error_output(e),
                 is_error: true,
-            }
+            };
         }
     };
-    if let Some(hook) = &config.before_tool_call {
-        if let Some(outcome) = hook(call, &args) {
-            if outcome.block {
-                return Prepared::Immediate {
-                    result: error_output(
-                        outcome
-                            .reason
-                            .unwrap_or_else(|| "Tool execution was blocked".into()),
-                    ),
-                    is_error: true,
-                };
-            }
-        }
+    if let Some(hook) = &config.before_tool_call
+        && let Some(outcome) = hook(call, &args)
+        && outcome.block
+    {
+        return Prepared::Immediate {
+            result: error_output(
+                outcome
+                    .reason
+                    .unwrap_or_else(|| "Tool execution was blocked".into()),
+            ),
+            is_error: true,
+        };
     }
     if abort.is_aborted() {
         return Prepared::Immediate {
@@ -1118,9 +1117,11 @@ mod tests {
                 ..
             }
         )));
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::AgentEnd { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::AgentEnd { .. }))
+        );
     }
 
     // ----- 可重试错误的重发 -----

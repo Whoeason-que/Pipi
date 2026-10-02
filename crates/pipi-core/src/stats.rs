@@ -173,11 +173,10 @@ impl SessionStatsTracker {
             stats.context_used = Some(prompt_total);
         }
         stats.context_max = self.context_max;
-        if let (Some(used), Some(max)) = (stats.context_used, self.context_max) {
-            if max > 0 {
-                stats.context_percent =
-                    Some(((used as f64 / max as f64) * 100.0).min(100.0) as u64);
-            }
+        if let (Some(used), Some(max)) = (stats.context_used, self.context_max)
+            && max > 0
+        {
+            stats.context_percent = Some(((used as f64 / max as f64) * 100.0).min(100.0) as u64);
         }
         stats
     }

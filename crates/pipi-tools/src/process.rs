@@ -8,7 +8,7 @@
 /// 随后仍要 `wait()` 回收直接子进程。
 #[cfg(unix)]
 pub fn kill_process_group(pid: u32) -> Result<(), String> {
-    use nix::sys::signal::{killpg, Signal};
+    use nix::sys::signal::{Signal, killpg};
     use nix::unistd::Pid;
 
     match killpg(Pid::from_raw(pid as i32), Signal::SIGKILL) {
@@ -21,7 +21,7 @@ pub fn kill_process_group(pid: u32) -> Result<(), String> {
 /// 给整个进程组发 `SIGTERM`（先礼后兵的第一步）。
 #[cfg(unix)]
 pub fn terminate_process_group(pid: u32) -> Result<(), String> {
-    use nix::sys::signal::{killpg, Signal};
+    use nix::sys::signal::{Signal, killpg};
     use nix::unistd::Pid;
 
     match killpg(Pid::from_raw(pid as i32), Signal::SIGTERM) {

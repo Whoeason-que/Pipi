@@ -33,7 +33,7 @@
 
 pub mod safety;
 
-pub use safety::{dangerous_command_match, DangerousCommandMatch};
+pub use safety::{DangerousCommandMatch, dangerous_command_match};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -364,28 +364,28 @@ impl PermissionsConfig {
                     }
                 }
             }
-            if self.sandbox != SandboxMode::DangerFullAccess {
-                if let Some(matched) = dangerous_command_match(&seg.argv) {
-                    // 工作区内的字面量 `rm -f`：清理构建 / 缓存产物的常规操作，
-                    // 放行；其余强制删除（含包装调用、越界或不可解析的目标）照旧拒绝。
-                    let workspace_contained = matches!(matched, DangerousCommandMatch::ForcedRm)
-                        && forced_rm_inside_workspace(&seg.argv, _workspace, command);
-                    if !workspace_contained {
-                        return BashAssessment::HardDenied(match matched {
-                            DangerousCommandMatch::ForcedRm => format!(
-                                "「{}」包含强制删除（rm -f 家族），在 {} 沙箱下被拒绝（仅放行工作区内、\
+            if self.sandbox != SandboxMode::DangerFullAccess
+                && let Some(matched) = dangerous_command_match(&seg.argv)
+            {
+                // 工作区内的字面量 `rm -f`：清理构建 / 缓存产物的常规操作，
+                // 放行；其余强制删除（含包装调用、越界或不可解析的目标）照旧拒绝。
+                let workspace_contained = matches!(matched, DangerousCommandMatch::ForcedRm)
+                    && forced_rm_inside_workspace(&seg.argv, _workspace, command);
+                if !workspace_contained {
+                    return BashAssessment::HardDenied(match matched {
+                        DangerousCommandMatch::ForcedRm => format!(
+                            "「{}」包含强制删除（rm -f 家族），在 {} 沙箱下被拒绝（仅放行工作区内、\
                                  非仓库根的绝对路径字面量；含变量 / 通配符的目标，以及命令内有 cd / pushd \
                                  时的相对路径都不可审批）",
-                                seg.text,
-                                self.sandbox.as_str()
-                            ),
-                            DangerousCommandMatch::Other => format!(
-                                "「{}」命中危险命令规则，在 {} 沙箱下被拒绝",
-                                seg.text,
-                                self.sandbox.as_str()
-                            ),
-                        });
-                    }
+                            seg.text,
+                            self.sandbox.as_str()
+                        ),
+                        DangerousCommandMatch::Other => format!(
+                            "「{}」命中危险命令规则，在 {} 沙箱下被拒绝",
+                            seg.text,
+                            self.sandbox.as_str()
+                        ),
+                    });
                 }
             }
         }
@@ -492,7 +492,7 @@ fn check_write_redirect(command: &str) -> RedirectCheck {
                         None => {
                             return RedirectCheck::Unparseable(format!(
                                 "heredoc 缺少结束符「{delimiter}」"
-                            ))
+                            ));
                         }
                     }
                 }
@@ -1025,15 +1025,18 @@ mod tests {
             },
             sandbox: SandboxMode::DangerFullAccess,
         };
-        assert!(p
-            .assess_bash("git add . && git commit", Path::new("/tmp"))
-            .is_ok());
-        assert!(p
-            .assess_bash("git add . && rm -rf /tmp/x", Path::new("/tmp"))
-            .is_err());
-        assert!(p
-            .assess_bash("echo hi; git status", Path::new("/tmp"))
-            .is_err());
+        assert!(
+            p.assess_bash("git add . && git commit", Path::new("/tmp"))
+                .is_ok()
+        );
+        assert!(
+            p.assess_bash("git add . && rm -rf /tmp/x", Path::new("/tmp"))
+                .is_err()
+        );
+        assert!(
+            p.assess_bash("echo hi; git status", Path::new("/tmp"))
+                .is_err()
+        );
     }
 
     #[test]
@@ -1046,15 +1049,18 @@ mod tests {
             },
             sandbox: SandboxMode::DangerFullAccess,
         };
-        assert!(p
-            .assess_bash("ls -la && rm -rf /tmp/x", Path::new("/tmp"))
-            .is_err());
-        assert!(p
-            .assess_bash("sudo apt install x", Path::new("/tmp"))
-            .is_err());
-        assert!(p
-            .assess_bash("ls -la && git status", Path::new("/tmp"))
-            .is_ok());
+        assert!(
+            p.assess_bash("ls -la && rm -rf /tmp/x", Path::new("/tmp"))
+                .is_err()
+        );
+        assert!(
+            p.assess_bash("sudo apt install x", Path::new("/tmp"))
+                .is_err()
+        );
+        assert!(
+            p.assess_bash("ls -la && git status", Path::new("/tmp"))
+                .is_ok()
+        );
     }
 
     #[test]
@@ -1068,9 +1074,10 @@ mod tests {
             sandbox: SandboxMode::DangerFullAccess,
         };
         // 引号里的 "分号" 不拆段：整段是一条 echo，不命中 rm
-        assert!(p
-            .assess_bash(r#"echo "a; rm -rf /""#, Path::new("/tmp"))
-            .is_ok());
+        assert!(
+            p.assess_bash(r#"echo "a; rm -rf /""#, Path::new("/tmp"))
+                .is_ok()
+        );
         assert!(p.assess_bash("rm x", Path::new("/tmp")).is_err());
     }
 
@@ -1081,18 +1088,20 @@ mod tests {
             sandbox: SandboxMode::WorkspaceWrite,
             ..Default::default()
         };
-        assert!(p
-            .assess_bash("rm -rf /var/tmp/pipi-outside", Path::new("/tmp"))
-            .is_err());
+        assert!(
+            p.assess_bash("rm -rf /var/tmp/pipi-outside", Path::new("/tmp"))
+                .is_err()
+        );
         assert!(p.assess_bash("rm -r build/", Path::new("/tmp")).is_ok());
         // 工作区内的字面量强制删除放行 —— 边界与反例见
         // forced_rm_is_allowed_only_for_workspace_literals
         assert!(p.assess_bash("rm -rf build/", Path::new("/tmp")).is_ok());
         // danger-full-access：放行
         p.sandbox = SandboxMode::DangerFullAccess;
-        assert!(p
-            .assess_bash("rm -rf /var/tmp/pipi-outside", Path::new("/tmp"))
-            .is_ok());
+        assert!(
+            p.assess_bash("rm -rf /var/tmp/pipi-outside", Path::new("/tmp"))
+                .is_ok()
+        );
     }
 
     #[test]

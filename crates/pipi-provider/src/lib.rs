@@ -21,12 +21,12 @@ use rig::message::{
     ToolResultContent as RigToolResultContent,
 };
 use rig::streaming::StreamedAssistantContent;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::mpsc::{self, Sender};
 
 mod classify;
 
-use classify::{classify_rig_error, RetryVerdict};
+use classify::{RetryVerdict, classify_rig_error};
 use pipi_error::RetryHint;
 use pipi_protocol::{
     AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
@@ -116,13 +116,13 @@ fn extra_headers(base_url: &str, session_id: Option<&str>) -> Option<HeaderMap> 
     if let Ok(value) = HeaderValue::from_str(&pipi_user_agent()) {
         headers.insert(HeaderName::from_static("user-agent"), value);
     }
-    if let Some(id) = session_id.filter(|id| !id.is_empty()) {
-        if let (Ok(name), Ok(value)) = (
+    if let Some(id) = session_id.filter(|id| !id.is_empty())
+        && let (Ok(name), Ok(value)) = (
             HeaderName::from_bytes(session_header.as_bytes()),
             HeaderValue::from_str(id),
-        ) {
-            headers.insert(name, value);
-        }
+        )
+    {
+        headers.insert(name, value);
     }
     Some(headers)
 }

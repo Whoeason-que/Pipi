@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::agents;
 use crate::session::{active_path, list_session_summaries, load_session, rebuild_messages};
@@ -541,7 +541,7 @@ fn validate_session_id(session_id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pipi_protocol::{now_millis, Usage};
+    use pipi_protocol::{Usage, now_millis};
     use std::collections::BTreeMap;
     use std::sync::Mutex;
 

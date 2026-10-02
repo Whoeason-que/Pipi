@@ -117,13 +117,13 @@ fn cmd_add(args: &[String]) -> Result<(), String> {
     lock.validate_unique_names()?;
     let mut conflicts = Vec::new();
     for skill in &report.installed {
-        if let Some(existing) = lock.get(&skill.entry.name) {
-            if existing.source != skill.entry.source {
-                conflicts.push(format!(
-                    "{}（{} → {}）",
-                    skill.entry.name, existing.source, skill.entry.source
-                ));
-            }
+        if let Some(existing) = lock.get(&skill.entry.name)
+            && existing.source != skill.entry.source
+        {
+            conflicts.push(format!(
+                "{}（{} → {}）",
+                skill.entry.name, existing.source, skill.entry.source
+            ));
         }
     }
     if !conflicts.is_empty() && !parsed.flag("replace") {

@@ -250,9 +250,11 @@ mod tests {
                 .unwrap(),
             Some(7)
         );
-        assert!(parse_args(&args(&["--limit", "x"]), &["limit"], &[])
-            .unwrap()
-            .usize_value("limit")
-            .is_err());
+        assert!(
+            parse_args(&args(&["--limit", "x"]), &["limit"], &[])
+                .unwrap()
+                .usize_value("limit")
+                .is_err()
+        );
     }
 }
