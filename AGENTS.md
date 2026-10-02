@@ -66,7 +66,7 @@ src/                React + TypeScript 前端
   `pipi-harness` / `av`）。历史上 `pipi_core::{
   types,tools,permissions,provider,harness,skills,truncate,project_doc}` 与
   `pipi-app` 的整包 glob 均已删除，不要再加回来。
-- Cargo 是 workspace 结构（edition 2024，rust-version 1.90）：版本 / edition 在根
+- Cargo 是 workspace 结构（edition 2024，rust-version 1.95）：版本 / edition 在根
   `Cargo.toml` 的 `[workspace.package]`，依赖版本与内部路径依赖都在
   `[workspace.dependencies]`，成员一律用 `version.workspace = true` /
   `{ workspace = true }` 继承，不要在成员里硬编码版本。一个坑：
@@ -90,10 +90,13 @@ src/                React + TypeScript 前端
 - 目录骨架必须与 README「Agent 的组成」表格一致；改动时两边同步更新。
 - provider 协议层用 rig（`rig` crate，依赖重命名自 rig-core）：新增 provider
   能力优先看 rig 是否已支持，不要回退到手写 SSE；映射偏差记录在 provider.rs。
+  rig 破坏性变更很频繁：0.43 是 wire + transport + fold 重写（client 由配置
+  `.connect(transport)` 组装、流事件是 part 生命周期、`Usage` 计数全是
+  `Option<u64>`），升级大版本前先读它的 CHANGELOG，别按旧 API 猜。
 - 统计口径（stats.rs，移植自 hermes）：滚动窗口 N=10、命中率 = cache_read/prompt、
   数据不足时省略而非显示 0 —— 改统计先对齐这三个语义。用量口径同 pi：`Usage.input`
-  只计未命中缓存的提示词 token（OpenAI 兼容端点的 `prompt_tokens` 已含缓存，拆分在
-  `provider::from_rig_usage` 完成）；读用量一律用 `Usage::prompt_tokens()`，不要再自行
+  只计未命中缓存的提示词 token（rig 0.43 起各供应商上报的 `input_tokens` 都含缓存
+  读写，拆分统一在 `provider::from_rig_usage` 完成）；读用量一律用 `Usage::prompt_tokens()`，不要再自行
   相加 —— 相加会把命中量算两遍，命中率恒为 50%。摘要压缩这类一次性调用的用量走
   `SessionStatsTracker::record_ledger`（只进累计值，不改写「当前上下文占用」）。
 - 上下文压缩（`compaction/`）分两类，加档位前先判断属于哪类：**投影式**
