@@ -65,7 +65,31 @@ export function IconGear() {
   );
 }
 
-/** 搜索（侧栏筛选） */
+/** Agent（左栏分区：普通 Agent） */
+export function IconAgent() {
+  return (
+    <IconBase>
+      <rect x="4" y="8.5" width="16" height="11" rx="3" />
+      <path d="M12 4.6v3.9" />
+      <circle cx="12" cy="3.4" r="1.3" />
+      <path d="M9.2 13.6h.01M14.8 13.6h.01" />
+    </IconBase>
+  );
+}
+
+/** Subagent（左栏分区：Agent 组合工具创建的 child） */
+export function IconSubagent() {
+  return (
+    <IconBase>
+      <rect x="9" y="3" width="6" height="5" rx="1.6" />
+      <rect x="3" y="16" width="6" height="5" rx="1.6" />
+      <rect x="15" y="16" width="6" height="5" rx="1.6" />
+      <path d="M12 8v4M6 16v-2h12v2" />
+    </IconBase>
+  );
+}
+
+/** 搜索（搜索分区 / 输入框内放大镜） */
 export function IconSearch() {
   return (
     <IconBase>

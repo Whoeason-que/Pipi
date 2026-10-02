@@ -61,15 +61,35 @@
     position: fixed;
     top: 0;
     bottom: 0;
-    left: 0;
+    /* 图标栏常驻，抽屉从它右边滑出（rail 仍可点，用来换分区） */
+    left: var(--rail-width);
     z-index: 35;
-    width: min(300px, 84vw);
+    width: min(300px, calc(84vw - var(--rail-width)));
     height: 100dvh;
     min-width: 0;
     padding-bottom: var(--safe-bottom);
-    transform: translateX(-100%);
+    /* 关闭态要整个滑出可视区：left 已经让开图标栏，位移必须把它一起算上，
+       否则抽屉的尾巴会盖住图标栏（同时挡住图标栏的点击） */
+    transform: translateX(calc(-100% - var(--rail-width)));
     transition: transform 0.2s ease;
     box-shadow: var(--shadow);
+  }
+
+  /* 触屏上图标栏也要够大够好点 */
+  .rail {
+    gap: 8px;
+    padding: 10px 0;
+    padding-top: calc(10px + var(--safe-top));
+  }
+
+  .rail .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .rail .icon-btn svg {
+    width: 20px;
+    height: 20px;
   }
 
   .app.sidebar-open .sidebar {
@@ -80,6 +100,7 @@
     display: block;
     position: fixed;
     inset: 0;
+    left: var(--rail-width);
     z-index: 34;
     background: rgba(0, 0, 0, 0.5);
     border: 0;

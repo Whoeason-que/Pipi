@@ -77,6 +77,9 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 
+  /* 左侧图标栏宽度（窄屏抽屉从它右边开始滑出） */
+  --rail-width: 52px;
+
   /* composer 顶部渐隐的透明端（与 --bg 同色相） */
   --bg-fade: rgba(33, 33, 33, 0);
 }
