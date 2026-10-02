@@ -150,9 +150,7 @@ impl AgentTool for BashTool {
         // 它们继续握着 stdout/stderr 管道，读取任务等不到 EOF（工具表现为卡住）。
         #[cfg(unix)]
         builder.process_group(0);
-        let mut child = builder
-            .spawn()
-            .map_err(|e| format!("无法启动 bash: {e}"))?;
+        let mut child = builder.spawn().map_err(|e| format!("无法启动 bash: {e}"))?;
         let mut group = GroupGuard::new(child.id());
 
         let mut stdout = child.stdout.take().expect("stdout piped");
@@ -374,7 +372,10 @@ mod tests {
     }
 
     /// 建一个最小 ToolContext（bash 用）。
-    fn test_context(workspace: std::path::PathBuf, abort: crate::types::AbortSignal) -> ToolContext {
+    fn test_context(
+        workspace: std::path::PathBuf,
+        abort: crate::types::AbortSignal,
+    ) -> ToolContext {
         ToolContext {
             workspace,
             memory_dir: None,
@@ -485,7 +486,10 @@ mod tests {
             .await
             .expect("中止后应立即返回，不能被孙进程拖住")
             .expect("任务不应 panic");
-        assert!(started.elapsed() < Duration::from_secs(3), "中止收尾不应耗时过久");
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "中止收尾不应耗时过久"
+        );
         let error = result.expect_err("中止应报错");
         assert!(error.contains("aborted"), "错误信息应说明中止: {error}");
         assert_process_terminated(read_pid_file(&workspace)).await;

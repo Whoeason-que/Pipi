@@ -522,12 +522,9 @@ mod tests {
         let signal = AbortSignal::new();
         signal.abort();
         // 已经中止的信号不应再等一个轮询周期
-        tokio::time::timeout(
-            std::time::Duration::from_millis(20),
-            signal.wait_aborted(),
-        )
-        .await
-        .expect("已中止的等待应立刻返回");
+        tokio::time::timeout(std::time::Duration::from_millis(20), signal.wait_aborted())
+            .await
+            .expect("已中止的等待应立刻返回");
     }
 
     #[tokio::test]

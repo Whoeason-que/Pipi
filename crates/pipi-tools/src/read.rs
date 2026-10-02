@@ -184,9 +184,15 @@ mod tests {
             detect_image_mime(b"RIFF\x24\x00\x00\x00WEBPVP8 "),
             Some("image/webp")
         );
-        assert_eq!(detect_image_mime(b"BM\x36\x00\x00\x00\x00\x00"), Some("image/bmp"));
+        assert_eq!(
+            detect_image_mime(b"BM\x36\x00\x00\x00\x00\x00"),
+            Some("image/bmp")
+        );
         // 不在附件白名单内的格式（如 SVG 文本、TIFF）不当作图片
-        assert_eq!(detect_image_mime(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"), None);
+        assert_eq!(
+            detect_image_mime(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"),
+            None
+        );
         assert_eq!(detect_image_mime(b"II*\x00\x08\x00\x00\x00"), None);
         assert_eq!(detect_image_mime(b"hello"), None);
     }
