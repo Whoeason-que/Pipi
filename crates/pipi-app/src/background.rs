@@ -70,6 +70,48 @@ struct JobState {
     next_seq: u64,
 }
 
+impl JobState {
+    fn snapshot(&self, after_seq: u64) -> BackgroundTaskSnapshot {
+        BackgroundTaskSnapshot {
+            task: self.info.clone(),
+            output: self
+                .output
+                .iter()
+                .filter(|chunk| chunk.seq > after_seq)
+                .cloned()
+                .collect(),
+            next_seq: self.next_seq,
+        }
+    }
+
+    fn append_output(&mut self, stream: &str, text: String) -> BackgroundTaskOutput {
+        self.next_seq = self.next_seq.saturating_add(1);
+        let chunk = BackgroundTaskOutput {
+            seq: self.next_seq,
+            stream: stream.to_string(),
+            text,
+            timestamp: now_millis(),
+        };
+        self.output_bytes = self.output_bytes.saturating_add(chunk.text.len());
+        self.output.push_back(chunk.clone());
+        while self.output_bytes > MAX_OUTPUT_BYTES {
+            let Some(old) = self.output.pop_front() else {
+                break;
+            };
+            self.output_bytes = self.output_bytes.saturating_sub(old.text.len());
+            self.info.output_truncated = true;
+        }
+        self.info.output_cursor = self.next_seq;
+        chunk
+    }
+
+    fn finish(&mut self, status: BackgroundTaskStatus, error: Option<String>) {
+        self.info.status = status;
+        self.info.completed_at = Some(now_millis());
+        self.info.error = error;
+    }
+}
+
 enum JobCommand {
     Terminate {
         response: oneshot::Sender<Result<(), String>>,
@@ -220,7 +262,7 @@ impl BackgroundTaskManager {
         query: &BackgroundTaskQuery,
     ) -> Result<BackgroundTaskSnapshot, String> {
         if query.wait_ms > 0 {
-            wait_for_entry(&entry, query.wait_ms).await;
+            wait_for_state(&entry.state, &entry.notify, query.wait_ms).await;
         }
         entry.snapshot(query.after_seq)
     }
@@ -231,7 +273,7 @@ impl BackgroundTaskManager {
         query: &BackgroundTaskQuery,
     ) -> Result<BackgroundTaskSnapshot, String> {
         if query.wait_ms > 0 {
-            wait_for_agent_entry(&entry, query.wait_ms).await;
+            wait_for_state(&entry.state, &entry.notify, query.wait_ms).await;
         }
         entry.snapshot(query.after_seq)
     }
@@ -621,7 +663,12 @@ impl BackgroundTaskService for BackgroundTaskManager {
                     return Err("后台 Agent 任务不支持写入 stdin".into());
                 }
                 entry.abort.abort();
-                wait_for_agent_entry(&entry, CONTROL_TIMEOUT.as_millis() as u64).await;
+                wait_for_state(
+                    &entry.state,
+                    &entry.notify,
+                    CONTROL_TIMEOUT.as_millis() as u64,
+                )
+                .await;
                 return entry.snapshot(0);
             }
             return self.query_persisted_job(owner, job_id, 0).await;
@@ -760,16 +807,7 @@ impl JobEntry {
             .state
             .lock()
             .map_err(|error| format!("后台任务状态不可用: {error}"))?;
-        Ok(BackgroundTaskSnapshot {
-            task: state.info.clone(),
-            output: state
-                .output
-                .iter()
-                .filter(|chunk| chunk.seq > after_seq)
-                .cloned()
-                .collect(),
-            next_seq: state.next_seq,
-        })
+        Ok(state.snapshot(after_seq))
     }
 
     fn append_output(
@@ -780,41 +818,20 @@ impl JobEntry {
         if text.is_empty() {
             return Ok(None);
         }
-        let mut state = self
+        let chunk = self
             .state
             .lock()
-            .map_err(|error| format!("后台任务状态不可用: {error}"))?;
-        state.next_seq = state.next_seq.saturating_add(1);
-        let seq = state.next_seq;
-        let chunk = BackgroundTaskOutput {
-            seq,
-            stream: stream.to_string(),
-            text,
-            timestamp: now_millis(),
-        };
-        let persisted_chunk = chunk.clone();
-        state.output_bytes = state.output_bytes.saturating_add(chunk.text.len());
-        state.output.push_back(chunk);
-        while state.output_bytes > MAX_OUTPUT_BYTES {
-            let Some(old) = state.output.pop_front() else {
-                break;
-            };
-            state.output_bytes = state.output_bytes.saturating_sub(old.text.len());
-            state.info.output_truncated = true;
-        }
-        state.info.output_cursor = state.next_seq;
-        drop(state);
+            .map_err(|error| format!("后台任务状态不可用: {error}"))?
+            .append_output(stream, text);
         self.notify.notify_waiters();
-        Ok(Some(persisted_chunk))
+        Ok(Some(chunk))
     }
 
     fn finish(&self, status: BackgroundTaskStatus, exit_code: Option<i32>, error: Option<String>) {
         self.pid.store(0, Ordering::Release);
         if let Ok(mut state) = self.state.lock() {
-            state.info.status = status;
             state.info.exit_code = exit_code;
-            state.info.completed_at = Some(now_millis());
-            state.info.error = error;
+            state.finish(status, error);
         }
         self.notify.notify_waiters();
     }
@@ -893,16 +910,7 @@ impl AgentJobEntry {
             .state
             .lock()
             .map_err(|error| format!("后台 Agent 任务状态不可用: {error}"))?;
-        Ok(BackgroundTaskSnapshot {
-            task: state.info.clone(),
-            output: state
-                .output
-                .iter()
-                .filter(|chunk| chunk.seq > after_seq)
-                .cloned()
-                .collect(),
-            next_seq: state.next_seq,
-        })
+        Ok(state.snapshot(after_seq))
     }
 
     fn append_output(
@@ -913,31 +921,13 @@ impl AgentJobEntry {
         if text.is_empty() {
             return Ok(None);
         }
-        let mut state = self
+        let chunk = self
             .state
             .lock()
-            .map_err(|error| format!("后台 Agent 任务状态不可用: {error}"))?;
-        state.next_seq = state.next_seq.saturating_add(1);
-        let chunk = BackgroundTaskOutput {
-            seq: state.next_seq,
-            stream: stream.to_string(),
-            text,
-            timestamp: now_millis(),
-        };
-        let persisted = chunk.clone();
-        state.output_bytes = state.output_bytes.saturating_add(chunk.text.len());
-        state.output.push_back(chunk);
-        while state.output_bytes > MAX_OUTPUT_BYTES {
-            let Some(old) = state.output.pop_front() else {
-                break;
-            };
-            state.output_bytes = state.output_bytes.saturating_sub(old.text.len());
-            state.info.output_truncated = true;
-        }
-        state.info.output_cursor = state.next_seq;
-        drop(state);
+            .map_err(|error| format!("后台 Agent 任务状态不可用: {error}"))?
+            .append_output(stream, text);
         self.notify.notify_waiters();
-        Ok(Some(persisted))
+        Ok(Some(chunk))
     }
 
     fn finish(
@@ -951,9 +941,7 @@ impl AgentJobEntry {
                 state.info.child_session_id = Some(result.session_id.clone());
                 state.info.result = Some(result.response.clone());
             }
-            state.info.status = status;
-            state.info.completed_at = Some(now_millis());
-            state.info.error = error;
+            state.finish(status, error);
         }
         self.notify.notify_waiters();
     }
@@ -1193,10 +1181,18 @@ where
     }
 }
 
-async fn wait_for_entry(entry: &JobEntry, wait_ms: u64) {
+async fn wait_for_state(state: &Mutex<JobState>, notify: &Notify, wait_ms: u64) {
     let deadline = Instant::now() + Duration::from_millis(wait_ms);
     loop {
-        if !entry.is_active() {
+        // 先注册等待者再检查终态，避免完成通知落在两者之间而多等整个超时。
+        let notified = notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if !state
+            .lock()
+            .map(|state| state.info.status.is_active())
+            .unwrap_or(false)
+        {
             return;
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1204,24 +1200,7 @@ async fn wait_for_entry(entry: &JobEntry, wait_ms: u64) {
             return;
         }
         tokio::select! {
-            _ = entry.notify.notified() => {}
-            _ = tokio::time::sleep(remaining) => return,
-        }
-    }
-}
-
-async fn wait_for_agent_entry(entry: &AgentJobEntry, wait_ms: u64) {
-    let deadline = Instant::now() + Duration::from_millis(wait_ms);
-    loop {
-        if !entry.is_active() {
-            return;
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return;
-        }
-        tokio::select! {
-            _ = entry.notify.notified() => {}
+            _ = notified => {},
             _ = tokio::time::sleep(remaining) => return,
         }
     }
@@ -1416,6 +1395,98 @@ mod tests {
                 .sum::<usize>()
                 <= MAX_OUTPUT_BYTES
         );
+    }
+
+    fn agent_entry(status: BackgroundTaskStatus) -> AgentJobEntry {
+        let mut state = JobState {
+            info: entry(status).info(),
+            output: VecDeque::new(),
+            output_bytes: 0,
+            next_seq: 0,
+        };
+        state.info.kind = BackgroundTaskKind::Agent;
+        AgentJobEntry {
+            owner: Mutex::new(owner()),
+            abort: AbortSignal::new(),
+            state: Mutex::new(state),
+            notify: Notify::new(),
+            metadata_path: PathBuf::new(),
+        }
+    }
+
+    #[test]
+    fn both_job_kinds_preserve_empty_output_cursor_and_incremental_multibyte_tail() {
+        let shell = entry(BackgroundTaskStatus::Running);
+        let agent = agent_entry(BackgroundTaskStatus::Running);
+        assert!(
+            shell
+                .append_output("stdout", String::new())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            agent
+                .append_output("agent", String::new())
+                .unwrap()
+                .is_none()
+        );
+        for text in ["旧".repeat(MAX_OUTPUT_BYTES / 3), "新尾部".into()] {
+            shell.append_output("stdout", text.clone()).unwrap();
+            agent.append_output("agent", text).unwrap();
+        }
+        for snapshot in [shell.snapshot(1).unwrap(), agent.snapshot(1).unwrap()] {
+            assert_eq!(snapshot.next_seq, 2);
+            assert_eq!(snapshot.task.output_cursor, 2);
+            assert!(snapshot.task.output_truncated);
+            assert_eq!(snapshot.output.len(), 1);
+            assert_eq!(snapshot.output[0].text, "新尾部");
+        }
+        assert!(shell.snapshot(2).unwrap().output.is_empty());
+        assert!(agent.snapshot(2).unwrap().output.is_empty());
+        let result = AgentRunResult {
+            agent_name: "child".into(),
+            session_id: "child-session".into(),
+            status: AgentRunStatus::Completed,
+            response: "done".into(),
+        };
+        shell.finish(BackgroundTaskStatus::Completed, Some(0), None);
+        agent.finish(BackgroundTaskStatus::Completed, Some(&result), None);
+        let shell = shell.snapshot(2).unwrap();
+        let agent = agent.snapshot(2).unwrap();
+        assert_eq!(shell.task.exit_code, Some(0));
+        assert_eq!(agent.task.result.as_deref(), Some("done"));
+        assert_eq!(
+            agent.task.child_session_id.as_deref(),
+            Some("child-session")
+        );
+        assert!(shell.task.completed_at.is_some() && agent.task.completed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn common_wait_returns_on_completion_for_both_kinds_and_bounds_running_wait() {
+        let shell = entry(BackgroundTaskStatus::Running);
+        let agent = agent_entry(BackgroundTaskStatus::Running);
+        let waiter = async {
+            wait_for_state(&shell.state, &shell.notify, 5_000).await;
+            wait_for_state(&agent.state, &agent.notify, 5_000).await;
+        };
+        let completion = async {
+            tokio::task::yield_now().await;
+            shell.finish(BackgroundTaskStatus::Completed, Some(0), None);
+            agent.finish(BackgroundTaskStatus::Terminated, None, None);
+        };
+        tokio::time::timeout(Duration::from_millis(500), async {
+            tokio::join!(waiter, completion);
+        })
+        .await
+        .unwrap();
+        let still_running = entry(BackgroundTaskStatus::Running);
+        tokio::time::timeout(
+            Duration::from_millis(500),
+            wait_for_state(&still_running.state, &still_running.notify, 5),
+        )
+        .await
+        .unwrap();
     }
 
     #[test]

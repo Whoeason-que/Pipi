@@ -34,7 +34,6 @@ impl Api {
             Self::OpenAICompletions => "openai-completions",
         }
     }
-
 }
 
 /// 助手消息内容块。JSON 标签与 pi 保持兼容。

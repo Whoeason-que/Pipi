@@ -18,6 +18,10 @@ export type MessageContentView =
 export interface MessageView {
   role: "user" | "assistant" | "toolResult";
   content: string | MessageContentView[];
+  api?: string;
+  provider?: string;
+  model?: string;
+  details?: unknown;
   usage?: UsageView;
   stopReason?: string;
   errorMessage?: string | null;
@@ -428,27 +432,61 @@ function mergeToolMessageEntry(entry: ChatEntry, message: MessageView): ChatEntr
 
 function mergeHydratedEntries(state: ChatState, messages: MessageView[]): ChatEntry[] {
   const merged = messages.map((message, index) => entryFromMessage(message, `restored-${index}`));
-  const live = state.entries.filter((entry) => entry.transient);
+  const established = state.entries.filter((entry) => !entry.transient);
+  const anchors = new Map<string, number>();
+  function acknowledge(index: number, entry: ChatEntry): void {
+    merged[index] = {
+      ...merged[index],
+      key: entry.key,
+      toolArgs: entry.toolArgs,
+      toolDetails: merged[index].toolDetails ?? entry.toolDetails,
+    };
+  }
+  // 原有持久化前缀仍相同时，保留 key 与工具详情；变化的历史由新快照决定。
+  established.forEach((entry, index) => {
+    if (merged[index] && hydratedEntryMatches(merged[index], entry)) {
+      acknowledge(index, entry);
+      anchors.set(entry.key, index);
+    }
+  });
   const earliestMatch = state.hydrated
-    ? Math.max(0, state.entries.length - live.length)
+    ? state.entries.filter((entry) => !entry.transient && !entry.kind).length
     : 0;
   let searchEnd = merged.length - 1;
-  const unmatched: ChatEntry[] = [];
+  let before = merged.length;
+  const unmatched = new Map<number, ChatEntry[]>();
 
-  for (let index = live.length - 1; index >= 0; index -= 1) {
-    const liveEntry = live[index];
+  for (let index = state.entries.length - 1; index >= 0; index -= 1) {
+    const liveEntry = state.entries[index];
+    if (!liveEntry.transient) {
+      before = anchors.get(liveEntry.key) ?? before;
+      continue;
+    }
     let match = -1;
-    for (let candidate = searchEnd; candidate >= earliestMatch; candidate -= 1) {
+    for (let candidate = Math.min(searchEnd, before - 1); candidate >= earliestMatch; candidate -= 1) {
       if (hydratedEntryMatches(merged[candidate], liveEntry)) {
         match = candidate;
         break;
       }
     }
-    if (match >= 0) searchEnd = match - 1;
-    else unmatched.push(liveEntry);
+    if (match >= 0) {
+      acknowledge(match, liveEntry);
+      searchEnd = match - 1;
+      before = match;
+    } else {
+      const entries = unmatched.get(before) ?? [];
+      entries.push(liveEntry);
+      unmatched.set(before, entries);
+    }
   }
 
-  return [...merged, ...unmatched.reverse()];
+  // 瞬时提示留在后续已确认消息之前，不能在水合后全部挪到时间线末尾。
+  const result: ChatEntry[] = [];
+  for (let index = 0; index <= merged.length; index += 1) {
+    result.push(...(unmatched.get(index)?.reverse() ?? []));
+    if (index < merged.length) result.push(merged[index]);
+  }
+  return result;
 }
 
 function hydratedEntryMatches(left: ChatEntry, right: ChatEntry): boolean {
@@ -826,6 +864,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 key: action.key,
                 role: "assistant",
                 kind: "retry",
+                transient: true,
                 text: `↻ ${formatRetryDelay(event.delayMs)}后重试（${event.attempt}/${retries}）· ${event.cause}`,
                 timestamp: Date.now(),
               },

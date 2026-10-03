@@ -209,9 +209,7 @@ fn thinking_issuer(api: Api) -> &'static str {
 }
 
 fn tool_name(name: &str) -> ToolName {
-    ToolName::new(name).unwrap_or_else(|_| {
-        ToolName::new("tool").expect("非空兜底名不应失败")
-    })
+    ToolName::new(name).unwrap_or_else(|_| ToolName::new("tool").expect("非空兜底名不应失败"))
 }
 
 /// 把会话历史映射为 rig 消息。system prompt 不进 messages（走请求的
@@ -342,7 +340,9 @@ fn from_rig_usage(u: &RigUsage) -> Usage {
     let prompt = u.input_tokens.unwrap_or(0);
     let output = u.output_tokens.unwrap_or(0);
     let mut usage = Usage {
-        input: prompt.saturating_sub(cache_read).saturating_sub(cache_write),
+        input: prompt
+            .saturating_sub(cache_read)
+            .saturating_sub(cache_write),
         output,
         cache_read,
         cache_write,
@@ -683,8 +683,10 @@ impl Provider for RigProvider {
                 tx: &Sender<StreamEvent>,
             ) -> Result<(), StreamError> {
                 let key = options.api_key.clone().unwrap_or_default();
-                let transport =
-                    rig_transport(extra_headers(&model.base_url, options.session_id.as_deref()));
+                let transport = rig_transport(extra_headers(
+                    &model.base_url,
+                    options.session_id.as_deref(),
+                ));
                 match api {
                     Api::AnthropicMessages => {
                         let mut config = AnthropicConfig::new(key);

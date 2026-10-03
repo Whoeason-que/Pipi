@@ -23,6 +23,8 @@ export default defineConfig({
     watch: { ignored: ["**/src-tauri/**", "**/target/**", "**/reference/**"] },
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
+  // reference/ 内的上游 HTML 不是应用入口，避免扫描它们的独立依赖树。
+  optimizeDeps: { entries: ["index.html"] },
   build: {
     target: "chrome105",
     minify: "esbuild",

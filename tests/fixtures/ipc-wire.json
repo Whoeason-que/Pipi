@@ -1,0 +1,21 @@
+{
+  "model": {"id":"fixture-model","name":"Fixture","api":"openai-completions","baseUrl":"http://127.0.0.1:1/v1","maxTokens":8192,"contextWindow":128000},
+  "agent": {"name":"fixture","description":"contract","model":"","workspace":null,"permissions":{"tools":["read"],"bash":{"mode":"allowlist","commands":[]},"sandbox":"workspace-write"},"mcpServers":[],"subagent":false,"compactThresholdPercent":75},
+  "settings": {"theme":"dark","providers":[{"id":"fixture","name":"Fixture","api":"openai-completions","baseUrl":"http://127.0.0.1:1/v1","envKey":"FIXTURE_API_KEY"}],"compaction":{"forkBeforeCompact":true,"archiveOriginal":true},"retry":{"maxAttempts":3,"baseDelayMs":1000,"maxDelayMs":10000}},
+  "messages": [
+    {"role":"user","content":"hello","timestamp":1},
+    {"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"toolCall","id":"call-1","name":"read","arguments":{"path":"README.md"}}],"api":"openai-completions","provider":"fixture","model":"fixture-model","usage":{"input":10,"output":2,"cacheRead":3,"cacheWrite":0,"totalTokens":15},"stopReason":"toolUse","timestamp":2},
+    {"role":"toolResult","toolCallId":"call-1","toolName":"read","content":[{"type":"text","text":"fixture"}],"isError":false,"timestamp":3}
+  ],
+  "stats": {"input":10,"output":2,"cacheRead":3,"cacheWrite":0,"calls":1},
+  "session": {"agentName":"fixture","sessionId":"session-1","temporary":false,"running":true,"backgroundTasks":0,"runId":7,"model":null,"isCustomModel":false},
+  "background": {"task":{"jobId":"job-1","kind":"agent","agentName":"fixture","sessionId":"session-1","runId":7,"command":"run_agent","cwd":"/tmp","targetAgent":"child","childSessionId":"child-1","status":"completed","startedAt":1,"completedAt":2,"outputCursor":1,"outputTruncated":false,"result":"done"},"output":[{"seq":1,"stream":"agent","text":"done","timestamp":2}],"nextSeq":1},
+  "events": [
+    {"type":"agent-event","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"event":{"type":"agent_end","messages":[]}}},
+    {"type":"session-stats","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"stats":{"input":10,"output":2,"cacheRead":3,"cacheWrite":0,"calls":1}}},
+    {"type":"session-error","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"message":"fixture failure"}},
+    {"type":"approval-request","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"requestId":"approval-1","command":"git status","missing":["git status"]}},
+    {"type":"session-switched","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"toSessionId":"session-2","archived":true}},
+    {"type":"session-changed","payload":{"agentName":"fixture","sessionId":"child-1","runId":8}}
+  ]
+}

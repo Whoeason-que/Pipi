@@ -1,5 +1,6 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
+import type { CommandArgs, CommandName, CommandResult, EventMap } from "./ipc";
 
 type PlatformEvent<T> = Pick<Event<T>, "payload">;
 type PlatformListener = (event: PlatformEvent<unknown>) => void;
@@ -360,25 +361,26 @@ function assertSessionArgs(command: string, args?: Record<string, unknown>): voi
  * Pipi 的唯一前端运行时边界：Tauri 桌面端走 IPC，普通浏览器走
  * HTTP/WebSocket，开发环境可注入本地 mock。组件不依赖具体传输方式。
  */
-export function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+export function invoke<K extends CommandName>(command: K, ...parameters: CommandArgs<K>): Promise<CommandResult<K>> {
+  const args = parameters[0];
   assertSessionArgs(command, args);
   const dev = devPlatform();
-  if (dev) return dev.invoke<T>(command, args);
+  if (dev) return dev.invoke<CommandResult<K>>(command, args);
   return isTauriRuntime()
-    ? tauriInvoke<T>(command, args)
-    : webInvoke<T>(command, args);
+    ? tauriInvoke<CommandResult<K>>(command, args)
+    : webInvoke<CommandResult<K>>(command, args);
 }
 
-export function listen<T>(
-  event: string,
-  listener: (event: PlatformEvent<T>) => void,
+export function listen<K extends keyof EventMap>(
+  event: K,
+  listener: (event: PlatformEvent<EventMap[K]>) => void,
 ): Promise<UnlistenFn> {
   const dev = devPlatform();
   if (dev) {
     return dev.listen(event, listener as (event: PlatformEvent<unknown>) => void);
   }
   if (isTauriRuntime()) {
-    return tauriListen<T>(event, (payload) => listener(payload));
+    return tauriListen<EventMap[K]>(event, (payload) => listener(payload));
   }
   return webListen(event, listener as WebEventListener);
 }

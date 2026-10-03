@@ -10,7 +10,7 @@ let inflight: Promise<ModelCatalog> | null = null;
 export async function loadCatalog(refresh = false): Promise<ModelCatalog> {
   if (!refresh && memory) return memory;
   if (!refresh && inflight) return inflight;
-  const request = invoke<ModelCatalog>("model_catalog", { refresh })
+  const request = invoke("model_catalog", { refresh })
     .then((catalog) => {
       memory = catalog;
       return catalog;

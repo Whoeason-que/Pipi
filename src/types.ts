@@ -52,7 +52,7 @@ export interface AgentDefinition {
   name: string;
   description: string;
   model: string;
-  provider: ModelConfig | null;
+  provider?: ModelConfig | null;
   workspace: string | null;
   permissions: PermissionsConfig;
   mcpServers: McpServer[];
@@ -69,8 +69,8 @@ export interface ProviderConfig {
   name: string;
   api: ApiKind;
   baseUrl: string;
-  envKey: string | null;
-  apiKey: string | null;
+  envKey?: string | null;
+  apiKey?: string | null;
 }
 
 /** 压缩行为开关（Rust 侧 settings::CompactionSettings）。 */
@@ -94,7 +94,7 @@ export interface RetrySettings {
 export interface Settings {
   theme: Theme;
   providers: ProviderConfig[];
-  defaultProviderId: string | null;
+  defaultProviderId?: string | null;
   compaction: CompactionSettings;
   retry: RetrySettings;
 }

@@ -200,6 +200,20 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 └──────────────────────────────────────┘
 ```
 
+前端的会话状态独立于组件生命周期：`session-runtime.ts` 统一订阅宿主事件，按
+`(Agent 名, sessionId)` 路由到 `session-controller.ts`。控制器负责历史快照、
+run 代际、停止确认与压缩重键；`Chat.tsx` 只持有输入、滚动和检查器等界面状态。
+退出或卸载视图不会中止运行。实际运行状态仍由 Rust 会话守卫与 `session_infos`
+确认，持久历史仍来自 JSONL；前端缓存不设置运行会话数量上限。
+
+`pipi-app::runtime` 的公共入口位于 `runtime/mod.rs`，内部按 `slots`（会话与文件）、
+`execution`（主轮与 child）、`compaction`（压缩与重键）、`events`（事件与落盘）
+拆分。桌面与 Web 共用这些实现。前端 `ipc.ts` 声明命令参数、返回值和事件类型，
+`npm run test:frontend` 会核对桌面注册、Web 路由和共享 JSON wire 样例；应用层的
+`cargo test -p pipi-app` 验证同一份样例的 Rust 序列化。
+
+复杂度优化的实施记录、基线和验证范围见 [docs/complexity-optimization.md](docs/complexity-optimization.md)。
+
 ### 上下文压缩（策略与流水线）
 
 把「一次压缩」拆成 **计划 → 校验 → 应用/落盘**，

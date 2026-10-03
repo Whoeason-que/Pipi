@@ -309,3 +309,54 @@ test("compaction events produce a single system entry with collapsible summary",
   assert.equal(state.activeCompactionKey, null);
   assert.equal(state.running, false);
 });
+
+test("rehydration with a retry notice acknowledges persisted messages once and keeps live entry keys", () => {
+  let state = chatReducer(INITIAL_CHAT_STATE, { type: "hydrate", messages: [{ role: "user", content: "history" }], stats: null, running: false });
+  state = chatReducer(state, { type: "submit_user", key: "new-user", text: "new" });
+  state = event(state, { type: "retry_start", attempt: 1, maxAttempts: 3, delayMs: 10, cause: "fixture" });
+  state = event(state, { type: "message_end", message: assistantMessage("reply", "stop") });
+  state = event(state, { type: "agent_end" });
+  const replyKey = state.entries.find(entry => entry.text === "reply")!.key;
+  const messages: MessageView[] = [{ role: "user", content: "history" }, { role: "user", content: "new" }, assistantMessage("reply", "stop")];
+  state = chatReducer(state, { type: "hydrate", messages, stats: null, running: false });
+  state = chatReducer(state, { type: "hydrate", messages, stats: null, running: false });
+  assert.deepEqual(state.entries.filter(entry => !entry.kind).map(entry => entry.text), ["history", "new", "reply"]);
+  assert.equal(state.entries.find(entry => entry.text === "reply")!.key, replyKey);
+  assert.equal(state.entries.find(entry => entry.text === "new")!.key, "new-user");
+  assert.equal(state.entries[2]?.kind, "retry");
+});
+
+test("repeated hydration keeps earlier run notices before later turns and preserves tool details", () => {
+  let state = chatReducer(INITIAL_CHAT_STATE, {
+    type: "hydrate", messages: [{ role: "user", content: "history" }], stats: null, running: false,
+  });
+  state = chatReducer(state, { type: "submit_user", key: "stopped-user", text: "stop this run" });
+  state = event(state, { type: "message_end", message: assistantMessage("interrupted", "aborted") });
+  state = event(state, { type: "agent_end" });
+  state = chatReducer(state, { type: "submit_user", key: "next-user", text: "next run" });
+  state = event(state, { type: "tool_execution_start", toolCallId: "read-next", toolName: "read", args: { path: "README.md" } });
+  state = event(state, {
+    type: "tool_execution_end", toolCallId: "read-next", toolName: "read",
+    result: { content: [{ type: "text", text: "read result" }], details: { path: "README.md" } }, isError: false,
+  });
+  state = event(state, { type: "retry_start", attempt: 1, maxAttempts: 3, delayMs: 10, cause: "fixture" });
+  state = event(state, { type: "message_end", message: assistantMessage("completed", "stop") });
+  state = event(state, { type: "agent_end" });
+  const keys = state.entries.map(entry => entry.key);
+  const messages: MessageView[] = [
+    { role: "user", content: "history" },
+    { role: "user", content: "stop this run" },
+    { role: "user", content: "next run" },
+    { role: "toolResult", toolCallId: "read-next", toolName: "read", content: "read result" },
+    assistantMessage("completed", "stop"),
+  ];
+  for (let pass = 0; pass < 3; pass += 1) {
+    state = chatReducer(state, { type: "hydrate", messages, stats: null, running: false });
+    assert.deepEqual(state.entries.map(entry => entry.key), keys);
+    assert.deepEqual(state.entries.filter(entry => !entry.kind).map(entry => entry.text),
+      ["history", "stop this run", "interrupted", "next run", "read result", "completed"]);
+    assert.equal(state.entries[5]?.kind, "retry");
+    assert.deepEqual(state.entries.find(entry => entry.toolCallId === "read-next")?.toolArgs, { path: "README.md" });
+    assert.deepEqual(state.entries.find(entry => entry.toolCallId === "read-next")?.toolDetails, { path: "README.md" });
+  }
+});

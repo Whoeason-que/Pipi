@@ -53,9 +53,7 @@ pub fn classify_rig_error(err: &ProviderError) -> (RetryVerdict, Option<RetryHin
     }
 }
 
-fn classify_response(
-    response: &rig::ProviderResponseError,
-) -> (RetryVerdict, Option<RetryHint>) {
+fn classify_response(response: &rig::ProviderResponseError) -> (RetryVerdict, Option<RetryHint>) {
     classify_status(
         response.status.map(|status| status.as_u16()),
         retry_after_from_headers(response.headers.as_ref()),

@@ -36,6 +36,13 @@ src-tauri/          Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务�
 src/                React + TypeScript 前端
 ```
 
+前端会话投影由 `src/session-runtime.ts`（全局订阅、会话索引）与
+`src/session-controller.ts`（水合、run 身份、停止、重键）拥有；界面组件只订阅
+快照，不在卸载时停止运行，也不另注册宿主会话事件。`src/ipc.ts` 是类型化命令
+边界；改命令或 DTO 后跑 `npm run test:frontend` 与 `cargo test -p pipi-app`，
+同步 `tests/fixtures/ipc-wire.json` 的字段变动。不要绕回 `invoke<T>(string)`。
+`pipi-app/src/runtime/` 的子模块保持私有，公共调用继续经过 `runtime` 入口。
+
 核心从 [pi](https://github.com/earendil-works/pi) 移植而来，模块映射与「有意
 不移植清单」见 README「与 pi 的关系」一节。改核心逻辑前先看上游对应实现。
 命令安全（`permissions/safety.rs`）与沙箱模式移植自 openai/codex，
@@ -49,6 +56,8 @@ src/                React + TypeScript 前端
 | `npm run tauri dev` | 启动开发模式（前端 + 桌面壳） |
 | `npm run tauri build` | 打包 |
 | `cargo test -p pipi-core` | 核心单元测试（改核心必跑） |
+| `cargo test -p pipi-app` | 会话并发、压缩运行时、后台任务、跨端 wire 回归 |
+| `npm run test:frontend` | 前端状态机、会话控制器、IPC 与 DTO 契约 |
 | `cargo test -p av` | av 契约 + 技能包管理测试（改 av 必跑；含本地 git 安装端到端） |
 | `cargo run -p av -- skill list` | 调试 av CLI（`check`/`env`/`doctor`/`skill …`；`AV_HOME` 可隔离） |
 | `cargo check --workspace` | 全量编译检查 |
