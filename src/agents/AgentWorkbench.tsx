@@ -29,6 +29,7 @@ import { permissionsFromFields } from "./agent-fields";
 import { BashChoices, SandboxChoices, ToolChoices } from "./PermissionChoices";
 
 import AgentFileEditor from "./AgentFileEditor";
+import { AgentSkillsTab } from "../skills/AgentSkillsTab";
 // ============ Agent 详情 ============
 
 interface AgentWorkbenchProps {
@@ -42,7 +43,7 @@ interface AgentWorkbenchProps {
   onRunningChange: (agentName: string, sessionId: string | null, running: boolean) => void;
 }
 
-type AgentSettingsTab = "basic" | "permissions" | "files" | "test";
+type AgentSettingsTab = "basic" | "permissions" | "skills" | "files" | "test";
 
 export default function AgentWorkbench({
   agent,
@@ -254,6 +255,7 @@ export default function AgentWorkbench({
             {([
               ["basic", "基础"],
               ["permissions", "权限"],
+              ["skills", "技能"],
               ["files", "文件"],
               ["test", "测试"],
             ] as const).map(([tab, label]) => (
@@ -415,6 +417,14 @@ export default function AgentWorkbench({
                   </span>
                 </div>
               </section>
+            )}
+
+            {settingsTab === "skills" && (
+              <AgentSkillsTab
+                agentName={agent.name}
+                onError={onError}
+                onChanged={() => resetTestSession()}
+              />
             )}
 
             {settingsTab === "files" && (

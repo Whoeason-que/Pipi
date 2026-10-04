@@ -199,3 +199,35 @@ export function IconTrash() {
     </IconBase>
   );
 }
+/** 技能（能力包火花） */
+export function IconSkill() {
+  return (
+    <IconBase>
+      <path d="M11 3.5l1.7 4.6 4.6 1.7-4.6 1.7-1.7 4.6-1.7-4.6L4.7 9.8l4.6-1.7z" />
+      <path d="M17.6 14.6l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" />
+    </IconBase>
+  );
+}
+
+/** 刷新 / 重新读取 */
+export function IconRefresh() {
+  return (
+    <IconBase>
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M8 16H3v5" />
+    </IconBase>
+  );
+}
+
+/** 安装（装入全局技能 store） */
+export function IconDownload() {
+  return (
+    <IconBase>
+      <path d="M12 4v10" />
+      <path d="M8 10.5l4 4 4-4" />
+      <path d="M5 19.5h14" />
+    </IconBase>
+  );
+}

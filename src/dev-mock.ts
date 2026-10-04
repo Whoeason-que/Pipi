@@ -529,6 +529,101 @@ const settings: Settings = {
   retry: { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 30000 },
 };
 
+
+// —— 技能（av store 演示数据）：与 pipi_core::skill_center 的 DTO 同形 ——
+const demoSkillLibrary: Array<Record<string, unknown>> = [
+  {
+    name: "pdf",
+    description: "PDF 读写：抽取文本、合并与拆分页面",
+    currentHash: "sha256:" + "a".repeat(64),
+    source: "https://github.com/example/skills",
+    sourceType: "git",
+    skillPath: "skills/pdf",
+    installedAt: "2026-10-01T08:00:00Z",
+    versions: [
+      {
+        contentHash: "sha256:" + "a".repeat(64),
+        source: "https://github.com/example/skills",
+        sourceType: "git",
+        reference: "main",
+        revision: "c".repeat(40),
+        skillPath: "skills/pdf",
+        installedAt: "2026-10-01T08:00:00Z",
+        updatedAt: "2026-10-01T08:00:00Z",
+        present: true,
+      },
+    ],
+  },
+  {
+    name: "commit-helper",
+    description: "按仓库约定生成规范的提交信息",
+    currentHash: "sha256:" + "b".repeat(64),
+    source: "/home/user/skills/commit-helper",
+    sourceType: "local",
+    skillPath: null,
+    installedAt: "2026-09-20T08:00:00Z",
+    versions: [
+      {
+        contentHash: "sha256:" + "b".repeat(64),
+        source: "/home/user/skills/commit-helper",
+        sourceType: "local",
+        reference: null,
+        revision: null,
+        skillPath: null,
+        installedAt: "2026-09-20T08:00:00Z",
+        updatedAt: null,
+        present: true,
+      },
+    ],
+  },
+];
+
+const demoAgentSkillUse = new Map<string, Set<string>>([
+  [demoAgent.name, new Set(["pdf"])],
+  [demoPeer.name, new Set<string>()],
+]);
+
+function demoAgentSkillsView(agentName: string): Record<string, unknown> {
+  const use = demoAgentSkillUse.get(agentName) ?? new Set<string>();
+  const declared = demoSkillLibrary
+    .filter((skill) => use.has(String(skill.name)))
+    .map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      status: "ready",
+      contentHash: skill.currentHash,
+      source: skill.source,
+      revision: (skill.versions as Array<Record<string, unknown>>)[0]?.revision ?? null,
+      filter: null,
+    }));
+  const available = demoSkillLibrary
+    .filter((skill) => !use.has(String(skill.name)))
+    .map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      contentHash: skill.currentHash,
+      present: true,
+      source: skill.source,
+      sourceType: skill.sourceType,
+      versionCount: (skill.versions as unknown[]).length,
+    }));
+  return {
+    agentName,
+    contractPath: `~/.pipi/agents/${agentName}/agent.toml`,
+    lockPath: `~/.pipi/agents/${agentName}/agent.lock`,
+    declaredBy: declared.length > 0 ? "agent" : null,
+    declaredByPath: declared.length > 0 ? `~/.pipi/agents/${agentName}/agent.toml` : null,
+    agentContractExists: declared.length > 0,
+    declaresInProject: false,
+    declared,
+    available,
+    only: null,
+    exclude: null,
+    sources: null,
+    lockError: null,
+  };
+}
+
 function listDemoSessions(agentName: string): Array<Record<string, unknown>> {
   const state = stateFor(agentName);
   return [...state.histories.entries()]
@@ -860,6 +955,119 @@ export function installDevMock(): void {
           const state = stateFor(String(args.agentName ?? demoAgent.name));
           state.archivedSessions.delete(String(args.sessionId ?? ""));
           return Promise.resolve(null);
+        }
+        // —— 技能（av store：演示桩，与真实 DTO 同形）——
+        case "skill_library":
+          return Promise.resolve({ storePath: "~/.av/skills", skills: demoSkillLibrary });
+        case "agent_skills":
+          return Promise.resolve(demoAgentSkillsView(String(args.agentName ?? demoAgent.name)));
+        case "set_skill_enabled": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const name = String(args.name ?? "");
+          const use = demoAgentSkillUse.get(agentName) ?? new Set<string>();
+          if (Boolean(args.enabled)) use.add(name);
+          else use.delete(name);
+          demoAgentSkillUse.set(agentName, use);
+          return Promise.resolve(demoAgentSkillsView(agentName));
+        }
+        case "verify_store_skills": {
+          const names = Array.isArray(args.names) ? (args.names as string[]) : null;
+          const rows = demoSkillLibrary.flatMap((skill) =>
+            (skill.versions as Array<Record<string, unknown>>).map((version) => ({
+              name: skill.name,
+              contentHash: version.contentHash,
+              status: "ok",
+              actualHash: null,
+            })),
+          );
+          return Promise.resolve(
+            names && names.length > 0 ? rows.filter((row) => names.includes(String(row.name))) : rows,
+          );
+        }
+        case "install_skill": {
+          const source = String(args.source ?? "").trim();
+          if (!source) return Promise.reject(new Error("请填写技能来源"));
+          const raw =
+            (source.replace(/\.git$/, "").split(/[#?]/)[0].split(/[\\/]/).filter(Boolean).pop() ?? "skill")
+              .toLowerCase()
+              .replace(/[^a-z0-9-]+/g, "-")
+              .replace(/^-+|-+$/g, "") || "skill";
+          const dryRun = Boolean(args.dryRun);
+          const hash = "sha256:" + "d".repeat(64);
+          const isLocal = source.startsWith("/");
+          const existing = demoSkillLibrary.some((skill) => skill.name === raw);
+          if (!existing && !dryRun) {
+            demoSkillLibrary.push({
+              name: raw,
+              description: `从 ${source} 安装（演示）`,
+              currentHash: hash,
+              source,
+              sourceType: isLocal ? "local" : "git",
+              skillPath: isLocal ? null : `skills/${raw}`,
+              installedAt: "2026-10-04T00:00:00Z",
+              versions: [
+                {
+                  contentHash: hash,
+                  source,
+                  sourceType: isLocal ? "local" : "git",
+                  reference: null,
+                  revision: isLocal ? null : "e".repeat(40),
+                  skillPath: isLocal ? null : `skills/${raw}`,
+                  installedAt: "2026-10-04T00:00:00Z",
+                  updatedAt: null,
+                  present: true,
+                },
+              ],
+            });
+          }
+          return Promise.resolve({
+            installed: [
+              {
+                name: raw,
+                contentHash: hash,
+                source,
+                sourceType: isLocal ? "local" : "git",
+                skillPath: isLocal ? null : `skills/${raw}`,
+                revision: isLocal ? null : "e".repeat(40),
+                unchanged: existing,
+              },
+            ],
+            skipped: [],
+            log: [dryRun ? `将安装 ${raw}（dry-run）` : `已安装 ${raw}`],
+            dryRun,
+          });
+        }
+        case "remove_store_skill": {
+          const name = String(args.name ?? "");
+          const index = demoSkillLibrary.findIndex((skill) => skill.name === name);
+          if (index < 0) return Promise.reject(new Error(`技能「${name}」不在 store 索引中`));
+          const declaredBy = [...demoAgentSkillUse.entries()]
+            .filter(([, use]) => use.has(name))
+            .map(([agent]) => agent);
+          if (declaredBy.length > 0) {
+            return Promise.reject(
+              new Error(`技能「${name}」仍被这些 Agent 声明启用：${declaredBy.join("、")}；先在技能页禁用后再移除`),
+            );
+          }
+          demoSkillLibrary.splice(index, 1);
+          return Promise.resolve(1);
+        }
+        case "sync_agent_skills": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const use = [...(demoAgentSkillUse.get(agentName) ?? new Set<string>())];
+          return Promise.resolve({ ready: use, installed: [], repaired: [], resolved: [], log: [] });
+        }
+        case "skill_usage": {
+          const name = String(args.name ?? "");
+          return Promise.resolve(
+            [...demoAgentSkillUse.entries()].map(([agentName, use]) => ({
+              agentName,
+              enabled: use.has(name),
+              status: use.has(name) ? "ready" : null,
+              filter: null,
+              declaredBy: use.has(name) ? "agent" : null,
+            })),
+          );
         }
         default:
           return Promise.resolve(null);

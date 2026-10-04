@@ -17,6 +17,7 @@ import {
   IconPlus,
   IconRestore,
   IconSearch,
+  IconSkill,
   IconSubagent,
   IconTrash
 } from "./icons";
@@ -36,12 +37,15 @@ import { useResizableWidth } from "./resizable";
 import { SearchPanel } from "./SearchPanel";
 import { SessionRuntime } from "./session-runtime";
 import SettingsView from "./settings/SettingsView";
+import { SkillsSidebar } from "./skills/SkillsSidebar";
+import { SkillsView } from "./skills/SkillsView";
 import { applyTheme } from "./theme";
 import {
   type AgentDefinition,
   type SessionInfoView,
   type SessionSummaryView,
-  type Settings
+  type Settings,
+  type SkillLibrary
 } from "./types";
 
 const CONNECTION_LABELS: Record<ConnectionState, string> = {
@@ -52,10 +56,10 @@ const CONNECTION_LABELS: Record<ConnectionState, string> = {
 };
 
 /**
- * 左侧图标栏的分区：Agent / Subagent / 搜索各自一个侧栏面板，
+ * 左侧图标栏的分区：Agent / Subagent / 搜索 / 技能各自一个侧栏面板，
  * 全局设置（settingsOpen）是主区里的一个视图，不在分区状态里。
  */
-type NavSection = "agents" | "subs" | "search";
+type NavSection = "agents" | "subs" | "search" | "skills";
 
 /** 构建时注入的版本号（vite define），未注入时留空。 */
 const APP_VERSION = typeof __PIPI_VERSION__ === "string" ? __PIPI_VERSION__ : "";
@@ -125,6 +129,10 @@ export default function App() {
   const sidebarWidth = sidebarResize.width;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  /** 技能库：store 一览 + 当前查看的技能（「技能」分区用）。 */
+  const [skillLibrary, setSkillLibrary] = useState<SkillLibrary | null>(null);
+  const [skillSelected, setSkillSelected] = useState<string | null>(null);
+  const [skillLoadError, setSkillLoadError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionState>(getConnectionState());
   const [error, setError] = useState<string | null>(null);
   // 删除确认弹窗（window.confirm 在 Tauri WebView 不可用，一律走自定义弹层）
@@ -152,6 +160,32 @@ export default function App() {
   activeSessionRef.current = activeSession;
 
   useEffect(() => subscribeConnection(setConnection), []);
+
+  /** 读取全局技能 store 一览（进入「技能」分区时，以及每次显式操作之后）。 */
+  const loadSkillLibrary = useCallback(async (): Promise<SkillLibrary | null> => {
+    try {
+      const library = await invoke("skill_library");
+      setSkillLibrary(library);
+      setSkillLoadError(null);
+      return library;
+    } catch (errorValue) {
+      setSkillLoadError(formatRuntimeError(errorValue));
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (navSection !== "skills" || settingsOpen) return;
+    void loadSkillLibrary();
+  }, [navSection, settingsOpen, loadSkillLibrary]);
+
+  // 技能被移除后清掉选中态（详情会退回过览）
+  useEffect(() => {
+    if (!skillSelected || !skillLibrary) return;
+    if (!skillLibrary.skills.some((skill) => skill.name === skillSelected)) {
+      setSkillSelected(null);
+    }
+  }, [skillLibrary, skillSelected]);
 
   const safeSetError = useCallback((msg: string | null) => {
     if (!msg) {
@@ -829,6 +863,16 @@ export default function App() {
           >
             <IconSearch />
           </button>
+          <button
+            type="button"
+            className={`icon-btn${!settingsOpen && navSection === "skills" ? " active" : ""}`}
+            title="技能库"
+            aria-label="技能库"
+            aria-current={!settingsOpen && navSection === "skills" ? "page" : undefined}
+            onClick={() => openSection("skills")}
+          >
+            <IconSkill />
+          </button>
           <span className="rail-spacer" />
           <button
             type="button"
@@ -864,6 +908,14 @@ export default function App() {
                 setExpandedAgents((previous) => ({ ...previous, [name]: true }));
               }}
               onOpenSession={(agentName, sessionId) => void openSession(agentName, sessionId)}
+            />
+          ) : navSection === "skills" ? (
+            <SkillsSidebar
+              library={skillLibrary}
+              selected={skillSelected}
+              error={skillLoadError}
+              onSelect={setSkillSelected}
+              onRefresh={() => void loadSkillLibrary()}
             />
           ) : (
             <>
@@ -1221,7 +1273,7 @@ export default function App() {
               <IconMenu />
             </button>
             <span className="mobile-toolbar-title">
-              {settingsOpen ? "设置" : creating ? "新建 Agent" : current?.name ?? "Pipi"}
+              {settingsOpen ? "设置" : creating ? "新建 Agent" : navSection === "skills" ? "技能库" : current?.name ?? "Pipi"}
             </span>
           </div>
 
@@ -1256,6 +1308,15 @@ export default function App() {
                 setSelected(name);
               }}
               onCancel={() => setCreating(false)}
+              onError={safeSetError}
+            />
+          ) : navSection === "skills" ? (
+            <SkillsView
+              library={skillLibrary}
+              loadError={skillLoadError}
+              selected={skillSelected}
+              onSelect={setSkillSelected}
+              onRefresh={loadSkillLibrary}
               onError={safeSetError}
             />
           ) : current ? (
