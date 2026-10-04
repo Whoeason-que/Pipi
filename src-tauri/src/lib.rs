@@ -50,6 +50,14 @@ pub fn run() {
             commands::list_agent_files,
             commands::read_agent_file,
             commands::write_agent_file,
+            commands::skill_library,
+            commands::agent_skills,
+            commands::set_skill_enabled,
+            commands::verify_store_skills,
+            commands::install_skill,
+            commands::remove_store_skill,
+            commands::sync_agent_skills,
+            commands::skill_usage,
         ])
         .run(tauri::generate_context!())
         .expect("Pipi 启动失败");

@@ -142,3 +142,131 @@ export interface SessionInfoView {
   model?: ModelConfig | null;
   isCustomModel?: boolean;
 }
+
+// ---- 技能（av 全局 store 与 Agent 契约；Rust 侧 pipi_core::skill_center）----
+
+export type SkillSourceType = "git" | "local";
+
+/** store 里的一条版本记录（同名多版本并存）。 */
+export interface SkillVersion {
+  contentHash: string;
+  source: string;
+  sourceType: SkillSourceType;
+  reference: string | null;
+  revision: string | null;
+  skillPath: string | null;
+  installedAt: string | null;
+  updatedAt: string | null;
+  /** 内容目录是否存在（哈希漂移由「校验」判定）。 */
+  present: boolean;
+}
+
+/** store 里的一个技能（同名多版本聚合）。 */
+export interface StoreSkill {
+  name: string;
+  description: string | null;
+  /** 当前版本（最近安装/更新）的哈希。 */
+  currentHash: string;
+  source: string;
+  sourceType: SkillSourceType;
+  skillPath: string | null;
+  installedAt: string | null;
+  versions: SkillVersion[];
+}
+
+export interface SkillLibrary {
+  storePath: string;
+  skills: StoreSkill[];
+}
+
+export type AgentSkillStatus = "ready" | "missing" | "broken" | "unresolved" | "filtered";
+
+/** `use` 里一个技能及其解析状态。 */
+export interface AgentSkill {
+  name: string;
+  description: string | null;
+  status: AgentSkillStatus;
+  contentHash: string | null;
+  source: string | null;
+  revision: string | null;
+  /** 被 only / exclude 过滤时的原因。 */
+  filter: string | null;
+}
+
+/** store 里可启用（尚未声明）的技能。 */
+export interface AvailableSkill {
+  name: string;
+  description: string | null;
+  contentHash: string;
+  present: boolean;
+  source: string;
+  sourceType: SkillSourceType;
+  versionCount: number;
+}
+
+export interface AgentSkills {
+  agentName: string;
+  /** 启用/禁用会写入的契约文件（最高声明层；无声明时是 Agent 层的 agent.toml）。 */
+  contractPath: string;
+  lockPath: string;
+  /** 当前 `use` 由谁声明："agent" | "project" | "project-local"。 */
+  declaredBy: string | null;
+  declaredByPath: string | null;
+  agentContractExists: boolean;
+  /** 声明落在项目层（覆盖 Agent 层）时为 true。 */
+  declaresInProject: boolean;
+  declared: AgentSkill[];
+  available: AvailableSkill[];
+  only: string[] | null;
+  exclude: string[] | null;
+  sources: string[] | null;
+  lockError: string | null;
+}
+
+export type SkillVerifyStatus = "ok" | "missing" | "mismatch";
+
+export interface SkillVerify {
+  name: string;
+  contentHash: string;
+  status: SkillVerifyStatus;
+  actualHash: string | null;
+}
+
+export interface InstalledSkillView {
+  name: string;
+  contentHash: string;
+  source: string;
+  sourceType: SkillSourceType;
+  skillPath: string | null;
+  revision: string | null;
+  unchanged: boolean;
+}
+
+export interface SkippedSkill {
+  path: string;
+  reason: string;
+}
+
+export interface SkillInstallReport {
+  installed: InstalledSkillView[];
+  skipped: SkippedSkill[];
+  log: string[];
+  dryRun: boolean;
+}
+
+export interface SkillSyncReport {
+  ready: string[];
+  installed: string[];
+  repaired: string[];
+  resolved: string[];
+  log: string[];
+}
+
+/** 某技能在各个 Agent 上的启用情况（技能库详情用）。 */
+export interface SkillUsage {
+  agentName: string;
+  enabled: boolean;
+  status: AgentSkillStatus | null;
+  filter: string | null;
+  declaredBy: string | null;
+}

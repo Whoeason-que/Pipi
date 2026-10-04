@@ -7,6 +7,7 @@ use pipi_app::runtime::{
 use pipi_core::agent_loop::AgentEvent;
 use pipi_core::agents::AgentDefinition;
 use pipi_core::settings::Settings;
+use pipi_core::skill_center::{AgentSkills, SkillLibrary};
 use pipi_core::stats::SessionStats;
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
 use serde::{Serialize, de::DeserializeOwned};
@@ -26,6 +27,8 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
     roundtrip::<Settings>(&wire["settings"]);
     roundtrip::<Vec<Message>>(&wire["messages"]);
     roundtrip::<BackgroundTaskSnapshot>(&wire["background"]);
+    roundtrip::<SkillLibrary>(&wire["skillLibrary"]);
+    roundtrip::<AgentSkills>(&wire["agentSkills"]);
     let stats = SessionStats {
         input: 10,
         output: 2,

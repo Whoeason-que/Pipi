@@ -1,7 +1,7 @@
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, ApprovalRequestPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
-import type { AgentDefinition, ModelConfig, PermissionsConfig, SessionChangedPayload, SessionInfoView, SessionStatsView, SessionSummaryView, Settings } from "./types";
+import type { AgentDefinition, AgentSkills, ModelConfig, PermissionsConfig, SessionChangedPayload, SessionInfoView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify } from "./types";
 
 export interface BackgroundTaskSnapshot {
   task: {
@@ -55,6 +55,14 @@ export interface CommandMap {
   restore_session: { args: { agentName: string; sessionId: string }; result: void };
   delete_session: { args: { agentName: string; sessionId: string }; result: void };
   delete_archived_session: { args: { agentName: string; sessionId: string }; result: void };
+  skill_library: { args: {  }; result: SkillLibrary };
+  agent_skills: { args: { agentName: string }; result: AgentSkills };
+  set_skill_enabled: { args: { agentName: string; name: string; enabled: boolean }; result: AgentSkills };
+  verify_store_skills: { args: { names?: string[] | null }; result: SkillVerify[] };
+  install_skill: { args: { source: string; skills?: string[] | null; all: boolean; dryRun: boolean }; result: SkillInstallReport };
+  remove_store_skill: { args: { name: string }; result: number };
+  sync_agent_skills: { args: { agentName: string; repair: boolean }; result: SkillSyncReport };
+  skill_usage: { args: { name: string }; result: SkillUsage[] };
 }
 
 export type CommandName = keyof CommandMap;
