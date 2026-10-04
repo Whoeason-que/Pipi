@@ -1,11 +1,11 @@
 use super::*;
 use crate::permissions::PermissionsConfig;
-use crate::types::AbortSignal;
+use pipi_protocol::AbortSignal;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 async fn grep_fixture() -> (PathBuf, ToolContext, PathBuf) {
-    let base = std::env::temp_dir().join(format!("pipi-grep-{}", crate::session::new_id()));
+    let base = std::env::temp_dir().join(format!("pipi-grep-{}", pipi_test_support::new_id()));
     let workspace = base.join("workspace");
     tokio::fs::create_dir_all(workspace.join("src"))
         .await

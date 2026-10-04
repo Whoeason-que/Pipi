@@ -166,8 +166,10 @@ fn read_only_blocks_bash_entirely() {
 
 #[test]
 fn workspace_write_rejects_shell_redirects_before_execution() {
-    let root =
-        std::env::temp_dir().join(format!("pipi-redirect-policy-{}", crate::session::new_id()));
+    let root = std::env::temp_dir().join(format!(
+        "pipi-redirect-policy-{}",
+        pipi_test_support::new_id()
+    ));
     let ws = root.join("workspace");
     std::fs::create_dir_all(&ws).unwrap();
     let p = PermissionsConfig {
@@ -461,7 +463,7 @@ fn workspace_write_config() -> PermissionsConfig {
 
 #[test]
 fn forced_rm_is_allowed_only_for_workspace_literals() {
-    let root = std::env::temp_dir().join(format!("pipi-perm-{}", crate::session::new_id()));
+    let root = std::env::temp_dir().join(format!("pipi-perm-{}", pipi_test_support::new_id()));
     let workspace = root.join("ws");
     fs::create_dir_all(workspace.join(".cache/bench3/tmp")).unwrap();
     fs::create_dir_all(workspace.join("Polymarket/.git")).unwrap();

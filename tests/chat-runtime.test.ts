@@ -7,8 +7,6 @@ import {
   eventMatchesSession,
   INITIAL_CHAT_STATE,
   formatRuntimeError,
-  normalizeAgentEvent,
-  normalizeStatsPayload,
   type AgentEvent,
   type MessageView,
 } from "../src/chat-runtime.ts";
@@ -198,23 +196,24 @@ test("session envelopes reject stale identity and unwrap stats", () => {
     runId: 3,
     event: { type: "agent_end" } as const,
   };
-  const normalized = normalizeAgentEvent(payload);
-  assert.equal(normalized.event.type, "agent_end");
-  assert.equal(eventMatchesSession(normalized.meta, "coder", { sessionId: "session-2", runId: 3 }), true);
-  assert.equal(eventMatchesSession(normalized.meta, "coder", { sessionId: "session-1", runId: 3 }), false);
-  assert.equal(eventMatchesSession(normalized.meta, "coder", { sessionId: "session-2", runId: 4 }), false);
-  assert.equal(eventMatchesRun(normalized.meta, "coder", { sessionId: "session-2", runId: 3 }, 3), false);
-  assert.equal(eventMatchesRun(normalized.meta, "coder", { sessionId: "session-2", runId: 3 }, 2), true);
+  // 载荷即 envelope：不再有裸事件形状，身份直接来自 payload
+  assert.equal(payload.event.type, "agent_end");
+  assert.equal(eventMatchesSession(payload, "coder", { sessionId: "session-2", runId: 3 }), true);
+  assert.equal(eventMatchesSession(payload, "coder", { sessionId: "session-1", runId: 3 }), false);
+  assert.equal(eventMatchesSession(payload, "coder", { sessionId: "session-2", runId: 4 }), false);
+  assert.equal(eventMatchesSession({ ...payload, agentName: "other" }, "coder", null), false);
+  assert.equal(eventMatchesRun(payload, "coder", { sessionId: "session-2", runId: 3 }, 3), false);
+  assert.equal(eventMatchesRun(payload, "coder", { sessionId: "session-2", runId: 3 }, 2), true);
   assert.equal(eventMatchesRun({ ...payload, runId: 4 }, "coder", { sessionId: "session-2", runId: 3 }, 3), true);
 
-  const stats = normalizeStatsPayload({
+  const stats = {
     agentName: "coder",
     sessionId: "session-2",
     runId: 3,
     stats: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, calls: 1 },
-  });
+  };
   assert.equal(stats.stats.calls, 1);
-  assert.equal(stats.meta?.sessionId, "session-2");
+  assert.equal(stats.sessionId, "session-2");
 });
 
 test("runtime errors are normalized without stringifying objects", () => {

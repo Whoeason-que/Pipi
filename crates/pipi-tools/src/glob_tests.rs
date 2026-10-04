@@ -1,10 +1,10 @@
 use super::*;
 use crate::permissions::PermissionsConfig;
-use crate::types::AbortSignal;
+use pipi_protocol::AbortSignal;
 use std::sync::Arc;
 
 async fn glob_fixture() -> (PathBuf, ToolContext, PathBuf) {
-    let base = std::env::temp_dir().join(format!("pipi-glob-{}", crate::session::new_id()));
+    let base = std::env::temp_dir().join(format!("pipi-glob-{}", pipi_test_support::new_id()));
     let workspace = base.join("workspace");
     tokio::fs::create_dir_all(workspace.join("src/deep"))
         .await
@@ -106,7 +106,7 @@ async fn glob_no_match_reports_cleanly() {
 // collect_matches 的修改时间排序（纯同步逻辑直接测）
 #[test]
 fn collect_matches_sorts_by_mtime_desc() {
-    let dir = std::env::temp_dir().join(format!("pipi-glob-mtime-{}", crate::session::new_id()));
+    let dir = std::env::temp_dir().join(format!("pipi-glob-mtime-{}", pipi_test_support::new_id()));
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(dir.join("src/old.rs"), "o").unwrap();
     std::fs::write(dir.join("src/new.rs"), "n").unwrap();

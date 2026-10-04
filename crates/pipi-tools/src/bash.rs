@@ -13,7 +13,7 @@ use tokio::process::Command;
 
 use super::{AgentTool, ToolContext, ToolOutput};
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
-use crate::types::ToolResultContent;
+use pipi_protocol::ToolResultContent;
 
 pub struct BashTool;
 

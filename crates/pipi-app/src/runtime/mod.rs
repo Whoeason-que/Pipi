@@ -21,8 +21,9 @@ use pipi_agent::agent_loop::Emitter as LoopEmitter;
 use pipi_agent::agent_loop::{
     AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode, run_agent_loop,
 };
-pub use pipi_agent::session::SessionSummary;
-use pipi_agent::session::{EntryKind, SessionWriter, list_session_summaries, load_session};
+use pipi_agent::session::{
+    EntryKind, SessionSummary, SessionWriter, list_session_summaries, load_session,
+};
 use pipi_agent::stats::SessionStatsTracker;
 use pipi_core::agents::{self, AgentDefinition};
 use pipi_core::settings::load_settings;

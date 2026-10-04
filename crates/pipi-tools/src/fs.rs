@@ -67,7 +67,8 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("pipi-fs-{name}-{}", crate::session::new_id()));
+        let dir =
+            std::env::temp_dir().join(format!("pipi-fs-{name}-{}", pipi_test_support::new_id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

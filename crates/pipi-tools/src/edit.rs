@@ -5,8 +5,9 @@
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{AgentTool, ToolContext, ToolOutput, resolve_path, resolve_write_path};
-use crate::types::ToolResultContent;
+use super::{AgentTool, ToolContext, ToolOutput, resolve_path};
+use crate::permissions::resolve_write_path;
+use pipi_protocol::ToolResultContent;
 
 pub struct EditTool;
 
@@ -246,7 +247,7 @@ mod tests {
     #[tokio::test]
     async fn workspace_edit_blocks_symlink_to_outside_file() {
         let root =
-            std::env::temp_dir().join(format!("pipi-edit-link-{}", crate::session::new_id()));
+            std::env::temp_dir().join(format!("pipi-edit-link-{}", pipi_test_support::new_id()));
         let workspace = root.join("workspace");
         let outside = root.join("outside.txt");
         tokio::fs::create_dir_all(&workspace).await.unwrap();
@@ -260,7 +261,7 @@ mod tests {
             permissions: std::sync::Arc::new(crate::permissions::PermissionsConfig::default()),
             sandbox: crate::permissions::SandboxMode::WorkspaceWrite,
             resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
-            abort: crate::types::AbortSignal::new(),
+            abort: pipi_protocol::AbortSignal::new(),
             approver: None,
         };
         let result = EditTool

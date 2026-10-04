@@ -1,6 +1,5 @@
 import {
   INITIAL_CHAT_STATE, chatReducer, createEntryKey, eventMatchesRun, formatRuntimeError,
-  normalizeAgentEvent, normalizeStatsPayload,
   type AgentEventPayload, type ApprovalDecisionValue, type ApprovalRequestPayload,
   type ChatAction, type ChatState,
   type SessionErrorPayload,
@@ -115,15 +114,13 @@ export class SessionController {
     });
   }
 
-  private accept(meta: SessionEventMeta | null): boolean {
-    if (!meta && (!this.identity || this.awaitingRun !== null || this.settledRun !== null)) return false;
+  private accept(meta: SessionEventMeta): boolean {
     if (!eventMatchesRun(meta, this.agent.name, this.identity, this.settledRun, this.ignoreEvents)) return false;
-    if (meta && this.awaitingRun !== null) {
+    if (this.awaitingRun !== null) {
       if (meta.runId <= this.awaitingRun) return false;
       this.awaitingRun = null;
       this.settledRun = null;
     }
-    if (!meta) return true;
     if (!this.identity) {
       if (!this.awaitingIdentity) return false;
       this.adopt({ agentName: this.agent.name, sessionId: meta.sessionId,
@@ -146,11 +143,12 @@ export class SessionController {
 
   private apply(frame: SessionFrame): void {
     if (frame.type === "agent-event") {
-      const { event, meta } = normalizeAgentEvent(frame.payload);
+      const meta = frame.payload;
+      const event = meta.event;
       const accepted = this.accept(meta);
       // 完成帧可补回漏掉的正文，但只能补当前已结算的 run。
       const recovery = !accepted && event.type === "agent_end" && Boolean(event.messages?.length)
-        && meta !== null && this.awaitingRun === null && this.settledRun === meta.runId
+        && this.awaitingRun === null && this.settledRun === meta.runId
         && this.identity?.sessionId === meta.sessionId && this.identity.runId === meta.runId;
       if (!accepted && !recovery) return;
       if (event.type === "agent_end") {
@@ -159,8 +157,8 @@ export class SessionController {
       }
       this.dispatch({ type: "event", event, key: createEntryKey("event") });
     } else if (frame.type === "session-stats") {
-      const { stats, meta } = normalizeStatsPayload(frame.payload);
-      if (this.accept(meta)) this.dispatch({ type: "stats", stats });
+      const meta = frame.payload;
+      if (this.accept(meta)) this.dispatch({ type: "stats", stats: meta.stats });
     } else if (frame.type === "session-switched") {
       const payload = frame.payload;
       if (!this.accept(payload)) return;

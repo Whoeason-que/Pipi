@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 
 use super::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_head};
-use crate::types::ToolResultContent;
+use pipi_protocol::ToolResultContent;
 
 /// 单次列出的路径上限（截断前的硬上限，对齐 opencode 的 limit=100：
 /// 结果太多会刷爆上下文，模型应改用更精确的 pattern）。

@@ -93,9 +93,14 @@ export interface AgentEventEnvelope extends SessionEventMeta {
   event: AgentEvent;
 }
 
-export type AgentEventPayload = AgentEvent | AgentEventEnvelope;
+/**
+ * 宿主事件载荷。**所有**事件都带身份 envelope（agentName / sessionId / runId）——
+ * 曾经容忍过「裸事件」的旧宿主形状，2026-10-05 随兼容层一起删除；两个宿主
+ * （Tauri / Web）与演示模式都只发 envelope。
+ */
+export type AgentEventPayload = AgentEventEnvelope;
 
-export type SessionStatsPayload = SessionStatsView | (SessionEventMeta & { stats: SessionStatsView });
+export type SessionStatsPayload = SessionEventMeta & { stats: SessionStatsView };
 
 export interface SessionErrorPayload extends SessionEventMeta {
   message: string;
@@ -120,52 +125,25 @@ export interface SessionSwitchedPayload extends SessionEventMeta {
 
 export type ApprovalDecisionValue = "allow" | "always" | "deny";
 
-export function normalizeAgentEvent(payload: AgentEventPayload): {
-  event: AgentEvent;
-  meta: SessionEventMeta | null;
-} {
-  if (typeof payload === "object" && payload !== null && "event" in payload) {
-    return {
-      event: payload.event,
-      meta: payload,
-    };
-  }
-  return { event: payload, meta: null };
-}
-
-export function normalizeStatsPayload(payload: SessionStatsPayload): {
-  stats: SessionStatsView;
-  meta: SessionEventMeta | null;
-} {
-  if (typeof payload === "object" && payload !== null && "stats" in payload) {
-    return {
-      stats: payload.stats,
-      meta: payload,
-    };
-  }
-  return { stats: payload, meta: null };
-}
-
 export function eventMatchesSession(
-  meta: SessionEventMeta | null,
+  meta: SessionEventMeta,
   agentName: string,
   identity: { sessionId: string; runId?: number } | null,
 ): boolean {
-  if (!meta || meta.agentName !== agentName) return !meta;
+  if (meta.agentName !== agentName) return false;
   if (!identity) return true;
   if (meta.sessionId !== identity.sessionId) return false;
   return identity.runId == null || meta.runId >= identity.runId;
 }
 
 export function eventMatchesRun(
-  meta: SessionEventMeta | null,
+  meta: SessionEventMeta,
   agentName: string,
   identity: { sessionId: string; runId?: number } | null,
   settledRunId: number | null,
   ignoreEvents = false,
 ): boolean {
   if (ignoreEvents || !eventMatchesSession(meta, agentName, identity)) return false;
-  if (!meta) return settledRunId === null;
   if (identity?.runId != null && meta.runId < identity.runId) return false;
   return meta.runId !== settledRunId;
 }

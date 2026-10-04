@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 
 use super::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_head};
-use crate::types::ToolResultContent;
+use pipi_protocol::ToolResultContent;
 
 /// 单次搜索的文件数上限（截断前的硬上限）。
 const MAX_FILES: usize = 2000;

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_head};
-use crate::types::ToolResultContent;
+use pipi_protocol::ToolResultContent;
 
 pub struct ReadTool;
 

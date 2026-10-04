@@ -15,7 +15,7 @@ fn timeout_validation() {
 #[tokio::test]
 async fn bash_spawns_with_resolved_env_only() {
     let workspace =
-        std::env::temp_dir().join(format!("pipi-bash-env-{}", crate::session::new_id()));
+        std::env::temp_dir().join(format!("pipi-bash-env-{}", pipi_test_support::new_id()));
     tokio::fs::create_dir_all(&workspace).await.unwrap();
     let resolved =
         std::collections::BTreeMap::from([("AV_MARKER".to_string(), "from-av".to_string())]);
@@ -26,7 +26,7 @@ async fn bash_spawns_with_resolved_env_only() {
         permissions: std::sync::Arc::new(crate::permissions::PermissionsConfig::default()),
         sandbox: crate::permissions::SandboxMode::DangerFullAccess,
         resolved_env: std::sync::Arc::new(resolved),
-        abort: crate::types::AbortSignal::new(),
+        abort: pipi_protocol::AbortSignal::new(),
         approver: None,
     };
     let output = BashTool
@@ -46,7 +46,7 @@ async fn bash_spawns_with_resolved_env_only() {
 }
 
 /// 建一个最小 ToolContext（bash 用）。
-fn test_context(workspace: std::path::PathBuf, abort: crate::types::AbortSignal) -> ToolContext {
+fn test_context(workspace: std::path::PathBuf, abort: pipi_protocol::AbortSignal) -> ToolContext {
     ToolContext {
         workspace,
         memory_dir: None,
@@ -61,7 +61,7 @@ fn test_context(workspace: std::path::PathBuf, abort: crate::types::AbortSignal)
 
 fn test_workspace(tag: &str) -> std::path::PathBuf {
     let workspace =
-        std::env::temp_dir().join(format!("pipi-bash-{tag}-{}", crate::session::new_id()));
+        std::env::temp_dir().join(format!("pipi-bash-{tag}-{}", pipi_test_support::new_id()));
     std::fs::create_dir_all(&workspace).unwrap();
     workspace
 }
@@ -111,7 +111,7 @@ fn read_pid_file(workspace: &std::path::Path) -> i32 {
 #[tokio::test]
 async fn timeout_terminates_the_whole_process_tree() {
     let workspace = test_workspace("timeout-tree");
-    let ctx = test_context(workspace.clone(), crate::types::AbortSignal::new());
+    let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
     let result = BashTool
         .execute(
             &ctx,
@@ -134,7 +134,7 @@ async fn timeout_terminates_the_whole_process_tree() {
 #[tokio::test]
 async fn abort_terminates_the_whole_process_tree() {
     let workspace = test_workspace("abort-tree");
-    let abort = crate::types::AbortSignal::new();
+    let abort = pipi_protocol::AbortSignal::new();
     let task = tokio::spawn({
         let workspace = workspace.clone();
         let abort = abort.clone();

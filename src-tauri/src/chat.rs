@@ -7,12 +7,11 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, State};
 
+use pipi_agent::session::SessionSummary;
 use pipi_app::approval::ApprovalDecision;
 use pipi_app::events::{EventEmitter, RuntimeEvent};
-use pipi_app::runtime::{self, SessionInfo};
+use pipi_app::runtime::{self, RuntimeState, SessionInfo};
 use pipi_protocol::{Message, Model};
-
-pub use pipi_app::runtime::RuntimeState as ChatState;
 
 fn tauri_emitter(app: AppHandle) -> EventEmitter {
     Arc::new(move |event| {
@@ -29,13 +28,13 @@ fn tauri_emitter(app: AppHandle) -> EventEmitter {
 }
 
 #[tauri::command]
-pub fn list_sessions(agent_name: String) -> Result<Vec<runtime::SessionSummary>, String> {
+pub fn list_sessions(agent_name: String) -> Result<Vec<SessionSummary>, String> {
     runtime::list_sessions(&agent_name)
 }
 
 #[tauri::command]
 pub fn open_session(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<(), String> {
@@ -44,7 +43,7 @@ pub fn open_session(
 
 #[tauri::command]
 pub fn session_info(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<Option<SessionInfo>, String> {
@@ -53,14 +52,14 @@ pub fn session_info(
 
 /// 所有打开中的会话：前端据此知道「哪些 Agent 正在跑」（多 Agent 并发下运行态是集合）。
 #[tauri::command]
-pub fn session_infos(state: State<ChatState>) -> Result<Vec<SessionInfo>, String> {
+pub fn session_infos(state: State<RuntimeState>) -> Result<Vec<SessionInfo>, String> {
     state.session_infos()
 }
 
 /// 设置工作台的内存测试会话：每个 Agent 在应用运行期最多一条。
 #[tauri::command]
 pub fn ensure_test_session(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
 ) -> Result<SessionInfo, String> {
     state.ensure_test_session(&agent_name)
@@ -69,20 +68,20 @@ pub fn ensure_test_session(
 /// 清空临时测试上下文，并用磁盘上最新保存的 Agent 定义重建。
 #[tauri::command]
 pub fn reset_test_session(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
 ) -> Result<SessionInfo, String> {
     state.reset_test_session(&agent_name)
 }
 
 #[tauri::command]
-pub fn session_running(state: State<ChatState>, agent_name: String, session_id: String) -> bool {
+pub fn session_running(state: State<RuntimeState>, agent_name: String, session_id: String) -> bool {
     state.session_running(&agent_name, &session_id)
 }
 
 #[tauri::command]
 pub fn stop_run(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<(), String> {
@@ -91,7 +90,7 @@ pub fn stop_run(
 
 #[tauri::command]
 pub async fn query_background_tasks(
-    state: State<'_, ChatState>,
+    state: State<'_, RuntimeState>,
     agent_name: String,
     session_id: String,
     job_id: Option<String>,
@@ -115,7 +114,7 @@ pub async fn query_background_tasks(
 
 #[tauri::command]
 pub async fn manage_background_task(
-    state: State<'_, ChatState>,
+    state: State<'_, RuntimeState>,
     agent_name: String,
     session_id: String,
     job_id: String,
@@ -128,14 +127,14 @@ pub async fn manage_background_task(
 }
 
 #[tauri::command]
-pub fn new_session(state: State<ChatState>, agent_name: String) -> Result<(), String> {
+pub fn new_session(state: State<RuntimeState>, agent_name: String) -> Result<(), String> {
     state.new_session(&agent_name)
 }
 
 #[tauri::command]
 pub fn send_prompt(
     app: AppHandle,
-    state: State<'_, ChatState>,
+    state: State<'_, RuntimeState>,
     agent_name: String,
     session_id: Option<String>,
     prompt: String,
@@ -154,7 +153,7 @@ pub fn send_prompt(
 #[tauri::command]
 pub fn compact_now(
     app: AppHandle,
-    state: State<'_, ChatState>,
+    state: State<'_, RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<(), String> {
@@ -164,7 +163,7 @@ pub fn compact_now(
 /// 运行中插话（steering）：注入当前运行的下一轮上下文。
 #[tauri::command]
 pub fn steer(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
     message: String,
@@ -175,7 +174,7 @@ pub fn steer(
 /// 回传 bash 命令审批请求的用户决定。
 #[tauri::command]
 pub fn resolve_approval(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     request_id: String,
     decision: String,
 ) -> Result<(), String> {
@@ -184,7 +183,7 @@ pub fn resolve_approval(
 
 #[tauri::command]
 pub fn set_session_model(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
     model: Option<Model>,
@@ -194,7 +193,7 @@ pub fn set_session_model(
 
 #[tauri::command]
 pub async fn session_messages(
-    state: State<'_, ChatState>,
+    state: State<'_, RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<Vec<Message>, String> {
@@ -203,7 +202,7 @@ pub async fn session_messages(
 
 #[tauri::command]
 pub fn session_stats(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<pipi_agent::stats::SessionStats, String> {
@@ -212,7 +211,7 @@ pub fn session_stats(
 
 #[tauri::command]
 pub fn fork_session(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
     up_to_entry_id: Option<String>,
@@ -226,36 +225,36 @@ pub fn fork_session(
 // 空闲的打开会话会在操作前自动释放。
 
 #[tauri::command]
-pub fn archive_agent(state: State<ChatState>, name: String) -> Result<(), String> {
+pub fn archive_agent(state: State<RuntimeState>, name: String) -> Result<(), String> {
     state.archive_agent(&name)
 }
 
 #[tauri::command]
-pub fn restore_agent(state: State<ChatState>, name: String) -> Result<(), String> {
+pub fn restore_agent(state: State<RuntimeState>, name: String) -> Result<(), String> {
     state.restore_agent(&name)
 }
 
 #[tauri::command]
-pub fn delete_agent(state: State<ChatState>, name: String) -> Result<(), String> {
+pub fn delete_agent(state: State<RuntimeState>, name: String) -> Result<(), String> {
     state.delete_agent(&name)
 }
 
 #[tauri::command]
-pub fn delete_archived_agent(state: State<ChatState>, name: String) -> Result<(), String> {
+pub fn delete_archived_agent(state: State<RuntimeState>, name: String) -> Result<(), String> {
     state.delete_archived_agent(&name)
 }
 
 #[tauri::command]
 pub fn list_archived_sessions(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
-) -> Result<Vec<runtime::SessionSummary>, String> {
+) -> Result<Vec<SessionSummary>, String> {
     state.list_archived_sessions(&agent_name)
 }
 
 #[tauri::command]
 pub fn archive_session(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<(), String> {
@@ -264,7 +263,7 @@ pub fn archive_session(
 
 #[tauri::command]
 pub fn restore_session(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<(), String> {
@@ -273,7 +272,7 @@ pub fn restore_session(
 
 #[tauri::command]
 pub fn delete_session(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<(), String> {
@@ -282,7 +281,7 @@ pub fn delete_session(
 
 #[tauri::command]
 pub fn delete_archived_session(
-    state: State<ChatState>,
+    state: State<RuntimeState>,
     agent_name: String,
     session_id: String,
 ) -> Result<(), String> {

@@ -14,20 +14,6 @@ pub mod read;
 pub mod truncate;
 pub mod write;
 
-/// 旧工具实现的协议类型路径。保留这个小模块能让工具实现与 core 解耦，同时
-/// 不把 Pipi 的持久化 session 模块重新引入工具 crate。
-pub mod types {
-    pub use pipi_protocol::{AbortSignal, Tool, ToolResultContent};
-}
-
-/// 工具自身需要的临时唯一 ID（临时目录命名、测试 fixture）。它不是 Agent
-/// session 的 JSONL 身份，不能依赖 `pipi-core::session`。
-pub mod session {
-    pub fn new_id() -> String {
-        uuid::Uuid::new_v4().simple().to_string()
-    }
-}
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -129,12 +115,6 @@ pub fn resolve_path(workspace: &Path, path: &str) -> Result<PathBuf, String> {
     } else {
         Ok(workspace.join(p))
     }
-}
-
-/// 解析 workspace-write 的目标，委托给权限模块的 canonical resolver。
-/// 保留该入口兼容已有 tools 调用方。
-pub fn resolve_write_path(workspace: &Path, path: &str) -> Result<PathBuf, String> {
-    crate::permissions::resolve_write_path(workspace, path)
 }
 
 /// 解析并校验 `read` 的目标，只允许工作目录或受信任读取根内的现有文件。

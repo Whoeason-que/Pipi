@@ -4,8 +4,9 @@
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{AgentTool, ToolContext, ToolOutput, resolve_path, resolve_write_path};
-use crate::types::ToolResultContent;
+use super::{AgentTool, ToolContext, ToolOutput, resolve_path};
+use crate::permissions::resolve_write_path;
+use pipi_protocol::ToolResultContent;
 
 pub struct WriteTool;
 

@@ -2,10 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AgentWorkbench from "./agents/AgentWorkbench";
 import CreateAgentForm from "./agents/CreateAgentForm";
 import ChatView from "./Chat";
-import {
-  formatRuntimeError,
-  normalizeAgentEvent
-} from "./chat-runtime";
+import { formatRuntimeError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
 import EmptyState from "./components/EmptyState";
 import {
@@ -404,23 +401,22 @@ export default function App() {
         return;
       }
       if (frame.type !== "agent-event") return;
-      const event = { payload: frame.payload };
-      const normalized = normalizeAgentEvent(event.payload);
-      if (normalized.event.type === "agent_start" || normalized.event.type === "agent_end") syncRunningRef.current();
-      if (normalized.event.type !== "agent_end") return;
-      if (normalized.meta) void refreshSessions([normalized.meta.agentName]);
+      const meta = frame.payload;
+      const event = meta.event;
+      if (event.type === "agent_start" || event.type === "agent_end") syncRunningRef.current();
+      if (event.type !== "agent_end") return;
+      void refreshSessions([meta.agentName]);
       if (
-        normalized.meta
-        && (blockedSessionIdsRef.current.has(normalized.meta.sessionId)
-          || normalized.meta.agentName !== selectedRef.current
+        blockedSessionIdsRef.current.has(meta.sessionId)
+          || meta.agentName !== selectedRef.current
           || (activeSessionRef.current?.sessionId
-            && normalized.meta.sessionId !== activeSessionRef.current.sessionId)
+            && meta.sessionId !== activeSessionRef.current.sessionId)
           // 已结算的旧 run 的迟到结束事件不再触发刷新
           || (activeSessionRef.current?.runId != null
-            && normalized.meta.runId < activeSessionRef.current.runId))
+            && meta.runId < activeSessionRef.current.runId)
       ) return;
-      const targetAgent = normalized.meta?.agentName;
-      const targetSession = normalized.meta?.sessionId;
+      const targetAgent = meta.agentName;
+      const targetSession = meta.sessionId;
       if (targetAgent && targetSession) {
         const infoRequestId = ++sessionInfoRequestRef.current;
         void invoke("session_info", {

@@ -5950,6 +5950,9 @@ dependencies = [
 [[package]]
 name = "pipi-test-support"
 version = "26.9.3"
+dependencies = [
+ "uuid",
+]
 
 [[package]]
 name = "pipi-tools"
@@ -5961,6 +5964,7 @@ dependencies = [
  "infer",
  "nix",
  "pipi-protocol",
+ "pipi-test-support",
  "regex",
  "serde",
  "serde_json",

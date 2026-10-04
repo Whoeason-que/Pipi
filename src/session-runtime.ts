@@ -1,4 +1,3 @@
-import { normalizeAgentEvent, normalizeStatsPayload } from "./chat-runtime.ts";
 import type { Listen } from "./ipc.ts";
 import { SessionController, type SessionFrame, type SessionTransport } from "./session-controller.ts";
 import type { AgentDefinition, SessionChangedPayload } from "./types.ts";
@@ -13,12 +12,6 @@ const REPLAY_LIMIT = 2048;
 const IDLE_CACHE_LIMIT = 32;
 
 function key(agent: string, session: string): string { return `${agent}\u0000${session}`; }
-function meta(frame: RuntimeFrame) {
-  if (frame.type === "agent-event") return normalizeAgentEvent(frame.payload).meta;
-  if (frame.type === "session-stats") return normalizeStatsPayload(frame.payload).meta;
-  return frame.payload;
-}
-
 /** App 持有一份订阅与会话索引。视图只订阅控制器，不各自注册宿主事件。 */
 export class SessionRuntime {
   private sessions = new Map<string, SessionController>();
@@ -103,22 +96,16 @@ export class SessionRuntime {
   }
 
   receive(frame: RuntimeFrame): void {
-    const identity = meta(frame);
+    // 每个载荷都自带身份（见 chat-runtime 的 AgentEventPayload / *Payload）。
+    const identity = frame.payload;
     if (frame.type !== "session-changed") {
-      if (identity) {
-        const sessionKey = key(identity.agentName, identity.sessionId);
-        let controller = this.sessions.get(sessionKey);
-        if (!controller && frame.type === "agent-event" && normalizeAgentEvent(frame.payload).event.type === "agent_start") {
-          controller = [...this.drafts].find(draft => draft.agentName === identity.agentName && draft.awaitingIdentity);
-        }
-        if (controller) controller.receive(frame);
-        else this.remember(sessionKey, identity.runId, frame);
-      } else {
-        // 兼容旧的无 envelope 事件，仅交给正在观察的视图。
-        for (const controller of new Set([...this.sessions.values(), ...this.drafts])) {
-          if (controller.observed) controller.receive(frame);
-        }
+      const sessionKey = key(identity.agentName, identity.sessionId);
+      let controller = this.sessions.get(sessionKey);
+      if (!controller && frame.type === "agent-event" && frame.payload.event.type === "agent_start") {
+        controller = [...this.drafts].find(draft => draft.agentName === identity.agentName && draft.awaitingIdentity);
       }
+      if (controller) controller.receive(frame);
+      else this.remember(sessionKey, identity.runId, frame);
     }
     this.listeners.forEach(listener => listener(frame));
   }
@@ -127,7 +114,7 @@ export class SessionRuntime {
     const current = this.replay.get(sessionKey);
     if (current && runId < current.runId) return;
     const frames = current?.runId === runId ? current.frames : [];
-    if (frame.type === "agent-event" && normalizeAgentEvent(frame.payload).event.type === "agent_end") frames.length = 0;
+    if (frame.type === "agent-event" && frame.payload.event.type === "agent_end") frames.length = 0;
     frames.push(frame);
     if (frames.length > REPLAY_LIMIT) frames.splice(0, frames.length - REPLAY_LIMIT);
     this.replay.delete(sessionKey);

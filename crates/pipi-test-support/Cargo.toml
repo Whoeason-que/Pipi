@@ -7,3 +7,4 @@ description = "Pipi 测试脚手架：进程级 HOME/AV_HOME 的串行化改写"
 publish = false
 
 [dependencies]
+uuid = { workspace = true }

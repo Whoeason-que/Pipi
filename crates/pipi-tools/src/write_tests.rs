@@ -1,6 +1,6 @@
 use super::*;
 use crate::permissions::{PermissionsConfig, SandboxMode};
-use crate::types::AbortSignal;
+use pipi_protocol::AbortSignal;
 use std::sync::Arc;
 
 fn ctx(workspace: std::path::PathBuf, sandbox: SandboxMode) -> ToolContext {
@@ -18,7 +18,7 @@ fn ctx(workspace: std::path::PathBuf, sandbox: SandboxMode) -> ToolContext {
 
 #[tokio::test]
 async fn workspace_write_blocks_outside_paths() {
-    let ws = std::env::temp_dir().join(format!("pipi-ws-{}", crate::session::new_id()));
+    let ws = std::env::temp_dir().join(format!("pipi-ws-{}", pipi_test_support::new_id()));
     tokio::fs::create_dir_all(&ws).await.unwrap();
     let ctx = ctx(ws.clone(), SandboxMode::WorkspaceWrite);
 
@@ -30,7 +30,7 @@ async fn workspace_write_blocks_outside_paths() {
 
     // 工作目录外：拒绝
     let outside =
-        std::env::temp_dir().join(format!("pipi-outside-{}.txt", crate::session::new_id()));
+        std::env::temp_dir().join(format!("pipi-outside-{}.txt", pipi_test_support::new_id()));
     let err = WriteTool
         .execute(
             &ctx,
@@ -54,7 +54,8 @@ async fn workspace_write_blocks_outside_paths() {
 #[cfg(unix)]
 #[tokio::test]
 async fn workspace_write_blocks_symlinked_parent_outside_workspace() {
-    let root = std::env::temp_dir().join(format!("pipi-write-link-{}", crate::session::new_id()));
+    let root =
+        std::env::temp_dir().join(format!("pipi-write-link-{}", pipi_test_support::new_id()));
     let workspace = root.join("workspace");
     let outside = root.join("outside");
     tokio::fs::create_dir_all(&workspace).await.unwrap();
@@ -78,8 +79,10 @@ async fn workspace_write_blocks_symlinked_parent_outside_workspace() {
 #[cfg(unix)]
 #[tokio::test]
 async fn workspace_write_blocks_dangling_symlink_to_outside() {
-    let root =
-        std::env::temp_dir().join(format!("pipi-write-dangling-{}", crate::session::new_id()));
+    let root = std::env::temp_dir().join(format!(
+        "pipi-write-dangling-{}",
+        pipi_test_support::new_id()
+    ));
     let workspace = root.join("workspace");
     let outside = root.join("outside");
     let outside_target = outside.join("created.txt");
@@ -104,7 +107,7 @@ async fn workspace_write_blocks_dangling_symlink_to_outside() {
 
 #[tokio::test]
 async fn read_only_blocks_writes_but_full_access_allows() {
-    let ws = std::env::temp_dir().join(format!("pipi-ws-{}", crate::session::new_id()));
+    let ws = std::env::temp_dir().join(format!("pipi-ws-{}", pipi_test_support::new_id()));
     tokio::fs::create_dir_all(&ws).await.unwrap();
 
     let ro = ctx(ws.clone(), SandboxMode::ReadOnly);

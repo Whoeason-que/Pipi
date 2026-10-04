@@ -36,12 +36,12 @@ async fn read_fixture() -> (
     std::path::PathBuf,
 ) {
     use crate::permissions::PermissionsConfig;
-    use crate::types::AbortSignal;
+    use pipi_protocol::AbortSignal;
     use std::sync::Arc;
 
     let base = std::env::temp_dir().join(format!(
         "pipi-read-containment-{}",
-        crate::session::new_id()
+        pipi_test_support::new_id()
     ));
     let workspace = base.join("workspace");
     let skill_root = base.join("skills");
