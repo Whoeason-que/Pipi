@@ -99,11 +99,17 @@ src/                 React + TypeScript 前端
   `pipi_app::runtime::SessionSummary`、`src-tauri` 的 `ChatState` 别名均已删除，
   不要再加回来。
 - 模块与测试布局：单个模块文件超过 ~500 行生产代码就拆成目录
-  （`foo/mod.rs` 放模块文档 + `mod` 声明 + `pub use` 门面，实现按**改动理由**分文件）；
-  测试从生产文件搬进同目录的 `tests.rs`（目录模块）或 `<name>_tests.rs`
-  （单文件模块，用 `#[cfg(test)] #[path = "..."] mod tests;` 声明）。`mod.rs`
-  里的 `pub use` 是 Rust 模块系统要求的门面，**不是**被禁止的转口 re-export ——
-  后者指的是跨 crate 的整包转发。
+  （`foo/mod.rs` 放模块文档 + `mod` 声明 + `pub use` 门面，实现按**改动理由**分文件）。
+  **单元测试放被测模块自己的目录**（Rust 的默认解析路径，**不要写 `#[path]`**）：
+  `src/foo.rs` → `src/foo/tests.rs`，`src/foo/mod.rs` → `src/foo/tests.rs`，
+  `src/foo/bar.rs` → `src/foo/bar/tests.rs`，crate 根（lib.rs/main.rs）的测试 →
+  `src/tests.rs`；生产文件里只写 `#[cfg(test)] mod tests;`。跨文件共用的 fixture 进
+  crate 根的 `src/test_support.rs`（`mod test_support;`），测试用
+  `use crate::test_support::…` 引用。临时目录一律 `pipi_test_support::temp_dir(prefix)`，
+  不要再手写一份。真正的集成测试（只用 pub API、编译成独立 crate）放
+  `crates/<crate>/tests/*.rs`，**无需任何声明**。
+  `mod.rs` 里的 `pub use` 是 Rust 模块系统要求的门面，**不是**被禁止的转口
+  re-export —— 后者指的是跨 crate 的整包转发。
 - Cargo 是 workspace 结构（edition 2024，rust-version 1.95）：版本 / edition 在根
   `Cargo.toml` 的 `[workspace.package]`，依赖版本与内部路径依赖都在
   `[workspace.dependencies]`，成员一律用 `version.workspace = true` /

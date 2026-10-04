@@ -134,6 +134,25 @@ crate 拆分（见上）之后又做了一轮文件级整理，不改行为、�
 - 验证：`cargo test --workspace` 全部通过、`cargo clippy --workspace --all-targets`
   无新告警、`cargo fmt --all --check` 干净、`cargo xtask arch` 通过。
 
+## 2026-10-05 测试集中存放与冗余清理
+
+- 单元测试从生产文件里搬出（50 个文件、约 1.03 万行），放在**被测模块自己的目录**下：
+  `src/foo.rs` → `src/foo/tests.rs`、`src/foo/mod.rs` → `src/foo/tests.rs`、
+  crate 根 → `src/tests.rs`，生产文件里只写 `#[cfg(test)] mod tests;`。
+  这是 Rust 的默认解析路径，全仓 **0 处 `#[path]`**；真正的集成测试仍在
+  `crates/<crate>/tests/*.rs`（独立 crate，无需声明）。跨文件 fixture 收进 crate 根的
+  `src/test_support.rs`。
+- 测试助手去重：`temp_dir` / `temp_root` 共 9 份实现 → 1 份
+  （`pipi_test_support::temp_dir`，各 crate 以 dev-dependency 使用）；`av` 的
+  `layer` 3→1、`write_skill` 2→1、`make_repo` 2→1；`pipi-agent` 的 `tool_result`
+  4→1、`assistant_text` 2→1。合并时按各调用点取并集，测试用例集合逐一比对不变。
+- 删除的死代码与未用依赖：`av::store::record_index`（`record_index_entries` 的
+  死包装）、`pipi-tools` 的 `uuid` 依赖（随兼容层一起失效）、`pipi-agent` 未使用的
+  `tempfile` dev-dependency；`architecture.toml` 补登新增的 dev 白名单
+  （av / pipi-agent / pipi-harness / pipi-tools 允许 dev 依赖 pipi-test-support）。
+- 验证：`cargo test --workspace` 384 项全通过、`cargo xtask arch` 通过、
+  `npm run test:frontend` 46/46、`npx tsc --noEmit` 干净。
+
 ## 后续维护规则
 
 1. 会话投影行为进入控制器或纯 reducer，组件只处理 UI；宿主事件订阅进入 runtime。
