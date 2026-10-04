@@ -36,9 +36,10 @@ forbid = ["tokio", "reqwest", "rig"]
 may-depend-on = ["pipi-error"]
 forbid = ["av", "pipi-tools", "pipi-core", "pipi-agent", "reqwest", "rig", "tokio"]
 
-# 内置工具与权限：只依赖协议。
+# 内置工具与权限：只依赖协议（测试用 pipi-test-support 的临时 ID / 环境助手）。
 [crates.pipi-tools]
 may-depend-on = ["pipi-protocol"]
+dev-may-depend-on = ["pipi-test-support"]
 
 # provider 适配：只做协议映射与错误分类，不做重发。
 [crates.pipi-provider]
