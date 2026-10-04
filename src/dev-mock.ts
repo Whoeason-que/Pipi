@@ -530,7 +530,7 @@ const settings: Settings = {
 };
 
 
-// —— 技能（av store 演示数据）：与 pipi_core::skill_center 的 DTO 同形 ——
+// —— 技能（av store 演示数据）：与 pipi-skills 的 DTO 同形 ——
 const demoSkillLibrary: Array<Record<string, unknown>> = [
   {
     name: "pdf",

@@ -193,26 +193,31 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 ## 架构
 
 ```
-┌─────────────────────────────────────┐
-│        前端 · React + TypeScript     │  只渲染：Agent 列表、会话、文件视图
-└────────────────┬────────────────────┘
+┌──────────────────────────────────────┐
+│        前端 · React + TypeScript      │  只渲染：Agent 列表、会话、文件视图
+└────────────────┬─────────────────────┘
                  │ Tauri IPC（invoke / events）
-┌────────────────▼────────────────────┐
-│  src-tauri      Rust 薄壳            │  commands：list/create/save agent
-├─────────────────────────────────────┤
+┌────────────────▼─────────────────────┐
+│  src-tauri      Tauri 薄壳            │  commands：只做 IPC 转发
+│  pipi-server    Web/远程宿主          │  axum WS + /api/invoke + 鉴权
+├──────────────────────────────────────┤
 │  pipi-error / pipi-protocol           │  错误语义 + 稳定 JSONL/IPC DTO
 │  pipi-tools / pipi-harness            │  内置工具/权限/截断 + 纯提示词层
-│  pipi-provider                         │  rig 的 HTTP/SSE 适配与错误分类
-├─────────────────────────────────────┤
+│  pipi-provider                        │  rig 的 HTTP/SSE 适配与错误分类
+├──────────────────────────────────────┤
 │  crates/pipi-app   应用服务层         │  会话槽、进程托管、后台编排、宿主协议
-├─────────────────────────────────────┤
-│  crates/pipi-core  Rust 核心         │  不依赖 Tauri，可独立测试
+├──────────────────────────────────────┤
+│  crates/pipi-agent  Agent 引擎        │  与宿主无关、不依赖 av、不直连网络
 │  ├─ agent_loop    工具调用循环        │  LLM → 工具调用 → 执行 → 回喂
-│  ├─ tools::agent  Agent 组合工具      │  显式启用；基础工具来自 pipi-tools
-│  ├─ tools::background 后台任务工具    │  只定义能力端口；shell/child 由 pipi-app 托管
 │  ├─ session       sessions/*.jsonl   │  append-only，崩溃安全
-│  ├─ compaction    上下文压缩策略流水线  │  投影式（不落盘）+ 替换式（落盘）
-│  └─ agents        扫描 ~/.pipi/agents │  一切皆文件
+│  └─ compaction    上下文压缩流水线     │  投影式（不落盘）+ 替换式（落盘）
+├──────────────────────────────────────┤
+│  crates/pipi-core   领域层            │  不依赖 Tauri，可独立测试
+│  ├─ agents        扫描 ~/.pipi/agents │  一切皆文件 + av 契约层解析
+│  ├─ settings      全局设置            │  供应商、压缩阈值、重试策略
+│  └─ tools::agent  Agent 组合工具      │  显式启用；基础工具来自 pipi-tools
+│  crates/pipi-skills   技能中心        │  av store 浏览/安装/校验/同步
+│  crates/pipi-catalog  模型目录        │  models.dev 拉取 + 缓存（唯一 HTTP）
 └──────────────────────────────────────┘
 ```
 
@@ -224,7 +229,9 @@ run 代际、停止确认与压缩重键；`Chat.tsx` 只持有输入、滚动�
 
 `pipi-app::runtime` 的公共入口位于 `runtime/mod.rs`，内部按 `slots`（会话与文件）、
 `execution`（主轮与 child）、`compaction`（压缩与重键）、`events`（事件与落盘）
-拆分。桌面与 Web 共用这些实现。前端 `ipc.ts` 声明命令参数、返回值和事件类型，
+拆分；宿主事件协议（`RuntimeEvent` 与各 envelope）在 `pipi-app::events`，审批与
+runtime 都依赖这个叶子模块，`background` 通过 `ChildAgentRunner` 端口拿到 child
+运行能力。桌面与 Web 共用这些实现。前端 `ipc.ts` 声明命令参数、返回值和事件类型，
 `npm run test:frontend` 会核对桌面注册、Web 路由和共享 JSON wire 样例；应用层的
 `cargo test -p pipi-app` 验证同一份样例的 Rust 序列化。
 
@@ -349,19 +356,20 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
 | --- | --- | --- |
 | `packages/ai` types | `pipi-protocol` | 消息/内容块/事件协议，JSON 字段名与上游一致 |
 | `packages/ai` api adapters | `pipi-provider` | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
-| `packages/agent` agent-loop | `agent_loop` | 事件流 + steering/follow-up + 工具批次执行；steering 已接线到 UI（运行中插话，迟到消息在运行结束收割、下次运行重放，不丢失） |
-| `packages/agent` harness/tools | `pipi-tools` + `tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/glob/grep；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
+| `packages/agent` agent-loop | `pipi-agent::agent_loop` | 事件流 + steering/follow-up + 工具批次执行；steering 已接线到 UI（运行中插话，迟到消息在运行结束收割、下次运行重放，不丢失） |
+| `packages/agent` harness/tools | `pipi-tools` + `pipi-core::tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/glob/grep；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
 | `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness prompt/resources | `pipi-harness` | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
-| `packages/agent` harness/session | `session` | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
+| `packages/agent` harness/session | `pipi-agent::session` | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
 | （Pipi 应用层） | `pipi-app::runtime` | 会话槽、后台 Agent 编排和宿主事件协议；Tauri 与 Web server 共用，IPC payload 不变 |
-| `packages/agent` compaction（启发式） | `context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
-| `packages/agent` compaction（LLM 摘要替换） | `compaction` | 见下文「上下文压缩」：摘要替换旧轮次 + 保留近期原文（keepRecentTokens=20000）；摘要骨架 prompt、旧摘要经 `<previous-summary>` 交回 update 版指令、文件操作清单追加在摘要末尾；落盘为 `compaction` 条目（含 `keep_from_entry`），重开/分叉时回放 |
+| `packages/agent` compaction（启发式） | `pipi-agent::context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
+| `packages/agent` compaction（LLM 摘要替换） | `pipi-agent::compaction` | 见下文「上下文压缩」：摘要替换旧轮次 + 保留近期原文（keepRecentTokens=20000）；摘要骨架 prompt、旧摘要经 `<previous-summary>` 交回 update 版指令、文件操作清单追加在摘要末尾；落盘为 `compaction` 条目（含 `keep_from_entry`），重开/分叉时回放 |
 | `packages/agent` skills（frontmatter） | `av::skills` | 渐进式披露：索引常驻上下文，全文模型按需 read；技能包管理（store/锁/安装）见「agent.toml 契约」一节 |
 
 有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/
 prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-tools::permissions`
-（命令权限）、`agents`（Agent 注册表）、`catalog`（模型目录，models.dev）、
+（命令权限）、`pipi-core::agents`（Agent 注册表）、`pipi-catalog`（模型目录，
+models.dev）、`pipi-skills`（技能中心）、
 memory 工具（含渐进召回注入）、glob/grep 检索工具。
 
 **用量口径**（`pipi_protocol::Usage`，与 pi 的 `AssistantMessage["usage"]` 一致）：`input`
@@ -393,13 +401,13 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
   给 pending/running 调用补 `output-error` 的做法）。
 - **模型目录**：运行时从 [models.dev](https://models.dev)（MIT，opencode 用的模型目录）
   拉取并缓存到 `~/.pipi/cache/models.json`；Pipi 只保留「收录哪些家 + 端点/协议的人工
-  核实」这一张 `CURATION` 表（`crates/pipi-core/src/catalog.rs`）。上游给的是 AI SDK
+  核实」这一张 `CURATION` 表（`crates/pipi-catalog/src/lib.rs`）。上游给的是 AI SDK
   语义的 baseUrl，未经核实不得直接当 Pipi 的 baseUrl 用 —— 例如上游 DeepSeek 只给
   `https://api.deepseek.com`（无版本段），而 rig 的 OpenAI 兼容客户端会往后拼路径。
 - **hermes**（NousResearch/hermes-agent）：会话统计面板整套语义来自它 ——
   滚动 N 次调用的平均 tok/s（sum(output)/sum(latency)）、缓存命中率
   （cache_read / prompt 总量，prompt 口径见上）、上下文占用用最近一次请求的实际值
-  而非累计值，以及「数据不足时省略而不是编造 0」的原则。见 `stats.rs`。
+  而非累计值，以及「数据不足时省略而不是编造 0」的原则。见 `pipi-agent::stats`。
 
 ### 与 codex 的关系
 
@@ -537,8 +545,11 @@ npm run tauri dev      # 开发模式
 npm run tauri build    # 打包
 
 # 只动核心时（不启动桌面壳）
-cargo test -p pipi-core
+cargo test -p pipi-agent -p pipi-core
 cargo check --workspace
+
+# 分层与依赖方向检查（改 Cargo.toml 依赖或新增 crate 必跑）
+cargo xtask arch
 ```
 
 ## Web/远程模式
@@ -569,7 +580,7 @@ Pipi 也可以把 React 前端和 pipi-app 运行时以浏览器服务方式启�
 ## 路线图
 
 - [x] **M0 — 项目骨架**：Tauri 2.0 跑通，设计文档定稿
-- [x] **M1½ — 核心移植**：pi 的 agent loop / 工具 / provider / session 移植为 Rust（`crates/pipi-core`），命令权限与工作目录进 `agent.json`
+- [x] **M1½ — 核心移植**：pi 的 agent loop / 工具 / provider / session 移植为 Rust（现为 `pipi-agent` / `pipi-core` 等 crate），命令权限与工作目录进 `agent.json`
 - [x] **M2 — Agent 管理**：UI 全字段编辑 `agent.json` / `AGENTS.md` 双向同步，memory 渐进召回（索引常驻 + 按需读取）
 - [ ] **M3 — Skills 与 MCP**：Skills 渐进注入已实现；技能库与 Agent 技能页已接线（安装 / 校验 / 启用 / 同步）；stdio MCP 服务器接入未动
 - [x] **M4（部分）— 会话树状分叉**：`fork_session` 已实现并接线 UI；LLM 摘要式 compaction 已实现（turn 边界触发，摘要落盘可回放）。模板市场、多语言未动

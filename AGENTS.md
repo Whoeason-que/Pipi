@@ -17,26 +17,36 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 ## 代码结构
 
 ```
-crates/av/          agent.toml 环境契约 + 技能包管理（独立工具）：schema / 发现 /
-                    合并 / env 解析 / requires / 契约文本保格式编辑
-                    （contract_edit）/ SKILL.md 发现与全局 store
-                    （~/.av/skills：安装、锁文件、同步）；lib 供 pipi-core 复用，
-                    bin 为 av CLI（check/env/doctor/skill）
-crates/pipi-error/  跨层稳定错误语义（错误码、RetryHint）
+crates/av/           agent.toml 环境契约 + 技能包管理（独立工具）：schema / 发现 /
+                     合并 / env 解析 / requires / 契约文本保格式编辑
+                     （contract_edit）/ SKILL.md 发现与全局 store
+                     （~/.av/skills：安装、锁文件、同步）；lib 供 pipi-core /
+                     pipi-skills 复用，bin 为 av CLI（check/env/doctor/skill）
+crates/pipi-error/   跨层稳定错误语义（错误码、RetryHint）
 crates/pipi-protocol/ 持久化与 transport DTO（JSONL/IPC 消息、流事件、AbortSignal）
-crates/pipi-tools/  内置 bash/read/write/edit/glob/grep/memory、命令权限与截断
-crates/pipi-harness/ 纯项目上下文发现与 system prompt 渲染（不依赖运行时）
+crates/pipi-tools/   内置 bash/read/write/edit/glob/grep/memory、命令权限、截断与
+                     数据树 fs 守卫（fs::ensure_real_*）
+crates/pipi-harness/ 纯项目上下文发现与 system prompt 渲染（零依赖）
 crates/pipi-provider/ rig 的 provider HTTP/SSE 适配与错误分类（不做重发）
-crates/pipi-core/   Rust 领域核心（不依赖 Tauri）：agent_loop / session / context /
-                    compaction / stats / settings / agents / skill_center
-                    （技能中心：store 浏览、安装、校验、Agent 启用状态）/
-                    catalog（models.dev）；基础工具、权限、协议、prompt 渲染、
-                    技能包管理直接依赖 pipi-tools / pipi-protocol / pipi-harness /
-                    av，不做转口 re-export
-crates/pipi-app/    应用服务层：会话槽、后台调度、审批交互和宿主事件协议；Tauri /
-                    Web server 共同依赖它，不在壳层复制运行时逻辑
-src-tauri/          Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务逻辑
-src/                React + TypeScript 前端
+crates/pipi-agent/   Agent 引擎（可复用、与宿主无关）：agent_loop / context /
+                     compaction / session（树状 JSONL）/ retry / stats；不依赖 av、
+                     不直连网络（provider 是注入的 trait）
+crates/pipi-core/    领域层：agents（注册表 + av 契约层解析 + prompt 装配）/
+                     settings / tools（Agent 组合工具）；网络目录不在这一层
+crates/pipi-skills/  技能中心：store 浏览、安装、校验、同步与 Agent 启用状态
+                     （走同一份 av 实现）
+crates/pipi-catalog/ 模型目录：models.dev 拉取 + CURATION 表 + 本地缓存
+crates/pipi-app/     应用服务层：会话槽、后台调度、审批交互和宿主事件协议
+                     （events 是叶子，approval / runtime 依赖它；background 通过
+                     ChildAgentRunner 端口拿到 child 运行能力）；Tauri / Web
+                     server 共同依赖它，不在壳层复制运行时逻辑
+crates/pipi-server/  Web/远程宿主：axum WS + /api/invoke + 鉴权 + 静态资源，
+                     只做 transport，不含业务逻辑
+crates/pipi-test-support/ 测试脚手架（HOME/AV_HOME 串行化改写），仅 dev-dependency
+crates/xtask/        仓库维护任务：cargo xtask arch 按 architecture.toml 检查
+                     分层与依赖方向
+src-tauri/           Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务逻辑
+src/                 React + TypeScript 前端
 ```
 
 前端会话投影由 `src/session-runtime.ts`（全局订阅、会话索引）与
@@ -64,6 +74,7 @@ src/                React + TypeScript 前端
 | `cargo test -p av` | av 契约 + 技能包管理测试（改 av 必跑；含本地 git 安装端到端） |
 | `cargo run -p av -- skill list` | 调试 av CLI（`check`/`env`/`doctor`/`skill …`；`AV_HOME` 可隔离） |
 | `cargo check --workspace` | 全量编译检查 |
+| `cargo xtask arch` | 分层与依赖方向检查（改 `Cargo.toml` 依赖或新增 crate 必跑） |
 | `cd src-tauri && cargo clippy` | Rust lint |
 | `npx tsc --noEmit` | 前端类型检查 |
 
@@ -71,11 +82,16 @@ src/                React + TypeScript 前端
 
 - Rust 数据模型一律 `derive(Serialize, Deserialize)` 并 `#[serde(rename_all = "camelCase")]`，与前端类型对齐。
 - 消息 / 会话的 JSON 字段名与 pi 保持一致（`role`、`toolResult`、`toolCall`、`parentId`……），移植改动不许悄悄改格式。
-- 可复用领域逻辑进 `pipi-core`；会话槽、后台编排与宿主事件只进 `pipi-app`；
-  `src-tauri` 是薄壳，不写业务逻辑。
+- **分层与依赖方向以 `architecture.toml` 为准**（`cargo xtask arch` 机检）：
+  引擎（`pipi-agent`）不碰 av 契约、不直连网络；`pipi-core` 是领域层，不做模型
+  目录；只有 `pipi-catalog` 直连 HTTP；会话槽、后台编排与宿主事件只进
+  `pipi-app`；两个壳（`src-tauri` / `pipi-server`）是薄壳，不写业务逻辑。
+  改依赖或加 crate 先改 `architecture.toml` 再跑检查 —— 想放宽边界要在那里
+  写明理由，不要在成员 `Cargo.toml` 里偷偷加。
 - 不设转口 re-export：类型与逻辑由属主 crate 导出，消费者在自己的
   `Cargo.toml` 里直接依赖（`pipi-protocol` / `pipi-tools` / `pipi-provider` /
-  `pipi-harness` / `av`）。历史上 `pipi_core::{
+  `pipi-harness` / `av` / `pipi-agent` / `pipi-skills` / `pipi-catalog`）。
+  历史上 `pipi_core::{
   types,tools,permissions,provider,harness,skills,truncate,project_doc}` 与
   `pipi-app` 的整包 glob 均已删除，不要再加回来。
 - Cargo 是 workspace 结构（edition 2024，rust-version 1.95）：版本 / edition 在根
@@ -85,10 +101,12 @@ src/                React + TypeScript 前端
   `default-features` 只有在工作区条目里也显式写了才会被成员覆盖（不写就静默
   忽略、默认特性照开）——`av` 的 `search` 与 `reqwest` 靠这条维持「不同成员用
   不同默认特性」，别删工作区条目里的 `default-features`。
-- 测试里改写进程环境（`HOME` / `AV_HOME`）走 `crate::set_env_var` /
-  `crate::remove_env_var`：edition 2024 起 `std::env::set_var` 是 unsafe，
-  unsafe 块与 `SAFETY` 说明收敛在那里；调用方必须先持有本 crate 的
-  `HOME_LOCK` / `AV_HOME_LOCK`（集成测试文件各自有同名锁）。
+- 测试里改写进程环境（`HOME` / `AV_HOME` / `PIPI_HOME`）走
+  `pipi_test_support::{set_env_var, remove_env_var}`（crate 内单元测试）或集成
+  测试文件自己的同名助手：edition 2024 起 `std::env::set_var` 是 unsafe，
+  unsafe 块与 `SAFETY` 说明收敛在那里；调用方必须先持有 `HOME_LOCK` /
+  `AV_HOME_LOCK`（`pipi-test-support` 的锁每个测试进程一把，集成测试文件各自
+  有同名锁）。
 - Agent 数据根目录是 `~/.pipi/agents/<name>/`，结构见 README；不要把 Agent 状态存到别处。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息用用户可读的中文。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
@@ -97,7 +115,7 @@ src/                React + TypeScript 前端
   - react-select（模型/供应商选择器的搜索与键盘导航，见 src/Select.tsx）——统一以
     `unstyled` + 自有 `.pipi-select__*` 样式使用，不让第三方样式体系渗进来。
 - 模型目录（提供商与模型清单）**不再手写或生成**：运行时从 models.dev 拉取并缓存到
-  `~/.pipi/cache/models.json`，实现见 `crates/pipi-core/src/catalog.rs`。上游给的是
+  `~/.pipi/cache/models.json`，实现见 `crates/pipi-catalog/src/lib.rs`。上游给的是
   AI SDK 语义的 baseUrl，未经 `CURATION` 表核实不得直接当 Pipi 的 baseUrl 使用。
 - 目录骨架必须与 README「Agent 的组成」表格一致；改动时两边同步更新。
 - provider 协议层用 rig（`rig` crate，依赖重命名自 rig-core）：新增 provider
@@ -142,7 +160,7 @@ src/                React + TypeScript 前端
   **同一个 Agent 两条会话同时跑**、停一条不影响其他、只释放空闲会话、事件与落盘
   互不串），并且别把前端拖回去：ChatView 卸载**不得**中止运行、切换 Agent 或切换
   会话**不得**被拦（后台运行是产品行为，不是 bug）。
-- 权限是安全边界：bash 命令检查在 `pipi-core/src/tools/bash.rs` 执行前发生，
+- 权限是安全边界：bash 命令检查在 `pipi-tools/src/bash.rs` 执行前发生，
   改权限逻辑（`permissions/`）必须带测试，且宁可拒绝不可放行 —— 无法静态
   分析的命令一律视为危险。两条已定的判据边界，改动前先想清楚：
   **重定向**只拦「写入文件系统」（`>` `>>` `2>文件` `&>` `>|` `<>` `>&词`）
@@ -169,7 +187,7 @@ src/                React + TypeScript 前端
   **安装 ≠ 启用** —— `[resources.skills].use` 声明才生效，同层 `agent.lock`
   是解析权威；**会话启动只读、不联网**，缺锁/缺内容即 fail-closed 并提示
   `av skill sync`；写入只发生在用户显式触发时 —— `av skill install/add/sync/
-  update/remove`，或应用内技能面板（`pipi-core::skill_center`，走同一份 av
+  update/remove`，或应用内技能面板（`pipi-skills`，走同一份 av
   实现：`av::contract_edit` 编辑 `use`、`av::store::write_text_atomic` 落盘、
   `av::install` 物化），任何隐式写入都不允许。git 一律 spawn 系统 `git`
   （不引 git2），来源不接受符号链接，单技能限额 500 文件 / 5 MiB。改
@@ -177,7 +195,7 @@ src/                React + TypeScript 前端
   修订钉扎、锁不一致拒绝、编辑后 schema 校验），并保持 `av` CLI 的 `--json`
   与退出码 0/1 约定。`~/.pipi` 与 `~/.av` 的路径拼装一律走 `av::paths`
   （`PIPI_HOME`/`AV_HOME` 可覆盖），不许在别处手写。`search` feature 只属于
-  av CLI（pipi-core/pipi-app 以 `default-features = false` 依赖 av），不要
-  把 HTTP 客户端链进桌面应用；`skill_center` 的 `install_skill` /
+  av CLI（pipi-core / pipi-skills / pipi-catalog / pipi-app 以
+  `default-features = false` 依赖 av），不要把 HTTP 客户端链进桌面应用；`pipi-skills` 的 `install_skill` /
   `sync_agent_skills` / `verify_store_skills` 会阻塞甚至联网，宿主必须放到
   阻塞线程池（Tauri/Web 都不许在事件循环上直接调）。
