@@ -1,5 +1,6 @@
 mod chat;
 mod commands;
+mod invoke_args;
 
 /// 桌面壳的 command 跑在 GTK 主线程上，那里没有 reactor；把 Tauri 自己的
 /// Tokio 运行时句柄交给核心，Agent 循环由 `RuntimeState` 显式 spawn 上去。

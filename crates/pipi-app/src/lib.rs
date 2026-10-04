@@ -10,5 +10,6 @@
 
 pub mod approval;
 pub mod background;
+pub mod commands;
 pub mod events;
 pub mod runtime;

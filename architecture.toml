@@ -70,17 +70,19 @@ forbid = ["reqwest"]
 [crates.pipi-catalog]
 may-depend-on = ["av", "pipi-protocol", "pipi-tools"]
 
-# 应用服务层：会话槽、运行编排、审批与宿主事件协议。
+# 应用服务层：会话槽、运行编排、审批、宿主事件协议与宿主命令的单一事实来源。
 [crates.pipi-app]
 may-depend-on = [
     "av",
     "pipi-agent",
+    "pipi-catalog",
     "pipi-core",
     "pipi-protocol",
     "pipi-provider",
+    "pipi-skills",
     "pipi-tools",
 ]
-dev-may-depend-on = ["pipi-skills", "pipi-test-support"]
+dev-may-depend-on = ["pipi-test-support"]
 
 # Web/远程宿主：只做 transport、鉴权与静态资源，不含业务逻辑。
 [crates.pipi-server]

@@ -36,7 +36,8 @@ crates/pipi-core/    领域层：agents（注册表 + av 契约层解析 + promp
 crates/pipi-skills/  技能中心：store 浏览、安装、校验、同步与 Agent 启用状态
                      （走同一份 av 实现）
 crates/pipi-catalog/ 模型目录：models.dev 拉取 + CURATION 表 + 本地缓存
-crates/pipi-app/     应用服务层：会话槽、后台调度、审批交互和宿主事件协议
+crates/pipi-app/     应用服务层：会话槽、后台调度、审批交互、宿主事件协议与
+                     **宿主命令表**（commands.rs：参数结构 + 实现 + dispatch）
                      （events 是叶子，approval / runtime 依赖它；background 通过
                      ChildAgentRunner 端口拿到 child 运行能力）；Tauri / Web
                      server 共同依赖它，不在壳层复制运行时逻辑
@@ -51,9 +52,14 @@ src/                 React + TypeScript 前端
 
 前端会话投影由 `src/session-runtime.ts`（全局订阅、会话索引）与
 `src/session-controller.ts`（水合、run 身份、停止、重键）拥有；界面组件只订阅
-快照，不在卸载时停止运行，也不另注册宿主会话事件。`src/ipc.ts` 是类型化命令
-边界；改命令或 DTO 后跑 `npm run test:frontend` 与 `cargo test -p pipi-app`，
-同步 `tests/fixtures/ipc-wire.json` 的字段变动。不要绕回 `invoke<T>(string)`。
+快照，不在卸载时停止运行，也不另注册宿主会话事件。**命令表只有一份**：
+`pipi-app/src/commands.rs` 定义每个命令的 `XxxArgs`（serde camelCase）、实现与
+`dispatch`；两个壳只做转发（Tauri 用 `InvokeArgs<XxxArgs>` 扁平反序列化，Web
+直接调 `dispatch`），`src/ipc.ts` 是前端侧的类型化边界。加命令 = 改
+`COMMANDS` + 一个结构体 + 一个函数 + 两处一行转发，再跑 `npm run test:frontend`
+（契约测试以 `commands.rs` 为准核对三方）与 `cargo test -p pipi-app`；wire 字段
+变动同步 `tests/fixtures/ipc-wire.json`。不要绕回 `invoke<T>(string)`，也不要在
+壳层手写参数解析。
 `pipi-app/src/runtime/` 的子模块保持私有，公共调用继续经过 `runtime` 入口。
 宿主事件载荷**一律**带身份 envelope（`agentName` + `sessionId` + `runId`）：
 前端不再容忍「裸事件」形状（2026-10-05 删除），新增事件类型必须带这三个字段。

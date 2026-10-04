@@ -7,36 +7,52 @@ import ts from "typescript";
 const root = path.resolve(import.meta.dirname, "..");
 const read = (file: string) => readFileSync(path.join(root, file), "utf8");
 const camel = (name: string) => name.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+const pascal = (name: string) => name.replace(/(^|_)([a-z])/g, (_, __, letter: string) => letter.toUpperCase());
 
 function rustType(input: string): string {
-  const value = input.trim().replace(/,$/, "");
+  const value = input.trim().replace(/\s+/g, " ").replace(/,$/, "");
   if (value.startsWith("Option<")) return rustType(value.slice(7, -1)) + "|null";
   if (value.startsWith("Vec<")) return rustType(value.slice(4, -1)) + "[]";
   if (value.startsWith("Result<")) return rustType(value.slice(7, -1).replace(/,\s*String$/, ""));
-  const aliases: Record<string, string> = { String: "string", bool: "boolean", u64: "number", usize: "number", "()": "void", AgentDefinition: "AgentDefinition", Settings: "Settings", Model: "ModelConfig", PermissionsConfig: "PermissionsConfig", SessionInfo: "SessionInfoView", Message: "MessageView", "SessionSummary": "SessionSummaryView", "pipi_agent::stats::SessionStats": "SessionStatsView", "pipi_protocol::BackgroundTaskSnapshot": "BackgroundTaskSnapshot", ModelCatalog: "ModelCatalog", SkillLibrary: "SkillLibrary", AgentSkills: "AgentSkills", SkillVerify: "SkillVerify", SkillInstallReport: "SkillInstallReport", SkillSyncReport: "SkillSyncReport", SkillUsage: "SkillUsage" };
+  const aliases: Record<string, string> = { String: "string", bool: "boolean", u64: "number", usize: "number", "()": "void", AgentDefinition: "AgentDefinition", Settings: "Settings", Model: "ModelConfig", PermissionsConfig: "PermissionsConfig", SessionInfo: "SessionInfoView", Message: "MessageView", SessionSummary: "SessionSummaryView", SessionStats: "SessionStatsView", BackgroundTaskSnapshot: "BackgroundTaskSnapshot", ModelCatalog: "ModelCatalog", SkillLibrary: "SkillLibrary", AgentSkills: "AgentSkills", SkillVerify: "SkillVerify", SkillInstallReport: "SkillInstallReport", SkillSyncReport: "SkillSyncReport", SkillUsage: "SkillUsage" };
   assert.ok(aliases[value], `unsupported command wire type: ${value}`);
   return aliases[value];
 }
 
-function desktopCommands() {
-  const commands = new Map<string, { args: Array<{ name: string; optional: boolean; type: string }>; result: string }>();
-  for (const file of ["src-tauri/src/commands.rs", "src-tauri/src/chat.rs"]) {
-    for (const match of read(file).matchAll(/#\[tauri::command\]\s*pub (?:async )?fn (\w+)\((.*?)\)\s*(?:->\s*(.*?))?\s*\{/gs)) {
-      const args = [...match[2].matchAll(/(\w+):\s*(.*?)(?=,\s*\w+:|,?\s*$)/gs)]
-        .filter(arg => arg[1] !== "state" && arg[1] !== "app")
-        .map(arg => ({ name: camel(arg[1]), optional: arg[2].trim().startsWith("Option<"), type: rustType(arg[2]) }));
-      assert.equal(commands.has(match[1]), false, `duplicate command ${match[1]}`);
-      commands.set(match[1], { args, result: rustType(match[3]) });
-    }
+/** 共享命令表：crates/pipi-app/src/commands.rs 是宿主命令的唯一事实来源。 */
+function sharedCommands() {
+  const source = read("crates/pipi-app/src/commands.rs");
+  const commandNames = [...source
+    .match(/pub const COMMANDS: &\[&str\] = &\[([\s\S]*?)\];/)![1]
+    .matchAll(/"(\w+)"/g)].map(match => match[1]);
+  const returns = new Map<string, string>();
+  for (const match of source.matchAll(/pub (?:async )?fn (\w+)\(([^)]*)\)\s*->\s*([^{]+?)\s*\{/g)) {
+    returns.set(match[1], match[3]);
   }
-  return commands;
+  const structs = new Map<string, Array<{ name: string; optional: boolean; type: string }>>();
+  for (const match of source.matchAll(/pub struct (\w+) \{([\s\S]*?)\}/g)) {
+    structs.set(match[1], [...match[2].matchAll(/pub (\w+):\s*([^,]+),/g)].map(field => ({
+      name: camel(field[1]),
+      optional: field[2].trim().startsWith("Option<"),
+      type: rustType(field[2]),
+    })));
+  }
+  const commands = new Map<string, { args: Array<{ name: string; optional: boolean; type: string }>; result: string }>();
+  for (const name of commandNames) {
+    assert.equal(commands.has(name), false, `COMMANDS 重复命令 ${name}`);
+    const result = returns.get(name);
+    assert.ok(result, `commands.rs 缺少 ${name} 的命令函数`);
+    const args = structs.get(pascal(name) + "Args") ?? [];
+    assert.equal(args.length === 0, structs.get(pascal(name) + "Args") === undefined, `${name} 的空参数结构体应省略`);
+    commands.set(name, { args, result: rustType(result) });
+  }
+  return { source, commandNames, commands };
 }
 
-test("typed IPC map matches all desktop declarations, registrations and Web argument requirements", () => {
+test("shared command table matches the typed IPC map, the Tauri shells and the Web dispatch table", () => {
   const source = ts.createSourceFile("ipc.ts", read("src/ipc.ts"), ts.ScriptTarget.Latest, true);
   const map = source.statements.find(statement => ts.isInterfaceDeclaration(statement) && statement.name.text === "CommandMap");
   assert.ok(map && ts.isInterfaceDeclaration(map));
-  const commands = desktopCommands();
   const typed = new Map(map.members.map(member => {
     assert.ok(ts.isPropertySignature(member) && member.type && ts.isTypeLiteralNode(member.type));
     const args = member.type.members.find(field => field.name?.getText(source) === "args");
@@ -48,21 +64,44 @@ test("typed IPC map matches all desktop declarations, registrations and Web argu
       return { name: arg.name.getText(source), optional: Boolean(arg.questionToken), type: arg.type!.getText(source).replace(/\s/g, "") };
     }) }] as const;
   }));
-  assert.deepEqual([...typed.keys()].sort(), [...commands.keys()].sort());
-  for (const [name, args] of commands) assert.deepEqual(typed.get(name), args, name);
+
+  const { source: shared, commandNames, commands } = sharedCommands();
+  assert.deepEqual(commandNames, [...typed.keys()], "COMMANDS 顺序必须与 ipc.ts CommandMap 一致");
+  for (const [name, args] of commands) {
+    const expected = typed.get(name);
+    assert.ok(expected, `commands.rs 多出命令 ${name}`);
+    assert.equal(args.result, expected.result, name);
+    const declared = [...args.args].sort((a, b) => a.name.localeCompare(b.name));
+    const ipc = [...expected.args].sort((a, b) => a.name.localeCompare(b.name));
+    assert.deepEqual(declared, ipc, name);
+  }
+  for (const name of typed.keys()) assert.ok(commands.has(name), `commands.rs 缺少命令 ${name}`);
+
+  // 桌面壳：每个命令一个 #[tauri::command] 薄壳，且转发到同名共享函数。
+  const tauriFiles = ["src-tauri/src/commands.rs", "src-tauri/src/chat.rs"];
+  const declared = tauriFiles.flatMap(file => [...read(file).matchAll(/#\[tauri::command\]\s*pub (?:async )?fn (\w+)\(/g)].map(match => match[1]));
+  assert.deepEqual(declared.sort(), [...commandNames].sort(), "Tauri 壳必须声明全部宿主命令");
+  const forwarded = tauriFiles.flatMap(file => [...read(file).matchAll(/pipi_app::commands::(\w+)/g)].map(match => match[1]));
+  assert.deepEqual([...new Set(forwarded)].sort(), [...commandNames].sort(), "Tauri 壳必须转发到共享函数");
+
+  // Web 端：dispatch 表覆盖全部命令，每个分支调用同名共享函数。
+  const dispatch = shared.match(/pub async fn dispatch\([\s\S]*?\n\}/)?.[0];
+  assert.ok(dispatch, "commands.rs 必须包含 pub async fn dispatch");
+  const arms = [...dispatch.matchAll(/"(\w+)"\s*=>/g)];
+  assert.deepEqual(arms.map(arm => arm[1]), commandNames, "dispatch 表必须覆盖全部命令");
+  arms.forEach((arm, index) => {
+    const body = dispatch.slice(arm.index! + arm[0].length, arms[index + 1]?.index ?? dispatch.length);
+    assert.ok(body.includes(`${arm[1]}(`), `dispatch 的 ${arm[1]} 分支未调用同名函数`);
+  });
+
   const registrations = read("src-tauri/src/lib.rs").match(/generate_handler!\[([\s\S]*?)\]/)?.[1];
   assert.ok(registrations);
   const registered = [...registrations.matchAll(/(?:chat|commands)::(\w+)/g)].map(match => match[1]);
-  assert.deepEqual(registered.sort(), [...commands.keys()].sort());
-  const web = read("crates/pipi-server/src/main.rs").split("async fn invoke_command(")[1].split("fn required_string(")[0];
-  const arms = [...web.matchAll(/"(\w+)"\s*=>/g)];
-  assert.deepEqual(arms.map(arm => arm[1]).sort(), [...commands.keys()].sort());
-  arms.forEach((arm, index) => {
-    const body = web.slice(arm.index! + arm[0].length, arms[index + 1]?.index ?? web.indexOf('_ =>'));
-    const args = [...body.matchAll(/(required|optional)_(?:string|value)(?:\s*::<[^>]+>)?\(args,\s*"(\w+)"\)/g)]
-      .map(match => ({ name: match[2], optional: match[1] === "optional" }));
-    assert.deepEqual(args.sort((a, b) => a.name.localeCompare(b.name)), commands.get(arm[1])!.args.map(({ name, optional }) => ({ name, optional })).sort((a, b) => a.name.localeCompare(b.name)), arm[1]);
-  });
+  assert.deepEqual(registered.sort(), [...commandNames].sort(), "Tauri 注册表必须覆盖全部命令");
+
+  const web = read("crates/pipi-server/src/main.rs");
+  assert.match(web, /pipi_app::commands::dispatch\(/, "Web 端必须调用共享 dispatch");
+  assert.doesNotMatch(web, /fn (?:required|optional)_(?:string|value)\(/, "Web 端不得再手写参数解析");
 });
 
 test("Rust wire fixtures fit frontend DTOs and typed invoke rejects misspelled commands and missing session identity", () => {

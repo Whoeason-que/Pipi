@@ -1,17 +1,27 @@
 //! Tauri 事件适配层。
 //!
 //! 会话运行逻辑位于 pipi-app::runtime，本模块只把共享运行时映射为
-//! Tauri command 与 event。
+//! Tauri command 与 event；命令参数与转发目标见 `pipi_app::commands`。
 
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, State};
 
 use pipi_agent::session::SessionSummary;
-use pipi_app::approval::ApprovalDecision;
+use pipi_agent::stats::SessionStats;
+use pipi_app::commands::{
+    ArchiveAgentArgs, ArchiveSessionArgs, CompactNowArgs, DeleteAgentArgs, DeleteArchivedAgentArgs,
+    DeleteArchivedSessionArgs, DeleteSessionArgs, EnsureTestSessionArgs, ForkSessionArgs,
+    ListArchivedSessionsArgs, ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs,
+    OpenSessionArgs, QueryBackgroundTasksArgs, ResetTestSessionArgs, ResolveApprovalArgs,
+    RestoreAgentArgs, RestoreSessionArgs, SendPromptArgs, SessionInfoArgs, SessionMessagesArgs,
+    SessionRunningArgs, SessionStatsArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
+};
 use pipi_app::events::{EventEmitter, RuntimeEvent};
-use pipi_app::runtime::{self, RuntimeState, SessionInfo};
-use pipi_protocol::{Message, Model};
+use pipi_app::runtime::{RuntimeState, SessionInfo};
+use pipi_protocol::{BackgroundTaskSnapshot, Message};
+
+use crate::invoke_args::InvokeArgs;
 
 fn tauri_emitter(app: AppHandle) -> EventEmitter {
     Arc::new(move |event| {
@@ -28,125 +38,91 @@ fn tauri_emitter(app: AppHandle) -> EventEmitter {
 }
 
 #[tauri::command]
-pub fn list_sessions(agent_name: String) -> Result<Vec<SessionSummary>, String> {
-    runtime::list_sessions(&agent_name)
+pub fn list_sessions(args: InvokeArgs<ListSessionsArgs>) -> Result<Vec<SessionSummary>, String> {
+    pipi_app::commands::list_sessions(args.0)
 }
 
 #[tauri::command]
 pub fn open_session(
     state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
+    args: InvokeArgs<OpenSessionArgs>,
 ) -> Result<(), String> {
-    state.open_session(&agent_name, &session_id)
+    pipi_app::commands::open_session(&state, args.0)
 }
 
 #[tauri::command]
 pub fn session_info(
     state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
+    args: InvokeArgs<SessionInfoArgs>,
 ) -> Result<Option<SessionInfo>, String> {
-    state.session_info(&agent_name, &session_id)
+    pipi_app::commands::session_info(&state, args.0)
 }
 
 /// 所有打开中的会话：前端据此知道「哪些 Agent 正在跑」（多 Agent 并发下运行态是集合）。
 #[tauri::command]
 pub fn session_infos(state: State<RuntimeState>) -> Result<Vec<SessionInfo>, String> {
-    state.session_infos()
+    pipi_app::commands::session_infos(&state)
 }
 
 /// 设置工作台的内存测试会话：每个 Agent 在应用运行期最多一条。
 #[tauri::command]
 pub fn ensure_test_session(
     state: State<RuntimeState>,
-    agent_name: String,
+    args: InvokeArgs<EnsureTestSessionArgs>,
 ) -> Result<SessionInfo, String> {
-    state.ensure_test_session(&agent_name)
+    pipi_app::commands::ensure_test_session(&state, args.0)
 }
 
 /// 清空临时测试上下文，并用磁盘上最新保存的 Agent 定义重建。
 #[tauri::command]
 pub fn reset_test_session(
     state: State<RuntimeState>,
-    agent_name: String,
+    args: InvokeArgs<ResetTestSessionArgs>,
 ) -> Result<SessionInfo, String> {
-    state.reset_test_session(&agent_name)
+    pipi_app::commands::reset_test_session(&state, args.0)
 }
 
 #[tauri::command]
-pub fn session_running(state: State<RuntimeState>, agent_name: String, session_id: String) -> bool {
-    state.session_running(&agent_name, &session_id)
+pub fn session_running(state: State<RuntimeState>, args: InvokeArgs<SessionRunningArgs>) -> bool {
+    pipi_app::commands::session_running(&state, args.0)
 }
 
 #[tauri::command]
-pub fn stop_run(
-    state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
-) -> Result<(), String> {
-    state.stop_run(&agent_name, &session_id)
+pub fn stop_run(state: State<RuntimeState>, args: InvokeArgs<StopRunArgs>) -> Result<(), String> {
+    pipi_app::commands::stop_run(&state, args.0)
 }
 
 #[tauri::command]
 pub async fn query_background_tasks(
     state: State<'_, RuntimeState>,
-    agent_name: String,
-    session_id: String,
-    job_id: Option<String>,
-    after_seq: Option<u64>,
-    wait_ms: Option<u64>,
-    include_completed: Option<bool>,
-    limit: Option<usize>,
-) -> Result<Vec<pipi_protocol::BackgroundTaskSnapshot>, String> {
-    state
-        .query_background_tasks(
-            &agent_name,
-            &session_id,
-            job_id,
-            after_seq.unwrap_or(0),
-            wait_ms.unwrap_or(0),
-            include_completed.unwrap_or(true),
-            limit.unwrap_or(20),
-        )
-        .await
+    args: InvokeArgs<QueryBackgroundTasksArgs>,
+) -> Result<Vec<BackgroundTaskSnapshot>, String> {
+    pipi_app::commands::query_background_tasks(&state, args.0).await
 }
 
 #[tauri::command]
 pub async fn manage_background_task(
     state: State<'_, RuntimeState>,
-    agent_name: String,
-    session_id: String,
-    job_id: String,
-    action: String,
-    data: Option<String>,
-) -> Result<pipi_protocol::BackgroundTaskSnapshot, String> {
-    state
-        .manage_background_task(&agent_name, &session_id, &job_id, &action, data)
-        .await
+    args: InvokeArgs<ManageBackgroundTaskArgs>,
+) -> Result<BackgroundTaskSnapshot, String> {
+    pipi_app::commands::manage_background_task(&state, args.0).await
 }
 
 #[tauri::command]
-pub fn new_session(state: State<RuntimeState>, agent_name: String) -> Result<(), String> {
-    state.new_session(&agent_name)
+pub fn new_session(
+    state: State<RuntimeState>,
+    args: InvokeArgs<NewSessionArgs>,
+) -> Result<(), String> {
+    pipi_app::commands::new_session(&state, args.0)
 }
 
 #[tauri::command]
 pub fn send_prompt(
     app: AppHandle,
     state: State<'_, RuntimeState>,
-    agent_name: String,
-    session_id: Option<String>,
-    prompt: String,
-    model: Option<Model>,
+    args: InvokeArgs<SendPromptArgs>,
 ) -> Result<(), String> {
-    state.send_prompt(
-        &agent_name,
-        session_id.as_deref(),
-        &prompt,
-        model,
-        tauri_emitter(app),
-    )
+    pipi_app::commands::send_prompt(&state, tauri_emitter(app), args.0)
 }
 
 /// 手动压缩当前会话（跳过阈值预检，走与自动压缩相同的分叉/归档路径）。
@@ -154,69 +130,56 @@ pub fn send_prompt(
 pub fn compact_now(
     app: AppHandle,
     state: State<'_, RuntimeState>,
-    agent_name: String,
-    session_id: String,
+    args: InvokeArgs<CompactNowArgs>,
 ) -> Result<(), String> {
-    state.compact_now(&agent_name, &session_id, tauri_emitter(app))
+    pipi_app::commands::compact_now(&state, tauri_emitter(app), args.0)
 }
 
 /// 运行中插话（steering）：注入当前运行的下一轮上下文。
 #[tauri::command]
-pub fn steer(
-    state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
-    message: String,
-) -> Result<(), String> {
-    state.steer(&agent_name, &session_id, &message)
+pub fn steer(state: State<RuntimeState>, args: InvokeArgs<SteerArgs>) -> Result<(), String> {
+    pipi_app::commands::steer(&state, args.0)
 }
 
 /// 回传 bash 命令审批请求的用户决定。
 #[tauri::command]
 pub fn resolve_approval(
     state: State<RuntimeState>,
-    request_id: String,
-    decision: String,
+    args: InvokeArgs<ResolveApprovalArgs>,
 ) -> Result<(), String> {
-    state.resolve_approval(&request_id, decision.parse::<ApprovalDecision>()?)
+    pipi_app::commands::resolve_approval(&state, args.0)
 }
 
 #[tauri::command]
 pub fn set_session_model(
     state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
-    model: Option<Model>,
+    args: InvokeArgs<SetSessionModelArgs>,
 ) -> Result<(), String> {
-    state.set_session_model(&agent_name, &session_id, model)
+    pipi_app::commands::set_session_model(&state, args.0)
 }
 
 #[tauri::command]
 pub async fn session_messages(
     state: State<'_, RuntimeState>,
-    agent_name: String,
-    session_id: String,
+    args: InvokeArgs<SessionMessagesArgs>,
 ) -> Result<Vec<Message>, String> {
-    state.session_messages(&agent_name, &session_id).await
+    pipi_app::commands::session_messages(&state, args.0).await
 }
 
 #[tauri::command]
 pub fn session_stats(
     state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
-) -> Result<pipi_agent::stats::SessionStats, String> {
-    state.session_stats(&agent_name, &session_id)
+    args: InvokeArgs<SessionStatsArgs>,
+) -> Result<SessionStats, String> {
+    pipi_app::commands::session_stats(&state, args.0)
 }
 
 #[tauri::command]
 pub fn fork_session(
     state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
-    up_to_entry_id: Option<String>,
+    args: InvokeArgs<ForkSessionArgs>,
 ) -> Result<SessionInfo, String> {
-    state.fork_session(&agent_name, &session_id, up_to_entry_id.as_deref())
+    pipi_app::commands::fork_session(&state, args.0)
 }
 
 // ============ 归档 / 恢复 / 删除（Agent 与会话） ============
@@ -225,65 +188,73 @@ pub fn fork_session(
 // 空闲的打开会话会在操作前自动释放。
 
 #[tauri::command]
-pub fn archive_agent(state: State<RuntimeState>, name: String) -> Result<(), String> {
-    state.archive_agent(&name)
+pub fn archive_agent(
+    state: State<RuntimeState>,
+    args: InvokeArgs<ArchiveAgentArgs>,
+) -> Result<(), String> {
+    pipi_app::commands::archive_agent(&state, args.0)
 }
 
 #[tauri::command]
-pub fn restore_agent(state: State<RuntimeState>, name: String) -> Result<(), String> {
-    state.restore_agent(&name)
+pub fn restore_agent(
+    state: State<RuntimeState>,
+    args: InvokeArgs<RestoreAgentArgs>,
+) -> Result<(), String> {
+    pipi_app::commands::restore_agent(&state, args.0)
 }
 
 #[tauri::command]
-pub fn delete_agent(state: State<RuntimeState>, name: String) -> Result<(), String> {
-    state.delete_agent(&name)
+pub fn delete_agent(
+    state: State<RuntimeState>,
+    args: InvokeArgs<DeleteAgentArgs>,
+) -> Result<(), String> {
+    pipi_app::commands::delete_agent(&state, args.0)
 }
 
 #[tauri::command]
-pub fn delete_archived_agent(state: State<RuntimeState>, name: String) -> Result<(), String> {
-    state.delete_archived_agent(&name)
+pub fn delete_archived_agent(
+    state: State<RuntimeState>,
+    args: InvokeArgs<DeleteArchivedAgentArgs>,
+) -> Result<(), String> {
+    pipi_app::commands::delete_archived_agent(&state, args.0)
 }
 
 #[tauri::command]
 pub fn list_archived_sessions(
     state: State<RuntimeState>,
-    agent_name: String,
+    args: InvokeArgs<ListArchivedSessionsArgs>,
 ) -> Result<Vec<SessionSummary>, String> {
-    state.list_archived_sessions(&agent_name)
+    pipi_app::commands::list_archived_sessions(&state, args.0)
 }
 
 #[tauri::command]
 pub fn archive_session(
     state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
+    args: InvokeArgs<ArchiveSessionArgs>,
 ) -> Result<(), String> {
-    state.archive_session(&agent_name, &session_id)
+    pipi_app::commands::archive_session(&state, args.0)
 }
 
 #[tauri::command]
 pub fn restore_session(
     state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
+    args: InvokeArgs<RestoreSessionArgs>,
 ) -> Result<(), String> {
-    state.restore_session(&agent_name, &session_id)
+    pipi_app::commands::restore_session(&state, args.0)
 }
 
 #[tauri::command]
 pub fn delete_session(
     state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
+    args: InvokeArgs<DeleteSessionArgs>,
 ) -> Result<(), String> {
-    state.delete_session(&agent_name, &session_id)
+    pipi_app::commands::delete_session(&state, args.0)
 }
 
 #[tauri::command]
 pub fn delete_archived_session(
     state: State<RuntimeState>,
-    agent_name: String,
-    session_id: String,
+    args: InvokeArgs<DeleteArchivedSessionArgs>,
 ) -> Result<(), String> {
-    state.delete_archived_session(&agent_name, &session_id)
+    pipi_app::commands::delete_archived_session(&state, args.0)
 }
