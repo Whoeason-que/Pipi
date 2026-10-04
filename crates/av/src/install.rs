@@ -419,5 +419,4 @@ fn short_hash(content_hash: &str) -> &str {
 }
 
 #[cfg(test)]
-#[path = "install_tests.rs"]
 mod tests;

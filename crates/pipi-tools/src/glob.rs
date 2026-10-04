@@ -158,5 +158,4 @@ impl AgentTool for GlobTool {
 }
 
 #[cfg(test)]
-#[path = "glob_tests.rs"]
 mod tests;

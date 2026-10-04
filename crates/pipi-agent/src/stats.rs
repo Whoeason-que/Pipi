@@ -204,5 +204,4 @@ pub fn message_stats(message: &Message) -> (Option<f64>, Option<f64>) {
 }
 
 #[cfg(test)]
-#[path = "stats_tests.rs"]
 mod tests;

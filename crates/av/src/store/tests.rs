@@ -1,26 +1,5 @@
 use super::*;
-use crate::schema::AgentToml;
-
-fn temp_dir(label: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "av-store-{label}-{}-{}",
-        std::process::id(),
-        monotonic_nonce()
-    ));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn write_skill(dir: &Path, name: &str, body: &str) -> PathBuf {
-    let skill = dir.join(name);
-    fs::create_dir_all(&skill).unwrap();
-    fs::write(
-        skill.join("SKILL.md"),
-        format!("---\nname: {name}\ndescription: test skill\n---\n{body}"),
-    )
-    .unwrap();
-    skill
-}
+use crate::test_support::{layer, write_skill};
 
 fn local_entry(name: &str, source: &Path, content_hash: &str) -> SkillLockEntry {
     SkillLockEntry {
@@ -38,7 +17,7 @@ fn local_entry(name: &str, source: &Path, content_hash: &str) -> SkillLockEntry 
 
 #[test]
 fn content_hash_is_stable_and_path_sensitive() {
-    let root = temp_dir("hash");
+    let root = pipi_test_support::temp_dir("av-store");
     let skill = write_skill(&root, "pdf", "body");
     fs::write(skill.join("extra.txt"), "extra").unwrap();
 
@@ -68,7 +47,7 @@ fn content_hash_is_stable_and_path_sensitive() {
 #[cfg(unix)]
 #[test]
 fn scan_rejects_symlinks() {
-    let root = temp_dir("symlink");
+    let root = pipi_test_support::temp_dir("av-store");
     let skill = write_skill(&root, "pdf", "body");
     let outside = root.join("outside.txt");
     fs::write(&outside, "secret").unwrap();
@@ -81,7 +60,7 @@ fn scan_rejects_symlinks() {
 
 #[test]
 fn scan_skips_git_dir_and_enforces_limits() {
-    let root = temp_dir("limits");
+    let root = pipi_test_support::temp_dir("av-store");
     let skill = write_skill(&root, "pdf", "body");
     fs::create_dir_all(skill.join(".git")).unwrap();
     fs::write(skill.join(".git/config"), "x").unwrap();
@@ -99,7 +78,7 @@ fn scan_skips_git_dir_and_enforces_limits() {
 
 #[test]
 fn publish_is_idempotent_and_versioned() {
-    let root = temp_dir("publish");
+    let root = pipi_test_support::temp_dir("av-store");
     let store = root.join("store");
     let staging = root.join("tmp");
     let skill = write_skill(&root, "pdf", "v1");
@@ -136,7 +115,7 @@ fn publish_is_idempotent_and_versioned() {
 
 #[test]
 fn lock_roundtrip_and_validation() {
-    let root = temp_dir("lock");
+    let root = pipi_test_support::temp_dir("av-store");
     let path = root.join("agent.lock");
     let fixed_hash = format!("sha256:{}", "e".repeat(64));
     let mut lock = SkillLock::empty();
@@ -216,7 +195,7 @@ fn content_dir_name_requires_full_hash() {
 
 #[test]
 fn publish_then_resolve_roundtrip() {
-    let root = temp_dir("resolve");
+    let root = pipi_test_support::temp_dir("av-store");
     let store = root.join("store");
     let staging = root.join("tmp");
     let skill = write_skill(&root, "pdf", "body");
@@ -262,7 +241,7 @@ fn publish_then_resolve_roundtrip() {
 
 #[test]
 fn verify_detects_missing_and_drift() {
-    let root = temp_dir("verify");
+    let root = pipi_test_support::temp_dir("av-store");
     let store = root.join("store");
     let staging = root.join("tmp");
     let skill = write_skill(&root, "pdf", "body");
@@ -294,15 +273,6 @@ fn verify_detects_missing_and_drift() {
 
 #[test]
 fn winning_use_picks_highest_declaring_layer() {
-    fn layer(label: &str, text: &str) -> Layer {
-        let config: AgentToml = toml::from_str(text).unwrap();
-        config.validate().unwrap();
-        Layer {
-            label: label.to_string(),
-            path: PathBuf::from(label),
-            config,
-        }
-    }
     let agent = layer(
         "agent.toml",
         "schema = 1\n[resources.skills]\nuse = [\"pdf\"]",
@@ -338,7 +308,7 @@ fn winning_use_picks_highest_declaring_layer() {
 
 #[test]
 fn latest_index_entry_prefers_most_recently_recorded_version() {
-    let root = temp_dir("latest");
+    let root = pipi_test_support::temp_dir("av-store");
     let hash_a = format!("sha256:{}", "a".repeat(64));
     let hash_b = format!("sha256:{}", "b".repeat(64));
     let mut index = SkillLock::empty();

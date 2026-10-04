@@ -1,30 +1,5 @@
 use super::*;
-use pipi_protocol::{StopReason, Usage};
-
-fn assistant_text(text: &str) -> Message {
-    Message::Assistant {
-        content: vec![ContentBlock::Text { text: text.into() }],
-        api: String::new(),
-        provider: String::new(),
-        model: String::new(),
-        usage: Usage::default(),
-        stop_reason: StopReason::Stop,
-        error_message: None,
-        timestamp: 0,
-        duration_ms: None,
-    }
-}
-
-fn tool_result(text: &str) -> Message {
-    Message::ToolResult {
-        tool_call_id: "t1".into(),
-        tool_name: "bash".into(),
-        content: vec![ToolResultContent::Text { text: text.into() }],
-        is_error: false,
-        details: None,
-        timestamp: 0,
-    }
-}
+use crate::test_support::{assistant_text, tool_result};
 
 #[test]
 fn estimation_heuristic() {
@@ -51,7 +26,7 @@ fn prune_cuts_at_user_boundaries_only() {
     let messages = vec![
         Message::user_text("x".repeat(10_000)),
         assistant_text(&"y".repeat(100)),
-        tool_result(&"z".repeat(100)),
+        tool_result("t1", "bash", &"z".repeat(100)),
         Message::user_text("short question"),
         assistant_text("answer"),
     ];
@@ -71,7 +46,7 @@ fn prune_never_orphans_tool_results() {
     let messages = vec![
         Message::user_text("x".repeat(10_000)),
         assistant_text(&"y".repeat(10_000)),
-        tool_result(&"z".repeat(10_000)),
+        tool_result("t1", "bash", &"z".repeat(10_000)),
     ];
     let (pruned, dropped) = prune_oldest(&messages, 500);
     assert_eq!((pruned.len(), dropped), (3, 0));

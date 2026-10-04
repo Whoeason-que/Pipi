@@ -1,18 +1,7 @@
 use super::*;
 use crate::ContextFile;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static NEXT_TEST_ID: AtomicU64 = AtomicU64::new(0);
-
-fn temp_root(label: &str) -> PathBuf {
-    let id = NEXT_TEST_ID.fetch_add(1, Ordering::Relaxed);
-    let root =
-        std::env::temp_dir().join(format!("pipi-context-{label}-{}-{id}", std::process::id()));
-    fs::create_dir_all(&root).unwrap();
-    root
-}
+use std::path::Path;
 
 fn cleanup(root: &Path) {
     let _ = fs::remove_dir_all(root);
@@ -24,7 +13,7 @@ fn contents(files: &[ContextFile]) -> Vec<&str> {
 
 #[test]
 fn candidate_precedence_includes_override_and_case_variants() {
-    let root = temp_root("precedence");
+    let root = pipi_test_support::temp_dir("pipi-context-precedence");
     let project = root.join("project");
     fs::create_dir_all(&project).unwrap();
     fs::create_dir_all(project.join(".git")).unwrap();
@@ -44,7 +33,7 @@ fn candidate_precedence_includes_override_and_case_variants() {
 
 #[test]
 fn non_file_candidate_falls_through_to_case_variant() {
-    let root = temp_root("fallback");
+    let root = pipi_test_support::temp_dir("pipi-context-fallback");
     let project = root.join("project");
     fs::create_dir_all(project.join(".git")).unwrap();
     fs::create_dir_all(project.join("AGENTS.override.md")).unwrap();
@@ -60,7 +49,7 @@ fn non_file_candidate_falls_through_to_case_variant() {
 
 #[test]
 fn global_context_is_first_then_project_root_to_cwd() {
-    let root = temp_root("ordering");
+    let root = pipi_test_support::temp_dir("pipi-context-ordering");
     let agent = root.join("agent");
     let project = root.join("project");
     let cwd = project.join("crates/app");
@@ -80,7 +69,7 @@ fn global_context_is_first_then_project_root_to_cwd() {
 
 #[test]
 fn canonical_duplicate_is_suppressed() {
-    let root = temp_root("dedupe");
+    let root = pipi_test_support::temp_dir("pipi-context-dedupe");
     let project = root.join("project");
     let cwd = project.join("nested");
     fs::create_dir_all(project.join(".git")).unwrap();
@@ -101,7 +90,7 @@ fn canonical_duplicate_is_suppressed() {
 #[cfg(any(unix, windows))]
 #[test]
 fn duplicate_higher_precedence_candidate_falls_through_to_distinct_candidate() {
-    let root = temp_root("duplicate-fallback");
+    let root = pipi_test_support::temp_dir("pipi-context-duplicate-fallback");
     let project = root.join("project");
     let cwd = project.join("nested");
     fs::create_dir_all(project.join(".git")).unwrap();
@@ -123,7 +112,7 @@ fn duplicate_higher_precedence_candidate_falls_through_to_distinct_candidate() {
 
 #[test]
 fn strips_utf8_bom_before_returning_content() {
-    let root = temp_root("bom");
+    let root = pipi_test_support::temp_dir("pipi-context-bom");
     let project = root.join("project");
     fs::create_dir_all(project.join(".git")).unwrap();
     fs::write(project.join("AGENTS.md"), b"\xef\xbb\xbfproject rules").unwrap();
@@ -136,7 +125,7 @@ fn strips_utf8_bom_before_returning_content() {
 
 #[test]
 fn project_context_obeys_total_utf8_safe_byte_budget() {
-    let root = temp_root("budget");
+    let root = pipi_test_support::temp_dir("pipi-context-budget");
     let project = root.join("project");
     let cwd = project.join("nested");
     fs::create_dir_all(project.join(".git")).unwrap();
@@ -154,7 +143,7 @@ fn project_context_obeys_total_utf8_safe_byte_budget() {
 
 #[test]
 fn project_context_skips_empty_utf8_truncation_without_blocking_later_files() {
-    let root = temp_root("empty-truncation");
+    let root = pipi_test_support::temp_dir("pipi-context-empty-truncation");
     let project = root.join("project");
     let cwd = project.join("nested");
     fs::create_dir_all(project.join(".git")).unwrap();
@@ -172,7 +161,7 @@ fn project_context_skips_empty_utf8_truncation_without_blocking_later_files() {
 #[cfg(any(unix, windows))]
 #[test]
 fn rejects_project_candidate_symlink_outside_project_root() {
-    let root = temp_root("external-link");
+    let root = pipi_test_support::temp_dir("pipi-context-external-link");
     let project = root.join("project");
     let external = root.join("external");
     fs::create_dir_all(project.join(".git")).unwrap();

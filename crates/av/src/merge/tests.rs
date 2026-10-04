@@ -1,15 +1,5 @@
 use super::*;
-use crate::schema::AgentToml;
-
-fn layer(label: &str, text: &str) -> Layer {
-    let config: AgentToml = toml::from_str(text).unwrap();
-    config.validate().unwrap();
-    Layer {
-        label: label.to_string(),
-        path: std::path::PathBuf::from(label),
-        config,
-    }
-}
+use crate::test_support::layer;
 
 #[test]
 fn scalar_overrides_and_absence_preserves() {

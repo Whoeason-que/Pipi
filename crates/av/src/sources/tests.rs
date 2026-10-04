@@ -1,17 +1,5 @@
 use super::*;
-
-fn temp_dir(label: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "av-sources-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
+use crate::test_support::make_repo;
 
 #[test]
 fn spec_parsing_shorthands() {
@@ -100,7 +88,7 @@ fn spec_parsing_git_urls() {
 
 #[test]
 fn spec_parsing_local_and_fail_closed() {
-    let root = temp_dir("local");
+    let root = pipi_test_support::temp_dir("av-sources");
     let spec = parse_spec(root.to_str().unwrap()).unwrap();
     assert_eq!(spec.source_type(), SourceType::Local);
     assert!(parse_spec("./definitely-not-here-xyz").is_err());
@@ -119,7 +107,7 @@ fn spec_parsing_local_and_fail_closed() {
 
 #[test]
 fn discovery_finds_nested_and_convention_dirs() {
-    let root = temp_dir("discovery");
+    let root = pipi_test_support::temp_dir("av-sources");
     // 约定目录：skills/ 下两个技能 + 一层分组
     fs::create_dir_all(root.join("skills/pdf")).unwrap();
     fs::write(
@@ -155,7 +143,7 @@ fn discovery_finds_nested_and_convention_dirs() {
 
 #[test]
 fn discovery_root_is_skill_and_invalid_reported() {
-    let root = temp_dir("root-skill");
+    let root = pipi_test_support::temp_dir("av-sources");
     fs::write(
         root.join("SKILL.md"),
         "---\nname: solo\ndescription: solo skill\n---\nbody",
@@ -173,39 +161,6 @@ fn discovery_root_is_skill_and_invalid_reported() {
     let _ = fs::remove_dir_all(root);
 }
 
-/// 建一个本地 git 仓库（含一个技能），返回 (仓库路径, HEAD commit)。
-fn make_repo(label: &str) -> (PathBuf, String) {
-    let repo = temp_dir(label);
-    let run = |args: &[&str]| {
-        let output = git_command()
-            .args(args)
-            .current_dir(&repo)
-            .env("GIT_AUTHOR_NAME", "t")
-            .env("GIT_AUTHOR_EMAIL", "t@example.com")
-            .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@example.com")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    };
-    run(&["init", "--quiet"]);
-    fs::create_dir_all(repo.join("skills/pdf")).unwrap();
-    fs::write(
-        repo.join("skills/pdf/SKILL.md"),
-        "---\nname: pdf\ndescription: pdf skill\n---\nbody",
-    )
-    .unwrap();
-    run(&["add", "-A"]);
-    run(&["commit", "--quiet", "-m", "init"]);
-    run(&["tag", "v1"]);
-    let head = run_git(&["rev-parse", "HEAD"], Some(&repo)).unwrap();
-    (repo, head.trim().to_string())
-}
-
 #[test]
 fn resolve_and_fetch_local_git_repo() {
     let (repo, head) = make_repo("git-repo");
@@ -215,7 +170,7 @@ fn resolve_and_fetch_local_git_repo() {
     assert_eq!(resolve_revision(&url, Some("v1")).unwrap(), head);
     assert_eq!(resolve_revision(&url, Some(&head)).unwrap(), head);
 
-    let staging = temp_dir("git-staging");
+    let staging = pipi_test_support::temp_dir("av-sources");
     let fetch = fetch_at_in(&staging, &url, Some("v1"), &head).unwrap();
     assert_eq!(fetch.revision, head);
     assert!(fetch.worktree.join("skills/pdf/SKILL.md").is_file());

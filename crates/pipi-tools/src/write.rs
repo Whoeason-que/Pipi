@@ -73,5 +73,4 @@ impl AgentTool for WriteTool {
 }
 
 #[cfg(test)]
-#[path = "write_tests.rs"]
 mod tests;

@@ -165,5 +165,4 @@ impl AgentTool for ReadTool {
 }
 
 #[cfg(test)]
-#[path = "read_tests.rs"]
 mod tests;

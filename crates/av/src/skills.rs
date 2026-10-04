@@ -285,5 +285,4 @@ fn name_filter_reason(
 }
 
 #[cfg(test)]
-#[path = "skills_tests.rs"]
 mod tests;

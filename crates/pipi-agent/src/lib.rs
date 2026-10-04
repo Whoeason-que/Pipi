@@ -23,3 +23,6 @@ pub mod context;
 pub mod retry;
 pub mod session;
 pub mod stats;
+
+#[cfg(test)]
+mod test_support;

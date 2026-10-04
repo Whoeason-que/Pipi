@@ -1,31 +1,7 @@
 use super::*;
 use crate::context::estimate_tokens;
+use crate::test_support::{assistant_text, tool_result};
 use pipi_protocol::{ContentBlock, StopReason};
-
-pub(super) fn assistant_text(text: &str) -> Message {
-    Message::Assistant {
-        content: vec![ContentBlock::Text { text: text.into() }],
-        api: String::new(),
-        provider: String::new(),
-        model: String::new(),
-        usage: Default::default(),
-        stop_reason: StopReason::Stop,
-        error_message: None,
-        timestamp: 0,
-        duration_ms: None,
-    }
-}
-
-pub(super) fn tool_result(text: &str) -> Message {
-    Message::ToolResult {
-        tool_call_id: "t1".into(),
-        tool_name: "bash".into(),
-        content: vec![pipi_protocol::ToolResultContent::Text { text: text.into() }],
-        is_error: false,
-        details: None,
-        timestamp: 0,
-    }
-}
 
 fn tool_call(name: &str, path: &str) -> Message {
     Message::Assistant {
@@ -54,7 +30,7 @@ fn file_operations_extracts_read_and_modified_paths() {
         tool_call("write", "a.rs"),
         tool_call("edit", "c.rs"),
         tool_call("bash", "irrelevant"),
-        tool_result("done"),
+        tool_result("t1", "bash", "done"),
     ];
     let (read, modified) = file_operations(&messages);
     assert_eq!(read, vec!["a.rs".to_string(), "b.rs".to_string()]);
@@ -113,14 +89,14 @@ fn validate_rejects_illegal_plans() {
     let messages = vec![
         Message::user_text("hi"),
         assistant_text("ok"),
-        tool_result("body"),
+        tool_result("t1", "bash", "body"),
     ];
     // 下标越界
     assert!(
         validate(
             &messages,
             &Plan {
-                rewrites: vec![(9, tool_result("x"))],
+                rewrites: vec![(9, tool_result("t1", "bash", "x"))],
                 ..Default::default()
             }
         )
@@ -142,7 +118,7 @@ fn validate_rejects_illegal_plans() {
         validate(
             &messages,
             &Plan {
-                rewrites: vec![(2, tool_result("x"))],
+                rewrites: vec![(2, tool_result("t1", "bash", "x"))],
                 keep_from: Some(1),
                 ..Default::default()
             }
@@ -230,7 +206,7 @@ fn validate_result_only_rejects_new_damage() {
             timestamp: 0,
             duration_ms: None,
         },
-        tool_result("ok"),
+        tool_result("t1", "bash", "ok"),
     ];
     assert!(validate_result(&healthy, &healthy.clone()).is_ok());
     // 保留段切在工具结果上会孤立它 → 拒绝
@@ -261,7 +237,7 @@ fn projection_pipeline_is_noop_without_pressure() {
     let messages = vec![
         Message::user_text("hi"),
         assistant_text("ok"),
-        tool_result(&"x".repeat(20_000)),
+        tool_result("t1", "bash", &"x".repeat(20_000)),
     ];
     // 窗口足够大：既不清理也不裁剪（细节保留到真需要时）
     assert_eq!(
@@ -280,7 +256,7 @@ fn projection_pipeline_clears_tool_outputs_before_hard_pruning() {
     for turn in 0..8 {
         messages.push(Message::user_text(format!("问题 {turn}")));
         messages.push(assistant_text(&"思考".repeat(50)));
-        messages.push(tool_result(&"输出".repeat(8_000)));
+        messages.push(tool_result("t1", "bash", &"输出".repeat(8_000)));
     }
     // 阈值从实测估算值反推（CJK 按字节算，别口算）：设在「清掉最旧 2 个
     // 工具输出就落回阈值内」的位置，于是只有清理档生效、硬裁不该触发
@@ -331,7 +307,7 @@ fn projection_is_idempotent() {
     let mut messages = Vec::new();
     for turn in 0..8 {
         messages.push(Message::user_text(format!("问题 {turn}")));
-        messages.push(tool_result(&"输出".repeat(8_000)));
+        messages.push(tool_result("t1", "bash", &"输出".repeat(8_000)));
     }
     let total = estimate_context_tokens(&messages);
     let per_result = estimate_tokens(&messages[1]);
@@ -348,8 +324,8 @@ fn projection_is_idempotent() {
 
 mod llm {
     use crate::compaction::llm::{LlmSummarize, build_summary_prompt, find_keep_start, summarize};
-    use crate::compaction::tests::{assistant_text, tool_result};
     use crate::compaction::{Preparation, Replacement, StrategyEnv};
+    use crate::test_support::{assistant_text, tool_result};
     use pipi_protocol::{
         AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
         StreamOptions, Usage,
@@ -538,7 +514,7 @@ mod llm {
             &[
                 Message::user_text("fix the bug"),
                 assistant_text("let me check"),
-                tool_result("ok"),
+                tool_result("t1", "bash", "ok"),
             ],
             None,
         );
@@ -571,7 +547,7 @@ mod llm {
         let messages = vec![
             Message::user_text("x".repeat(10_000)),
             assistant_text(&"y".repeat(100)),
-            tool_result(&"z".repeat(100)),
+            tool_result("t1", "bash", &"z".repeat(100)),
             Message::user_text("recent question"),
             assistant_text("recent answer"),
         ];
@@ -591,7 +567,7 @@ mod llm {
         let messages = vec![
             Message::user_text("x".repeat(10_000)),
             assistant_text("a"),
-            tool_result("r"),
+            tool_result("t1", "bash", "r"),
         ];
         let start = find_keep_start(&messages, 100).unwrap();
         assert_eq!(start, messages.len());
@@ -601,18 +577,8 @@ mod llm {
 mod tool_output {
     use crate::compaction::tool_output::{CLEARED_TOOL_RESULT_PREFIX, ToolOutputPrune};
     use crate::compaction::{Budget, DEFAULT_THRESHOLD_PERCENT, Preparation, Projection};
+    use crate::test_support::tool_result;
     use pipi_protocol::{ContentBlock, Message, ToolResultContent};
-
-    fn tool_result(text: &str) -> Message {
-        Message::ToolResult {
-            tool_call_id: "t".into(),
-            tool_name: "bash".into(),
-            content: vec![ToolResultContent::Text { text: text.into() }],
-            is_error: false,
-            details: None,
-            timestamp: 0,
-        }
-    }
 
     fn big_history(turns: usize) -> Vec<Message> {
         let mut messages = Vec::new();
@@ -631,7 +597,7 @@ mod tool_output {
                 timestamp: 0,
                 duration_ms: None,
             });
-            messages.push(tool_result(&"输出".repeat(8_000)));
+            messages.push(tool_result("t", "bash", &"输出".repeat(8_000)));
         }
         messages
     }
@@ -669,7 +635,7 @@ mod tool_output {
     fn skips_short_results_and_already_cleared_ones() {
         let mut messages = big_history(8);
         // 把一个早期结果换成很短的内容：不值得清理
-        messages[2] = tool_result("ok");
+        messages[2] = tool_result("t", "bash", "ok");
         let prep = Preparation::new(&messages, budget());
         let plan = ToolOutputPrune.plan(&prep);
         assert!(plan.rewrites.iter().all(|(index, _)| *index != 2));

@@ -105,5 +105,4 @@ pub fn merge_layers(layers: &[Layer]) -> Result<Merged, String> {
 }
 
 #[cfg(test)]
-#[path = "merge_tests.rs"]
 mod tests;

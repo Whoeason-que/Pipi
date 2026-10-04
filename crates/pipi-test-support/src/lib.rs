@@ -10,12 +10,21 @@
 //! 2024 起 `std::env::set_var` 是 unsafe，安全性正来自这把锁。
 
 use std::ffi::OsStr;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 /// 临时唯一 ID：只用于临时目录命名与测试 fixture，**不是**任何持久化身份
 /// （Agent/session 的 JSONL id 由 `pipi_agent::session::new_id` 负责）。
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// 建一个唯一的临时目录（`<系统 temp>/<prefix>-<id>/`）并返回路径。
+/// 调用方负责清理（各测试里的 `remove_dir_all` 保持原样）。
+pub fn temp_dir(prefix: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("{prefix}-{}", new_id()));
+    std::fs::create_dir_all(&dir).expect("创建测试临时目录");
+    dir
 }
 
 /// 环境改写互斥锁。所有改写 `HOME` / `AV_HOME` / `PIPI_HOME` 的用例必须先持有它。

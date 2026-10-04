@@ -39,3 +39,6 @@ pub use requires::{check_requires, lookup_command, probe_version, version_satisf
 pub use resolve::{ResolvedEnv, collect_process_env, resolve_env};
 pub use schema::AgentToml;
 pub use skills::{SkillMeta, filter_skills_by_name, load_skill_sources, parse_frontmatter};
+
+#[cfg(test)]
+mod test_support;

@@ -149,5 +149,4 @@ pub fn resolve_path(base: &Path, raw: &str) -> PathBuf {
 }
 
 #[cfg(test)]
-#[path = "discovery_tests.rs"]
 mod tests;

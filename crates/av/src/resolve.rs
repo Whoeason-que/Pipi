@@ -252,5 +252,4 @@ fn owning_layer(
 }
 
 #[cfg(test)]
-#[path = "resolve_tests.rs"]
 mod tests;

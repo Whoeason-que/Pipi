@@ -1,12 +1,6 @@
 use super::*;
 use pipi_protocol::ContentBlock;
 
-fn temp_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("pipi-test-{}", new_id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 #[test]
 fn temporary_writer_keeps_ledger_state_without_a_file() {
     let mut writer = SessionWriter::temporary();
@@ -29,7 +23,7 @@ fn temporary_writer_keeps_ledger_state_without_a_file() {
 
 #[test]
 fn append_and_load_roundtrip() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
 
     let m1 = Message::user_text("hello");
@@ -73,7 +67,7 @@ fn append_and_load_roundtrip() {
 
 #[test]
 fn load_skips_corrupt_lines() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("good")).unwrap();
     let path = writer.path().to_path_buf();
@@ -92,7 +86,7 @@ fn load_skips_corrupt_lines() {
 
 #[test]
 fn open_resumes_append_position() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("first")).unwrap();
     let path = writer.path().to_path_buf();
@@ -116,7 +110,7 @@ fn open_resumes_append_position() {
 
 #[test]
 fn summaries_list_titles_and_order() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut w1 = SessionWriter::create(&dir).unwrap();
     w1.append_message(&Message::user_text("第一条会话的标题"))
         .unwrap();
@@ -136,7 +130,7 @@ fn summaries_list_titles_and_order() {
 
 #[test]
 fn active_path_walks_parents() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("a")).unwrap();
     writer.append_message(&Message::user_text("b")).unwrap();
@@ -151,7 +145,7 @@ fn active_path_walks_parents() {
 
 #[test]
 fn compaction_entry_roundtrip_and_replay() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("old 1")).unwrap();
     writer.append_message(&Message::user_text("old 2")).unwrap();
@@ -196,7 +190,7 @@ fn compaction_entry_roundtrip_and_replay() {
 /// 回放后就该是什么（此前回放只留摘要，重开后那段精确原文就丢了）。
 #[test]
 fn replay_keeps_messages_from_first_kept_entry() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer
         .append_message(&Message::user_text("turn 1"))
@@ -253,7 +247,7 @@ fn replay_keeps_messages_from_first_kept_entry() {
 /// 不猜位置、不产生无主消息。
 #[test]
 fn replay_falls_back_to_summary_only_when_kept_entry_is_missing() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("a")).unwrap();
     let tip = writer.tip_id().unwrap().to_string();
@@ -285,7 +279,7 @@ fn summary_message_roundtrip_is_not_nested() {
 
 #[test]
 fn compaction_entry_persists_summary_usage() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("a")).unwrap();
     let tip = writer.tip_id().unwrap().to_string();
@@ -314,7 +308,7 @@ fn compaction_entry_persists_summary_usage() {
 
 #[test]
 fn env_entry_roundtrip_idempotent_and_replay_neutral() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("first")).unwrap();
 
@@ -360,7 +354,7 @@ fn env_entry_roundtrip_idempotent_and_replay_neutral() {
 
 #[test]
 fn rebuild_without_compaction_keeps_all_messages() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("a")).unwrap();
     writer.append_custom("bookmark").unwrap();
@@ -383,7 +377,7 @@ fn rebuild_without_compaction_keeps_all_messages() {
 
 #[test]
 fn archive_session_file_moves_and_refuses_conflicts() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("hi")).unwrap();
     let path = writer.path().to_path_buf();
@@ -413,7 +407,7 @@ fn archive_session_file_moves_and_refuses_conflicts() {
 
 #[test]
 fn fork_marks_env_recorded_when_path_already_has_env_entry() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     writer.append_message(&Message::user_text("hi")).unwrap();
     writer
@@ -440,7 +434,7 @@ fn fork_marks_env_recorded_when_path_already_has_env_entry() {
 
 #[test]
 fn fork_session_copies_active_history() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     let id1 = writer.append_message(&Message::user_text("msg 1")).unwrap();
     let _id2 = writer.append_message(&Message::user_text("msg 2")).unwrap();
@@ -461,7 +455,7 @@ fn fork_session_copies_active_history() {
 
 #[test]
 fn model_change_entry_roundtrip_and_active_resolution() {
-    let dir = temp_dir();
+    let dir = pipi_test_support::temp_dir("pipi-test");
     let mut writer = SessionWriter::create(&dir).unwrap();
     let model1 = Model {
         id: "gpt-4o".into(),

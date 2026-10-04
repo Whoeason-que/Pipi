@@ -6,3 +6,6 @@ rust-version.workspace = true
 description = "Pipi 的纯 harness：项目上下文发现与系统提示词渲染"
 
 [dependencies]
+
+[dev-dependencies]
+pipi-test-support = { workspace = true }

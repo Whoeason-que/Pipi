@@ -247,5 +247,4 @@ fn escape_xml(value: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "system_prompt_tests.rs"]
 mod tests;

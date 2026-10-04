@@ -236,5 +236,4 @@ pub fn validate_env_value(value: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
-#[path = "schema_tests.rs"]
 mod tests;

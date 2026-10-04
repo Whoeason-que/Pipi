@@ -21,6 +21,9 @@ ureq = { workspace = true, optional = true }
 default = ["search"]
 search = ["dep:ureq"]
 
+[dev-dependencies]
+pipi-test-support = { workspace = true }
+
 [lib]
 name = "av"
 path = "src/lib.rs"

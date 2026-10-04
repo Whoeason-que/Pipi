@@ -231,5 +231,4 @@ impl AgentTool for GrepTool {
 }
 
 #[cfg(test)]
-#[path = "grep_tests.rs"]
 mod tests;

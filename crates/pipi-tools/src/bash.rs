@@ -322,5 +322,4 @@ impl AgentTool for BashTool {
 }
 
 #[cfg(test)]
-#[path = "bash_tests.rs"]
 mod tests;

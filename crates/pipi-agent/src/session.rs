@@ -629,5 +629,4 @@ pub fn rebuild_messages(entries: &[&SessionEntry]) -> Vec<Message> {
 }
 
 #[cfg(test)]
-#[path = "session_tests.rs"]
 mod tests;

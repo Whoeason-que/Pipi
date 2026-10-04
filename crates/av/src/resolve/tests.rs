@@ -1,25 +1,5 @@
 use super::*;
-use crate::schema::AgentToml;
-
-fn temp_dir(label: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let dir = std::env::temp_dir().join(format!("av-{label}-{}-{}", std::process::id(), nanos));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn layer(label: &str, text: &str) -> Layer {
-    let config: AgentToml = toml::from_str(text).unwrap();
-    config.validate().unwrap();
-    Layer {
-        label: label.to_string(),
-        path: std::path::PathBuf::from(label),
-        config,
-    }
-}
+use crate::test_support::layer;
 
 fn process_env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs
@@ -145,7 +125,7 @@ fn secret_env_ref_missing_fails_closed() {
 
 #[test]
 fn secret_file_ref_reads_trimmed_content() {
-    let dir = temp_dir("secret");
+    let dir = pipi_test_support::temp_dir("av-resolve");
     let file = dir.join("token.txt");
     std::fs::write(&file, "tok-456\n\n").unwrap();
 
@@ -176,7 +156,7 @@ fn secret_file_ref_reads_trimmed_content() {
 fn secret_file_with_wide_permissions_fails_closed() {
     use std::os::unix::fs::PermissionsExt;
 
-    let dir = temp_dir("perm");
+    let dir = pipi_test_support::temp_dir("av-resolve");
     let file = dir.join("token");
     std::fs::write(&file, "tok\n").unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
@@ -225,7 +205,7 @@ fn provenance_tracks_layers() {
 #[test]
 fn discovery_integration() {
     // 走真实 discover 路径：临时 repo 内 agent.toml + agent.local.toml
-    let dir = temp_dir("discovery");
+    let dir = pipi_test_support::temp_dir("av-resolve");
     std::fs::write(
         dir.join("agent.toml"),
         "schema = 1\n[env]\ninherit = \"none\"\nset = { FROM = \"main\" }",

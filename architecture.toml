@@ -17,9 +17,10 @@ may-depend-on = []
 [crates.pipi-error]
 may-depend-on = []
 
-# 叶子：纯项目上下文发现与 prompt 渲染，刻意零依赖。
+# 叶子：纯项目上下文发现与 prompt 渲染，刻意零生产依赖（测试用临时目录助手）。
 [crates.pipi-harness]
 may-depend-on = []
+dev-may-depend-on = ["pipi-test-support"]
 forbid = ["serde", "serde_json", "tokio", "reqwest"]
 
 # 叶子：测试脚手架，不依赖任何东西。
@@ -29,6 +30,7 @@ may-depend-on = []
 # 独立工具（agent.toml 契约 + 技能 store + CLI），不依赖任何 Pipi crate。
 [crates.av]
 may-depend-on = []
+dev-may-depend-on = ["pipi-test-support"]
 forbid = ["tokio", "reqwest", "rig"]
 
 # 协议层：持久化与 transport DTO。不碰工具、领域与网络实现。
@@ -49,6 +51,7 @@ may-depend-on = ["pipi-error", "pipi-protocol"]
 # 不依赖 av（不碰 agent.toml 契约）、不直连网络（provider 是注入的 trait）。
 [crates.pipi-agent]
 may-depend-on = ["pipi-error", "pipi-protocol", "pipi-tools", "pipi-harness", "pipi-provider"]
+dev-may-depend-on = ["pipi-test-support"]
 forbid = ["av", "reqwest"]
 
 # 领域层：Agent 注册表与 av 契约、设置、Agent 组合工具。网络目录不在这一层。

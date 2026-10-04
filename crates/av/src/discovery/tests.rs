@@ -1,23 +1,12 @@
 use super::*;
 
-/// 临时目录名：进程 id + 纳秒时钟，避免并行测试互相踩踏。
-fn temp_dir(label: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let dir = std::env::temp_dir().join(format!("av-{label}-{}-{}", std::process::id(), nanos));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 fn write_contract(dir: &Path, text: &str) {
     std::fs::write(dir.join(AGENT_TOML_FILENAME), text).unwrap();
 }
 
 #[test]
 fn no_contract_anywhere_yields_empty_layers() {
-    let dir = temp_dir("empty");
+    let dir = pipi_test_support::temp_dir("av-discovery");
     let discovered = discover(&dir).unwrap();
     assert!(discovered.layers.is_empty());
     // 无项目根时 root 回退为 cwd
@@ -27,7 +16,7 @@ fn no_contract_anywhere_yields_empty_layers() {
 
 #[test]
 fn nearest_wins_from_cwd() {
-    let root = temp_dir("nearest");
+    let root = pipi_test_support::temp_dir("av-discovery");
     std::fs::create_dir_all(root.join(".git")).unwrap();
     let deep = root.join("a/b/c");
     std::fs::create_dir_all(&deep).unwrap();
@@ -53,7 +42,7 @@ fn nearest_wins_from_cwd() {
 #[test]
 fn stops_search_at_project_root() {
     // 外层 repo 有 agent.toml，内层 repo（.git）没有：不得越界继承外层契约
-    let outer = temp_dir("outer");
+    let outer = pipi_test_support::temp_dir("av-discovery");
     std::fs::create_dir_all(outer.join(".git")).unwrap();
     write_contract(&outer, "schema = 1\n[env]\nset = { FROM = \"outer\" }");
     let inner = outer.join("sub");
@@ -66,7 +55,7 @@ fn stops_search_at_project_root() {
 
 #[test]
 fn local_layer_loaded_with_higher_priority() {
-    let dir = temp_dir("local");
+    let dir = pipi_test_support::temp_dir("av-discovery");
     write_contract(&dir, "schema = 1\n[env]\nset = { K = \"main\" }");
     std::fs::write(
         dir.join(AGENT_LOCAL_TOML_FILENAME),
@@ -83,11 +72,11 @@ fn local_layer_loaded_with_higher_priority() {
 
 #[test]
 fn invalid_contract_is_fail_closed() {
-    let dir = temp_dir("invalid");
+    let dir = pipi_test_support::temp_dir("av-discovery");
     write_contract(&dir, "schema = 9");
     assert!(discover(&dir).is_err());
 
-    let dir = temp_dir("syntax");
+    let dir = pipi_test_support::temp_dir("av-discovery");
     write_contract(&dir, "schema = = 1");
     assert!(discover(&dir).is_err());
     std::fs::remove_dir_all(dir).unwrap();
@@ -95,8 +84,8 @@ fn invalid_contract_is_fail_closed() {
 
 #[test]
 fn symlinked_contract_outside_dir_rejected() {
-    let dir = temp_dir("symlink");
-    let external = temp_dir("external");
+    let dir = pipi_test_support::temp_dir("av-discovery");
+    let external = pipi_test_support::temp_dir("av-discovery");
     write_contract(&external, "schema = 1");
     #[cfg(unix)]
     std::os::unix::fs::symlink(
@@ -122,7 +111,7 @@ fn symlinked_contract_outside_dir_rejected() {
 
 #[test]
 fn explicit_contract_file_load() {
-    let dir = temp_dir("explicit");
+    let dir = pipi_test_support::temp_dir("av-discovery");
     let path = dir.join("agent.toml");
     std::fs::write(&path, "schema = 1\n[env]\nset = { K = \"v\" }").unwrap();
 

@@ -1,17 +1,5 @@
 use super::*;
 
-/// 临时目录名：进程 id + 纳秒时钟，避免并行测试互相踩踏。
-fn temp_dir(label: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let dir =
-        std::env::temp_dir().join(format!("av-skills-{label}-{}-{nanos}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 fn make_skill(dir: &Path, name: &str, content: &str) {
     let d = dir.join(name);
     fs::create_dir_all(&d).unwrap();
@@ -49,7 +37,7 @@ fn skill_name_shape() {
 
 #[test]
 fn loads_sources_in_order_and_falls_back_to_nested_discovery() {
-    let root = temp_dir("order");
+    let root = pipi_test_support::temp_dir("av-skills");
     let agent = root.join("agent");
     let global = agent.join("skills");
     let workspace = root.join("workspace");
@@ -82,7 +70,7 @@ fn loads_sources_in_order_and_falls_back_to_nested_discovery() {
 
 #[test]
 fn declared_skill_directory_stops_nested_discovery() {
-    let root = temp_dir("root-stop");
+    let root = pipi_test_support::temp_dir("av-skills");
     let workspace = root.join("workspace");
     let skill = workspace.join(".pi/skills/root-skill");
     let nested = skill.join("nested");
@@ -112,7 +100,7 @@ fn declared_skill_directory_stops_nested_discovery() {
 
 #[test]
 fn parses_disable_model_invocation_metadata() {
-    let root = temp_dir("disabled");
+    let root = pipi_test_support::temp_dir("av-skills");
     let workspace = root.join("workspace");
     let project = workspace.join(".pi/skills");
     fs::create_dir_all(&project).unwrap();
@@ -131,7 +119,7 @@ fn parses_disable_model_invocation_metadata() {
 
 #[test]
 fn earlier_source_wins_over_later_duplicate_name() {
-    let root = temp_dir("duplicate");
+    let root = pipi_test_support::temp_dir("av-skills");
     let agent = root.join("agent");
     let global = agent.join("skills");
     let workspace = root.join("workspace");
@@ -158,7 +146,7 @@ fn earlier_source_wins_over_later_duplicate_name() {
 
 #[test]
 fn invalid_skill_metadata_is_omitted() {
-    let root = temp_dir("invalid");
+    let root = pipi_test_support::temp_dir("av-skills");
     let workspace = root.join("workspace");
     let project = workspace.join(".pi/skills");
     fs::create_dir_all(&project).unwrap();
@@ -193,7 +181,7 @@ fn invalid_skill_metadata_is_omitted() {
 #[cfg(any(unix, windows))]
 #[test]
 fn rejects_skill_roots_outside_containment_root() {
-    let root = temp_dir("external");
+    let root = pipi_test_support::temp_dir("av-skills");
     let agent = root.join("agent");
     let external = root.join("external");
     fs::create_dir_all(&agent).unwrap();
@@ -217,7 +205,7 @@ fn rejects_skill_roots_outside_containment_root() {
 
 #[test]
 fn load_skill_sources_scans_with_dedupe() {
-    let root = temp_dir("sources");
+    let root = pipi_test_support::temp_dir("av-skills");
     let a = root.join("pack-a");
     let b = root.join("pack-b");
     make_skill(
@@ -242,7 +230,7 @@ fn load_skill_sources_scans_with_dedupe() {
     assert_eq!(skills[0].description.as_deref(), Some("from a"));
 
     // source 逃逸包含根：拒绝加载
-    let outside = temp_dir("outside");
+    let outside = pipi_test_support::temp_dir("av-skills");
     make_skill(
         &outside,
         "escaped",

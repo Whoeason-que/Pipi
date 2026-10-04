@@ -702,5 +702,4 @@ fn relative_label(root: &Path, dir: &Path) -> String {
 }
 
 #[cfg(test)]
-#[path = "sources_tests.rs"]
 mod tests;

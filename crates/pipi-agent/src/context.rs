@@ -223,9 +223,7 @@ fn today() -> String {
 }
 
 #[cfg(test)]
-#[path = "context_tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "context_pairing_tests.rs"]
 mod pairing_tests;

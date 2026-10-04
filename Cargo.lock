@@ -511,6 +511,7 @@ version = "26.9.3"
 dependencies = [
  "dirs 7.0.0",
  "glob",
+ "pipi-test-support",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -5824,6 +5825,7 @@ dependencies = [
  "pipi-harness",
  "pipi-protocol",
  "pipi-provider",
+ "pipi-test-support",
  "pipi-tools",
  "serde",
  "serde_json",
@@ -5891,6 +5893,9 @@ dependencies = [
 [[package]]
 name = "pipi-harness"
 version = "26.9.3"
+dependencies = [
+ "pipi-test-support",
+]
 
 [[package]]
 name = "pipi-protocol"

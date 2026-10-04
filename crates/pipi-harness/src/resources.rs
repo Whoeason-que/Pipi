@@ -185,5 +185,4 @@ pub fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
 }
 
 #[cfg(test)]
-#[path = "resources_tests.rs"]
 mod tests;

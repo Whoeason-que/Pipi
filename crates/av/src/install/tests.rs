@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::{make_repo, noop_log, write_skill};
 use std::fs;
 
 /// 安装类测试会改 `AV_HOME`（进程级环境变量），串行执行避免互相踩踏。
@@ -38,35 +39,8 @@ impl Drop for AvHomeGuard {
     }
 }
 
-fn temp_dir(label: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "av-install-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn write_skill(dir: &Path, name: &str, body: &str) {
-    let skill = dir.join(name);
-    fs::create_dir_all(&skill).unwrap();
-    fs::write(
-        skill.join("SKILL.md"),
-        format!("---\nname: {name}\ndescription: {name} skill\n---\n{body}"),
-    )
-    .unwrap();
-}
-
-fn noop_log() -> impl FnMut(String) {
-    |_| {}
-}
-
 fn setup_av_home(label: &str) -> (PathBuf, AvHomeGuard) {
-    let home = temp_dir(label);
+    let home = pipi_test_support::temp_dir(&format!("av-install-{label}"));
     let guard = AvHomeGuard::set(&home);
     (home, guard)
 }
@@ -143,34 +117,6 @@ fn entry_for<'a>(index: &'a store::SkillLock, name: &str) -> &'a SkillLockEntry 
     index.get(name).unwrap()
 }
 
-/// 建一个本地 git 仓库（含 `skills/pdf`），返回仓库路径。
-fn make_repo(label: &str) -> PathBuf {
-    let repo = temp_dir(label);
-    let run = |args: &[&str]| {
-        let output = std::process::Command::new("git")
-            .args(args)
-            .current_dir(&repo)
-            .env("GIT_AUTHOR_NAME", "t")
-            .env("GIT_AUTHOR_EMAIL", "t@example.com")
-            .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@example.com")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    };
-    run(&["init", "--quiet"]);
-    write_skill(&repo.join("skills"), "pdf", "v1");
-    run(&["add", "-A"]);
-    run(&["commit", "--quiet", "-m", "init"]);
-    run(&["tag", "v1"]);
-    repo
-}
-
 fn repo_commit(repo: &Path, message: &str) {
     let run = |args: &[&str]| {
         let output = std::process::Command::new("git")
@@ -192,7 +138,7 @@ fn repo_commit(repo: &Path, message: &str) {
 #[test]
 fn install_git_source_materialize_and_refresh() {
     let (home, _guard) = setup_av_home("git-install");
-    let repo = make_repo("git-repo");
+    let (repo, _head) = make_repo("git-repo");
     let spec = SourceSpec::Git {
         url: repo.to_string_lossy().into_owned(),
         reference: Some("HEAD".into()),
@@ -249,7 +195,7 @@ fn install_git_source_materialize_and_refresh() {
 #[test]
 fn tag_reference_pins_revision() {
     let (home, _guard) = setup_av_home("tag-pin");
-    let repo = make_repo("tag-repo");
+    let (repo, _head) = make_repo("tag-repo");
     let spec = SourceSpec::Git {
         url: repo.to_string_lossy().into_owned(),
         reference: Some("v1".into()),
