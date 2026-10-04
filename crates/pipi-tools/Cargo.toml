@@ -18,7 +18,6 @@ shlex = { workspace = true }
 similar = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
-uuid = { workspace = true }
 walkdir = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

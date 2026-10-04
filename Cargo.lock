@@ -5829,7 +5829,6 @@ dependencies = [
  "pipi-tools",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "uuid",
 ]
@@ -5977,7 +5976,6 @@ dependencies = [
  "similar",
  "tempfile",
  "tokio",
- "uuid",
  "walkdir",
 ]
 

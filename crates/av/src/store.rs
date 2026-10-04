@@ -306,11 +306,6 @@ pub fn latest_index_entry<'a>(index: &'a SkillLock, name: &str) -> Option<&'a Sk
 
 /// 把解析记录写入 store 索引（保留原 installed-at，刷新 updated-at）。
 /// 批量写入 store 索引（一次读改写）。
-/// 单次读改写，批量调用请用 [`record_index_entries`]。
-pub fn record_index(entry: &SkillLockEntry) -> Result<(), String> {
-    record_index_entries(std::slice::from_ref(entry))
-}
-
 pub fn record_index_entries(entries: &[SkillLockEntry]) -> Result<(), String> {
     if entries.is_empty() {
         return Ok(());
