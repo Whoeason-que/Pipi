@@ -7,6 +7,7 @@ members = [
     "crates/pipi-tools",
     "crates/pipi-harness",
     "crates/pipi-provider",
+    "crates/pipi-agent",
     "crates/pipi-core",
     "crates/pipi-app",
     "crates/pipi-server",
@@ -30,6 +31,7 @@ rust-version = "1.95"
 [workspace.dependencies]
 # 内部 crate：路径只写一次
 av = { path = "crates/av", default-features = false }
+pipi-agent = { path = "crates/pipi-agent" }
 pipi-app = { path = "crates/pipi-app" }
 pipi-core = { path = "crates/pipi-core" }
 pipi-error = { path = "crates/pipi-error" }

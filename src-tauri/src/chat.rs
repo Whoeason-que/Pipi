@@ -205,7 +205,7 @@ pub fn session_stats(
     state: State<ChatState>,
     agent_name: String,
     session_id: String,
-) -> Result<pipi_core::stats::SessionStats, String> {
+) -> Result<pipi_agent::stats::SessionStats, String> {
     state.session_stats(&agent_name, &session_id)
 }
 

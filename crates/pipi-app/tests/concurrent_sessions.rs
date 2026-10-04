@@ -15,9 +15,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use pipi_agent::session::SessionWriter;
 use pipi_app::runtime::{EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::agents;
-use pipi_core::session::SessionWriter;
 use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
 use pipi_protocol::{Api, Message, Model};
 
@@ -141,7 +141,7 @@ fn temp_home() -> std::path::PathBuf {
     let home = std::env::temp_dir().join(format!(
         "pipi-concurrent-sessions-{}-{}",
         std::process::id(),
-        pipi_core::session::new_id()
+        pipi_agent::session::new_id()
     ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");
@@ -248,9 +248,9 @@ fn recording_sink() -> (EventEmitter, EventLog) {
         let label = match &event {
             RuntimeEvent::AgentEvent(envelope) => {
                 let kind = match &envelope.event {
-                    pipi_core::agent_loop::AgentEvent::AgentStart => "agent_start",
-                    pipi_core::agent_loop::AgentEvent::MessageEnd { .. } => "message_end",
-                    pipi_core::agent_loop::AgentEvent::AgentEnd { .. } => "agent_end",
+                    pipi_agent::agent_loop::AgentEvent::AgentStart => "agent_start",
+                    pipi_agent::agent_loop::AgentEvent::MessageEnd { .. } => "message_end",
+                    pipi_agent::agent_loop::AgentEvent::AgentEnd { .. } => "agent_end",
                     _ => "other",
                 };
                 format!("{}:{}:{}", envelope.agent_name, envelope.session_id, kind)

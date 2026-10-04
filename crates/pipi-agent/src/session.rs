@@ -81,6 +81,10 @@ pub fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
+/// 归档子目录名。Agent 数据树里两处归档共用这一个名字：整个 Agent 的归档
+/// （`agents/.archive/<name>/`）与会话文件的归档（`sessions/.archive/<id>.jsonl`）。
+pub const ARCHIVE_DIR: &str = ".archive";
+
 /// 一个会话的追加账本。
 ///
 /// 正式会话把每条 entry 追加到 `sessions/<millis>-<id>.jsonl`；设置工作台的
@@ -389,7 +393,7 @@ pub fn fork_session(
 
 /// 把会话文件移入归档区（`sessions/.archive/<id>.jsonl`），返回新路径。
 ///
-/// 纯移动、无标记（文件即真相，见 `agents::ARCHIVE_DIR`）。自由函数形式是为了
+/// 纯移动、无标记（文件即真相，见 [`ARCHIVE_DIR`]）。自由函数形式是为了
 /// 让运行任务（压缩换会话后归档原文件）也能调用 —— `RuntimeState::archive_session`
 /// 在其上加了「会话正打开时拒绝」的占用检查。
 pub fn archive_session_file(sessions_dir: &Path, session_id: &str) -> Result<PathBuf, String> {
@@ -401,12 +405,12 @@ pub fn archive_session_file(sessions_dir: &Path, session_id: &str) -> Result<Pat
         return Err("非法会话 ID".into());
     }
     let source = sessions_dir.join(format!("{session_id}.jsonl"));
-    if !crate::agents::ensure_real_file(&source, "会话文件")? {
+    if !pipi_tools::fs::ensure_real_file(&source, "会话文件")? {
         return Err("会话不存在".into());
     }
-    let archive_dir = sessions_dir.join(crate::agents::ARCHIVE_DIR);
+    let archive_dir = sessions_dir.join(ARCHIVE_DIR);
     // 归档目录：不存在则创建；存在必须是真实目录（防符号链接）
-    if !crate::agents::ensure_real_directory(&archive_dir, "归档目录")? {
+    if !pipi_tools::fs::ensure_real_directory(&archive_dir, "归档目录")? {
         std::fs::create_dir_all(&archive_dir).map_err(|e| format!("无法创建归档目录: {e}"))?;
     }
     let target = archive_dir.join(format!("{session_id}.jsonl"));

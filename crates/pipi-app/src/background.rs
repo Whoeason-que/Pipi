@@ -201,16 +201,16 @@ impl BackgroundTaskManager {
         agents::validate_agent_name(agent_name)?;
         let agent_dir = agents::agent_dir(agent_name)
             .ok_or_else(|| "无法定位用户主目录，不能创建后台任务目录".to_string())?;
-        if !agents::ensure_real_directory(&agent_dir, "Agent 目录")? {
+        if !pipi_tools::fs::ensure_real_directory(&agent_dir, "Agent 目录")? {
             return Err(format!("Agent「{agent_name}」不存在"));
         }
         let jobs_dir = agent_dir.join("jobs");
-        match agents::ensure_real_directory(&jobs_dir, "后台任务目录")? {
+        match pipi_tools::fs::ensure_real_directory(&jobs_dir, "后台任务目录")? {
             true => {}
             false => {
                 std::fs::create_dir_all(&jobs_dir)
                     .map_err(|error| format!("无法创建后台任务目录: {error}"))?;
-                agents::ensure_real_directory(&jobs_dir, "后台任务目录")?;
+                pipi_tools::fs::ensure_real_directory(&jobs_dir, "后台任务目录")?;
             }
         }
         Ok(jobs_dir)
@@ -351,7 +351,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
         }
 
         let jobs_dir = Self::jobs_dir(&spec.owner.agent_name)?;
-        let job_id = format!("job-{}", pipi_core::session::new_id());
+        let job_id = format!("job-{}", pipi_agent::session::new_id());
         let metadata_path = jobs_dir.join(format!("{job_id}.jsonl"));
         let log_path = jobs_dir.join(format!("{job_id}.log"));
         let started_at = now_millis();
@@ -488,7 +488,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
         }
 
         let jobs_dir = Self::jobs_dir(&spec.owner.agent_name)?;
-        let job_id = format!("job-{}", pipi_core::session::new_id());
+        let job_id = format!("job-{}", pipi_agent::session::new_id());
         let metadata_path = jobs_dir.join(format!("{job_id}.jsonl"));
         let started_at = now_millis();
         let queued = BackgroundTaskInfo {
@@ -1504,7 +1504,7 @@ mod tests {
         let home = std::env::temp_dir().join(format!(
             "pipi-background-{}-{}",
             std::process::id(),
-            pipi_core::session::new_id()
+            pipi_agent::session::new_id()
         ));
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();

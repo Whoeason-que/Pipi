@@ -15,15 +15,15 @@ use crate::approval::{
     ApprovalDecision, ApprovalGate, ApprovalRequestEnvelope, InteractiveApprover,
 };
 use crate::background::BackgroundTaskManager;
-use pipi_core::agent_loop::Emitter as LoopEmitter;
-use pipi_core::agent_loop::{
+use pipi_agent::agent_loop::Emitter as LoopEmitter;
+use pipi_agent::agent_loop::{
     AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode, run_agent_loop,
 };
+pub use pipi_agent::session::SessionSummary;
+use pipi_agent::session::{EntryKind, SessionWriter, list_session_summaries, load_session};
+use pipi_agent::stats::SessionStatsTracker;
 use pipi_core::agents::{self, AgentDefinition};
-pub use pipi_core::session::SessionSummary;
-use pipi_core::session::{EntryKind, SessionWriter, list_session_summaries, load_session};
 use pipi_core::settings::load_settings;
-use pipi_core::stats::SessionStatsTracker;
 use pipi_core::tools::agent::{
     AgentRunResult, AgentRunStatus, AgentRunner, ChildProgressTx, CreateAgentTool, ReadAgentTool,
     RunAgentTool, result_from_messages,
@@ -55,7 +55,7 @@ pub struct StatsEventEnvelope {
     pub agent_name: String,
     pub session_id: String,
     pub run_id: usize,
-    pub stats: pipi_core::stats::SessionStats,
+    pub stats: pipi_agent::stats::SessionStats,
 }
 
 /// 发给宿主的会话错误。

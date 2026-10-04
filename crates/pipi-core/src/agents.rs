@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use pipi_agent::session::ARCHIVE_DIR;
 use pipi_protocol::{Model, Tool};
+use pipi_tools::fs::{ensure_real_directory, ensure_real_file};
 use pipi_tools::permissions::{KNOWN_TOOLS, PermissionsConfig};
 
 /// Agent 清单，对应 `agent.json`。
@@ -47,14 +49,14 @@ pub struct AgentDefinition {
 }
 
 fn default_compact_threshold_percent() -> u8 {
-    crate::compaction::DEFAULT_THRESHOLD_PERCENT
+    pipi_agent::compaction::DEFAULT_THRESHOLD_PERCENT
 }
 
 impl AgentDefinition {
     /// 自动压缩阈值百分比：越界（0 / >100）视为「没设过」，用默认值 ——
     /// 手改过的 agent.json 不该让压缩失效。
     pub fn compact_threshold_percent(&self) -> u8 {
-        crate::compaction::normalize_threshold_percent(self.compact_threshold_percent)
+        pipi_agent::compaction::normalize_threshold_percent(self.compact_threshold_percent)
     }
 
     /// 无效的手写比例退回未配置行为，避免把历史压到不可预期的目标。
@@ -87,11 +89,6 @@ pub fn agents_dir() -> Option<PathBuf> {
     av::paths::agents_root()
 }
 
-/// 归档区目录名（agents 根与各 Agent 的 sessions 目录共用）：
-/// `~/.pipi/agents/.archive/` 与 `<agent>/sessions/.archive/`。以点开头，
-/// 列表扫描天然跳过，文件即真相 —— 归档就是一次目录/文件移动。
-pub const ARCHIVE_DIR: &str = ".archive";
-
 /// 校验 Agent 名称必须是单一、稳定的目录名，禁止路径分隔符与 `..` 穿越。
 pub fn validate_agent_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
@@ -108,35 +105,6 @@ pub fn validate_agent_name(name: &str) -> Result<(), String> {
 
 fn manifest_name_matches_directory(directory_name: &str, manifest_name: &str) -> bool {
     directory_name == manifest_name && validate_agent_name(manifest_name).is_ok()
-}
-
-/// 验证 Agent 数据树中的目录不是符号链接。应用服务层在打开/归档 session 时也
-/// 必须复用这个边界，避免迁出 core 后丢失同一条 containment 保证。
-pub fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(format!("{label} 不能是符号链接: {}", path.display()))
-        }
-        Ok(metadata) if !metadata.is_dir() => Err(format!("{label} 不是目录: {}", path.display())),
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!("无法检查 {label} {}: {error}", path.display())),
-    }
-}
-
-/// 验证 Agent 数据树中的普通文件不是符号链接。
-pub fn ensure_real_file(path: &Path, label: &str) -> Result<bool, String> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(format!("{label} 不能是符号链接: {}", path.display()))
-        }
-        Ok(metadata) if !metadata.is_file() => {
-            Err(format!("{label} 不是普通文件: {}", path.display()))
-        }
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!("无法检查 {label} {}: {error}", path.display())),
-    }
 }
 
 fn checked_agents_root() -> Result<PathBuf, String> {
@@ -1142,7 +1110,7 @@ pub fn build_system_prompt_with_tools(
 
         (
             workspace.display().to_string(),
-            Some(crate::context::environment_context(
+            Some(pipi_agent::context::environment_context(
                 workspace,
                 &def.permissions.sandbox,
             )),
@@ -1240,11 +1208,13 @@ mod tests {
         use std::os::unix::fs::symlink;
 
         let _guard = HOME_LOCK.lock().unwrap();
-        let home =
-            std::env::temp_dir().join(format!("pipi-agent-link-home-{}", crate::session::new_id()));
+        let home = std::env::temp_dir().join(format!(
+            "pipi-agent-link-home-{}",
+            pipi_agent::session::new_id()
+        ));
         let external = std::env::temp_dir().join(format!(
             "pipi-agent-link-external-{}",
-            crate::session::new_id()
+            pipi_agent::session::new_id()
         ));
         let linked = home.join(".pipi/agents/linked-agent");
         std::fs::create_dir_all(home.join(".pipi/agents")).unwrap();
@@ -1285,11 +1255,11 @@ mod tests {
         let _guard = HOME_LOCK.lock().unwrap();
         let home = std::env::temp_dir().join(format!(
             "pipi-agent-root-link-home-{}",
-            crate::session::new_id()
+            pipi_agent::session::new_id()
         ));
         let external = std::env::temp_dir().join(format!(
             "pipi-agent-root-link-external-{}",
-            crate::session::new_id()
+            pipi_agent::session::new_id()
         ));
         std::fs::create_dir_all(home.join(".pipi")).unwrap();
         std::fs::create_dir_all(&external).unwrap();
@@ -1313,11 +1283,11 @@ mod tests {
         let _guard = HOME_LOCK.lock().unwrap();
         let home = std::env::temp_dir().join(format!(
             "pipi-agent-manifest-link-home-{}",
-            crate::session::new_id()
+            pipi_agent::session::new_id()
         ));
         let external = std::env::temp_dir().join(format!(
             "pipi-agent-manifest-link-external-{}",
-            crate::session::new_id()
+            pipi_agent::session::new_id()
         ));
         let agent = home.join(".pipi/agents/manifest-link-agent");
         let external_manifest = external.join("agent.json");
@@ -1358,7 +1328,7 @@ mod tests {
     #[test]
     fn create_defaults_to_workspace_write_sandbox() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let name = format!("pipi-default-sandbox-{}", crate::session::new_id());
+        let name = format!("pipi-default-sandbox-{}", pipi_agent::session::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         assert_eq!(
             def.permissions.sandbox,
@@ -1383,7 +1353,7 @@ mod tests {
         let json = serde_json::to_string(&explicit).unwrap();
         assert!(json.contains("\"subagent\":true"), "{json}");
 
-        let name = format!("pipi-subagent-roundtrip-{}", crate::session::new_id());
+        let name = format!("pipi-subagent-roundtrip-{}", pipi_agent::session::new_id());
         let mut def = create_agent(&name, "", None, None, None, None).unwrap();
         assert!(!def.subagent);
 
@@ -1434,8 +1404,10 @@ mod tests {
     /// skills 按名过滤、env 解析注入 AV_*，以及包含约束 fail-closed。
     #[test]
     fn agent_contract_drives_instructions_skills_and_env() {
-        let root =
-            std::env::temp_dir().join(format!("pipi-contract-e2e-{}", crate::session::new_id()));
+        let root = std::env::temp_dir().join(format!(
+            "pipi-contract-e2e-{}",
+            pipi_agent::session::new_id()
+        ));
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join("AGENTS.md"), "CONVENTION-AGENTS-ROOT-RULES").unwrap();
         fs::write(root.join("PROMPT.md"), "DECLARED-PROMPT-BODY").unwrap();
@@ -1520,7 +1492,7 @@ only = ["wanted"]
         // 逃逸包含根 fail-closed
         let outside = std::env::temp_dir().join(format!(
             "pipi-contract-e2e-outside-{}.md",
-            crate::session::new_id()
+            pipi_agent::session::new_id()
         ));
         fs::write(&outside, "outside").unwrap();
         fs::write(
@@ -1542,8 +1514,10 @@ only = ["wanted"]
     /// （多仓库工作区用 `.agents/skills` 这种既有约定），不必改造成 `.pi/skills`。
     #[test]
     fn project_contract_skills_sources_point_into_the_repo() {
-        let root =
-            std::env::temp_dir().join(format!("pipi-skills-sources-{}", crate::session::new_id()));
+        let root = std::env::temp_dir().join(format!(
+            "pipi-skills-sources-{}",
+            pipi_agent::session::new_id()
+        ));
         fs::create_dir_all(root.join(".git")).unwrap();
         let pack = root.join(".agents").join("skills").join("workspace-guide");
         fs::create_dir_all(&pack).unwrap();
@@ -1588,7 +1562,7 @@ only = ["wanted"]
         let _guard = HOME_LOCK.lock().unwrap();
         let home = std::env::temp_dir().join(format!(
             "pipi-store-skills-home-{}",
-            crate::session::new_id()
+            pipi_agent::session::new_id()
         ));
         fs::create_dir_all(&home).unwrap();
         let previous_home = std::env::var("HOME").unwrap();
@@ -1681,7 +1655,7 @@ only = ["wanted"]
     #[test]
     fn system_prompt_injects_memory_index_with_summaries() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let name = format!("memory-index-{}", crate::session::new_id());
+        let name = format!("memory-index-{}", pipi_agent::session::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         let memory_dir = def.memory_dir().unwrap();
         fs::write(
@@ -1709,7 +1683,7 @@ only = ["wanted"]
     #[test]
     fn tool_context_grants_read_access_to_memory_dir() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let name = format!("memory-read-{}", crate::session::new_id());
+        let name = format!("memory-read-{}", pipi_agent::session::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         let memory_dir = def.memory_dir().unwrap();
         fs::write(memory_dir.join("note.md"), "hello").unwrap();
@@ -1741,11 +1715,11 @@ only = ["wanted"]
         let _guard = HOME_LOCK.lock().unwrap();
         let home = std::env::temp_dir().join(format!(
             "pipi-skills-link-home-{}",
-            crate::session::new_id()
+            pipi_agent::session::new_id()
         ));
         let external = std::env::temp_dir().join(format!(
             "pipi-skills-link-external-{}",
-            crate::session::new_id()
+            pipi_agent::session::new_id()
         ));
         let agent_dir = home.join(".pipi/agents/skills-link-agent");
         std::fs::create_dir_all(&agent_dir).unwrap();
@@ -1793,7 +1767,8 @@ only = ["wanted"]
     #[test]
     fn agent_file_editor_is_restricted_to_agents_md_and_memory() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home = std::env::temp_dir().join(format!("pipi-edit-{}", crate::session::new_id()));
+        let home =
+            std::env::temp_dir().join(format!("pipi-edit-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         crate::set_env_var("HOME", &home);
@@ -1921,7 +1896,8 @@ only = ["wanted"]
     #[test]
     fn create_writes_file_skeleton() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home = std::env::temp_dir().join(format!("pipi-home-{}", crate::session::new_id()));
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         crate::set_env_var("HOME", &home);
@@ -1968,9 +1944,10 @@ only = ["wanted"]
     #[test]
     fn create_with_explicit_workspace() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home = std::env::temp_dir().join(format!("pipi-home-{}", crate::session::new_id()));
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
-        let ws = std::env::temp_dir().join(format!("pipi-ws-{}", crate::session::new_id()));
+        let ws = std::env::temp_dir().join(format!("pipi-ws-{}", pipi_agent::session::new_id()));
         let prev = std::env::var("HOME").unwrap();
         crate::set_env_var("HOME", &home);
         let result = create_agent("ws-agent", "", Some(ws.to_str().unwrap()), None, None, None);
@@ -1984,7 +1961,8 @@ only = ["wanted"]
     #[test]
     fn create_with_default_model() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home = std::env::temp_dir().join(format!("pipi-home-{}", crate::session::new_id()));
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         crate::set_env_var("HOME", &home);
@@ -2079,7 +2057,7 @@ only = ["wanted"]
     fn seeds_default_agent_when_missing_and_never_overwrites() {
         let _guard = HOME_LOCK.lock().unwrap();
         let home =
-            std::env::temp_dir().join(format!("pipi-home-seed-{}", crate::session::new_id()));
+            std::env::temp_dir().join(format!("pipi-home-seed-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         crate::set_env_var("HOME", &home);
@@ -2133,7 +2111,7 @@ only = ["wanted"]
     fn bootstrap_keeps_existing_agents_and_backfills_default() {
         let _guard = HOME_LOCK.lock().unwrap();
         let home =
-            std::env::temp_dir().join(format!("pipi-home-fill-{}", crate::session::new_id()));
+            std::env::temp_dir().join(format!("pipi-home-fill-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         crate::set_env_var("HOME", &home);
@@ -2163,7 +2141,7 @@ only = ["wanted"]
     fn agent_archive_restore_delete_lifecycle() {
         let _guard = HOME_LOCK.lock().unwrap();
         let home =
-            std::env::temp_dir().join(format!("pipi-home-arch-{}", crate::session::new_id()));
+            std::env::temp_dir().join(format!("pipi-home-arch-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         crate::set_env_var("HOME", &home);
@@ -2231,7 +2209,8 @@ only = ["wanted"]
     fn archive_scan_skips_dot_dir_with_manifest() {
         // 归档区里即使意外出现 agent.json，活跃列表也不得扫到（点目录硬跳过）
         let _guard = HOME_LOCK.lock().unwrap();
-        let home = std::env::temp_dir().join(format!("pipi-home-dot-{}", crate::session::new_id()));
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-dot-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         crate::set_env_var("HOME", &home);

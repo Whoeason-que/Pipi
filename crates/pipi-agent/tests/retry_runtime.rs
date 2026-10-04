@@ -11,8 +11,8 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pipi_core::agent_loop::{AgentContext, AgentEvent, AgentLoopConfig, run_agent_loop};
-use pipi_core::retry::RetryPolicy;
+use pipi_agent::agent_loop::{AgentContext, AgentEvent, AgentLoopConfig, run_agent_loop};
+use pipi_agent::retry::RetryPolicy;
 use pipi_protocol::{AbortSignal, Api, Message, Model, StopReason, StreamOptions};
 use pipi_provider::provider_for;
 use pipi_tools::permissions::SandboxMode;
@@ -119,10 +119,10 @@ fn test_model(addr: std::net::SocketAddr) -> Model {
 }
 
 /// 事件 sink：返回（事件列表, Emitter），Emitter 交给 run_agent_loop。
-fn sink_and_emit() -> (Arc<Mutex<Vec<AgentEvent>>>, pipi_core::agent_loop::Emitter) {
+fn sink_and_emit() -> (Arc<Mutex<Vec<AgentEvent>>>, pipi_agent::agent_loop::Emitter) {
     let sink: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
     let sink2 = sink.clone();
-    let emit: pipi_core::agent_loop::Emitter = Arc::new(move |event: AgentEvent| {
+    let emit: pipi_agent::agent_loop::Emitter = Arc::new(move |event: AgentEvent| {
         sink2.lock().unwrap().push(event);
     });
     (sink, emit)
@@ -151,9 +151,9 @@ fn test_config(addr: std::net::SocketAddr, retry: RetryPolicy) -> AgentLoopConfi
             session_id: None,
         },
         retry,
-        tool_execution: pipi_core::agent_loop::ToolExecutionMode::Sequential,
-        steering: pipi_core::agent_loop::MessageQueue::new(),
-        follow_up: pipi_core::agent_loop::MessageQueue::new(),
+        tool_execution: pipi_agent::agent_loop::ToolExecutionMode::Sequential,
+        steering: pipi_agent::agent_loop::MessageQueue::new(),
+        follow_up: pipi_agent::agent_loop::MessageQueue::new(),
         before_tool_call: None,
         after_tool_call: None,
         transform_context: None,

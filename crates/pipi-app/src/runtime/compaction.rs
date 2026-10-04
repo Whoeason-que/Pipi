@@ -48,7 +48,7 @@ pub(super) struct CompactionContext<'a> {
     pub(super) run_id: usize,
     pub(super) model: &'a Model,
     pub(super) api_key: &'a str,
-    pub(super) budget: pipi_core::compaction::Budget,
+    pub(super) budget: pipi_agent::compaction::Budget,
     pub(super) messages: &'a Arc<tokio::sync::Mutex<Vec<Message>>>,
     pub(super) writer: &'a Arc<Mutex<SessionWriter>>,
     pub(super) stats: &'a Arc<Mutex<SessionStatsTracker>>,
@@ -56,7 +56,7 @@ pub(super) struct CompactionContext<'a> {
     pub(super) sessions_dir: Option<&'a std::path::Path>,
     pub(super) settings: pipi_core::settings::CompactionSettings,
     /// 摘要调用失败重发策略（与对话共用，见 `retry` 模块）。
-    pub(super) retry: pipi_core::retry::RetryPolicy,
+    pub(super) retry: pipi_agent::retry::RetryPolicy,
     pub(super) sink: &'a EventEmitter,
     pub(super) trigger: CompactionTrigger,
     /// 压缩分叉换了会话 id 后，把 map 里的条目搬到新键（None = 不需要，如子 Agent）。
@@ -96,7 +96,7 @@ pub(super) fn compaction_stream_options(api_key: &str, session_id: &str) -> Stre
 pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
     let history = ctx.messages.lock().await.clone();
     if ctx.trigger == CompactionTrigger::Auto
-        && !pipi_core::compaction::needs_compaction(&history, ctx.budget)
+        && !pipi_agent::compaction::needs_compaction(&history, ctx.budget)
     {
         return Ok(false);
     }
@@ -112,26 +112,26 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
         })
     };
     (ctx.sink)(envelope(ctx.session_id, AgentEvent::CompactionStart));
-    let tokens_before = pipi_core::context::estimate_context_tokens(&history);
+    let tokens_before = pipi_agent::context::estimate_context_tokens(&history);
 
     // 摘要用量另计入会话账本；请求仍携带当前会话 ID，满足供应商的会话路由要求。
     let summary_options = compaction_stream_options(ctx.api_key, ctx.session_id);
     // provider 实例要活到 compact 调用结束（provider_for 返回 Arc）
     let summarizer = provider_for(ctx.model.api);
-    let strategy_env = pipi_core::compaction::StrategyEnv {
+    let strategy_env = pipi_agent::compaction::StrategyEnv {
         provider: summarizer.as_ref(),
         model: ctx.model,
         options: &summary_options,
         abort: ctx.abort.clone(),
         retry: ctx.retry,
     };
-    let compacted = pipi_core::compaction::compact(&history, ctx.budget, &strategy_env).await?;
+    let compacted = pipi_agent::compaction::compact(&history, ctx.budget, &strategy_env).await?;
 
     // 落盘的摘要正文是**未包裹**的原文（回放时统一包裹，见 session::summary_message）。
     let summary = compacted
         .messages
         .first()
-        .and_then(pipi_core::session::summary_text)
+        .and_then(pipi_agent::session::summary_text)
         .unwrap_or_default()
         .to_string();
     // 保留区间的起点条目 id：回放据此留住这段原文（缺了它就退回旧行为）。
@@ -142,7 +142,7 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
         .ok()
         .and_then(|writer| writer.tip_id().map(str::to_string))
         .unwrap_or_default();
-    let record = pipi_core::session::CompactionRecord {
+    let record = pipi_agent::session::CompactionRecord {
         summary: &summary,
         strategy: compacted.strategy,
         keep_from_entry: &keep_from_entry,
@@ -158,7 +158,7 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
     {
         tracker.record_ledger(&usage);
     }
-    let tokens_after = pipi_core::context::estimate_context_tokens(&ctx.messages.lock().await);
+    let tokens_after = pipi_agent::context::estimate_context_tokens(&ctx.messages.lock().await);
     // 换会话：先发 SessionSwitched（envelope 用旧 id，前端此刻身份还是旧的），
     // 把身份切到新 id，再发后续事件 —— 顺序反了会导致前端收不到切换、running 卡住。
     if let Some(new_id) = &switched {
@@ -201,7 +201,7 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
 pub(super) fn persist_compaction(
     writer: &Arc<Mutex<SessionWriter>>,
     sessions_dir: Option<&std::path::Path>,
-    record: &pipi_core::session::CompactionRecord<'_>,
+    record: &pipi_agent::session::CompactionRecord<'_>,
     settings: pipi_core::settings::CompactionSettings,
 ) -> Result<Option<String>, String> {
     // 临时测试上下文需要摘要替换，但绝不能分叉或写入 sessions 目录。内存账本
@@ -244,7 +244,7 @@ pub(super) fn persist_compaction(
 fn fork_and_write_compaction(
     writer: &Arc<Mutex<SessionWriter>>,
     sessions_dir: Option<&std::path::Path>,
-    record: &pipi_core::session::CompactionRecord<'_>,
+    record: &pipi_agent::session::CompactionRecord<'_>,
     archive_original: bool,
 ) -> Result<String, String> {
     let sessions_dir = sessions_dir.ok_or_else(|| "无法解析会话目录".to_string())?;
@@ -260,7 +260,7 @@ fn fork_and_write_compaction(
         (path, id)
     };
 
-    let mut forked = pipi_core::session::fork_session(&source_path, sessions_dir, None)?;
+    let mut forked = pipi_agent::session::fork_session(&source_path, sessions_dir, None)?;
     let new_id = forked
         .path()
         .file_stem()
@@ -286,7 +286,7 @@ fn fork_and_write_compaction(
     }
 
     if archive_original
-        && let Err(error) = pipi_core::session::archive_session_file(sessions_dir, &source_id)
+        && let Err(error) = pipi_agent::session::archive_session_file(sessions_dir, &source_id)
     {
         // 归档失败不回滚：新会话已经可用，原会话留在活跃列表里即可
         eprintln!("pipi: 原会话归档失败（保留在活跃列表）: {error}");
@@ -319,7 +319,7 @@ impl RuntimeState {
         let current_model = session.model.lock().ok().and_then(|model| model.clone());
         // 与发送消息同一套解析：会话模型优先，回退 Agent 默认
         let (model, api_key) = resolve_model(&def, current_model.as_ref(), None)?;
-        let budget = pipi_core::compaction::Budget::from_window(
+        let budget = pipi_agent::compaction::Budget::from_window(
             model.context_window,
             def.compact_threshold_percent(),
         )

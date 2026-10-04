@@ -1,23 +1,20 @@
-//! Pipi 核心 —— 从 [pi](https://github.com/earendil-works/pi) 移植的 agent 内核。
+//! Pipi 领域层 —— Agent 定义与 av 契约、技能中心、模型目录与设置。
 //!
-//! 与 pi 的模块对应关系（移植时保持概念与 JSON 格式尽量对齐，便于对照上游修改）：
+//! Agent 循环、上下文预算、重试、统计、会话存储与压缩已拆到 `pipi-agent`
+//! （可复用的运行时内核，不依赖 av、不做网络目录）；这里保留的是 Pipi 自己的
+//! 领域服务：一切皆文件的 Agent 注册表、agent.toml 契约解析、技能中心与模型目录。
 //!
-//! | pi | pipi-core | 说明 |
+//! | 模块 | 职责 | pi / 上游对应 |
 //! | --- | --- | --- |
-//! | `packages/ai` types | `pipi-protocol`（直接依赖） | 消息 / 内容块 / 流式事件协议 |
-//! | `packages/ai` api adapters | `pipi-provider`（直接依赖） | 仅移植 anthropic-messages 与 openai-completions 两个 |
-//! | `packages/agent` agent-loop | [`agent_loop`] | 主循环 + steering/follow-up + 工具批次执行 |
-//! | `packages/agent` harness/tools | `pipi-tools` + [`tools`] | 基础文件工具；核心保留 Agent 组合工具 |
-//! | `packages/agent` harness/utils/truncate | `pipi-tools::truncate`（直接依赖） | 2000 行 / 50KB 截断规则 |
-//! | `packages/agent` harness/session | [`session`] | 树状 JSONL 条目（append-only） |
-//! | （Pipi 应用层） | `pipi-app::runtime` | 会话槽、后台编排与宿主事件；Tauri/Web 共用 |
-//! | `packages/agent` harness prompt/resources | `pipi-harness`（直接依赖） | 纯 prompt 渲染和项目上下文发现 |
-//! | `packages/agent` compaction（启发式部分） | [`context`] | token 估算 / 裁剪 / 环境上下文 |
-//! | `packages/agent` compaction（LLM 摘要替换） | [`compaction`] | 摘要替换旧轮次 + 保留近期轮次，落盘为 compaction 条目 |
-//! | `packages/agent` skills（frontmatter + 索引） | `av::skills`（直接依赖） | 渐进式披露：索引常驻、全文按需 read |
-//! | （Pipi 新增） | `pipi-tools::permissions`（直接依赖） | bash 命令权限：白名单 / 黑名单 |
-//! | （Pipi 新增） | [`agents`] | Agent 定义与注册表（一切皆文件） |
-//! | （Pipi 新增） | [`skill_center`] | 技能中心：store 浏览/安装/校验与 Agent 启用状态 |
+//! | [`agents`] | Agent 定义与注册表、av 契约层解析、system prompt 装配 | （Pipi 新增） |
+//! | [`skill_center`] | 技能中心：store 浏览 / 安装 / 校验与 Agent 启用状态 | av 契约 + skills.sh |
+//! | [`catalog`] | models.dev 目录拉取与缓存 | opencode 的 models.dev 口径 |
+//! | [`settings`] | `~/.pipi/settings.json`（供应商、压缩、重试策略） | （Pipi 新增） |
+//! | [`tools`] | Agent 组合工具（create/read/run agent、后台任务） | `packages/agent` 工具层 |
+//!
+//! 引擎侧模块（[`pipi_agent`]）：`agent_loop`（主循环）、`context`（token 预算）、
+//! `compaction`（摘要替换 + 旧工具输出清理）、`session`（树状 JSONL）、`retry`、
+//! `stats`。
 //!
 //! 另有 codex 移植：`pipi_tools::permissions::safety`（危险命令）与
 //! `SandboxMode`，见 README「与 codex 的关系」。
@@ -25,16 +22,10 @@
 //! 尚未移植（有意推迟，需要时再从上游搬运）：
 //! hooks 全集、prepareNextTurn、多 provider 目录、图片工具等。
 
-pub mod agent_loop;
 pub mod agents;
 pub mod catalog;
-pub mod compaction;
-pub mod context;
-pub mod retry;
-pub mod session;
 pub mod settings;
 pub mod skill_center;
-pub mod stats;
 pub mod tools;
 
 /// HOME 环境变量是进程级的：所有涉及 `~/.pipi` 的测试（改写 HOME 或依赖

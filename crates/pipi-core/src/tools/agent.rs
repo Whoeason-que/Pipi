@@ -12,10 +12,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::agents;
-use crate::session::{active_path, list_session_summaries, load_session, rebuild_messages};
 use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskOwner, BackgroundTaskService,
 };
+use pipi_agent::session::{active_path, list_session_summaries, load_session, rebuild_messages};
 use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, ContentBlock, Message, Model, StopReason, ToolResultContent,
 };
@@ -502,7 +502,7 @@ pub fn read_agent_output(
     let sessions_dir = definition
         .sessions_dir()
         .ok_or_else(|| "无法解析会话目录".to_string())?;
-    if !agents::ensure_real_directory(&sessions_dir, "sessions 目录")? {
+    if !pipi_tools::fs::ensure_real_directory(&sessions_dir, "sessions 目录")? {
         return Err(format!("Agent「{agent_name}」还没有会话"));
     }
 
@@ -518,7 +518,7 @@ pub fn read_agent_output(
             .ok_or_else(|| format!("Agent「{agent_name}」还没有会话"))?,
     };
     let path = sessions_dir.join(format!("{session_id}.jsonl"));
-    if !agents::ensure_real_file(&path, "会话文件")? {
+    if !pipi_tools::fs::ensure_real_file(&path, "会话文件")? {
         return Err(format!("Agent「{agent_name}」没有会话 {session_id}"));
     }
     let entries = load_session(&path)?;

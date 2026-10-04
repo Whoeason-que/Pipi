@@ -8,6 +8,7 @@ description = "Pipi 的应用服务层：会话槽、运行编排与宿主事件
 [dependencies]
 async-trait = { workspace = true }
 av = { workspace = true }
+pipi-agent = { workspace = true }
 pipi-core = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-provider = { workspace = true }

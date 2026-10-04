@@ -49,7 +49,7 @@ async fn create_run_and_read_agent_output() {
     let home = std::env::temp_dir().join(format!(
         "pipi-agent-composition-{}-{}",
         std::process::id(),
-        pipi_core::session::new_id()
+        pipi_agent::session::new_id()
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -364,7 +364,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     let home = std::env::temp_dir().join(format!(
         "pipi-agent-e2e-{}-{}",
         std::process::id(),
-        pipi_core::session::new_id()
+        pipi_agent::session::new_id()
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();

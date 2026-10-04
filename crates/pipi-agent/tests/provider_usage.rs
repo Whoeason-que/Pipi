@@ -10,7 +10,7 @@
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
-use pipi_core::stats::SessionStatsTracker;
+use pipi_agent::stats::SessionStatsTracker;
 use pipi_protocol::{AbortSignal, Api, Context, Message, Model, StreamEvent, StreamOptions, Usage};
 use pipi_provider::provider_for;
 

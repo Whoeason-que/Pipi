@@ -5801,6 +5801,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "pipi"
 version = "26.9.3"
 dependencies = [
+ "pipi-agent",
  "pipi-app",
  "pipi-core",
  "pipi-protocol",
@@ -5811,11 +5812,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "pipi-agent"
+version = "26.9.3"
+dependencies = [
+ "async-trait",
+ "fastrand",
+ "futures-util",
+ "pipi-error",
+ "pipi-harness",
+ "pipi-protocol",
+ "pipi-provider",
+ "pipi-tools",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "pipi-app"
 version = "26.9.3"
 dependencies = [
  "async-trait",
  "av",
+ "pipi-agent",
  "pipi-core",
  "pipi-protocol",
  "pipi-provider",
@@ -5832,18 +5853,14 @@ dependencies = [
  "async-trait",
  "av",
  "dirs 7.0.0",
- "fastrand",
- "futures-util",
- "pipi-error",
+ "pipi-agent",
  "pipi-harness",
  "pipi-protocol",
- "pipi-provider",
  "pipi-tools",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
  "tokio",
- "uuid",
 ]
 
 [[package]]

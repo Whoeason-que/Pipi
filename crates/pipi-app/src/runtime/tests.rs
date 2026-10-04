@@ -23,7 +23,7 @@ fn temporary_compaction_updates_memory_ledger_without_forking() {
         .unwrap();
     let source_tip = ledger.tip_id().unwrap().to_string();
     let writer = Arc::new(Mutex::new(ledger));
-    let record = pipi_core::session::CompactionRecord {
+    let record = pipi_agent::session::CompactionRecord {
         summary: "内存摘要",
         strategy: "summary",
         keep_from_entry: &keep_from,
@@ -170,7 +170,7 @@ fn resolve_model_prefers_session_model_over_agent_default() {
     let empty_home = std::env::temp_dir().join(format!(
         "pipi-resolve-model-home-{}-{}",
         std::process::id(),
-        pipi_core::session::new_id()
+        pipi_agent::session::new_id()
     ));
     std::fs::create_dir_all(empty_home.join(".pipi")).unwrap();
     crate::set_env_var("HOME", &empty_home);
@@ -236,7 +236,7 @@ mod child_timeout_tests {
         let sessions = std::env::temp_dir().join(format!(
             "pipi-timeout-pairing-{}-{}",
             std::process::id(),
-            pipi_core::session::new_id()
+            pipi_agent::session::new_id()
         ));
         std::fs::create_dir_all(&sessions).unwrap();
         let writer = Arc::new(Mutex::new(SessionWriter::create(&sessions).unwrap()));
@@ -276,7 +276,7 @@ mod child_timeout_tests {
 
         let entries = load_session(&path).unwrap();
         let messages =
-            pipi_core::session::rebuild_messages(&pipi_core::session::active_path(&entries));
+            pipi_agent::session::rebuild_messages(&pipi_agent::session::active_path(&entries));
         assert_eq!(messages.len(), 4);
         assert!(matches!(
             &messages[2],
@@ -320,7 +320,7 @@ mod child_timeout_tests {
         let home = std::env::temp_dir().join(format!(
             "pipi-child-timeout-{}-{}",
             std::process::id(),
-            pipi_core::session::new_id()
+            pipi_agent::session::new_id()
         ));
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();

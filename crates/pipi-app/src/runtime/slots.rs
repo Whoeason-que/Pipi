@@ -32,13 +32,13 @@ impl RuntimeState {
             .sessions_dir()
             .ok_or_else(|| "无法解析会话目录".to_string())?;
         // 会话目录必须是真实目录（非符号链接），否则 rename/remove 会沿链接波及外部文件
-        agents::ensure_real_directory(&dir, "sessions 目录")?;
+        pipi_tools::fs::ensure_real_directory(&dir, "sessions 目录")?;
         Ok(dir.join(format!("{session_id}.jsonl")))
     }
 
     /// 校验会话文件：必须是真实文件（非符号链接）；不存在返回 false。
     fn ensure_real_session_file(path: &std::path::Path) -> Result<bool, String> {
-        agents::ensure_real_file(path, "会话文件")
+        pipi_tools::fs::ensure_real_file(path, "会话文件")
     }
 
     // ============ 会话归档 / 恢复 / 删除 ============
@@ -53,7 +53,7 @@ impl RuntimeState {
     /// 归档会话：移动到 `sessions/.archive/`。
     ///
     /// 空闲会话即使仍在前端打开，也会在移动前自动从运行时会话槽脱离；实际移动
-    /// 是 [`pipi_core::session::archive_session_file`]。压缩换会话后的内部归档仍然
+    /// 是 [`pipi_agent::session::archive_session_file`]。压缩换会话后的内部归档仍然
     /// 直接走那个自由函数（那时旧 id 已不再是打开的会话）。
     pub fn archive_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
@@ -66,7 +66,7 @@ impl RuntimeState {
         let Some(dir) = src.parent() else {
             return Err("无法解析会话目录".into());
         };
-        pipi_core::session::archive_session_file(dir, session_id).map(|_| ())
+        pipi_agent::session::archive_session_file(dir, session_id).map(|_| ())
     }
 
     /// 恢复归档会话：移回 `sessions/`。
@@ -79,7 +79,7 @@ impl RuntimeState {
             .ok_or_else(|| "无法解析会话目录".to_string())?
             .to_path_buf();
         let src = live_dir
-            .join(agents::ARCHIVE_DIR)
+            .join(pipi_agent::session::ARCHIVE_DIR)
             .join(format!("{session_id}.jsonl"));
         if !Self::ensure_real_session_file(&src)? {
             return Err("归档区没有该会话".into());
@@ -115,8 +115,8 @@ impl RuntimeState {
         let archive_dir = def
             .sessions_dir()
             .ok_or_else(|| "无法解析会话目录".to_string())?
-            .join(agents::ARCHIVE_DIR);
-        if !agents::ensure_real_directory(&archive_dir, "归档目录")? {
+            .join(pipi_agent::session::ARCHIVE_DIR);
+        if !pipi_tools::fs::ensure_real_directory(&archive_dir, "归档目录")? {
             return Err("归档区没有该会话".into());
         }
         let path = archive_dir.join(format!("{session_id}.jsonl"));
@@ -132,8 +132,8 @@ impl RuntimeState {
         let dir = def
             .sessions_dir()
             .ok_or_else(|| "无法解析会话目录".to_string())?
-            .join(agents::ARCHIVE_DIR);
-        match agents::ensure_real_directory(&dir, "归档目录") {
+            .join(pipi_agent::session::ARCHIVE_DIR);
+        match pipi_tools::fs::ensure_real_directory(&dir, "归档目录") {
             Ok(false) => return Ok(Vec::new()),
             Ok(true) => {}
             Err(error) => return Err(error),
@@ -251,9 +251,9 @@ impl RuntimeState {
         path: &std::path::Path,
     ) -> Result<Session, String> {
         let entries = load_session(path).map_err(|e| e.to_string())?;
-        let active = pipi_core::session::active_path(&entries);
-        let mut messages = pipi_core::session::rebuild_messages(&active);
-        let active_model = pipi_core::session::active_model_from_entries(&entries);
+        let active = pipi_agent::session::active_path(&entries);
+        let mut messages = pipi_agent::session::rebuild_messages(&active);
+        let active_model = pipi_agent::session::active_model_from_entries(&entries);
         let effective_model = active_model.as_ref().or(def.provider.as_ref());
         let context_max = effective_model
             .map(|provider| provider.context_window)
@@ -439,7 +439,7 @@ impl RuntimeState {
             ));
         }
 
-        let writer = pipi_core::session::fork_session(&source_path, &dir, up_to_entry_id)?;
+        let writer = pipi_agent::session::fork_session(&source_path, &dir, up_to_entry_id)?;
         let new_session_path = writer.path().to_path_buf();
         let new_session_id = new_session_path
             .file_stem()
@@ -448,9 +448,9 @@ impl RuntimeState {
             .to_string();
 
         let entries = load_session(&new_session_path).map_err(|e| e.to_string())?;
-        let active = pipi_core::session::active_path(&entries);
-        let mut messages = pipi_core::session::rebuild_messages(&active);
-        let active_model = pipi_core::session::active_model_from_entries(&entries);
+        let active = pipi_agent::session::active_path(&entries);
+        let mut messages = pipi_agent::session::rebuild_messages(&active);
+        let active_model = pipi_agent::session::active_model_from_entries(&entries);
         let effective_model = active_model.clone().or_else(|| def.provider.clone());
         let context_max = effective_model
             .as_ref()
@@ -795,7 +795,7 @@ impl RuntimeState {
         &self,
         agent_name: &str,
         session_id: &str,
-    ) -> Result<pipi_core::stats::SessionStats, String> {
+    ) -> Result<pipi_agent::stats::SessionStats, String> {
         let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         match sessions.get(&SessionKey::new(agent_name, session_id)) {
             Some(session) => Ok(session.stats.lock().map_err(|e| e.to_string())?.snapshot()),
