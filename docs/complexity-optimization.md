@@ -105,6 +105,35 @@ README 与 AGENTS.md 同步记录状态所有权、私有模块和必跑契约�
 
 浏览器验证使用开发 mock 数据，没有真实模型请求，也没有改写用户 Agent 数据。尚未执行桌面安装包构建或真实供应商调用；这两项不计入本轮离线验证。
 
+## 2026-10-04 模块与测试布局
+
+crate 拆分（见上）之后又做了一轮文件级整理，不改行为、不改任何 wire 字段：
+
+- **目录化的大模块**（按改动理由分文件，`mod.rs` 只留文档 + `mod` 声明 + `pub use` 门面）：
+  `pipi-core/src/agents/`（types / paths / registry / archive / files / contract /
+  tool_context / prompt，2,229 → 10 个文件，最大 314 行）、
+  `pipi-app/src/background/`（service / shell / agent / state / persist，1,788 → 7 个文件）、
+  `pipi-tools/src/permissions/`（types / config / parse / redirect / rm / paths / safety，1,464 → 8 个文件）、
+  `pipi-skills/src/`（model / library / agent_skills / enable / install）。
+- **测试搬出生产文件**：34 个文件里的 `#[cfg(test)] mod tests` 移到同目录
+  `tests.rs`（目录模块）或 `<name>_tests.rs`（单文件模块，`#[path]` 声明），
+  共搬走约 9,600 行测试代码；`cargo test --workspace` 的用例集合逐一比对不变。
+- **合并**：`pipi-tools` 的 `fs.rs` 与 `fs_atomic.rs`（两个 40 行左右、名字撞车的
+  模块）合并为一个 `fs` 模块（原子写入 + 数据树守卫）。
+- **测试精简**：合并 13 个同函数、同形态的碎测试（provider 的 5 个 usage 扣除用例
+  → 1 个表驱动；`truncate` 的 8 个 head/tail 用例 → 3 个；`create_agent` 的 3 个
+  → 1 个；context 的 env 渲染 2 个 → 1 个；compaction 的 `find_keep_start` 2 个 → 1 个），
+  断言一条未删。安全判据（沙箱重定向、`rm -f`、schema fail-closed）、并发、压缩
+  不变量、wire 契约的表驱动测试全部保留。
+- **删除兼容层**（Rust + 前端）：`pipi_tools::{types, session}` 两个转口模块、
+  `pipi_tools::resolve_write_path` 转发、`pipi_app::runtime::SessionSummary`
+  再导出、`src-tauri` 的 `ChatState` 别名；前端删掉「无 envelope 事件」兼容分支
+  （`normalizeAgentEvent` / `normalizeStatsPayload` 及 `meta: null` 路径），
+  载荷类型收紧为 envelope 本身。刻意保留的是**数据兼容**（读旧会话文件的
+  serde alias、旧 agent.json 的宽松默认值），删了会丢用户历史。
+- 验证：`cargo test --workspace` 全部通过、`cargo clippy --workspace --all-targets`
+  无新告警、`cargo fmt --all --check` 干净、`cargo xtask arch` 通过。
+
 ## 后续维护规则
 
 1. 会话投影行为进入控制器或纯 reducer，组件只处理 UI；宿主事件订阅进入 runtime。

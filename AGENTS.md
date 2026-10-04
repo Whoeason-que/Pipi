@@ -55,6 +55,8 @@ src/                 React + TypeScript 前端
 边界；改命令或 DTO 后跑 `npm run test:frontend` 与 `cargo test -p pipi-app`，
 同步 `tests/fixtures/ipc-wire.json` 的字段变动。不要绕回 `invoke<T>(string)`。
 `pipi-app/src/runtime/` 的子模块保持私有，公共调用继续经过 `runtime` 入口。
+宿主事件载荷**一律**带身份 envelope（`agentName` + `sessionId` + `runId`）：
+前端不再容忍「裸事件」形状（2026-10-05 删除），新增事件类型必须带这三个字段。
 
 核心从 [pi](https://github.com/earendil-works/pi) 移植而来，模块映射与「有意
 不移植清单」见 README「与 pi 的关系」一节。改核心逻辑前先看上游对应实现。
@@ -92,8 +94,16 @@ src/                 React + TypeScript 前端
   `Cargo.toml` 里直接依赖（`pipi-protocol` / `pipi-tools` / `pipi-provider` /
   `pipi-harness` / `av` / `pipi-agent` / `pipi-skills` / `pipi-catalog`）。
   历史上 `pipi_core::{
-  types,tools,permissions,provider,harness,skills,truncate,project_doc}` 与
-  `pipi-app` 的整包 glob 均已删除，不要再加回来。
+  types,tools,permissions,provider,harness,skills,truncate,project_doc}`、`pipi-app`
+  的整包 glob、`pipi_tools::{types, session}` 与 `resolve_write_path` 转发、
+  `pipi_app::runtime::SessionSummary`、`src-tauri` 的 `ChatState` 别名均已删除，
+  不要再加回来。
+- 模块与测试布局：单个模块文件超过 ~500 行生产代码就拆成目录
+  （`foo/mod.rs` 放模块文档 + `mod` 声明 + `pub use` 门面，实现按**改动理由**分文件）；
+  测试从生产文件搬进同目录的 `tests.rs`（目录模块）或 `<name>_tests.rs`
+  （单文件模块，用 `#[cfg(test)] #[path = "..."] mod tests;` 声明）。`mod.rs`
+  里的 `pub use` 是 Rust 模块系统要求的门面，**不是**被禁止的转口 re-export ——
+  后者指的是跨 crate 的整包转发。
 - Cargo 是 workspace 结构（edition 2024，rust-version 1.95）：版本 / edition 在根
   `Cargo.toml` 的 `[workspace.package]`，依赖版本与内部路径依赖都在
   `[workspace.dependencies]`，成员一律用 `version.workspace = true` /
@@ -166,10 +176,11 @@ src/                 React + TypeScript 前端
   **重定向**只拦「写入文件系统」（`>` `>>` `2>文件` `&>` `>|` `<>` `>&词`）
   与「从文件读入」（`<文件` `<(cmd)`），`2>/dev/null`、`2>&1`、`>&-`、
   heredoc / herestring 必须放行（它们既不落盘也不读文件，且实测占拒绝量的
-  绝大多数，拦下来只有摩擦）—— 见 `permissions::check_write_redirect`；
+  绝大多数，拦下来只有摩擦）—— 见 `permissions/redirect.rs` 的 `check_write_redirect`；
   **`rm -f` 家族**只放行工作区内、非仓库根 / 工作区根的字面量绝对路径，
   包装调用（sudo/env/bash -c）、变量与通配符目标必须拒绝 —— 见
-  `permissions::forced_rm_inside_workspace`。这两条改判据都要更新表驱动测试。
+  `permissions/rm.rs` 的 `forced_rm_inside_workspace`。这两条改判据都要更新
+  `permissions/tests.rs` 的表驱动测试。
 - 请求重试分两层，别把重试加到 provider 层：**provider 只分类**（rig 的结构化错误
   → 可重试 / 终态 + `Retry-After`，见 `retry::classify_rig_error`），**重发只在
   agent_loop 一处做**（`stream_assistant_response` 的尝试循环；摘要调用在
