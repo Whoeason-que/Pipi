@@ -1,13 +1,13 @@
 //! Tauri 命令层 —— 只是把 pipi-core / pipi-app 的能力暴露给前端，不含业务逻辑。
 
 use pipi_app::runtime::RuntimeState;
+use pipi_catalog::ModelCatalog;
 use pipi_core::agents::{self, AgentDefinition};
-use pipi_core::catalog::ModelCatalog;
 use pipi_core::settings::{self, Settings};
-use pipi_core::skill_center::{
-    self, AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
-};
 use pipi_protocol::Model;
+use pipi_skills::{
+    AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
+};
 use pipi_tools::permissions::PermissionsConfig;
 use tauri::State;
 
@@ -21,7 +21,7 @@ pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
 /// 自己的异步运行时上执行，从而拿到 IO 驱动（同步命令跑在 GTK 主线程，那里没有）。
 #[tauri::command]
 pub async fn model_catalog(refresh: Option<bool>) -> Result<ModelCatalog, String> {
-    pipi_core::catalog::load_catalog(refresh.unwrap_or(false)).await
+    pipi_catalog::load_catalog(refresh.unwrap_or(false)).await
 }
 
 #[tauri::command]
@@ -96,13 +96,13 @@ pub fn save_settings(settings: Settings) -> Result<(), String> {
 /// 全局技能 store（`~/.av/skills`）一览：已安装版本、来源与内容存在性。
 #[tauri::command]
 pub fn skill_library() -> Result<SkillLibrary, String> {
-    skill_center::store_skills()
+    pipi_skills::store_skills()
 }
 
 /// 某个 Agent 的技能启用视图（`[resources.skills].use` + 解析状态）。
 #[tauri::command]
 pub fn agent_skills(agent_name: String) -> Result<AgentSkills, String> {
-    skill_center::agent_skills(&agent_name)
+    pipi_skills::agent_skills(&agent_name)
 }
 
 /// 启用/禁用一个 store 技能（写契约 `use` 与同层 `agent.lock`）。
@@ -112,17 +112,15 @@ pub fn set_skill_enabled(
     name: String,
     enabled: bool,
 ) -> Result<AgentSkills, String> {
-    skill_center::set_skill_enabled(&agent_name, &name, enabled)
+    pipi_skills::set_skill_enabled(&agent_name, &name, enabled)
 }
 
 /// 重算 store 内容哈希。要读全部技能内容，放到阻塞线程池执行。
 #[tauri::command]
 pub async fn verify_store_skills(names: Option<Vec<String>>) -> Result<Vec<SkillVerify>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        skill_center::verify_store_skills(names.as_deref())
-    })
-    .await
-    .map_err(|error| format!("技能校验任务失败：{error}"))?
+    tauri::async_runtime::spawn_blocking(move || pipi_skills::verify_store_skills(names.as_deref()))
+        .await
+        .map_err(|error| format!("技能校验任务失败：{error}"))?
 }
 
 /// 安装技能到全局 store（只装不启用）。git 源要联网，放到阻塞线程池执行。
@@ -134,7 +132,7 @@ pub async fn install_skill(
     dry_run: bool,
 ) -> Result<SkillInstallReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        skill_center::install_skill(&source, skills.as_deref(), all, dry_run)
+        pipi_skills::install_skill(&source, skills.as_deref(), all, dry_run)
     })
     .await
     .map_err(|error| format!("技能安装任务失败：{error}"))?
@@ -143,7 +141,7 @@ pub async fn install_skill(
 /// 从 store 移除一个技能的全部版本（仍被 Agent 声明时拒绝）。
 #[tauri::command]
 pub fn remove_store_skill(name: String) -> Result<usize, String> {
-    skill_center::remove_store_skill(&name)
+    pipi_skills::remove_store_skill(&name)
 }
 
 /// 同步/修复声明技能（可能联网取 git）。放到阻塞线程池执行。
@@ -153,7 +151,7 @@ pub async fn sync_agent_skills(
     repair: bool,
 ) -> Result<SkillSyncReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        skill_center::sync_agent_skills(&agent_name, repair)
+        pipi_skills::sync_agent_skills(&agent_name, repair)
     })
     .await
     .map_err(|error| format!("技能同步任务失败：{error}"))?
@@ -162,5 +160,5 @@ pub async fn sync_agent_skills(
 /// 一个技能在各个 Agent 上的启用情况（技能库详情用）。
 #[tauri::command]
 pub fn skill_usage(name: String) -> Result<Vec<SkillUsage>, String> {
-    skill_center::skill_usage(&name)
+    pipi_skills::skill_usage(&name)
 }

@@ -24,7 +24,6 @@ use pipi_tools::permissions::PermissionsConfig;
 
 use pipi_app::runtime::{self, EventEmitter, RuntimeEvent, RuntimeState};
 use pipi_core::settings::{self, Settings};
-use pipi_core::skill_center;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -356,7 +355,7 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
         "list_agents" => to_value(agents::list_agents_bootstrapped()?),
         "model_catalog" => {
             let refresh = optional_value::<bool>(args, "refresh")?.unwrap_or(false);
-            to_value(pipi_core::catalog::load_catalog(refresh).await?)
+            to_value(pipi_catalog::load_catalog(refresh).await?)
         }
         "create_agent" => {
             let name = required_string(args, "name")?;
@@ -615,26 +614,22 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             Ok(Value::Null)
         }
         // —— 技能（av store 与 Agent 契约）——
-        "skill_library" => to_value(skill_center::store_skills()?),
+        "skill_library" => to_value(pipi_skills::store_skills()?),
         "agent_skills" => {
             let agent_name = required_string(args, "agentName")?;
-            to_value(skill_center::agent_skills(&agent_name)?)
+            to_value(pipi_skills::agent_skills(&agent_name)?)
         }
         "set_skill_enabled" => {
             let agent_name = required_string(args, "agentName")?;
             let name = required_string(args, "name")?;
             let enabled = required_value::<bool>(args, "enabled")?;
-            to_value(skill_center::set_skill_enabled(
-                &agent_name,
-                &name,
-                enabled,
-            )?)
+            to_value(pipi_skills::set_skill_enabled(&agent_name, &name, enabled)?)
         }
         "verify_store_skills" => {
             let names: Option<Vec<String>> = optional_value(args, "names")?;
             // 要读全部技能内容，放到阻塞线程池，别占住请求线程
             let rows = tokio::task::spawn_blocking(move || {
-                skill_center::verify_store_skills(names.as_deref())
+                pipi_skills::verify_store_skills(names.as_deref())
             })
             .await
             .map_err(|error| format!("技能校验任务失败：{error}"))??;
@@ -646,7 +641,7 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
             let all = required_value::<bool>(args, "all")?;
             let dry_run = required_value::<bool>(args, "dryRun")?;
             let report = tokio::task::spawn_blocking(move || {
-                skill_center::install_skill(&source, skills.as_deref(), all, dry_run)
+                pipi_skills::install_skill(&source, skills.as_deref(), all, dry_run)
             })
             .await
             .map_err(|error| format!("技能安装任务失败：{error}"))??;
@@ -654,13 +649,13 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
         }
         "remove_store_skill" => {
             let name = required_string(args, "name")?;
-            to_value(skill_center::remove_store_skill(&name)?)
+            to_value(pipi_skills::remove_store_skill(&name)?)
         }
         "sync_agent_skills" => {
             let agent_name = required_string(args, "agentName")?;
             let repair = required_value::<bool>(args, "repair")?;
             let report = tokio::task::spawn_blocking(move || {
-                skill_center::sync_agent_skills(&agent_name, repair)
+                pipi_skills::sync_agent_skills(&agent_name, repair)
             })
             .await
             .map_err(|error| format!("技能同步任务失败：{error}"))??;
@@ -668,7 +663,7 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
         }
         "skill_usage" => {
             let name = required_string(args, "name")?;
-            to_value(skill_center::skill_usage(&name)?)
+            to_value(pipi_skills::skill_usage(&name)?)
         }
         _ => Err(format!("未知命令: {command}")),
     }

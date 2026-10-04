@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use av::store::{self, SKILL_LOCK_FILENAME, SkillLock, SkillLockEntry, SourceType, VerifyOutcome};
 use serde::{Deserialize, Serialize};
 
-use crate::agents::{self, AgentDefinition};
+use pipi_core::agents::{self, AgentDefinition};
 
 /// 新建 agent.toml 时的最小骨架（编辑前先落一个合法契约）。
 const NEW_CONTRACT_SKELETON: &str = "schema = 1\n";
@@ -872,7 +872,7 @@ pub fn skill_usage(name: &str) -> Result<Vec<SkillUsage>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::HOME_LOCK;
+    use pipi_test_support::HOME_LOCK;
 
     /// 隔离的 HOME：`~/.pipi`（Agent 数据）与 `~/.av`（技能 store）都落在临时目录。
     struct TestHome {
@@ -892,9 +892,9 @@ mod tests {
             let previous_home = std::env::var("HOME").unwrap();
             let previous_av = std::env::var("AV_HOME").ok();
             let previous_pipi = std::env::var("PIPI_HOME").ok();
-            crate::set_env_var("HOME", &root);
-            crate::remove_env_var("AV_HOME");
-            crate::remove_env_var("PIPI_HOME");
+            pipi_test_support::set_env_var("HOME", &root);
+            pipi_test_support::remove_env_var("AV_HOME");
+            pipi_test_support::remove_env_var("PIPI_HOME");
             Self {
                 root,
                 previous_home,
@@ -914,14 +914,14 @@ mod tests {
 
     impl Drop for TestHome {
         fn drop(&mut self) {
-            crate::set_env_var("HOME", &self.previous_home);
+            pipi_test_support::set_env_var("HOME", &self.previous_home);
             match &self.previous_av {
-                Some(value) => crate::set_env_var("AV_HOME", value),
-                None => crate::remove_env_var("AV_HOME"),
+                Some(value) => pipi_test_support::set_env_var("AV_HOME", value),
+                None => pipi_test_support::remove_env_var("AV_HOME"),
             }
             match &self.previous_pipi {
-                Some(value) => crate::set_env_var("PIPI_HOME", value),
-                None => crate::remove_env_var("PIPI_HOME"),
+                Some(value) => pipi_test_support::set_env_var("PIPI_HOME", value),
+                None => pipi_test_support::remove_env_var("PIPI_HOME"),
             }
             let _ = fs::remove_dir_all(&self.root);
         }

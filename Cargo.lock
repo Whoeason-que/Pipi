@@ -5803,8 +5803,10 @@ version = "26.9.3"
 dependencies = [
  "pipi-agent",
  "pipi-app",
+ "pipi-catalog",
  "pipi-core",
  "pipi-protocol",
+ "pipi-skills",
  "pipi-tools",
  "tauri",
  "tauri-build",
@@ -5840,7 +5842,21 @@ dependencies = [
  "pipi-core",
  "pipi-protocol",
  "pipi-provider",
+ "pipi-skills",
  "pipi-tools",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pipi-catalog"
+version = "26.9.3"
+dependencies = [
+ "av",
+ "pipi-protocol",
+ "pipi-tools",
+ "reqwest 0.13.5",
  "serde",
  "serde_json",
  "tokio",
@@ -5856,8 +5872,8 @@ dependencies = [
  "pipi-agent",
  "pipi-harness",
  "pipi-protocol",
+ "pipi-test-support",
  "pipi-tools",
- "reqwest 0.13.5",
  "serde",
  "serde_json",
  "tokio",
@@ -5907,8 +5923,10 @@ version = "26.9.3"
 dependencies = [
  "axum",
  "pipi-app",
+ "pipi-catalog",
  "pipi-core",
  "pipi-protocol",
+ "pipi-skills",
  "pipi-tools",
  "serde",
  "serde_json",
@@ -5916,6 +5934,21 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
 ]
+
+[[package]]
+name = "pipi-skills"
+version = "26.9.3"
+dependencies = [
+ "av",
+ "pipi-agent",
+ "pipi-core",
+ "pipi-test-support",
+ "serde",
+]
+
+[[package]]
+name = "pipi-test-support"
+version = "26.9.3"
 
 [[package]]
 name = "pipi-tools"

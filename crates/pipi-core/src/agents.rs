@@ -809,7 +809,7 @@ pub fn build_system_prompt(def: &AgentDefinition) -> Result<String, String> {
 /// Agent 的契约层集合（av `agent.toml`）：Agent 定义目录的 agent.toml
 /// （agent 层，可能缺席）+ 项目层发现（agent.toml → agent.local.toml）。
 /// env 合并、`[resources]` 三态共用同一份层集合（技能中心也用它取 `use` 声明）。
-pub(crate) fn collect_contract_layers(
+pub fn collect_contract_layers(
     def: &AgentDefinition,
     workspace: Option<&Path>,
 ) -> Result<(Option<av::Layer>, Vec<av::Layer>), String> {
@@ -1222,7 +1222,7 @@ mod tests {
         symlink(&external, &linked).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         let def = AgentDefinition {
             name: "linked-agent".into(),
             description: String::new(),
@@ -1242,7 +1242,7 @@ mod tests {
         assert!(ensure_agent_dir("linked-agent").is_err());
         assert!(list_agents().unwrap().is_empty());
 
-        crate::set_env_var("HOME", previous_home);
+        pipi_test_support::set_env_var("HOME", previous_home);
         std::fs::remove_dir_all(&home).unwrap();
         std::fs::remove_dir_all(&external).unwrap();
     }
@@ -1266,10 +1266,10 @@ mod tests {
         symlink(&external, home.join(".pipi/agents")).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         assert!(list_agents().is_err());
         assert!(ensure_agent_dir("root-link-agent").is_err());
-        crate::set_env_var("HOME", previous_home);
+        pipi_test_support::set_env_var("HOME", previous_home);
 
         std::fs::remove_dir_all(&home).unwrap();
         std::fs::remove_dir_all(&external).unwrap();
@@ -1313,11 +1313,11 @@ mod tests {
         symlink(&external_manifest, agent.join("agent.json")).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         assert!(load_agent("manifest-link-agent").is_err());
         assert!(save_agent(&def).is_err());
         assert!(list_agents().unwrap().is_empty());
-        crate::set_env_var("HOME", previous_home);
+        pipi_test_support::set_env_var("HOME", previous_home);
 
         let external_contents = std::fs::read_to_string(&external_manifest).unwrap();
         assert!(external_contents.contains("external"));
@@ -1567,9 +1567,9 @@ only = ["wanted"]
         fs::create_dir_all(&home).unwrap();
         let previous_home = std::env::var("HOME").unwrap();
         let previous_av = std::env::var("AV_HOME").ok();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         // 避免外部覆盖影响 store 位置（av 家目录 = $AV_HOME 或 ~/.av）
-        crate::remove_env_var("AV_HOME");
+        pipi_test_support::remove_env_var("AV_HOME");
 
         // 1) 真实安装管线装进 store（与 `av skill install` 同一实现）
         let source = home.join("source").join("pdf");
@@ -1644,10 +1644,10 @@ only = ["wanted"]
         let error = build_system_prompt_with_tools(&def, &[]).unwrap_err();
         assert!(error.contains("agent.lock"), "{error}");
 
-        crate::set_env_var("HOME", previous_home);
+        pipi_test_support::set_env_var("HOME", previous_home);
         match previous_av {
-            Some(value) => crate::set_env_var("AV_HOME", value),
-            None => crate::remove_env_var("AV_HOME"),
+            Some(value) => pipi_test_support::set_env_var("AV_HOME", value),
+            None => pipi_test_support::remove_env_var("AV_HOME"),
         }
         let _ = fs::remove_dir_all(&home);
     }
@@ -1727,7 +1727,7 @@ only = ["wanted"]
         symlink(&external, agent_dir.join("skills")).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         let def = AgentDefinition {
             name: "skills-link-agent".into(),
             description: String::new(),
@@ -1742,7 +1742,7 @@ only = ["wanted"]
         };
 
         let result = build_tool_context(&def, None, pipi_protocol::AbortSignal::new());
-        crate::set_env_var("HOME", previous_home);
+        pipi_test_support::set_env_var("HOME", previous_home);
         std::fs::remove_dir_all(&home).unwrap();
         std::fs::remove_dir_all(&external).unwrap();
 
@@ -1771,7 +1771,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-edit-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         create_agent("editor", "d", None, None, None, None).unwrap();
 
         // AGENTS.md 可读写
@@ -1801,7 +1801,7 @@ only = ["wanted"]
         std::fs::remove_file(home.join(".pipi/agents/editor/AGENTS.md")).unwrap();
         assert!(write_agent_file("editor", "AGENTS.md", "x").is_err());
 
-        crate::set_env_var("HOME", prev);
+        pipi_test_support::set_env_var("HOME", prev);
         std::fs::remove_dir_all(&home).unwrap();
     }
 
@@ -1891,7 +1891,7 @@ only = ["wanted"]
 
     // HOME 环境变量是进程级的：涉及 ~/.pipi 的测试互斥串行。
     // 锁本体在 crate 根（lib.rs），runtime 等其他模块的 HOME 测试共享同一把。
-    use crate::HOME_LOCK;
+    use pipi_test_support::HOME_LOCK;
 
     #[test]
     fn create_writes_file_skeleton() {
@@ -1900,7 +1900,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-home-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         let result = create_agent(
             "tester",
             "测试用",
@@ -1919,7 +1919,7 @@ only = ["wanted"]
         // HOME 尚未恢复：此时解析 workspace 才指向临时 HOME
         let def = result.unwrap();
         let resolved_workspace = def.resolve_workspace().unwrap();
-        crate::set_env_var("HOME", &prev);
+        pipi_test_support::set_env_var("HOME", &prev);
 
         let dir = home.join(".pipi/agents/tester");
         assert!(dir.join("agent.json").is_file());
@@ -1936,9 +1936,9 @@ only = ["wanted"]
         assert_eq!(resolved_workspace, dir.join("workspace"));
 
         // 重复创建被拒
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         assert!(create_agent("tester", "", None, None, None, None).is_err());
-        crate::set_env_var("HOME", &prev);
+        pipi_test_support::set_env_var("HOME", &prev);
     }
 
     #[test]
@@ -1949,9 +1949,9 @@ only = ["wanted"]
         std::fs::create_dir_all(&home).unwrap();
         let ws = std::env::temp_dir().join(format!("pipi-ws-{}", pipi_agent::session::new_id()));
         let prev = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         let result = create_agent("ws-agent", "", Some(ws.to_str().unwrap()), None, None, None);
-        crate::set_env_var("HOME", &prev);
+        pipi_test_support::set_env_var("HOME", &prev);
         let def = result.unwrap();
         assert_eq!(def.workspace.as_deref(), Some(ws.to_str().unwrap()));
         assert!(!home.join(".pipi/agents/ws-agent/workspace").exists());
@@ -1965,7 +1965,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-home-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         let provider = Model {
             id: "claude-3-7-sonnet-20250219".into(),
             name: "Claude 3.7 Sonnet".into(),
@@ -1987,7 +1987,7 @@ only = ["wanted"]
         assert_eq!(def.provider, Some(provider));
 
         let loaded = load_agent("model-agent");
-        crate::set_env_var("HOME", &prev);
+        pipi_test_support::set_env_var("HOME", &prev);
         let loaded = loaded.unwrap();
         assert_eq!(loaded.model, "claude-3-7-sonnet-20250219");
         assert!(loaded.provider.is_some());
@@ -2060,7 +2060,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-home-seed-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
 
         // 目录缺失 → 播种；骨架与 README「Agent 的组成」一致
         let created = ensure_default_agent()
@@ -2103,7 +2103,7 @@ only = ["wanted"]
             "播种不得覆盖用户对 AGENTS.md 的改动"
         );
 
-        crate::set_env_var("HOME", &prev);
+        pipi_test_support::set_env_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -2114,7 +2114,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-home-fill-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
 
         create_agent("helper", "已有的 Agent", None, None, None, None).unwrap();
         assert_eq!(
@@ -2133,7 +2133,7 @@ only = ["wanted"]
         assert!(ensure_default_agent().unwrap().is_none());
         assert_eq!(list_agents().unwrap().len(), 2);
 
-        crate::set_env_var("HOME", &prev);
+        pipi_test_support::set_env_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -2144,7 +2144,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-home-arch-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
 
         let name = "arch-lifecycle";
         create_agent(name, "归档生命周期", None, None, None, None).unwrap();
@@ -2201,7 +2201,7 @@ only = ["wanted"]
         // 删除不存在的 Agent → 报错
         assert!(delete_agent("no-such-agent").is_err());
 
-        crate::set_env_var("HOME", &prev);
+        pipi_test_support::set_env_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -2213,7 +2213,7 @@ only = ["wanted"]
             std::env::temp_dir().join(format!("pipi-home-dot-{}", pipi_agent::session::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
 
         let name = "dot-dir-agent";
         create_agent(name, "点目录防漏", None, None, None, None).unwrap();
@@ -2223,7 +2223,7 @@ only = ["wanted"]
         std::fs::write(archive_agent_dir.join("agent.json"), "{ broken json").unwrap();
         assert!(!list_agents().unwrap().iter().any(|a| a.name == name));
 
-        crate::set_env_var("HOME", &prev);
+        pipi_test_support::set_env_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);
     }
 }

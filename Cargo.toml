@@ -7,6 +7,9 @@ members = [
     "crates/pipi-tools",
     "crates/pipi-harness",
     "crates/pipi-provider",
+    "crates/pipi-skills",
+    "crates/pipi-catalog",
+    "crates/pipi-test-support",
     "crates/pipi-agent",
     "crates/pipi-core",
     "crates/pipi-app",
@@ -33,11 +36,14 @@ rust-version = "1.95"
 av = { path = "crates/av", default-features = false }
 pipi-agent = { path = "crates/pipi-agent" }
 pipi-app = { path = "crates/pipi-app" }
+pipi-catalog = { path = "crates/pipi-catalog" }
 pipi-core = { path = "crates/pipi-core" }
 pipi-error = { path = "crates/pipi-error" }
 pipi-harness = { path = "crates/pipi-harness" }
 pipi-protocol = { path = "crates/pipi-protocol" }
+pipi-skills = { path = "crates/pipi-skills" }
 pipi-provider = { path = "crates/pipi-provider" }
+pipi-test-support = { path = "crates/pipi-test-support" }
 pipi-tools = { path = "crates/pipi-tools" }
 
 # 第三方

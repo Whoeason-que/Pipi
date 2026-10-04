@@ -16,3 +16,6 @@ pipi-tools = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+[dev-dependencies]
+pipi-skills = { workspace = true }

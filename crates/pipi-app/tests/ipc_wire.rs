@@ -8,8 +8,8 @@ use pipi_app::runtime::{
 };
 use pipi_core::agents::AgentDefinition;
 use pipi_core::settings::Settings;
-use pipi_core::skill_center::{AgentSkills, SkillLibrary};
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
+use pipi_skills::{AgentSkills, SkillLibrary};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 

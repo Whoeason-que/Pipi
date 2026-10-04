@@ -3,7 +3,7 @@ name = "pipi-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Pipi 领域层：Agent 定义与 av 契约、技能中心、模型目录与设置"
+description = "Pipi 领域层：Agent 定义与 av 契约、设置与 Agent 组合工具"
 
 [dependencies]
 # search feature 关闭：skills.sh 搜索只属于 av CLI，不把第二个 HTTP 栈链进应用
@@ -15,10 +15,10 @@ pipi-tools = { workspace = true }
 pipi-harness = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-reqwest = { workspace = true, features = ["json", "stream", "rustls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
 async-trait = { workspace = true }
 
 [dev-dependencies]
 # 只有测试用它定位用户 HOME（agents.rs 的 HOME_LOCK 用例）
 dirs = { workspace = true }
+pipi-test-support = { workspace = true }
