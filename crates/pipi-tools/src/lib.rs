@@ -5,7 +5,6 @@
 pub mod bash;
 pub mod edit;
 pub mod fs;
-pub mod fs_atomic;
 pub mod glob;
 pub mod grep;
 pub mod memory;

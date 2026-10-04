@@ -222,7 +222,7 @@ pub fn load_settings() -> Settings {
 pub fn save_settings(settings: &Settings) -> Result<(), String> {
     let path = settings_path().ok_or_else(|| "无法定位用户主目录".to_string())?;
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    pipi_tools::fs_atomic::write_atomic(&path, text + "\n").map_err(|e| e.to_string())
+    pipi_tools::fs::write_atomic(&path, text + "\n").map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

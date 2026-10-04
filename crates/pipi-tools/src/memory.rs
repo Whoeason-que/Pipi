@@ -79,7 +79,7 @@ impl AgentTool for MemoryTool {
                 let content = args["content"].as_str().ok_or("缺少 content")?;
                 let abs = resolve_in_memory_dir(&self.memory_dir, path)?;
                 let contents = content.to_string();
-                tokio::task::spawn_blocking(move || crate::fs_atomic::write_atomic(&abs, contents))
+                tokio::task::spawn_blocking(move || crate::fs::write_atomic(&abs, contents))
                     .await
                     .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?
                     .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?;

@@ -209,7 +209,7 @@ impl AgentTool for EditTool {
         );
         // 原子替换（同步 fs 调用走 blocking 线程池，别占住运行时 worker）
         let target = abs.clone();
-        tokio::task::spawn_blocking(move || crate::fs_atomic::write_atomic(&target, final_content))
+        tokio::task::spawn_blocking(move || crate::fs::write_atomic(&target, final_content))
             .await
             .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?
             .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
