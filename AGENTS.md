@@ -18,7 +18,8 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 
 ```
 crates/av/          agent.toml 环境契约 + 技能包管理（独立工具）：schema / 发现 /
-                    合并 / env 解析 / requires / SKILL.md 发现与全局 store
+                    合并 / env 解析 / requires / 契约文本保格式编辑
+                    （contract_edit）/ SKILL.md 发现与全局 store
                     （~/.av/skills：安装、锁文件、同步）；lib 供 pipi-core 复用，
                     bin 为 av CLI（check/env/doctor/skill）
 crates/pipi-error/  跨层稳定错误语义（错误码、RetryHint）
@@ -27,9 +28,11 @@ crates/pipi-tools/  内置 bash/read/write/edit/glob/grep/memory、命令权限�
 crates/pipi-harness/ 纯项目上下文发现与 system prompt 渲染（不依赖运行时）
 crates/pipi-provider/ rig 的 provider HTTP/SSE 适配与错误分类（不做重发）
 crates/pipi-core/   Rust 领域核心（不依赖 Tauri）：agent_loop / session / context /
-                    compaction / stats / settings / agents / catalog（models.dev）；
-                    基础工具、权限、协议、prompt 渲染、技能包管理直接依赖
-                    pipi-tools / pipi-protocol / pipi-harness / av，不做转口 re-export
+                    compaction / stats / settings / agents / skill_center
+                    （技能中心：store 浏览、安装、校验、Agent 启用状态）/
+                    catalog（models.dev）；基础工具、权限、协议、prompt 渲染、
+                    技能包管理直接依赖 pipi-tools / pipi-protocol / pipi-harness /
+                    av，不做转口 re-export
 crates/pipi-app/    应用服务层：会话槽、后台调度、审批交互和宿主事件协议；Tauri /
                     Web server 共同依赖它，不在壳层复制运行时逻辑
 src-tauri/          Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务逻辑
@@ -165,11 +168,16 @@ src/                React + TypeScript 前端
   `~/.av/skills/<name>/<hash16>/`（内容寻址、发布后不可变，同名多版本并存）。
   **安装 ≠ 启用** —— `[resources.skills].use` 声明才生效，同层 `agent.lock`
   是解析权威；**会话启动只读、不联网**，缺锁/缺内容即 fail-closed 并提示
-  `av skill sync`；写入只发生在显式 CLI（`av skill install/add/sync/update/
-  remove`）。git 一律 spawn 系统 `git`（不引 git2），来源不接受符号链接，
-  单技能限额 500 文件 / 5 MiB。改 store/lock/sources/install 必须带测试
-  （篡改、逃逸、限额、修订钉扎、锁不一致拒绝），并保持 `av` CLI 的 `--json`
+  `av skill sync`；写入只发生在用户显式触发时 —— `av skill install/add/sync/
+  update/remove`，或应用内技能面板（`pipi-core::skill_center`，走同一份 av
+  实现：`av::contract_edit` 编辑 `use`、`av::store::write_text_atomic` 落盘、
+  `av::install` 物化），任何隐式写入都不允许。git 一律 spawn 系统 `git`
+  （不引 git2），来源不接受符号链接，单技能限额 500 文件 / 5 MiB。改
+  store/lock/sources/install/contract_edit 必须带测试（篡改、逃逸、限额、
+  修订钉扎、锁不一致拒绝、编辑后 schema 校验），并保持 `av` CLI 的 `--json`
   与退出码 0/1 约定。`~/.pipi` 与 `~/.av` 的路径拼装一律走 `av::paths`
   （`PIPI_HOME`/`AV_HOME` 可覆盖），不许在别处手写。`search` feature 只属于
   av CLI（pipi-core/pipi-app 以 `default-features = false` 依赖 av），不要
-  把 HTTP 客户端链进桌面应用。
+  把 HTTP 客户端链进桌面应用；`skill_center` 的 `install_skill` /
+  `sync_agent_skills` / `verify_store_skills` 会阻塞甚至联网，宿主必须放到
+  阻塞线程池（Tauri/Web 都不许在事件循环上直接调）。
