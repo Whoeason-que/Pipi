@@ -2,7 +2,7 @@
 //!
 //! 职责切分：核心只维护「请求登记 → 决议回传」的状态机与 fail-closed 语义
 //! （超时 / 中止 / 通道断开一律拒绝），传输由宿主完成 —— `InteractiveApprover`
-//! 通过 [`crate::runtime::EventEmitter`] 把 [`RuntimeEvent::ApprovalRequest`]
+//! 通过 [`crate::events::EventEmitter`] 把 [`RuntimeEvent::ApprovalRequest`]
 //! 发给宿主，宿主把用户决定经 `resolve_approval` 送回。安全基线不变：
 //! 黑名单 / 危险命令 / 沙箱约束在权限层已被硬拒，这里只处理白名单未命中的
 //! 非危险命令。
@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use tokio::sync::oneshot;
 
-use crate::runtime::{EventEmitter, RuntimeEvent};
+use crate::events::{ApprovalRequestEnvelope, EventEmitter, RuntimeEvent};
 use pipi_core::agents;
 use pipi_protocol::AbortSignal;
 use pipi_tools::permissions::CommandApprover;
@@ -43,18 +43,6 @@ impl std::str::FromStr for ApprovalDecision {
             )),
         }
     }
-}
-
-/// 发给宿主的审批请求。`missing` 是白名单未命中的段落，「总是允许」时按段写入。
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApprovalRequestEnvelope {
-    pub request_id: String,
-    pub agent_name: String,
-    pub session_id: String,
-    pub run_id: usize,
-    pub command: String,
-    pub missing: Vec<String>,
 }
 
 /// 审批请求登记表：request_id → 决议回传端。

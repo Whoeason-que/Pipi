@@ -1,11 +1,11 @@
 //! 同一份 JSON 同时经 Rust 序列化和前端 DTO 检查，保护跨宿主 wire 字段。
 use pipi_agent::agent_loop::AgentEvent;
 use pipi_agent::stats::SessionStats;
-use pipi_app::approval::ApprovalRequestEnvelope;
-use pipi_app::runtime::{
-    AgentEventEnvelope, RuntimeEvent, SessionChangedEnvelope, SessionErrorEnvelope, SessionInfo,
-    SessionSwitchedEnvelope, StatsEventEnvelope,
+use pipi_app::events::{
+    AgentEventEnvelope, ApprovalRequestEnvelope, RuntimeEvent, SessionChangedEnvelope,
+    SessionErrorEnvelope, SessionSwitchedEnvelope, StatsEventEnvelope,
 };
+use pipi_app::runtime::SessionInfo;
 use pipi_core::agents::AgentDefinition;
 use pipi_core::settings::Settings;
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};

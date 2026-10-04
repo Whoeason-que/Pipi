@@ -11,10 +11,12 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
-use crate::approval::{
-    ApprovalDecision, ApprovalGate, ApprovalRequestEnvelope, InteractiveApprover,
-};
+use crate::approval::{ApprovalDecision, ApprovalGate, InteractiveApprover};
 use crate::background::BackgroundTaskManager;
+use crate::events::{
+    AgentEventEnvelope, EventEmitter, RuntimeEvent, SessionChangedEnvelope, SessionErrorEnvelope,
+    SessionSwitchedEnvelope, StatsEventEnvelope,
+};
 use pipi_agent::agent_loop::Emitter as LoopEmitter;
 use pipi_agent::agent_loop::{
     AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode, run_agent_loop,
@@ -37,85 +39,6 @@ use pipi_provider::provider_for;
 use pipi_tools::ToolRegistry;
 
 static NEXT_RUN_ID: AtomicUsize = AtomicUsize::new(1);
-
-/// 发给宿主的 Agent 事件。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentEventEnvelope {
-    pub agent_name: String,
-    pub session_id: String,
-    pub run_id: usize,
-    pub event: AgentEvent,
-}
-
-/// 发给宿主的统计快照。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StatsEventEnvelope {
-    pub agent_name: String,
-    pub session_id: String,
-    pub run_id: usize,
-    pub stats: pipi_agent::stats::SessionStats,
-}
-
-/// 发给宿主的会话错误。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionErrorEnvelope {
-    pub agent_name: String,
-    pub session_id: String,
-    pub run_id: usize,
-    pub message: String,
-}
-
-/// 压缩换会话后发给宿主：当前会话已切到新 id（原会话可能已归档）。
-///
-/// **envelope 用的是切换前的 session_id** —— 前端此刻的身份还是旧的，
-/// 用新 id 会先被 `eventMatchesSession` 丢掉；新 id 放在 payload 里。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionSwitchedEnvelope {
-    pub agent_name: String,
-    pub session_id: String,
-    pub run_id: usize,
-    /// 切换后的会话 id（前端应把身份更新为它）。
-    pub to_session_id: String,
-    /// 原会话是否已移入归档。
-    pub archived: bool,
-}
-
-/// 一个独立 child session 已经创建并写入磁盘，宿主应刷新对应 Agent 的会话列表。
-///
-/// 这条事件不绑定当前打开的父会话：后台 `run_agent` 可能在父轮结束后才创建
-/// child，前端也可能已经切到了别的 Agent。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionChangedEnvelope {
-    pub agent_name: String,
-    pub session_id: String,
-    pub run_id: usize,
-}
-
-/// 宿主只需将这个协议映射为 Tauri event 或 WebSocket frame。
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", content = "payload")]
-pub enum RuntimeEvent {
-    #[serde(rename = "agent-event")]
-    AgentEvent(AgentEventEnvelope),
-    #[serde(rename = "session-stats")]
-    SessionStats(StatsEventEnvelope),
-    #[serde(rename = "session-error")]
-    SessionError(SessionErrorEnvelope),
-    #[serde(rename = "approval-request")]
-    ApprovalRequest(ApprovalRequestEnvelope),
-    #[serde(rename = "session-switched")]
-    SessionSwitched(SessionSwitchedEnvelope),
-    #[serde(rename = "session-changed")]
-    SessionChanged(SessionChangedEnvelope),
-}
-
-/// 运行时事件接收器。
-pub type EventEmitter = Arc<dyn Fn(RuntimeEvent) + Send + Sync>;
 
 /// 一个（可能跨多轮的）会话的运行状态。
 ///
@@ -268,11 +191,11 @@ mod tests;
 use compaction::compaction_stream_options;
 use compaction::{CompactionContext, CompactionTrigger, make_rekey, run_compaction};
 use events::{make_emitter, make_session_change_sink};
+pub(crate) use execution::RuntimeChildRunner;
 #[cfg(test)]
 use execution::append_child_timeout_terminal;
 #[cfg(test)]
 use execution::run_agent_once_inner;
-pub(crate) use execution::run_agent_once_inner_with_sink;
 pub use execution::{CHILD_RUN_TIMEOUT_SECS, run_agent_once};
 use execution::{resolve_model, settle_unanswered_tail, writer_session_id};
 pub use slots::list_sessions;

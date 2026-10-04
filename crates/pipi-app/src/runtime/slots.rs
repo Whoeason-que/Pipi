@@ -5,7 +5,8 @@ use super::*;
 impl RuntimeState {
     /// 用宿主运行时句柄构造。句柄必须指向多线程、IO/time 驱动齐全的运行时。
     pub fn new(runtime: tokio::runtime::Handle) -> Self {
-        let background = BackgroundTaskManager::new(runtime.clone());
+        let background =
+            BackgroundTaskManager::new(runtime.clone(), Arc::new(super::RuntimeChildRunner));
         Self {
             runtime,
             sessions: Arc::new(Mutex::new(HashMap::new())),

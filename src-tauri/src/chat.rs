@@ -8,7 +8,8 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 use pipi_app::approval::ApprovalDecision;
-use pipi_app::runtime::{self, EventEmitter, RuntimeEvent, SessionInfo};
+use pipi_app::events::{EventEmitter, RuntimeEvent};
+use pipi_app::runtime::{self, SessionInfo};
 use pipi_protocol::{Message, Model};
 
 pub use pipi_app::runtime::RuntimeState as ChatState;

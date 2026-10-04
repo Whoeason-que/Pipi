@@ -18,7 +18,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use pipi_core::agents;
-use pipi_core::tools::agent::{AgentRunResult, AgentRunStatus};
+use pipi_core::tools::agent::{AgentRunResult, AgentRunStatus, ChildProgressTx};
 use pipi_core::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskCommand,
     BackgroundTaskOwner, BackgroundTaskQuery, BackgroundTaskService, BackgroundTaskSpec,
@@ -34,6 +34,20 @@ const TERMINATE_GRACE: Duration = Duration::from_secs(2);
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
 const READER_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// 运行 child Agent 的能力。由 runtime 注入（`runtime/execution.rs`），
+/// background 只编排任务状态与输出，不反向依赖 runtime。
+#[async_trait]
+pub trait ChildAgentRunner: Send + Sync {
+    async fn run_child(
+        &self,
+        target_agent: &str,
+        prompt: &str,
+        abort: AbortSignal,
+        progress: Option<ChildProgressTx>,
+        session_sink: Option<BackgroundAgentSessionSink>,
+    ) -> Result<AgentRunResult, String>;
+}
+
 #[derive(Clone)]
 pub struct BackgroundTaskManager {
     inner: Arc<Inner>,
@@ -41,6 +55,7 @@ pub struct BackgroundTaskManager {
 
 struct Inner {
     runtime: tokio::runtime::Handle,
+    child_runner: Arc<dyn ChildAgentRunner>,
     jobs: Mutex<HashMap<String, Arc<JobEntry>>>,
     agent_jobs: Mutex<HashMap<String, Arc<AgentJobEntry>>>,
 }
@@ -137,10 +152,11 @@ struct PersistedRecord {
 }
 
 impl BackgroundTaskManager {
-    pub fn new(runtime: tokio::runtime::Handle) -> Self {
+    pub fn new(runtime: tokio::runtime::Handle, child_runner: Arc<dyn ChildAgentRunner>) -> Self {
         Self {
             inner: Arc::new(Inner {
                 runtime,
+                child_runner,
                 jobs: Mutex::new(HashMap::new()),
                 agent_jobs: Mutex::new(HashMap::new()),
             }),
@@ -548,6 +564,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
 
         self.inner.runtime.spawn(run_agent_job(
             entry,
+            self.inner.child_runner.clone(),
             target_agent.to_string(),
             prompt.to_string(),
             abort,
@@ -969,17 +986,17 @@ fn tool_output_text(output: &ToolOutput) -> String {
 
 async fn run_agent_job(
     entry: Arc<AgentJobEntry>,
+    child_runner: Arc<dyn ChildAgentRunner>,
     target_agent: String,
     prompt: String,
     abort: AbortSignal,
     session_sink: Option<BackgroundAgentSessionSink>,
 ) {
     let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<ToolOutput>();
-    let child = crate::runtime::run_agent_once_inner_with_sink(
+    let child = child_runner.run_child(
         &target_agent,
         &prompt,
         abort,
-        Duration::from_secs(crate::runtime::CHILD_RUN_TIMEOUT_SECS),
         Some(progress_tx),
         session_sink,
     );
@@ -1498,7 +1515,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_query_manage_and_restart_are_session_scoped() {
-        let _home_guard = crate::HOME_LOCK
+        let _home_guard = pipi_test_support::HOME_LOCK
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let home = std::env::temp_dir().join(format!(
@@ -1508,7 +1525,7 @@ mod tests {
         ));
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
         let permissions = pipi_tools::permissions::PermissionsConfig {
             tools: pipi_tools::permissions::BACKGROUND_TASK_TOOLS
                 .iter()
@@ -1527,7 +1544,10 @@ mod tests {
         )
         .unwrap();
 
-        let manager = BackgroundTaskManager::new(tokio::runtime::Handle::current());
+        let manager = BackgroundTaskManager::new(
+            tokio::runtime::Handle::current(),
+            Arc::new(crate::runtime::RuntimeChildRunner),
+        );
         let task_owner = BackgroundTaskOwner::new("background-test", "session-a", 1);
         let info = manager
             .submit(BackgroundTaskSpec {
@@ -1583,7 +1603,10 @@ mod tests {
             .await
             .unwrap();
         assert!(incremental[0].output.is_empty());
-        let reopened_manager = BackgroundTaskManager::new(tokio::runtime::Handle::current());
+        let reopened_manager = BackgroundTaskManager::new(
+            tokio::runtime::Handle::current(),
+            Arc::new(crate::runtime::RuntimeChildRunner),
+        );
         let reopened = reopened_manager
             .query(
                 &task_owner,
@@ -1657,7 +1680,10 @@ mod tests {
             })
             .await
             .unwrap();
-        let restarted_manager = BackgroundTaskManager::new(tokio::runtime::Handle::current());
+        let restarted_manager = BackgroundTaskManager::new(
+            tokio::runtime::Handle::current(),
+            Arc::new(crate::runtime::RuntimeChildRunner),
+        );
         let orphan = restarted_manager
             .query(
                 &task_owner,

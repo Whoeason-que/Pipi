@@ -165,7 +165,7 @@ fn spawn_run_works_without_ambient_reactor() {
 fn resolve_model_prefers_session_model_over_agent_default() {
     // 该测试依赖「HOME 下没有 settings.json → 默认 provider 表」，
     // 且 HOME 是进程级状态：持全局锁 + 指向空目录，保证确定性。
-    let _guard = crate::HOME_LOCK.lock().unwrap();
+    let _guard = pipi_test_support::HOME_LOCK.lock().unwrap();
     let previous_home = std::env::var("HOME").unwrap_or_default();
     let empty_home = std::env::temp_dir().join(format!(
         "pipi-resolve-model-home-{}-{}",
@@ -173,7 +173,7 @@ fn resolve_model_prefers_session_model_over_agent_default() {
         pipi_agent::session::new_id()
     ));
     std::fs::create_dir_all(empty_home.join(".pipi")).unwrap();
-    crate::set_env_var("HOME", &empty_home);
+    pipi_test_support::set_env_var("HOME", &empty_home);
 
     let default_model = Model {
         id: "gpt-4o".into(),
@@ -206,8 +206,8 @@ fn resolve_model_prefers_session_model_over_agent_default() {
     };
 
     // 未配置 key 时的校验
-    crate::remove_env_var("ANTHROPIC_API_KEY");
-    crate::remove_env_var("OPENAI_API_KEY");
+    pipi_test_support::remove_env_var("ANTHROPIC_API_KEY");
+    pipi_test_support::remove_env_var("OPENAI_API_KEY");
 
     // 回退默认模型
     let err = super::resolve_model(&def, None, None).unwrap_err();
@@ -218,12 +218,12 @@ fn resolve_model_prefers_session_model_over_agent_default() {
     assert!(err.contains("api.anthropic.com"));
 
     // 配上 key 后成功解析
-    crate::set_env_var("ANTHROPIC_API_KEY", "test-key");
+    pipi_test_support::set_env_var("ANTHROPIC_API_KEY", "test-key");
     let (resolved, key) = super::resolve_model(&def, Some(&session_model), None).unwrap();
     assert_eq!(resolved.id, "claude-sonnet-4-5");
     assert_eq!(key, "test-key");
-    crate::remove_env_var("ANTHROPIC_API_KEY");
-    crate::set_env_var("HOME", &previous_home);
+    pipi_test_support::remove_env_var("ANTHROPIC_API_KEY");
+    pipi_test_support::set_env_var("HOME", &previous_home);
     let _ = std::fs::remove_dir_all(&empty_home);
 }
 
@@ -304,7 +304,7 @@ mod child_timeout_tests {
     /// 超时终态落盘 —— read_agent 读到 Failed 而不是永远的 pending。
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn child_run_times_out_and_persists_terminal_state() {
-        let _guard = crate::HOME_LOCK
+        let _guard = pipi_test_support::HOME_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -324,7 +324,7 @@ mod child_timeout_tests {
         ));
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        crate::set_env_var("HOME", &home);
+        pipi_test_support::set_env_var("HOME", &home);
 
         let base_url = format!("http://{addr}/v1");
         pipi_core::settings::save_settings(&pipi_core::settings::Settings {

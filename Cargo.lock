@@ -5843,6 +5843,7 @@ dependencies = [
  "pipi-protocol",
  "pipi-provider",
  "pipi-skills",
+ "pipi-test-support",
  "pipi-tools",
  "serde",
  "serde_json",

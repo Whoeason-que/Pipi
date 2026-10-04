@@ -22,7 +22,8 @@ use pipi_app::approval::ApprovalDecision;
 use pipi_core::agents::{self, AgentDefinition};
 use pipi_tools::permissions::PermissionsConfig;
 
-use pipi_app::runtime::{self, EventEmitter, RuntimeEvent, RuntimeState};
+use pipi_app::events::{EventEmitter, RuntimeEvent};
+use pipi_app::runtime::{self, RuntimeState};
 use pipi_core::settings::{self, Settings};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};

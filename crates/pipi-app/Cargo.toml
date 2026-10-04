@@ -19,3 +19,4 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sy
 
 [dev-dependencies]
 pipi-skills = { workspace = true }
+pipi-test-support = { workspace = true }

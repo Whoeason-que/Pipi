@@ -198,6 +198,32 @@ impl AgentRunner for RuntimeAgentRunner {
     }
 }
 
+/// 把 child 运行能力注入后台任务管理器（依赖倒置：`background` 不依赖
+/// `runtime`，由这里实现它声明的端口）。
+pub(crate) struct RuntimeChildRunner;
+
+#[async_trait::async_trait]
+impl crate::background::ChildAgentRunner for RuntimeChildRunner {
+    async fn run_child(
+        &self,
+        target_agent: &str,
+        prompt: &str,
+        abort: AbortSignal,
+        progress: Option<ChildProgressTx>,
+        session_sink: Option<BackgroundAgentSessionSink>,
+    ) -> Result<AgentRunResult, String> {
+        run_agent_once_inner_with_sink(
+            target_agent,
+            prompt,
+            abort,
+            std::time::Duration::from_secs(CHILD_RUN_TIMEOUT_SECS),
+            progress,
+            session_sink,
+        )
+        .await
+    }
+}
+
 /// child session 一旦建立，后续的配置/环境错误也要成为可读取的运行输出，
 /// 不能只给父 Agent 返回一个瞬时错误并留下空 JSONL。
 fn persist_agent_start_failure(

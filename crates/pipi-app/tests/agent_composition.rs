@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pipi_app::runtime::{RuntimeEvent, RuntimeState};
+use pipi_app::events::RuntimeEvent;
+use pipi_app::runtime::RuntimeState;
 use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
 use pipi_protocol::{AbortSignal, Api, Model, ToolResultContent};
