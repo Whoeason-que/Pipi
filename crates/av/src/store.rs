@@ -286,6 +286,24 @@ pub fn write_index(index: &SkillLock) -> Result<(), String> {
     index.write(&path)
 }
 
+/// store 索引里某技能名的「当前版本」：`updated-at` / `installed-at` 最新的一条。
+///
+/// 同名多版本并存是 store 的常态（不同项目可锁不同修订）；需要一个默认值时
+/// （如应用里「启用」一个技能）取最近安装/更新的那条。索引时间戳是定长
+/// RFC3339，字典序即时间序。
+pub fn latest_index_entry<'a>(index: &'a SkillLock, name: &str) -> Option<&'a SkillLockEntry> {
+    index
+        .skills
+        .iter()
+        .filter(|entry| entry.name == name)
+        .max_by_key(|entry| {
+            (
+                entry.updated_at.as_deref().unwrap_or(""),
+                entry.installed_at.as_deref().unwrap_or(""),
+            )
+        })
+}
+
 /// 把解析记录写入 store 索引（保留原 installed-at，刷新 updated-at）。
 /// 单次读改写，批量调用请用 [`record_index_entries`]。
 pub fn record_index(entry: &SkillLockEntry) -> Result<(), String> {
@@ -1097,6 +1115,32 @@ mod tests {
         let declared = winning_use(&only_agent).unwrap();
         assert_eq!(declared.layer.label, "agent.toml");
         assert!(winning_use(&[]).is_none());
+    }
+
+    #[test]
+    fn latest_index_entry_prefers_most_recently_recorded_version() {
+        let root = temp_dir("latest");
+        let hash_a = format!("sha256:{}", "a".repeat(64));
+        let hash_b = format!("sha256:{}", "b".repeat(64));
+        let mut index = SkillLock::empty();
+        // 先装的版本 updated-at 更旧
+        let mut older = local_entry("pdf", &root, &hash_a);
+        older.installed_at = Some("2026-01-01T00:00:00Z".into());
+        let mut newer = local_entry("pdf", &root, &hash_b);
+        newer.installed_at = Some("2025-01-01T00:00:00Z".into());
+        newer.updated_at = Some("2026-03-01T00:00:00Z".into());
+        index.upsert_version(older);
+        index.upsert_version(newer.clone());
+
+        let picked = latest_index_entry(&index, "pdf").unwrap();
+        assert_eq!(picked.content_hash, newer.content_hash, "updated-at 优先");
+        assert!(latest_index_entry(&index, "writer").is_none(), "无此技能");
+
+        // 完全没有时间戳时仍能选出一个（回退到任意一条，不 panic）
+        let mut bare = SkillLock::empty();
+        bare.upsert_version(local_entry("pdf", &root, &hash_a));
+        assert!(latest_index_entry(&bare, "pdf").is_some());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

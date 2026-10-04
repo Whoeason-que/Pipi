@@ -5,6 +5,7 @@
 //!
 //! 模块分工：
 //! - [`schema`]：agent.toml 结构 + fail-closed 校验（未知键拒绝、保留命名空间）；
+//! - [`contract_edit`]：契约文本的保格式编辑（`skills.use` 增删，CLI 与应用共用）；
 //! - [`discovery`]：cwd 向上发现最近 `agent.toml` + `agent.local.toml` 本地层；
 //! - [`merge`]：分层合并（标量覆盖、映射按键合并、数组整体替换）；
 //! - [`resolve`]：最终子进程环境解析（inherit/ignore/set/path-prepend/secrets/AV_*）；
@@ -16,6 +17,7 @@
 //! - [`paths`]：av 家目录与 Pipi 数据根的路径布局（唯一拼装点）；
 //! - `net`：skills.sh 搜索客户端（`search` feature，默认开启）。
 
+pub mod contract_edit;
 pub mod discovery;
 pub mod install;
 pub mod merge;

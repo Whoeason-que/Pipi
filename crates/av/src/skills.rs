@@ -228,33 +228,60 @@ pub fn filter_skills_by_name(
     only: Option<&[String]>,
     exclude: Option<&[String]>,
 ) -> Result<Vec<SkillMeta>, String> {
-    let compile = |patterns: Option<&[String]>| -> Result<Vec<glob::Pattern>, String> {
-        patterns
-            .unwrap_or(&[])
-            .iter()
-            .map(|pattern| {
-                glob::Pattern::new(pattern)
-                    .map_err(|e| format!("技能过滤模式 {pattern:?} 无效：{e}"))
-            })
-            .collect()
-    };
-    let exclude_patterns = compile(exclude)?;
-    let only_patterns = compile(only)?;
+    let exclude_patterns = compile_name_patterns(exclude)?;
+    let only_patterns = compile_name_patterns(only)?;
     Ok(skills
         .into_iter()
         .filter(|skill| {
-            if exclude_patterns
-                .iter()
-                .any(|pattern| pattern.matches(&skill.name))
-            {
-                return false;
-            }
-            only_patterns.is_empty()
-                || only_patterns
-                    .iter()
-                    .any(|pattern| pattern.matches(&skill.name))
+            name_filter_reason(&skill.name, &exclude_patterns, &only_patterns).is_none()
         })
         .collect())
+}
+
+/// 名称被 only / exclude 过滤的原因；未被过滤返回 `None`。
+///
+/// 与 [`filter_skills_by_name`] 共用同一套 glob 判定 —— 宿主用它向用户解释
+/// 「技能声明了但不会注入」，避免在别处重写一遍匹配规则。
+pub fn skill_name_filter_reason(
+    name: &str,
+    only: Option<&[String]>,
+    exclude: Option<&[String]>,
+) -> Result<Option<String>, String> {
+    let exclude_patterns = compile_name_patterns(exclude)?;
+    let only_patterns = compile_name_patterns(only)?;
+    Ok(name_filter_reason(name, &exclude_patterns, &only_patterns))
+}
+
+fn compile_name_patterns(patterns: Option<&[String]>) -> Result<Vec<glob::Pattern>, String> {
+    patterns
+        .unwrap_or(&[])
+        .iter()
+        .map(|pattern| {
+            glob::Pattern::new(pattern).map_err(|e| format!("技能过滤模式 {pattern:?} 无效：{e}"))
+        })
+        .collect()
+}
+
+fn name_filter_reason(
+    name: &str,
+    exclude_patterns: &[glob::Pattern],
+    only_patterns: &[glob::Pattern],
+) -> Option<String> {
+    if let Some(pattern) = exclude_patterns
+        .iter()
+        .find(|pattern| pattern.matches(name))
+    {
+        return Some(format!("命中 exclude 模式 {:?}", pattern.as_str()));
+    }
+    if !only_patterns.is_empty() && !only_patterns.iter().any(|pattern| pattern.matches(name)) {
+        let patterns = only_patterns
+            .iter()
+            .map(|pattern| pattern.as_str())
+            .collect::<Vec<_>>()
+            .join("、");
+        return Some(format!("不在 only 模式内（{patterns}）"));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -552,5 +579,43 @@ mod tests {
         assert!(filtered.is_empty());
         // 模式非法 fail-closed
         assert!(filter_skills_by_name(vec![], None, Some(&["[".into()])).is_err());
+    }
+
+    #[test]
+    fn filter_reason_explains_why_a_name_is_dropped() {
+        // 未被过滤
+        assert_eq!(skill_name_filter_reason("pdf", None, None).unwrap(), None);
+        assert_eq!(
+            skill_name_filter_reason("git-safety", Some(&["git-*".into()]), None).unwrap(),
+            None
+        );
+        // exclude 命中
+        let reason =
+            skill_name_filter_reason("experimental-x", None, Some(&["experimental-*".into()]))
+                .unwrap()
+                .unwrap();
+        assert!(
+            reason.contains("exclude") && reason.contains("experimental-*"),
+            "{reason}"
+        );
+        // 不在 only 内
+        let reason = skill_name_filter_reason("pdf", Some(&["git-*".into()]), None)
+            .unwrap()
+            .unwrap();
+        assert!(
+            reason.contains("only") && reason.contains("git-*"),
+            "{reason}"
+        );
+        // exclude 优先于 only
+        let reason = skill_name_filter_reason(
+            "git-safety",
+            Some(&["git-*".into()]),
+            Some(&["git-safety".into()]),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(reason.contains("exclude"), "{reason}");
+        // 模式非法的口径与 filter_skills_by_name 一致
+        assert!(skill_name_filter_reason("pdf", None, Some(&["[".into()])).is_err());
     }
 }

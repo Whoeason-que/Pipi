@@ -840,8 +840,8 @@ pub fn build_system_prompt(def: &AgentDefinition) -> Result<String, String> {
 
 /// Agent 的契约层集合（av `agent.toml`）：Agent 定义目录的 agent.toml
 /// （agent 层，可能缺席）+ 项目层发现（agent.toml → agent.local.toml）。
-/// env 合并、`[resources]` 三态共用同一份层集合。
-fn collect_contract_layers(
+/// env 合并、`[resources]` 三态共用同一份层集合（技能中心也用它取 `use` 声明）。
+pub(crate) fn collect_contract_layers(
     def: &AgentDefinition,
     workspace: Option<&Path>,
 ) -> Result<(Option<av::Layer>, Vec<av::Layer>), String> {

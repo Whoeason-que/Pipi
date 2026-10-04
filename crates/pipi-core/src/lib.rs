@@ -17,6 +17,7 @@
 //! | `packages/agent` skills（frontmatter + 索引） | `av::skills`（直接依赖） | 渐进式披露：索引常驻、全文按需 read |
 //! | （Pipi 新增） | `pipi-tools::permissions`（直接依赖） | bash 命令权限：白名单 / 黑名单 |
 //! | （Pipi 新增） | [`agents`] | Agent 定义与注册表（一切皆文件） |
+//! | （Pipi 新增） | [`skill_center`] | 技能中心：store 浏览/安装/校验与 Agent 启用状态 |
 //!
 //! 另有 codex 移植：`pipi_tools::permissions::safety`（危险命令）与
 //! `SandboxMode`，见 README「与 codex 的关系」。
@@ -32,6 +33,7 @@ pub mod context;
 pub mod retry;
 pub mod session;
 pub mod settings;
+pub mod skill_center;
 pub mod stats;
 pub mod tools;
 

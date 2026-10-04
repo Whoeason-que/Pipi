@@ -149,11 +149,8 @@ fn cmd_add(args: &[String]) -> Result<(), String> {
         .collect();
     let text = fs::read_to_string(&contract)
         .map_err(|e| format!("无法读取 {}: {e}", contract.display()))?;
-    let edited = add_use_names(&text, &names)?;
-    // 编辑结果先过 schema 校验再落盘（fail-closed）
-    let config: av::AgentToml =
-        toml::from_str(&edited).map_err(|e| format!("编辑后的契约无法解析：{e}"))?;
-    config.validate()?;
+    // 编辑结果先过 schema 校验再落盘（fail-closed）；与桌面端技能面板共用同一实现
+    let (edited, _) = av::contract_edit::edit_use_names(&text, &names, &[])?;
     store::write_text_atomic(&contract, &edited)?;
 
     for skill in &report.installed {
@@ -515,7 +512,7 @@ fn cmd_remove(args: &[String]) -> Result<(), String> {
 
     let text = fs::read_to_string(&contract)
         .map_err(|e| format!("无法读取 {}: {e}", contract.display()))?;
-    let (edited, declared) = remove_use_name(&text, name)?;
+    let (edited, declared) = av::contract_edit::edit_use_names(&text, &[], &[name.to_string()])?;
     let mut lock = SkillLock::read(&lock_path)?;
     let locked = lock.get(name).is_some();
     if !declared && !locked {
@@ -534,9 +531,6 @@ fn cmd_remove(args: &[String]) -> Result<(), String> {
     }
 
     if declared {
-        let config: av::AgentToml =
-            toml::from_str(&edited).map_err(|e| format!("编辑后的契约无法解析：{e}"))?;
-        config.validate()?;
         store::write_text_atomic(&contract, &edited)?;
         println!("已从 {} 移除声明", contract.display());
     }
@@ -608,183 +602,8 @@ fn run_search(_query: &str, _limit: u32, _json: bool) -> Result<(), String> {
     Err("该 av 构建未启用 search feature（skills.sh 搜索不可用）".into())
 }
 
-// ============ agent.toml 编辑（保格式） ============
-
-/// 向 `[resources.skills].use` 追加技能名（去重；字段自带注释与格式保留）。
-pub fn add_use_names(text: &str, names: &[String]) -> Result<String, String> {
-    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("解析契约失败：{e}"))?;
-    let resources = ensure_standard_table(doc.as_table_mut(), "resources")?;
-    let skills = ensure_standard_table(resources, "skills")?;
-    let array = ensure_use_array(skills)?;
-    for name in names {
-        if !array
-            .iter()
-            .any(|value| value.as_str() == Some(name.as_str()))
-        {
-            array.push(name.as_str());
-        }
-    }
-    Ok(doc.to_string())
-}
-
-/// 从 `[resources.skills].use` 移除技能名；数组清空时移除 `use` 键。
-/// 返回 (新文本, 是否找到并移除)。
-pub fn remove_use_name(text: &str, name: &str) -> Result<(String, bool), String> {
-    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("解析契约失败：{e}"))?;
-    let Some(resources) = doc
-        .as_table_mut()
-        .get_mut("resources")
-        .and_then(toml_edit::Item::as_table_mut)
-    else {
-        return Ok((text.to_string(), false));
-    };
-    let Some(skills) = resources
-        .get_mut("skills")
-        .and_then(toml_edit::Item::as_table_mut)
-    else {
-        return Ok((text.to_string(), false));
-    };
-    let Some(item) = skills.get_mut("use") else {
-        return Ok((text.to_string(), false));
-    };
-    let array = item
-        .as_array_mut()
-        .ok_or("resources.skills.use 不是数组（契约非法）")?;
-    let mut found = false;
-    let mut index = 0;
-    while index < array.len() {
-        if array.get(index).and_then(toml_edit::Value::as_str) == Some(name) {
-            array.remove(index);
-            found = true;
-        } else {
-            index += 1;
-        }
-    }
-    if !found {
-        return Ok((text.to_string(), false));
-    }
-    if array.is_empty() {
-        skills.remove("use");
-    }
-    // 清理因移除而变空的表（合同保持干净；含其它键的表不动）
-    let skills_empty = skills.is_empty();
-    if skills_empty {
-        resources.remove("skills");
-    }
-    if resources.is_empty() {
-        doc.as_table_mut().remove("resources");
-    }
-    Ok((doc.to_string(), true))
-}
-
-fn ensure_standard_table<'a>(
-    table: &'a mut toml_edit::Table,
-    key: &str,
-) -> Result<&'a mut toml_edit::Table, String> {
-    if table.get(key).is_none() {
-        table.insert(key, toml_edit::Item::Table(toml_edit::Table::new()));
-    }
-    table
-        .get_mut(key)
-        .and_then(toml_edit::Item::as_table_mut)
-        .ok_or_else(|| {
-            format!("契约里的 {key} 不是标准表（内联表/数组形式不支持自动编辑，请手工展开）")
-        })
-}
-
-fn ensure_use_array(table: &mut toml_edit::Table) -> Result<&mut toml_edit::Array, String> {
-    if table.get("use").is_none() {
-        table.insert(
-            "use",
-            toml_edit::Item::Value(toml_edit::Value::Array(toml_edit::Array::new())),
-        );
-    }
-    table
-        .get_mut("use")
-        .and_then(toml_edit::Item::as_array_mut)
-        .ok_or_else(|| "resources.skills.use 不是数组（契约非法）".to_string())
-}
-
 fn store_label() -> String {
     av::paths::skills_store()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "~/.av/skills".to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn add_and_remove_use_names_preserve_format() {
-        let text = "# 契约\nschema = 1\n\n[env]\nset = { A = \"1\" }\n";
-        let edited = add_use_names(text, &["pdf".into(), "writer".into()]).unwrap();
-        assert!(edited.contains("# 契约"), "注释保留：{edited}");
-        assert!(
-            edited.contains("set = { A = \"1\" }"),
-            "既有内容保留：{edited}"
-        );
-        let config: av::AgentToml = toml::from_str(&edited).unwrap();
-        config.validate().unwrap();
-        assert_eq!(
-            config.resources.unwrap().skills.unwrap().use_.as_deref(),
-            Some(&["pdf".to_string(), "writer".to_string()][..])
-        );
-
-        // 幂等：重复添加不产生重复项
-        let edited = add_use_names(&edited, &["pdf".into()]).unwrap();
-        let config: av::AgentToml = toml::from_str(&edited).unwrap();
-        assert_eq!(
-            config
-                .resources
-                .unwrap()
-                .skills
-                .unwrap()
-                .use_
-                .unwrap()
-                .len(),
-            2
-        );
-
-        // 移除一个
-        let (edited, found) = remove_use_name(&edited, "pdf").unwrap();
-        assert!(found);
-        let config: av::AgentToml = toml::from_str(&edited).unwrap();
-        assert_eq!(
-            config.resources.unwrap().skills.unwrap().use_.as_deref(),
-            Some(&["writer".to_string()][..])
-        );
-
-        // 移除最后一个 → use 键消失，且空表被清理
-        let (edited, found) = remove_use_name(&edited, "writer").unwrap();
-        assert!(found);
-        assert!(!edited.contains("use"), "{edited}");
-        assert!(!edited.contains("[resources"), "空表应被清理：{edited}");
-        let config: av::AgentToml = toml::from_str(&edited).unwrap();
-        assert!(config.resources.is_none());
-
-        // 移除不存在的名字 → 原样返回
-        let (edited, found) = remove_use_name(&edited, "nope").unwrap();
-        assert!(!found);
-        assert!(edited.contains("schema = 1"));
-    }
-
-    #[test]
-    fn existing_use_array_is_extended_in_place() {
-        let text = "schema = 1\n[resources.skills]\nuse = [\"a\"]  # 手动维护\n";
-        let edited = add_use_names(text, &["b".into()]).unwrap();
-        assert!(edited.contains("# 手动维护"), "{edited}");
-        let config: av::AgentToml = toml::from_str(&edited).unwrap();
-        assert_eq!(
-            config.resources.unwrap().skills.unwrap().use_.as_deref(),
-            Some(&["a".to_string(), "b".to_string()][..])
-        );
-    }
-
-    #[test]
-    fn inline_table_is_rejected_with_hint() {
-        let text = "schema = 1\nresources = { max-bytes = 100 }\n";
-        let error = add_use_names(text, &["pdf".into()]).unwrap_err();
-        assert!(error.contains("标准表"), "{error}");
-    }
 }
