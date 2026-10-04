@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "仓库维护任务（cargo xtask arch：分层与依赖方向检查）"
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+toml = { workspace = true }

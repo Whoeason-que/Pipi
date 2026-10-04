@@ -1,0 +1,3 @@
+[alias]
+# 仓库维护任务：cargo xtask arch（分层与依赖方向检查，见 architecture.toml）
+xtask = "run --package xtask --"

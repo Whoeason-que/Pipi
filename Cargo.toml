@@ -14,6 +14,7 @@ members = [
     "crates/pipi-core",
     "crates/pipi-app",
     "crates/pipi-server",
+    "crates/xtask",
     "src-tauri",
 ]
 

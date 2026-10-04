@@ -1,0 +1,102 @@
+# 工作区分层与依赖方向 —— `cargo xtask arch` 按本文件检查。
+#
+# 规则：
+# - `may-depend-on`：**内部** crate 依赖白名单。没列出的内部依赖一律违规。
+# - `dev-may-depend-on`：dev-dependencies 里的内部依赖白名单（默认空）。
+# - `forbid`：点名的第三方依赖，出现在**生产依赖**里即违规（dev-dependencies
+#   不进产物，测试用运行时之类不受此限；内部依赖已由白名单覆盖，不必重复）。
+#
+# 每个工作区成员都必须在这里登记；新增 crate 或改依赖前先更新本文件，再跑
+# `cargo xtask arch`。这是边界，不是建议 —— 想放宽先改这里并说明理由。
+
+# 仓库维护任务（cargo xtask arch 自身），不依赖任何 Pipi crate。
+[crates.xtask]
+may-depend-on = []
+
+# 叶子：跨层稳定错误语义。除 serde 外不依赖任何东西。
+[crates.pipi-error]
+may-depend-on = []
+
+# 叶子：纯项目上下文发现与 prompt 渲染，刻意零依赖。
+[crates.pipi-harness]
+may-depend-on = []
+forbid = ["serde", "serde_json", "tokio", "reqwest"]
+
+# 叶子：测试脚手架，不依赖任何东西。
+[crates.pipi-test-support]
+may-depend-on = []
+
+# 独立工具（agent.toml 契约 + 技能 store + CLI），不依赖任何 Pipi crate。
+[crates.av]
+may-depend-on = []
+forbid = ["tokio", "reqwest", "rig"]
+
+# 协议层：持久化与 transport DTO。不碰工具、领域与网络实现。
+[crates.pipi-protocol]
+may-depend-on = ["pipi-error"]
+forbid = ["av", "pipi-tools", "pipi-core", "pipi-agent", "reqwest", "rig", "tokio"]
+
+# 内置工具与权限：只依赖协议。
+[crates.pipi-tools]
+may-depend-on = ["pipi-protocol"]
+
+# provider 适配：只做协议映射与错误分类，不做重发。
+[crates.pipi-provider]
+may-depend-on = ["pipi-error", "pipi-protocol"]
+
+# 引擎：主循环 / 上下文 / 重试 / 统计 / 会话存储 / 压缩。
+# 不依赖 av（不碰 agent.toml 契约）、不直连网络（provider 是注入的 trait）。
+[crates.pipi-agent]
+may-depend-on = ["pipi-error", "pipi-protocol", "pipi-tools", "pipi-harness", "pipi-provider"]
+forbid = ["av", "reqwest"]
+
+# 领域层：Agent 注册表与 av 契约、设置、Agent 组合工具。网络目录不在这一层。
+[crates.pipi-core]
+may-depend-on = ["av", "pipi-agent", "pipi-protocol", "pipi-tools", "pipi-harness"]
+dev-may-depend-on = ["pipi-test-support"]
+forbid = ["reqwest"]
+
+# 技能中心：store 视图与安装/校验/同步服务，走 av 实现。
+[crates.pipi-skills]
+may-depend-on = ["av", "pipi-core"]
+dev-may-depend-on = ["pipi-agent", "pipi-test-support"]
+forbid = ["reqwest"]
+
+# 模型目录：models.dev 拉取与缓存。这里是唯一直连 HTTP 的领域服务。
+[crates.pipi-catalog]
+may-depend-on = ["av", "pipi-protocol", "pipi-tools"]
+
+# 应用服务层：会话槽、运行编排、审批与宿主事件协议。
+[crates.pipi-app]
+may-depend-on = [
+    "av",
+    "pipi-agent",
+    "pipi-core",
+    "pipi-protocol",
+    "pipi-provider",
+    "pipi-tools",
+]
+dev-may-depend-on = ["pipi-skills", "pipi-test-support"]
+
+# Web/远程宿主：只做 transport、鉴权与静态资源，不含业务逻辑。
+[crates.pipi-server]
+may-depend-on = [
+    "pipi-app",
+    "pipi-catalog",
+    "pipi-core",
+    "pipi-protocol",
+    "pipi-skills",
+    "pipi-tools",
+]
+
+# Tauri 薄壳：commands.rs 只做 IPC 转发。
+[crates.pipi]
+may-depend-on = [
+    "pipi-agent",
+    "pipi-app",
+    "pipi-catalog",
+    "pipi-core",
+    "pipi-protocol",
+    "pipi-skills",
+    "pipi-tools",
+]
