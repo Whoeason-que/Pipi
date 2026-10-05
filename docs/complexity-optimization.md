@@ -136,6 +136,9 @@ crate 拆分（见上）之后又做了一轮文件级整理，不改行为、�
 
 ## 2026-10-05 测试集中存放与冗余清理
 
+> 本节的「测试搬进同目录 `tests.rs`」布局已被同日下一轮反转（见文末
+> 「2026-10-05 单元测试回归内联」）；夹具去重与死代码清理部分继续有效。
+
 - 单元测试从生产文件里搬出（50 个文件、约 1.03 万行），放在**被测模块自己的目录**下：
   `src/foo.rs` → `src/foo/tests.rs`、`src/foo/mod.rs` → `src/foo/tests.rs`、
   crate 根 → `src/tests.rs`，生产文件里只写 `#[cfg(test)] mod tests;`。
@@ -152,6 +155,31 @@ crate 拆分（见上）之后又做了一轮文件级整理，不改行为、�
   （av / pipi-agent / pipi-harness / pipi-tools 允许 dev 依赖 pipi-test-support）。
 - 验证：`cargo test --workspace` 384 项全通过、`cargo xtask arch` 通过、
   `npm run test:frontend` 46/46、`npx tsc --noEmit` 干净。
+
+## 2026-10-05 单元测试回归内联、单元/集成分离
+
+对齐 quant 各 Rust 仓的写法（单元测试内联在被测文件底部，集成测试才独立成 crate），
+撤销上一轮的「测试搬进同目录 `tests.rs`」，并把黑盒回归从单元测试里分出来：
+
+- 48 个 `tests.rs`（约 1.01 万行）全部回到被测文件底部：
+  `#[cfg(test)] mod tests { use super::*; … }`。单文件模块直接进 `src/foo.rs`；
+  目录模块按属主拆回实现文件（`compaction` → mod/llm/tool_output，`runtime` →
+  mod/slots/compaction/execution，`background` → shell/state/service，
+  `agents` → paths/registry/prompt/tool_context/files/types/archive），
+  整模块不变量留在 `mod.rs`。删掉 34 个「只有 tests.rs」的空壳目录与全部
+  `mod tests;` 声明，`mod.rs` 里为测试保留的 `#[cfg(test)] use` 转发一并清除。
+- **单元测试 = 白盒**（可用私有项 / `#[cfg(test)]` 夹具）：`permissions` 的
+  解析、重定向、路径包含；`agents` 的路径守卫与注册表；压缩投影等，全部内联。
+- **集成测试 = 黑盒**（只用 pub API，独立 crate）：权限策略表驱动从
+  `permissions/tests.rs` 升为 `crates/pipi-tools/tests/permissions_policy.rs`
+  （14 项），技能中心生命周期从 `pipi-skills/src/tests.rs` 升为
+  `crates/pipi-skills/tests/skill_lifecycle.rs`（4 项）。
+- 模块内跨文件夹具新建 `background/test_support.rs`（`#[cfg(test)] mod test_support;`，
+  两类 JobEntry 的最小构造，shell/state 测试共用）；crate 级 `src/test_support.rs`
+  看不到 `pub(super)` 类型，夹具只能留在模块内部。
+- 验证：`cargo test --workspace` 387 项逐二进制比对零差异（仅上述两处迁移改变
+  归属）、`cargo clippy --workspace --all-targets` 无告警、`cargo fmt --all --check`
+  干净、`cargo xtask arch` 通过。
 
 ## 后续维护规则
 
