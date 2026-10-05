@@ -25,16 +25,6 @@ mod install;
 mod library;
 mod model;
 
-#[cfg(test)]
-use std::fs;
-#[cfg(test)]
-use std::path::{Path, PathBuf};
-
-#[cfg(test)]
-use av::store::{self, SkillLock};
-#[cfg(test)]
-use pipi_core::agents;
-
 pub use agent_skills::agent_skills;
 pub use enable::set_skill_enabled;
 pub use install::{install_skill, remove_store_skill, sync_agent_skills};
@@ -44,6 +34,3 @@ pub use model::{
     SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, SkillVerifyStatus,
     SkillVersion, SkippedSkill, StoreSkill,
 };
-
-#[cfg(test)]
-mod tests;

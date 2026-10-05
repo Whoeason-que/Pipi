@@ -171,3 +171,51 @@ pub fn memory_index(def: &AgentDefinition) -> Vec<pipi_harness::MemoryFileMeta> 
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::create_agent;
+    use pipi_test_support::HOME_LOCK;
+
+    #[test]
+    fn agent_file_editor_is_restricted_to_agents_md_and_memory() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("pipi-edit-{}", pipi_agent::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+        create_agent("editor", "d", None, None, None, None).unwrap();
+
+        // AGENTS.md 可读写
+        write_agent_file("editor", "AGENTS.md", "# 新指令\n").unwrap();
+        assert_eq!(
+            read_agent_file("editor", "AGENTS.md").unwrap(),
+            "# 新指令\n"
+        );
+
+        // memory 新文件可创建并读写
+        write_agent_file("editor", "memory/user-prefs.md", "偏好： concise\n").unwrap();
+        assert!(
+            read_agent_file("editor", "memory/user-prefs.md")
+                .unwrap()
+                .contains("偏好")
+        );
+
+        // 拒绝：绝对路径、逃逸、agent.json、其他扩展名、过深路径
+        assert!(read_agent_file("editor", "/etc/passwd").is_err());
+        assert!(read_agent_file("editor", "../escape.md").is_err());
+        assert!(write_agent_file("editor", "agent.json", "{}").is_err());
+        assert!(write_agent_file("editor", "memory/notes.txt", "x").is_err());
+        assert!(write_agent_file("editor", "skills/tool/SKILL.md", "x").is_err());
+        assert!(write_agent_file("editor", "memory/a/b/c/d.md", "x").is_err());
+        assert!(read_agent_file("editor", "memory/missing.md").is_err());
+        // AGENTS.md 不允许通过 write 新建（已被 create_agent 管理）
+        std::fs::remove_file(home.join(".pipi/agents/editor/AGENTS.md")).unwrap();
+        assert!(write_agent_file("editor", "AGENTS.md", "x").is_err());
+
+        pipi_test_support::set_env_var("HOME", prev);
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+}

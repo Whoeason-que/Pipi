@@ -15,7 +15,7 @@ mod service;
 mod shell;
 mod state;
 #[cfg(test)]
-mod tests;
+mod test_support;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -35,22 +35,6 @@ use self::agent::AgentJobEntry;
 use self::persist::{PersistedRecord, append_record, load_persisted_snapshot, validate_job_id};
 use self::shell::JobEntry;
 use self::state::{JobState, wait_for_state};
-
-#[cfg(test)]
-use std::collections::VecDeque;
-#[cfg(test)]
-use std::sync::atomic::AtomicU32;
-#[cfg(test)]
-use tokio::sync::{Notify, mpsc};
-
-#[cfg(test)]
-use pipi_core::tools::agent::AgentRunStatus;
-#[cfg(test)]
-use pipi_core::tools::background::{
-    BackgroundAgentTaskSpec, BackgroundTaskCommand, BackgroundTaskService, BackgroundTaskSpec,
-};
-#[cfg(test)]
-use pipi_protocol::{BackgroundTaskKind, BackgroundTaskStatus};
 
 pub(super) const MAX_OUTPUT_BYTES: usize = 512 * 1024;
 pub(super) const TERMINATE_GRACE: Duration = Duration::from_secs(2);

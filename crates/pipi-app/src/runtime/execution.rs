@@ -789,3 +789,233 @@ impl RuntimeState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn resolve_model_prefers_session_model_over_agent_default() {
+        // 该测试依赖「HOME 下没有 settings.json → 默认 provider 表」，
+        // 且 HOME 是进程级状态：持全局锁 + 指向空目录，保证确定性。
+        let _guard = pipi_test_support::HOME_LOCK.lock().unwrap();
+        let previous_home = std::env::var("HOME").unwrap_or_default();
+        let empty_home = std::env::temp_dir().join(format!(
+            "pipi-resolve-model-home-{}-{}",
+            std::process::id(),
+            pipi_agent::session::new_id()
+        ));
+        std::fs::create_dir_all(empty_home.join(".pipi")).unwrap();
+        pipi_test_support::set_env_var("HOME", &empty_home);
+
+        let default_model = Model {
+            id: "gpt-4o".into(),
+            name: "GPT-4o".into(),
+            api: pipi_protocol::Api::OpenAICompletions,
+            base_url: "https://api.openai.com/v1".into(),
+            max_tokens: 4096,
+            context_window: 128000,
+        };
+        let session_model = Model {
+            id: "claude-sonnet-4-5".into(),
+            name: "Claude Sonnet".into(),
+            api: pipi_protocol::Api::AnthropicMessages,
+            base_url: "https://api.anthropic.com".into(),
+            max_tokens: 8192,
+            context_window: 200000,
+        };
+
+        let def = AgentDefinition {
+            name: "test-agent".into(),
+            description: String::new(),
+            model: "gpt-4o".into(),
+            provider: Some(default_model.clone()),
+            workspace: None,
+            permissions: Default::default(),
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+
+        // 未配置 key 时的校验
+        pipi_test_support::remove_env_var("ANTHROPIC_API_KEY");
+        pipi_test_support::remove_env_var("OPENAI_API_KEY");
+
+        // 回退默认模型
+        let err = super::resolve_model(&def, None, None).unwrap_err();
+        assert!(err.contains("未配置 API 密钥"));
+
+        // 优先会话覆盖模型
+        let err = super::resolve_model(&def, Some(&session_model), None).unwrap_err();
+        assert!(err.contains("api.anthropic.com"));
+
+        // 配上 key 后成功解析
+        pipi_test_support::set_env_var("ANTHROPIC_API_KEY", "test-key");
+        let (resolved, key) = super::resolve_model(&def, Some(&session_model), None).unwrap();
+        assert_eq!(resolved.id, "claude-sonnet-4-5");
+        assert_eq!(key, "test-key");
+        pipi_test_support::remove_env_var("ANTHROPIC_API_KEY");
+        pipi_test_support::set_env_var("HOME", &previous_home);
+        let _ = std::fs::remove_dir_all(&empty_home);
+    }
+
+    #[test]
+    fn timeout_terminal_repairs_a_persisted_tool_call_before_appending_error() {
+        let sessions = std::env::temp_dir().join(format!(
+            "pipi-timeout-pairing-{}-{}",
+            std::process::id(),
+            pipi_agent::session::new_id()
+        ));
+        std::fs::create_dir_all(&sessions).unwrap();
+        let writer = Arc::new(Mutex::new(SessionWriter::create(&sessions).unwrap()));
+        let path = writer.lock().unwrap().path().to_path_buf();
+
+        let user = Message::user_text("run a tool");
+        let tool_call = Message::Assistant {
+            content: vec![pipi_protocol::ContentBlock::ToolCall {
+                id: "call-timeout".into(),
+                name: "bash".into(),
+                arguments: serde_json::json!({ "command": "sleep 30" }),
+            }],
+            api: "openai-completions".into(),
+            provider: "test".into(),
+            model: "test-model".into(),
+            usage: Default::default(),
+            stop_reason: StopReason::ToolUse,
+            error_message: None,
+            timestamp: pipi_protocol::now_millis(),
+            duration_ms: None,
+        };
+        {
+            let mut guard = writer.lock().unwrap();
+            guard.append_message(&user).unwrap();
+            guard.append_message(&tool_call).unwrap();
+        }
+
+        let model = Model {
+            id: "test-model".into(),
+            name: "Test model".into(),
+            api: pipi_protocol::Api::OpenAICompletions,
+            base_url: String::new(),
+            max_tokens: 1,
+            context_window: 0,
+        };
+        append_child_timeout_terminal(&writer, &model, std::time::Duration::from_secs(1)).unwrap();
+
+        let entries = load_session(&path).unwrap();
+        let messages =
+            pipi_agent::session::rebuild_messages(&pipi_agent::session::active_path(&entries));
+        assert_eq!(messages.len(), 4);
+        assert!(matches!(
+            &messages[2],
+            Message::ToolResult {
+                tool_call_id,
+                tool_name,
+                is_error: true,
+                ..
+            } if tool_call_id == "call-timeout" && tool_name == "bash"
+        ));
+        assert!(matches!(
+            &messages[3],
+            Message::Assistant {
+                stop_reason: StopReason::Error,
+                error_message: Some(message),
+                ..
+            } if message.contains("超时")
+        ));
+
+        drop(writer);
+        std::fs::remove_dir_all(sessions).unwrap();
+    }
+
+    /// 子 Agent 挂死（端点接受连接但不回包）时，运行时限必须终止本轮并把
+    /// 超时终态落盘 —— read_agent 读到 Failed 而不是永远的 pending。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn child_run_times_out_and_persists_terminal_state() {
+        let _guard = pipi_test_support::HOME_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            // 故意持有每条连接：请求悬挂，直到 tokio 超时触发
+            let mut held = Vec::new();
+            for stream in listener.incoming().flatten() {
+                held.push(stream);
+            }
+        });
+
+        let home = std::env::temp_dir().join(format!(
+            "pipi-child-timeout-{}-{}",
+            std::process::id(),
+            pipi_agent::session::new_id()
+        ));
+        let workspace = home.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+
+        let base_url = format!("http://{addr}/v1");
+        pipi_core::settings::save_settings(&pipi_core::settings::Settings {
+            theme: pipi_core::settings::Theme::Dark,
+            providers: vec![pipi_core::settings::ProviderConfig {
+                id: "silent".into(),
+                name: "Silent".into(),
+                api: pipi_protocol::Api::OpenAICompletions,
+                base_url: base_url.clone(),
+                env_key: None,
+                api_key: Some("test-key".into()),
+            }],
+            default_provider_id: None,
+            compaction: Default::default(),
+            retry: Default::default(),
+        })
+        .unwrap();
+
+        agents::create_agent(
+            "timeout-worker",
+            "A worker whose endpoint never responds",
+            Some(workspace.to_str().unwrap()),
+            Some(pipi_tools::permissions::PermissionsConfig {
+                tools: vec!["read".into()],
+                bash: Default::default(),
+                sandbox: pipi_tools::permissions::SandboxMode::WorkspaceWrite,
+            }),
+            None,
+            Some(pipi_protocol::Model {
+                id: "silent-model".into(),
+                name: "Silent Model".into(),
+                api: pipi_protocol::Api::OpenAICompletions,
+                base_url,
+                max_tokens: 64,
+                context_window: 4096,
+            }),
+        )
+        .unwrap();
+
+        let result = run_agent_once_inner(
+            "timeout-worker",
+            "hang",
+            AbortSignal::new(),
+            std::time::Duration::from_millis(300),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.status, AgentRunStatus::Failed);
+        assert!(
+            result.response.contains("超时"),
+            "应报超时: {}",
+            result.response
+        );
+
+        // 终态已落盘：read_agent 读到 Failed 而不是 pending
+        let reread =
+            pipi_core::tools::agent::read_agent_output("timeout-worker", Some(&result.session_id))
+                .unwrap();
+        assert_eq!(reread.status, AgentRunStatus::Failed);
+
+        let _ = std::fs::remove_dir_all(home);
+    }
+}

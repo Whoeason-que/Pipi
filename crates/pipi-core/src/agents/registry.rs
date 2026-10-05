@@ -312,3 +312,298 @@ pub fn add_bash_allowlist_entries(name: &str, entries: &[String]) -> Result<(), 
     }
     save_agent(&def)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pipi_test_support::HOME_LOCK;
+
+    #[cfg(unix)]
+    #[test]
+    fn agent_manifest_symlinks_are_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "pipi-agent-manifest-link-home-{}",
+            pipi_agent::session::new_id()
+        ));
+        let external = std::env::temp_dir().join(format!(
+            "pipi-agent-manifest-link-external-{}",
+            pipi_agent::session::new_id()
+        ));
+        let agent = home.join(".pipi/agents/manifest-link-agent");
+        let external_manifest = external.join("agent.json");
+        std::fs::create_dir_all(&agent).unwrap();
+        std::fs::create_dir_all(&external).unwrap();
+        let def = AgentDefinition {
+            name: "manifest-link-agent".into(),
+            description: "external".into(),
+            model: String::new(),
+            provider: None,
+            workspace: None,
+            permissions: PermissionsConfig::default(),
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+        std::fs::write(
+            &external_manifest,
+            serde_json::to_string_pretty(&def).unwrap() + "\n",
+        )
+        .unwrap();
+        symlink(&external_manifest, agent.join("agent.json")).unwrap();
+
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+        assert!(load_agent("manifest-link-agent").is_err());
+        assert!(save_agent(&def).is_err());
+        assert!(list_agents().unwrap().is_empty());
+        pipi_test_support::set_env_var("HOME", previous_home);
+
+        let external_contents = std::fs::read_to_string(&external_manifest).unwrap();
+        assert!(external_contents.contains("external"));
+        std::fs::remove_dir_all(&home).unwrap();
+        std::fs::remove_dir_all(&external).unwrap();
+    }
+
+    #[test]
+    fn create_defaults_to_workspace_write_sandbox() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let name = format!("pipi-default-sandbox-{}", pipi_agent::session::new_id());
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
+        assert_eq!(
+            def.permissions.sandbox,
+            pipi_tools::permissions::SandboxMode::WorkspaceWrite
+        );
+        assert!(!def.subagent);
+        let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
+    #[test]
+    fn subagent_defaults_and_persists_changes() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let legacy: AgentDefinition =
+            serde_json::from_str(r#"{"name":"legacy","permissions":{"tools":["read"]}}"#).unwrap();
+        assert!(!legacy.subagent);
+
+        let explicit: AgentDefinition = serde_json::from_str(
+            r#"{"name":"explicit","subagent":true,"permissions":{"tools":["read"]}}"#,
+        )
+        .unwrap();
+        assert!(explicit.subagent);
+        let json = serde_json::to_string(&explicit).unwrap();
+        assert!(json.contains("\"subagent\":true"), "{json}");
+
+        let name = format!("pipi-subagent-roundtrip-{}", pipi_agent::session::new_id());
+        let mut def = create_agent(&name, "", None, None, None, None).unwrap();
+        assert!(!def.subagent);
+
+        def.subagent = true;
+        save_agent(&def).unwrap();
+        assert!(load_agent(&name).unwrap().subagent);
+
+        def.subagent = false;
+        save_agent(&def).unwrap();
+        assert!(!load_agent(&name).unwrap().subagent);
+        let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
+    #[test]
+    fn create_rejects_bad_names_and_tools() {
+        assert!(create_agent("", "d", None, None, None, None).is_err());
+        assert!(create_agent("bad name", "d", None, None, None, None).is_err());
+        assert!(create_agent("../escape", "d", None, None, None, None).is_err());
+        assert!(
+            create_agent(
+                "x",
+                "d",
+                None,
+                Some(PermissionsConfig {
+                    tools: vec!["nuclear".into()],
+                    bash: Default::default(),
+                    sandbox: Default::default(),
+                }),
+                None,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            create_agent(
+                "x",
+                "d",
+                None,
+                Some(PermissionsConfig {
+                    tools: vec![],
+                    bash: Default::default(),
+                    sandbox: Default::default(),
+                }),
+                None,
+                None,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn create_writes_skeleton_with_workspace_and_model() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-{}", pipi_agent::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+
+        // 默认骨架：目录齐备、agent.json 落盘权限、未指定 workspace 时建默认目录
+        let def = create_agent(
+            "tester",
+            "测试用",
+            None,
+            Some(PermissionsConfig {
+                tools: vec!["read".into(), "bash".into()],
+                bash: pipi_tools::permissions::BashPermissions {
+                    mode: pipi_tools::permissions::BashMode::Allowlist,
+                    commands: vec!["git".into()],
+                },
+                sandbox: Default::default(),
+            }),
+            None,
+            None,
+        )
+        .unwrap();
+        let dir = home.join(".pipi/agents/tester");
+        for file in ["agent.json", "AGENTS.md"] {
+            assert!(dir.join(file).is_file(), "{file} 未创建");
+        }
+        for sub in ["skills", "memory", "jobs", "sessions", "workspace"] {
+            assert!(dir.join(sub).is_dir(), "{sub}/ 未创建");
+        }
+        let text = std::fs::read_to_string(dir.join("agent.json")).unwrap();
+        assert!(text.contains("\"allowlist\""));
+        assert!(text.contains("\"tools\": ["));
+        assert_eq!(def.resolve_workspace().unwrap(), dir.join("workspace"));
+        // 重复创建被拒
+        assert!(create_agent("tester", "", None, None, None, None).is_err());
+
+        // 显式 workspace：不建默认目录，解析结果就是声明的路径
+        let ws = std::env::temp_dir().join(format!("pipi-ws-{}", pipi_agent::session::new_id()));
+        let def =
+            create_agent("ws-agent", "", Some(ws.to_str().unwrap()), None, None, None).unwrap();
+        assert_eq!(def.workspace.as_deref(), Some(ws.to_str().unwrap()));
+        assert!(!home.join(".pipi/agents/ws-agent/workspace").exists());
+        assert_eq!(def.resolve_workspace().unwrap(), ws);
+
+        // 默认模型写盘并可读回
+        let provider = Model {
+            id: "claude-3-7-sonnet-20250219".into(),
+            name: "Claude 3.7 Sonnet".into(),
+            api: pipi_protocol::Api::AnthropicMessages,
+            base_url: "https://api.anthropic.com".into(),
+            max_tokens: 8192,
+            context_window: 200000,
+        };
+        let def = create_agent(
+            "model-agent",
+            "测试默认模型",
+            None,
+            None,
+            Some("claude-3-7-sonnet-20250219"),
+            Some(provider.clone()),
+        )
+        .unwrap();
+        assert_eq!(def.model, "claude-3-7-sonnet-20250219");
+        assert_eq!(def.provider, Some(provider));
+        let loaded = load_agent("model-agent").unwrap();
+        assert_eq!(loaded.model, "claude-3-7-sonnet-20250219");
+        assert!(loaded.provider.is_some());
+
+        pipi_test_support::set_env_var("HOME", &prev);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn seeds_default_agent_when_missing_and_never_overwrites() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-seed-{}", pipi_agent::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+
+        // 目录缺失 → 播种；骨架与 README「Agent 的组成」一致
+        let created = ensure_default_agent()
+            .unwrap()
+            .expect("首次调用应播种默认 Agent");
+        assert_eq!(created.name, DEFAULT_AGENT_NAME);
+        let dir = home.join(".pipi").join("agents").join(DEFAULT_AGENT_NAME);
+        for entry in [
+            "agent.json",
+            "AGENTS.md",
+            "skills",
+            "memory",
+            "jobs",
+            "sessions",
+            "workspace",
+        ] {
+            assert!(dir.join(entry).exists(), "{entry} 应存在");
+        }
+        // 默认权限：全部基础工具 + 受限沙箱（PermissionsConfig::default 的沙箱是 DangerFullAccess，不能被沿用）
+        assert_eq!(
+            created.permissions.sandbox,
+            pipi_tools::permissions::SandboxMode::WorkspaceWrite
+        );
+        assert!(created.permissions.tools.iter().any(|tool| tool == "bash"));
+        assert!(
+            created.provider.is_none(),
+            "播种的默认 Agent 不应凭空绑定模型"
+        );
+
+        // 已存在 → 不再创建，且不覆盖用户改动
+        std::fs::write(dir.join("AGENTS.md"), "# Pipi\n\n用户改过的说明\n").unwrap();
+        assert!(ensure_default_agent().unwrap().is_none());
+        let agents = list_agents_bootstrapped().unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, DEFAULT_AGENT_NAME);
+        assert!(
+            std::fs::read_to_string(dir.join("AGENTS.md"))
+                .unwrap()
+                .contains("用户改过的说明"),
+            "播种不得覆盖用户对 AGENTS.md 的改动"
+        );
+
+        pipi_test_support::set_env_var("HOME", &prev);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn bootstrap_keeps_existing_agents_and_backfills_default() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("pipi-home-fill-{}", pipi_agent::session::new_id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let prev = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+
+        create_agent("helper", "已有的 Agent", None, None, None, None).unwrap();
+        assert_eq!(
+            list_agents().unwrap().len(),
+            1,
+            "list_agents 本身不应有副作用"
+        );
+
+        // 有其它 Agent 但没有默认 Agent → 保留原样并补上默认 Agent
+        let agents = list_agents_bootstrapped().unwrap();
+        let names: Vec<String> = agents.iter().map(|agent| agent.name.clone()).collect();
+        assert!(names.contains(&"helper".to_string()));
+        assert!(names.contains(&DEFAULT_AGENT_NAME.to_string()));
+        assert_eq!(names.len(), 2);
+        // 幂等
+        assert!(ensure_default_agent().unwrap().is_none());
+        assert_eq!(list_agents().unwrap().len(), 2);
+
+        pipi_test_support::set_env_var("HOME", &prev);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}

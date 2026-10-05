@@ -126,3 +126,113 @@ pub fn validate_definition(def: &AgentDefinition) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_definition_rejects_bad_tools_workspace_and_mcp() {
+        let base = || AgentDefinition {
+            name: "ok-name".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: None,
+            permissions: PermissionsConfig::default(),
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+
+        // 未知工具 / 空工具名单
+        let mut def = base();
+        def.permissions.tools = vec!["nuclear".into()];
+        assert!(validate_definition(&def).is_err());
+        def.permissions.tools = vec![];
+        assert!(validate_definition(&def).is_err());
+        // 相对工作目录拒绝，绝对路径通过
+        def.permissions.tools = vec!["read".into()];
+        def.workspace = Some("relative/path".into());
+        assert!(validate_definition(&def).is_err());
+        def.workspace = Some("/absolute/path".into());
+        assert!(validate_definition(&def).is_ok());
+        // 名称非法
+        def.workspace = None;
+        def.name = "bad name".into();
+        assert!(validate_definition(&def).is_err());
+        def.name = "ok-name".into();
+        assert!(validate_definition(&def).is_ok());
+        // MCP 名称重复拒绝
+        let server = |name: &str| McpServerConfig {
+            name: name.into(),
+            command: "cmd".into(),
+            args: Vec::new(),
+            env: Default::default(),
+            enabled: true,
+        };
+        def.mcp_servers = vec![server("a"), server("a")];
+        assert!(validate_definition(&def).is_err());
+        def.mcp_servers = vec![server("a"), server("b")];
+        assert!(validate_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn compact_threshold_defaults_and_bounds() {
+        let minimal = r#"{"name":"t","permissions":{"tools":["read"]}}"#;
+        let def: AgentDefinition = serde_json::from_str(minimal).unwrap();
+        assert_eq!(def.compact_threshold_percent, 75);
+        assert_eq!(def.compact_threshold_percent(), 75);
+
+        // 显式值生效（含边界）
+        let custom =
+            r#"{"name":"t","permissions":{"tools":["read"]},"compactThresholdPercent":40}"#;
+        let def: AgentDefinition = serde_json::from_str(custom).unwrap();
+        assert_eq!(def.compact_threshold_percent(), 40);
+
+        // 越界 → 退回默认（手改过的文件不该让压缩失效或不可预期）
+        for value in [0u8, 101, 200] {
+            let text = format!(
+                r#"{{"name":"t","permissions":{{"tools":["read"]}},"compactThresholdPercent":{value}}}"#
+            );
+            let def: AgentDefinition = serde_json::from_str(&text).unwrap();
+            assert_eq!(
+                def.compact_threshold_percent(),
+                75,
+                "值 {value} 应兜底成默认"
+            );
+        }
+
+        // 序列化键名与前端类型对齐（此刻 def 是上面那个 40 的）
+        let json = serde_json::to_string(&def).unwrap();
+        assert!(json.contains("\"compactThresholdPercent\":40"), "{json}");
+    }
+
+    #[test]
+    fn compact_target_is_optional_and_uses_camel_case() {
+        let minimal = r#"{"name":"t","permissions":{"tools":["read"]}}"#;
+        let def: AgentDefinition = serde_json::from_str(minimal).unwrap();
+        assert_eq!(def.compact_target_percent(), None);
+        assert!(
+            !serde_json::to_string(&def)
+                .unwrap()
+                .contains("compactTargetPercent")
+        );
+
+        let custom = r#"{"name":"t","permissions":{"tools":["read"]},"compactTargetPercent":20}"#;
+        let def: AgentDefinition = serde_json::from_str(custom).unwrap();
+        assert_eq!(def.compact_target_percent(), Some(20));
+        assert!(
+            serde_json::to_string(&def)
+                .unwrap()
+                .contains("\"compactTargetPercent\":20")
+        );
+
+        for value in [0, 100, 200] {
+            let text = format!(r#"{{"name":"t","compactTargetPercent":{value}}}"#);
+            let def: AgentDefinition = serde_json::from_str(&text).unwrap();
+            assert_eq!(def.compact_target_percent(), None);
+        }
+    }
+}

@@ -280,3 +280,324 @@ pub fn build_system_prompt_with_tools(
         },
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::{AgentDefinition, agent_dir, build_tool_context, create_agent};
+    use pipi_test_support::HOME_LOCK;
+    use pipi_tools::permissions::PermissionsConfig;
+
+    #[test]
+    fn system_prompt_includes_wire_tool_descriptions() {
+        let def = AgentDefinition {
+            name: "__pipi_harness_wire_test__".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: Some(
+                std::env::temp_dir()
+                    .join("pipi-harness-wire-test-does-not-write")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            permissions: PermissionsConfig {
+                tools: vec!["read".into()],
+                ..Default::default()
+            },
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+        let tools = [pipi_protocol::Tool {
+            name: "read".into(),
+            description: "Read files".into(),
+            parameters: serde_json::json!({}),
+        }];
+
+        let prompt = build_system_prompt_with_tools(&def, &tools).unwrap();
+
+        assert!(prompt.contains("- read: Read files"));
+    }
+
+    /// av 契约端到端：项目层 agent.toml 的声明替换约定发现（instructions）、
+    /// skills 按名过滤、env 解析注入 AV_*，以及包含约束 fail-closed。
+    #[test]
+    fn agent_contract_drives_instructions_skills_and_env() {
+        let root = std::env::temp_dir().join(format!(
+            "pipi-contract-e2e-{}",
+            pipi_agent::session::new_id()
+        ));
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("AGENTS.md"), "CONVENTION-AGENTS-ROOT-RULES").unwrap();
+        fs::write(root.join("PROMPT.md"), "DECLARED-PROMPT-BODY").unwrap();
+
+        let skills_dir = root.join(".pi").join("skills");
+        fs::create_dir_all(skills_dir.join("wanted")).unwrap();
+        fs::write(
+            skills_dir.join("wanted").join("SKILL.md"),
+            "---\nname: wanted\ndescription: wanted skill\n---\nbody",
+        )
+        .unwrap();
+        fs::create_dir_all(skills_dir.join("noisy")).unwrap();
+        fs::write(
+            skills_dir.join("noisy").join("SKILL.md"),
+            "---\nname: noisy\ndescription: noisy skill\n---\nbody",
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("agent.toml"),
+            r#"
+    schema = 1
+
+    [env]
+    set = { CONTRACT_E2E_MARKER = "on" }
+
+    [resources]
+    instructions = ["PROMPT.md"]
+
+    [resources.skills]
+    only = ["wanted"]
+    "#,
+        )
+        .unwrap();
+
+        let def = AgentDefinition {
+            name: "__pipi_contract_e2e__".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: Some(root.to_string_lossy().into_owned()),
+            permissions: PermissionsConfig {
+                tools: vec!["read".into(), "bash".into()],
+                ..Default::default()
+            },
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+
+        // 声明替换约定发现；skills 按名过滤
+        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        assert!(prompt.contains("DECLARED-PROMPT-BODY"));
+        assert!(!prompt.contains("CONVENTION-AGENTS-ROOT-RULES"));
+        assert!(prompt.contains("<name>wanted</name>"));
+        assert!(!prompt.contains("noisy"));
+
+        // env：声明 set + AV_* 注入 + 默认继承 all
+        let (ctx, _) = build_tool_context(
+            &def,
+            Some("sess-1".into()),
+            pipi_protocol::AbortSignal::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            ctx.resolved_env
+                .get("CONTRACT_E2E_MARKER")
+                .map(String::as_str),
+            Some("on")
+        );
+        assert_eq!(
+            ctx.resolved_env.get("AV_AGENT").map(String::as_str),
+            Some("__pipi_contract_e2e__")
+        );
+        assert_eq!(
+            ctx.resolved_env.get("AV_SESSION").map(String::as_str),
+            Some("sess-1")
+        );
+        assert!(ctx.resolved_env.contains_key("PATH"));
+
+        // 逃逸包含根 fail-closed
+        let outside = std::env::temp_dir().join(format!(
+            "pipi-contract-e2e-outside-{}.md",
+            pipi_agent::session::new_id()
+        ));
+        fs::write(&outside, "outside").unwrap();
+        fs::write(
+            root.join("agent.toml"),
+            format!(
+                "schema = 1\n\n[resources]\ninstructions = [\"../{}\"]\n",
+                outside.file_name().unwrap().to_string_lossy()
+            ),
+        )
+        .unwrap();
+        let err = build_system_prompt_with_tools(&def, &[]).unwrap_err();
+        assert!(err.contains("fail-closed"), "{err}");
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(outside);
+    }
+
+    /// 项目层契约可以用 `[resources.skills] sources` 指向仓库内的技能包目录
+    /// （多仓库工作区用 `.agents/skills` 这种既有约定），不必改造成 `.pi/skills`。
+    #[test]
+    fn project_contract_skills_sources_point_into_the_repo() {
+        let root = std::env::temp_dir().join(format!(
+            "pipi-skills-sources-{}",
+            pipi_agent::session::new_id()
+        ));
+        fs::create_dir_all(root.join(".git")).unwrap();
+        let pack = root.join(".agents").join("skills").join("workspace-guide");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join("SKILL.md"),
+            "---\nname: workspace-guide\ndescription: repo skill pack\n---\nbody",
+        )
+        .unwrap();
+        fs::write(
+            root.join("agent.toml"),
+            "schema = 1\n\n[resources.skills]\nsources = [\".agents/skills\"]\n",
+        )
+        .unwrap();
+
+        let def = AgentDefinition {
+            name: "__pipi_skills_sources__".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: Some(root.to_string_lossy().into_owned()),
+            permissions: PermissionsConfig {
+                tools: vec!["read".into(), "bash".into()],
+                ..Default::default()
+            },
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+
+        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        assert!(prompt.contains("<name>workspace-guide</name>"), "{prompt}");
+        assert!(prompt.contains("repo skill pack"), "{prompt}");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// 声明启用的 store 技能（av `[resources.skills].use` + `agent.lock`）：
+    /// 安装后进入系统提示与 read_roots；锁/内容缺失即 fail-closed 并提示 `av skill sync`。
+    #[test]
+    fn declared_store_skills_are_injected_and_missing_fails_closed() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "pipi-store-skills-home-{}",
+            pipi_agent::session::new_id()
+        ));
+        fs::create_dir_all(&home).unwrap();
+        let previous_home = std::env::var("HOME").unwrap();
+        let previous_av = std::env::var("AV_HOME").ok();
+        pipi_test_support::set_env_var("HOME", &home);
+        // 避免外部覆盖影响 store 位置（av 家目录 = $AV_HOME 或 ~/.av）
+        pipi_test_support::remove_env_var("AV_HOME");
+
+        // 1) 真实安装管线装进 store（与 `av skill install` 同一实现）
+        let source = home.join("source").join("pdf");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(
+            source.join("SKILL.md"),
+            "---\nname: pdf\ndescription: STORE-DECLARED-PDF\n---\nbody",
+        )
+        .unwrap();
+        let spec = av::sources::SourceSpec::Local {
+            path: fs::canonicalize(&source).unwrap(),
+        };
+        let report =
+            av::install::install_source(&spec, &av::install::Selection::All, false, &mut |_| {})
+                .unwrap();
+        let entry = report.installed[0].entry.clone();
+
+        // 2) 项目契约：声明 use + 同层 agent.lock
+        let root = home.join("project");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(
+            root.join("agent.toml"),
+            "schema = 1\n\n[resources.skills]\nuse = [\"pdf\"]\n",
+        )
+        .unwrap();
+        let mut lock = av::store::SkillLock::empty();
+        lock.set_entry(entry.clone());
+        let lock_path = root.join("agent.lock");
+        lock.write(&lock_path).unwrap();
+
+        let def = AgentDefinition {
+            name: "__pipi_store_skills__".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: Some(root.to_string_lossy().into_owned()),
+            permissions: PermissionsConfig {
+                tools: vec!["read".into(), "bash".into()],
+                ..Default::default()
+            },
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+
+        // 3) 提示词注入 + 内容目录进受信任读取根
+        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        assert!(prompt.contains("<name>pdf</name>"), "{prompt}");
+        assert!(prompt.contains("STORE-DECLARED-PDF"), "{prompt}");
+        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
+        let content_dir_name = av::store::content_dir_name(&entry.content_hash).unwrap();
+        assert!(
+            ctx.read_roots.iter().any(|path| {
+                path.file_name().and_then(|name| name.to_str()) == Some(content_dir_name)
+            }),
+            "store 技能目录应在 read_roots：{:?}",
+            ctx.read_roots
+        );
+
+        // 4) store 内容缺失：两处路径都应 fail-closed 且带 av skill sync 提示
+        av::store::remove_version("pdf", &entry.content_hash).unwrap();
+        let error = build_system_prompt_with_tools(&def, &[]).unwrap_err();
+        assert!(error.contains("av skill sync"), "{error}");
+        let error = build_tool_context(&def, None, pipi_protocol::AbortSignal::new())
+            .err()
+            .expect("内容缺失应 fail-closed");
+        assert!(error.contains("av skill sync"), "{error}");
+
+        // 5) 缺锁文件：fail-closed
+        fs::remove_file(&lock_path).unwrap();
+        let error = build_system_prompt_with_tools(&def, &[]).unwrap_err();
+        assert!(error.contains("agent.lock"), "{error}");
+
+        pipi_test_support::set_env_var("HOME", previous_home);
+        match previous_av {
+            Some(value) => pipi_test_support::set_env_var("AV_HOME", value),
+            None => pipi_test_support::remove_env_var("AV_HOME"),
+        }
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn system_prompt_injects_memory_index_with_summaries() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let name = format!("memory-index-{}", pipi_agent::session::new_id());
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
+        let memory_dir = def.memory_dir().unwrap();
+        fs::write(
+            memory_dir.join("user-prefs.md"),
+            "# 用户偏好\n\n简洁回答，中文优先。\n",
+        )
+        .unwrap();
+
+        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        assert!(prompt.contains("<persistent_memory>"));
+        assert!(prompt.contains("<path>"));
+        assert!(prompt.contains(&memory_dir.join("user-prefs.md").display().to_string()));
+        assert!(prompt.contains("用户偏好"));
+        // 渐进披露：只注入摘要，不注入正文
+        assert!(prompt.contains("简洁回答") || !prompt.contains("中文优先"));
+
+        // 空 memory 时零打扰
+        fs::remove_file(memory_dir.join("user-prefs.md")).unwrap();
+        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        assert!(!prompt.contains("<persistent_memory>"));
+
+        let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+}

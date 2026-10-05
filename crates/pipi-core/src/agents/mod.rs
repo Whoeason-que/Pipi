@@ -7,7 +7,7 @@
 //! 模块划分：`types` 清单结构与校验，`paths` 目录定位与名称安全，`registry`
 //! 扫描/创建/读写，`archive` 归档与删除，`files` 可编辑 Markdown 与 memory
 //! 索引，`contract` agent.toml 契约层与上下文文件，`tool_context` 工具执行
-//! 上下文，`prompt` 系统提示组装；测试见 `tests`。
+//! 上下文，`prompt` 系统提示组装；单元测试在各实现文件底部。
 
 mod archive;
 mod contract;
@@ -33,21 +33,3 @@ pub use registry::{
 };
 pub use tool_context::build_tool_context;
 pub use types::{AgentDefinition, DEFAULT_AGENT_NAME, McpServerConfig, validate_definition};
-
-// 以下绑定只为测试保留：原单文件时代它们由模块顶部的 `use` 提供，
-// 测试通过 `use super::*` 使用；拆分后继续从 mod.rs 暴露同样的名字。
-#[cfg(test)]
-use paths::manifest_name_matches_directory;
-
-#[cfg(test)]
-use std::fs;
-
-#[cfg(test)]
-use pipi_agent::session::ARCHIVE_DIR;
-#[cfg(test)]
-use pipi_protocol::Model;
-#[cfg(test)]
-use pipi_tools::permissions::PermissionsConfig;
-
-#[cfg(test)]
-mod tests;

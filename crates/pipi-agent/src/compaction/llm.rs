@@ -337,3 +337,256 @@ async fn summarize_once(
     }
     Ok((summary_text, usage))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::compaction::llm::{LlmSummarize, build_summary_prompt, find_keep_start, summarize};
+    use crate::compaction::{Preparation, Replacement, StrategyEnv};
+    use crate::test_support::{assistant_text, tool_result};
+    use pipi_protocol::{
+        AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
+        StreamOptions, Usage,
+    };
+    use pipi_provider::{EventStream, Provider};
+    use std::sync::Mutex;
+
+    struct SummaryProvider {
+        reason: StopReason,
+        content: Vec<ContentBlock>,
+        usage: Usage,
+        requested_max_tokens: Mutex<Vec<u32>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for SummaryProvider {
+        async fn stream(
+            &self,
+            _model: &Model,
+            _context: &Context,
+            options: &StreamOptions,
+            _abort: AbortSignal,
+        ) -> EventStream {
+            self.requested_max_tokens
+                .lock()
+                .unwrap()
+                .push(options.max_tokens.unwrap());
+            let message = Message::Assistant {
+                content: self.content.clone(),
+                api: String::new(),
+                provider: String::new(),
+                model: String::new(),
+                usage: self.usage,
+                stop_reason: self.reason,
+                error_message: None,
+                timestamp: 0,
+                duration_ms: None,
+            };
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            tx.send(StreamEvent::Done {
+                reason: self.reason,
+                usage: self.usage,
+                message: Box::new(message),
+            })
+            .await
+            .unwrap();
+            rx
+        }
+    }
+
+    async fn summary_reply(
+        model_max: u32,
+        summary_max: u32,
+        reason: StopReason,
+        text: &str,
+        output_tokens: u64,
+    ) -> (Result<(String, Option<Usage>), String>, u32) {
+        let content = if text.is_empty() {
+            vec![ContentBlock::Thinking {
+                thinking: "reasoning only".into(),
+                thinking_signature: None,
+            }]
+        } else {
+            vec![ContentBlock::Text { text: text.into() }]
+        };
+        let provider = SummaryProvider {
+            reason,
+            content,
+            usage: Usage {
+                output: output_tokens,
+                ..Default::default()
+            },
+            requested_max_tokens: Mutex::new(Vec::new()),
+        };
+        let model = Model {
+            id: "test".into(),
+            name: String::new(),
+            api: Api::OpenAICompletions,
+            base_url: String::new(),
+            max_tokens: model_max,
+            context_window: 1_000_000,
+        };
+        let options = StreamOptions::default();
+        let env = StrategyEnv {
+            provider: &provider,
+            model: &model,
+            options: &options,
+            abort: AbortSignal::new(),
+            retry: crate::retry::RetryPolicy::NONE,
+        };
+        let result = summarize(&[Message::user_text("history")], None, summary_max, &env).await;
+        let requested = provider.requested_max_tokens.lock().unwrap();
+        (result, requested[0])
+    }
+
+    #[tokio::test]
+    async fn summary_request_uses_budget_bounded_by_model_limit() {
+        let budget = super::super::Budget::from_window(1_000_000, 75);
+        let (result, requested) = summary_reply(
+            384_000,
+            budget.summary_max,
+            StopReason::Stop,
+            "complete summary",
+            500,
+        )
+        .await;
+        assert_eq!(requested, super::super::SUMMARY_MAX_TOKENS);
+        assert_eq!(result.unwrap().0, "complete summary");
+
+        let (result, requested) =
+            summary_reply(2_048, budget.summary_max, StopReason::Stop, "summary", 100).await;
+        assert_eq!(requested, 2_048);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn length_stop_does_not_persist_partial_summary() {
+        let (result, requested) =
+            summary_reply(384_000, 4_096, StopReason::Length, "partial summary", 4_096).await;
+        assert_eq!(requested, 4_096);
+        assert!(result.unwrap_err().contains("未保存可能截断的摘要"));
+    }
+
+    #[tokio::test]
+    async fn reasoning_only_reply_reports_output_usage() {
+        let (result, requested) = summary_reply(384_000, 4_096, StopReason::Stop, "", 1_024).await;
+        assert_eq!(requested, 4_096);
+        let error = result.unwrap_err();
+        assert!(error.contains("模型未返回摘要内容"));
+        assert!(error.contains("输出 1024 个 token"));
+    }
+
+    #[tokio::test]
+    async fn target_percent_changes_the_kept_user_turns() {
+        let provider = SummaryProvider {
+            reason: StopReason::Stop,
+            content: vec![ContentBlock::Text {
+                text: "summary".into(),
+            }],
+            usage: Usage::default(),
+            requested_max_tokens: Mutex::new(Vec::new()),
+        };
+        let model = Model {
+            id: "test".into(),
+            name: String::new(),
+            api: Api::OpenAICompletions,
+            base_url: String::new(),
+            max_tokens: 8_192,
+            context_window: 100_000,
+        };
+        let options = StreamOptions::default();
+        let env = StrategyEnv {
+            provider: &provider,
+            model: &model,
+            options: &options,
+            abort: AbortSignal::new(),
+            retry: crate::retry::RetryPolicy::NONE,
+        };
+        let messages = vec![
+            Message::user_text("a".repeat(40_000)),
+            Message::user_text("b".repeat(6_000)),
+            Message::user_text("c".repeat(6_000)),
+        ];
+        let budget = super::super::Budget {
+            summary_max: 100,
+            keep_recent: 2_000,
+            ..super::super::Budget::from_window(100_000, 75)
+        };
+        let legacy = Preparation::new(&messages, budget);
+        let strategy = LlmSummarize;
+        assert_eq!(
+            strategy.run(&legacy, &env).await.unwrap().keep_from,
+            Some(2)
+        );
+
+        let target = Preparation::new(&messages, budget.with_target_percent(Some(50)));
+        assert_eq!(
+            strategy.run(&target, &env).await.unwrap().keep_from,
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn renders_all_message_kinds() {
+        let transcript = build_summary_prompt(
+            &[
+                Message::user_text("fix the bug"),
+                assistant_text("let me check"),
+                tool_result("t1", "bash", "ok"),
+            ],
+            None,
+        );
+        assert!(transcript.contains("[user]"));
+        assert!(transcript.contains("fix the bug"));
+        assert!(transcript.contains("[assistant]"));
+        assert!(
+            transcript.contains("[assistant tool call:") || transcript.contains("let me check")
+        );
+        assert!(transcript.contains("[tool result: bash (ok)]"));
+        assert!(transcript.contains("<conversation>"));
+        assert!(transcript.contains("## Goal"));
+        assert!(transcript.contains("## Critical Context"));
+        // 无前摘要时不含 previous-summary 节
+        assert!(!transcript.contains("<previous-summary>"));
+    }
+
+    #[test]
+    fn summary_prompt_includes_previous_summary_and_update_instruction() {
+        let transcript =
+            build_summary_prompt(&[Message::user_text("next turn")], Some("## Goal\n旧摘要"));
+        assert!(transcript.contains("<previous-summary>\n## Goal\n旧摘要\n</previous-summary>"));
+        assert!(transcript.contains("PRESERVE all existing information"));
+        assert!(!transcript.contains("Use EXACTLY this skeleton"));
+    }
+
+    #[test]
+    fn keep_start_cuts_at_user_boundary_only() {
+        // user(长) → assistant → toolResult → user(短) → assistant(短)
+        let messages = vec![
+            Message::user_text("x".repeat(10_000)),
+            assistant_text(&"y".repeat(100)),
+            tool_result("t1", "bash", &"z".repeat(100)),
+            Message::user_text("recent question"),
+            assistant_text("recent answer"),
+        ];
+        // 预算只够最近两条：切点必须落在 index 3（user 边界）
+        let start = find_keep_start(&messages, 200).unwrap();
+        assert_eq!(start, 3);
+        assert_eq!(messages[start].role(), "user");
+    }
+    #[test]
+    fn keep_start_is_none_when_all_fit_and_never_orphans_tool_results() {
+        // 全部装得下：不需要保留段
+        let messages = vec![Message::user_text("hello"), assistant_text("hi")];
+        assert!(find_keep_start(&messages, 10_000).is_none());
+
+        // 尾部紧邻 toolResult、更早处无 user 边界时：保留空段（全部摘要化），
+        // 绝不孤立 toolResult
+        let messages = vec![
+            Message::user_text("x".repeat(10_000)),
+            assistant_text("a"),
+            tool_result("t1", "bash", "r"),
+        ];
+        let start = find_keep_start(&messages, 100).unwrap();
+        assert_eq!(start, messages.len());
+    }
+}

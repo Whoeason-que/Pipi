@@ -83,3 +83,18 @@ pub fn is_within(base: &std::path::Path, path: &std::path::Path) -> bool {
     let path = components_vec(path);
     path.starts_with(&base)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_containment() {
+        let base = Path::new("/home/u/project");
+        assert!(is_within(base, Path::new("/home/u/project/a/b.txt")));
+        assert!(is_within(base, Path::new("/home/u/project/../project/x")));
+        assert!(!is_within(base, Path::new("/home/u/other")));
+        assert!(!is_within(base, Path::new("/home/u/project/../..")));
+        assert!(!is_within(base, Path::new("/etc/passwd")));
+    }
+}

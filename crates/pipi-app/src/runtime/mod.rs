@@ -185,18 +185,10 @@ mod compaction;
 mod events;
 mod execution;
 mod slots;
-#[cfg(test)]
-mod tests;
 
-#[cfg(test)]
-use compaction::compaction_stream_options;
 use compaction::{CompactionContext, CompactionTrigger, make_rekey, run_compaction};
 use events::{make_emitter, make_session_change_sink};
 pub(crate) use execution::RuntimeChildRunner;
-#[cfg(test)]
-use execution::append_child_timeout_terminal;
-#[cfg(test)]
-use execution::run_agent_once_inner;
 pub use execution::{CHILD_RUN_TIMEOUT_SECS, run_agent_once};
 use execution::{resolve_model, settle_unanswered_tail, writer_session_id};
 pub use slots::list_sessions;
@@ -214,4 +206,95 @@ pub struct SessionInfo {
     pub run_id: usize,
     pub model: Option<Model>,
     pub is_custom_model: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::future::pending;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    #[test]
+    fn overlapping_generations_keep_new_run_visible() {
+        let state = Arc::new(RunState::new());
+        let old_guard = RunningGuard::new(state.clone());
+        let new_guard = RunningGuard::new(state.clone());
+
+        drop(old_guard);
+        assert!(state.is_running());
+
+        drop(new_guard);
+        assert!(!state.is_running());
+    }
+
+    #[test]
+    fn tokio_abort_drops_running_guard() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let state = Arc::new(RunState::new());
+        let task_state = state.clone();
+
+        runtime.block_on(async move {
+            let handle = tokio::spawn(async move {
+                let _guard = RunningGuard::new(task_state);
+                pending::<()>().await;
+            });
+            tokio::task::yield_now().await;
+            assert!(state.is_running());
+
+            handle.abort();
+            assert!(handle.await.is_err());
+            assert!(!state.is_running());
+        });
+    }
+
+    #[test]
+    fn tokio_panic_drops_running_guard() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let state = Arc::new(RunState::new());
+        let task_state = state.clone();
+
+        runtime.block_on(async move {
+            let handle = tokio::spawn(async move {
+                let _guard = RunningGuard::new(task_state);
+                panic!("test panic");
+            });
+
+            assert!(handle.await.is_err());
+            assert!(!state.is_running());
+        });
+    }
+
+    #[test]
+    fn running_state_is_visible_across_threads() {
+        let state = Arc::new(RunState::new());
+        let started = Arc::new(Barrier::new(2));
+        let observed = Arc::new(Barrier::new(2));
+        let finished = Arc::new(Barrier::new(2));
+        let observer_state = state.clone();
+        let observer_started = started.clone();
+        let observer_observed = observed.clone();
+        let observer_finished = finished.clone();
+
+        let observer = thread::spawn(move || {
+            observer_started.wait();
+            assert!(observer_state.is_running());
+            observer_observed.wait();
+            observer_finished.wait();
+            assert!(!observer_state.is_running());
+        });
+
+        let guard = RunningGuard::new(state.clone());
+        started.wait();
+        observed.wait();
+        drop(guard);
+        finished.wait();
+        observer.join().unwrap();
+    }
 }

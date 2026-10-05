@@ -132,3 +132,121 @@ fn cleared_message(
         timestamp: *timestamp,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::compaction::tool_output::{CLEARED_TOOL_RESULT_PREFIX, ToolOutputPrune};
+    use crate::compaction::{Budget, DEFAULT_THRESHOLD_PERCENT, Preparation, Projection};
+    use crate::test_support::tool_result;
+    use pipi_protocol::{ContentBlock, Message, ToolResultContent};
+
+    fn big_history(turns: usize) -> Vec<Message> {
+        let mut messages = Vec::new();
+        for turn in 0..turns {
+            messages.push(Message::user_text(format!("问题 {turn}")));
+            messages.push(Message::Assistant {
+                content: vec![ContentBlock::Text {
+                    text: "答".repeat(20),
+                }],
+                api: String::new(),
+                provider: String::new(),
+                model: String::new(),
+                usage: Default::default(),
+                stop_reason: pipi_protocol::StopReason::Stop,
+                error_message: None,
+                timestamp: 0,
+                duration_ms: None,
+            });
+            messages.push(tool_result("t", "bash", &"输出".repeat(8_000)));
+        }
+        messages
+    }
+
+    fn budget() -> Budget {
+        Budget {
+            context_window: 40_000,
+            ..Budget::from_window(40_000, DEFAULT_THRESHOLD_PERCENT)
+        }
+    }
+
+    #[test]
+    fn clears_only_old_and_large_results() {
+        let messages = big_history(8);
+        let prep = Preparation::new(&messages, budget());
+        let plan = ToolOutputPrune.plan(&prep);
+        // 8 个工具结果，最近 6 个保留 → 清 2 个
+        assert_eq!(plan.rewrites.len(), 2);
+        // 清的都是早期下标，且保持工具结果身份（配对不受影响）
+        for (index, replacement) in &plan.rewrites {
+            assert!(messages[*index].role() == "toolResult");
+            assert_eq!(replacement.role(), "toolResult");
+            let Message::ToolResult { content, .. } = replacement else {
+                unreachable!()
+            };
+            let ToolResultContent::Text { text } = &content[0] else {
+                unreachable!()
+            };
+            assert!(text.starts_with(CLEARED_TOOL_RESULT_PREFIX));
+            assert!(text.contains("bash"));
+        }
+    }
+
+    #[test]
+    fn skips_short_results_and_already_cleared_ones() {
+        let mut messages = big_history(8);
+        // 把一个早期结果换成很短的内容：不值得清理
+        messages[2] = tool_result("t", "bash", "ok");
+        let prep = Preparation::new(&messages, budget());
+        let plan = ToolOutputPrune.plan(&prep);
+        assert!(plan.rewrites.iter().all(|(index, _)| *index != 2));
+
+        // 二次应用：已清理的不再出现在计划里（幂等）
+        let applied = plan.apply(&messages);
+        let again = ToolOutputPrune.plan(&Preparation::new(&applied, budget()));
+        assert!(again.rewrites.is_empty(), "已清理的结果不应重复清理");
+    }
+
+    #[test]
+    fn keeps_error_flag_so_failures_stay_visible() {
+        let mut messages = big_history(8);
+        let Message::ToolResult {
+            content,
+            tool_name,
+            tool_call_id,
+            details,
+            timestamp,
+            ..
+        } = messages[2].clone()
+        else {
+            unreachable!()
+        };
+        messages[2] = Message::ToolResult {
+            tool_call_id,
+            tool_name,
+            content,
+            is_error: true,
+            details,
+            timestamp,
+        };
+        let prep = Preparation::new(&messages, budget());
+        let plan = ToolOutputPrune.plan(&prep);
+        let (_, replacement) = plan
+            .rewrites
+            .iter()
+            .find(|(index, _)| *index == 2)
+            .expect("失败的旧输出也应被清理");
+        let Message::ToolResult { is_error, .. } = replacement else {
+            unreachable!()
+        };
+        assert!(*is_error, "失败标记必须保留：模型仍要看到这次调用失败了");
+    }
+
+    #[test]
+    fn does_not_apply_without_pressure() {
+        let messages = big_history(8);
+        // 窗口足够大：不清理（细节留到真需要时）
+        let roomy = Budget::from_window(1_000_000, DEFAULT_THRESHOLD_PERCENT);
+        assert!(!ToolOutputPrune.applies(&Preparation::new(&messages, roomy)));
+        assert!(ToolOutputPrune.applies(&Preparation::new(&messages, budget())));
+    }
+}

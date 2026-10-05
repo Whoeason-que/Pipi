@@ -304,3 +304,36 @@ async fn terminate_child(child: &mut Child) -> Result<std::process::ExitStatus, 
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::background::MAX_OUTPUT_BYTES;
+    use crate::background::test_support::{entry, owner};
+
+    #[test]
+    fn output_buffer_is_bounded_and_keeps_cursor() {
+        let entry = entry(BackgroundTaskStatus::Running);
+        for _ in 0..1000 {
+            entry.append_output("stdout", "x".repeat(1024)).unwrap();
+        }
+        let snapshot = entry.snapshot(0).unwrap();
+        assert_eq!(snapshot.next_seq, 1000);
+        assert!(snapshot.task.output_truncated);
+        assert!(
+            snapshot
+                .output
+                .iter()
+                .map(|item| item.text.len())
+                .sum::<usize>()
+                <= MAX_OUTPUT_BYTES
+        );
+    }
+
+    #[test]
+    fn owner_check_is_strict() {
+        let entry = entry(BackgroundTaskStatus::Completed);
+        assert!(entry.belongs_to(&owner()));
+        assert!(!entry.belongs_to(&BackgroundTaskOwner::new("agent", "other", 1)));
+    }
+}

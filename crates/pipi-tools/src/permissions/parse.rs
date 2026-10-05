@@ -224,3 +224,43 @@ pub(super) fn is_word_start(chars: &[char], i: usize) -> bool {
         Some(c) => matches!(c, ' ' | '\t' | '\n' | ';' | '&' | '|' | '(' | ')'),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_respects_quotes() {
+        let segs = split_segments(r#"git commit -m "a; rm -rf /" && ls"#).unwrap();
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[0].argv, vec!["git", "commit", "-m", "a; rm -rf /"]);
+        assert_eq!(segs[1].argv, vec!["ls"]);
+    }
+
+    #[test]
+    fn glued_connectors_split_like_bash() {
+        // bash 本来就把 a&&rm 解析为两个命令 —— 同样切分，交给后续层拦截
+        let segs = split_segments("echo a&&rm -rf /").unwrap();
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[1].argv, vec!["rm", "-rf", "/"]);
+        assert!(split_segments("echo \"unclosed").is_err());
+        assert!(split_segments("   ").is_err());
+    }
+
+    #[test]
+    fn quoted_metacharacters_are_plain_text() {
+        // 引号里的 & ; | 是普通字符：shlex 分词后仍在同一个参数里
+        let segs = split_segments(r#"echo "a & b"; echo c'|'d"#).unwrap();
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[0].argv, vec!["echo", "a & b"]);
+        assert_eq!(segs[1].argv, vec!["echo", "c|d"]);
+    }
+
+    #[test]
+    fn background_ampersand_splits() {
+        let segs = split_segments("sleep 5 & echo done").unwrap();
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[0].argv, vec!["sleep", "5"]);
+        assert_eq!(segs[1].argv, vec!["echo", "done"]);
+    }
+}

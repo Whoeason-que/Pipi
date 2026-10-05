@@ -72,3 +72,116 @@ pub fn ensure_agent_dir(name: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::{AgentDefinition, list_agents, load_agent, save_agent};
+    use pipi_test_support::HOME_LOCK;
+    use pipi_tools::permissions::PermissionsConfig;
+
+    #[test]
+    fn agent_directory_rejects_path_traversal_and_separators() {
+        assert!(agent_dir("safe-agent_1").is_some());
+        for invalid in ["", ".", "..", "../escape", "nested/name", "nested\\name"] {
+            assert!(
+                agent_dir(invalid).is_none(),
+                "accepted invalid agent name: {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn manifest_name_must_match_containing_agent_directory() {
+        assert!(manifest_name_matches_directory("safe-agent", "safe-agent"));
+        assert!(!manifest_name_matches_directory(
+            "safe-agent",
+            "other-agent"
+        ));
+        assert!(!manifest_name_matches_directory("../escape", "../escape"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn agent_directory_symlinks_are_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "pipi-agent-link-home-{}",
+            pipi_agent::session::new_id()
+        ));
+        let external = std::env::temp_dir().join(format!(
+            "pipi-agent-link-external-{}",
+            pipi_agent::session::new_id()
+        ));
+        let linked = home.join(".pipi/agents/linked-agent");
+        std::fs::create_dir_all(home.join(".pipi/agents")).unwrap();
+        std::fs::create_dir_all(&external).unwrap();
+        symlink(&external, &linked).unwrap();
+
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+        let def = AgentDefinition {
+            name: "linked-agent".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: None,
+            permissions: PermissionsConfig::default(),
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+
+        assert!(agent_dir("linked-agent").is_none());
+        assert!(load_agent("linked-agent").is_err());
+        assert!(save_agent(&def).is_err());
+        assert!(ensure_agent_dir("linked-agent").is_err());
+        assert!(list_agents().unwrap().is_empty());
+
+        pipi_test_support::set_env_var("HOME", previous_home);
+        std::fs::remove_dir_all(&home).unwrap();
+        std::fs::remove_dir_all(&external).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn agent_root_symlink_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "pipi-agent-root-link-home-{}",
+            pipi_agent::session::new_id()
+        ));
+        let external = std::env::temp_dir().join(format!(
+            "pipi-agent-root-link-external-{}",
+            pipi_agent::session::new_id()
+        ));
+        std::fs::create_dir_all(home.join(".pipi")).unwrap();
+        std::fs::create_dir_all(&external).unwrap();
+        symlink(&external, home.join(".pipi/agents")).unwrap();
+
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+        assert!(list_agents().is_err());
+        assert!(ensure_agent_dir("root-link-agent").is_err());
+        pipi_test_support::set_env_var("HOME", previous_home);
+
+        std::fs::remove_dir_all(&home).unwrap();
+        std::fs::remove_dir_all(&external).unwrap();
+    }
+
+    #[test]
+    fn tilde_expansion() {
+        // 读取 HOME 前先拿锁，避免与其他测试的 set_var 竞争
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = dirs::home_dir().expect("home dir");
+        assert_eq!(expand_tilde("~/foo"), home.join("foo").to_string_lossy());
+        assert_eq!(expand_tilde("~"), home.to_string_lossy());
+        assert_eq!(expand_tilde("/abs/path"), "/abs/path");
+        assert_eq!(expand_tilde("rel/path"), "rel/path");
+    }
+}

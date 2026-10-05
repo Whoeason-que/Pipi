@@ -1,4 +1,18 @@
-use super::*;
+//! 技能中心的端到端（黑盒）回归：安装 → 启用 / 禁用 → 同步 / 校验 →
+//! 移除的完整生命周期，只经 `pipi_skills` 的公开入口与 av store 的公开 API。
+//!
+//! 写路径与 `av skill install/add/sync/remove` 共用同一份实现，所以这里也
+//! 是「装 ≠ 启用、缺锁 / 缺内容 fail-closed」语义的回归。
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use av::store::{self, SkillLock};
+use pipi_core::agents;
+use pipi_skills::{
+    AgentSkillStatus, SkillVerifyStatus, agent_skills, install_skill, remove_store_skill,
+    set_skill_enabled, skill_usage, store_skills, sync_agent_skills, verify_store_skills,
+};
 use pipi_test_support::HOME_LOCK;
 
 /// 隔离的 HOME：`~/.pipi`（Agent 数据）与 `~/.av`（技能 store）都落在临时目录。

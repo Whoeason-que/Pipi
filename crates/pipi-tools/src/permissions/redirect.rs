@@ -243,3 +243,118 @@ fn redirect_snippet(chars: &[char], start: usize, end: usize) -> String {
         raw
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::permissions::parse::split_segments;
+
+    #[test]
+    fn write_redirect_allows_non_writing_forms() {
+        for command in [
+            // 丢弃 / 合并输出
+            "duckdb -c 'select 1' 2>/dev/null",
+            "timeout 900 cargo test -p x --lib 2>&1 | tail -40",
+            "make >>/dev/null",
+            "make > /dev/null",
+            "cmd 2>&1",
+            "cmd 1>&2",
+            "cmd >&2",
+            "cmd 2>&-",
+            "cmd 2>>/dev/null",
+            "cmd 2>> \"/dev/null\"",
+            "cmd 2>&2 >>/dev/null",
+            // heredoc / herestring：喂 stdin，正文按数据处理
+            "cmd <<<word",
+            "python3 - <<'PY'\nprint(1 > 0)\nPY",
+            "python3 - <<'PY'\nrows = [x for x in y if x->z]\nPY",
+            "python3 - <<-'PY'\n\tprint(\"a\")\n\tPY",
+            "put <<A <<B\nbody A\nA\nbody B\nB",
+            "cat <<EOF\n> out.txt && rm -f /tmp/whatever\nEOF",
+            // 引号 / 注释 / 转义里的操作符
+            "echo \"a > b\"",
+            "grep '>' file.txt",
+            "echo hi # > not-a-redirect",
+            "printf \\>",
+            "cmd | grep x",
+        ] {
+            assert!(
+                matches!(check_write_redirect(command), RedirectCheck::Ok),
+                "应放行：{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_redirect_flags_filesystem_writes() {
+        for (command, token) in [
+            ("echo hi > out.txt", ">out.txt"),
+            ("make >> build.log", ">>build.log"),
+            ("cmd 2> err.log", "2>err.log"),
+            ("cmd &> all.log", "&>all.log"),
+            ("cmd >| force.txt", ">|force.txt"),
+            ("cmd <> rw.txt", "<>rw.txt"),
+            ("cmd >& file.txt", ">&file.txt"),
+            ("exec > trace.log", ">trace.log"),
+            ("cmd 2>&1 > out.txt", ">out.txt"),
+            ("cmd > $OUT", ">$OUT"),
+            ("cmd > \"quoted path.txt\"", ">quoted path.txt"),
+            ("cmd >", ">"),
+            ("echo 'a > b' > c", ">c"),
+            ("ls foo>out.txt", ">out.txt"),
+            ("duckdb -c 'select 1' > /tmp/x 2>/dev/null", ">/tmp/x"),
+            ("ln -s /outside link && printf x > link", ">link"),
+        ] {
+            match check_write_redirect(command) {
+                RedirectCheck::Write(found) => assert_eq!(found, token, "{command}"),
+                RedirectCheck::Ok => panic!("应拒绝：{command}"),
+                RedirectCheck::Read(found) => panic!("{command} 应为写入而非读入：{found}"),
+                RedirectCheck::Unparseable(reason) => panic!("{command} 不应不可分析：{reason}"),
+            }
+        }
+    }
+
+    /// 输入侧重定向保持拒绝：与 read 工具的工作区包含检查同向，不放宽。
+    #[test]
+    fn write_redirect_flags_file_reads() {
+        for (command, token) in [
+            ("cat < /etc/passwd", "</etc/passwd"),
+            ("wc -l < file.txt", "<file.txt"),
+            ("cmd <&0", "<&0"),
+            ("diff <(ls a) <(ls b)", "<(ls a)"),
+            ("cmd < /dev/zero", "</dev/zero"),
+        ] {
+            match check_write_redirect(command) {
+                RedirectCheck::Read(found) => assert_eq!(found, token, "{command}"),
+                RedirectCheck::Ok => panic!("应拒绝：{command}"),
+                RedirectCheck::Write(found) => panic!("{command} 应为读入而非写入：{found}"),
+                RedirectCheck::Unparseable(reason) => panic!("{command} 不应不可分析：{reason}"),
+            }
+        }
+        // 读 /dev/null 等于读不到东西，按丢弃处理
+        assert!(matches!(
+            check_write_redirect("cmd < /dev/null"),
+            RedirectCheck::Ok
+        ));
+    }
+
+    #[test]
+    fn write_redirect_fails_closed_on_unanalyzable_forms() {
+        for command in [
+            "cmd <<EOF",         // heredoc 没有正文 / 结束符
+            "cmd <<EOF\nbody\n", // 正文跑完也没见到结束符
+            "cmd <(a",           // 进程替换括号不配对
+        ] {
+            assert!(
+                matches!(check_write_redirect(command), RedirectCheck::Unparseable(_)),
+                "应判为不可分析：{command}"
+            );
+        }
+        // 未闭合引号不在这里判死：段落切分会以同样的理由拒绝整条命令
+        assert!(matches!(
+            check_write_redirect("echo \"unclosed > out"),
+            RedirectCheck::Ok
+        ));
+        assert!(split_segments("echo \"unclosed > out").is_err());
+    }
+}

@@ -804,3 +804,38 @@ impl RuntimeState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// 回归：桌面壳的 Tauri command 跑在 GTK 主线程上，那里没有 reactor。
+    /// 核心必须把运行 spawn 到注入的运行时上，而不是依赖调用线程的上下文 ——
+    /// 修复前这里会 panic（there is no reactor running），且 panic 发生在主线程、
+    /// 直接中止整个进程。
+    #[test]
+    fn spawn_run_works_without_ambient_reactor() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let state = RuntimeState::new(runtime.handle().clone());
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = done.clone();
+
+        // 关键：不套 runtime.block_on —— 模拟「调用线程不在运行时里」
+        state.spawn_run(async move {
+            flag.store(true, Ordering::SeqCst);
+        });
+        assert!(!done.load(Ordering::SeqCst), "任务不该在调用线程上同步执行");
+
+        runtime.block_on(async {
+            tokio::task::yield_now().await;
+        });
+        assert!(
+            done.load(Ordering::SeqCst),
+            "任务必须落在注入的运行时上执行"
+        );
+    }
+}

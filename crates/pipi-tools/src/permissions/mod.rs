@@ -40,11 +40,6 @@ mod redirect;
 mod rm;
 mod types;
 
-#[cfg(test)]
-use config::default_tools;
-#[cfg(test)]
-use redirect::{RedirectCheck, check_write_redirect};
-
 pub use config::PermissionsConfig;
 pub use parse::{matches_entry, split_segments};
 pub(crate) use paths::resolve_write_target;
@@ -54,6 +49,3 @@ pub use types::{
     AGENT_TOOLS, BACKGROUND_TASK_TOOLS, BashAssessment, BashMode, BashPermissions, CommandApprover,
     DEFAULT_TOOLS, KNOWN_TOOLS, SandboxMode, Segment,
 };
-
-#[cfg(test)]
-mod tests;

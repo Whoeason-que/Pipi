@@ -395,3 +395,52 @@ impl RuntimeState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compaction_summary_request_uses_active_session_id() {
+        let options = compaction_stream_options("test-key", "active-session");
+        assert_eq!(options.session_id.as_deref(), Some("active-session"));
+        assert_eq!(options.api_key.as_deref(), Some("test-key"));
+    }
+
+    #[test]
+    fn temporary_compaction_updates_memory_ledger_without_forking() {
+        let mut ledger = SessionWriter::temporary();
+        let keep_from = ledger
+            .append_message(&Message::user_text("保留这条"))
+            .unwrap();
+        ledger
+            .append_message(&Message::assistant_text("回答", "mock"))
+            .unwrap();
+        let source_tip = ledger.tip_id().unwrap().to_string();
+        let writer = Arc::new(Mutex::new(ledger));
+        let record = pipi_agent::session::CompactionRecord {
+            summary: "内存摘要",
+            strategy: "summary",
+            keep_from_entry: &keep_from,
+            source_tip: &source_tip,
+            usage: None,
+        };
+
+        let switched = persist_compaction(
+            &writer,
+            None,
+            &record,
+            pipi_core::settings::CompactionSettings {
+                fork_before_compact: true,
+                archive_original: true,
+            },
+        )
+        .expect("临时账本压缩");
+
+        assert!(switched.is_none(), "临时压缩不能切换或分叉会话");
+        let ledger = writer.lock().unwrap();
+        assert!(ledger.is_temporary());
+        assert!(ledger.persistent_path().is_none());
+        assert_ne!(ledger.tip_id(), Some(source_tip.as_str()));
+    }
+}

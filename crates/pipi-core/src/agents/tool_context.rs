@@ -92,3 +92,84 @@ pub fn build_tool_context(
         resolved,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::{AgentDefinition, agent_dir, create_agent};
+    use pipi_test_support::HOME_LOCK;
+    use pipi_tools::permissions::PermissionsConfig;
+
+    #[test]
+    fn tool_context_grants_read_access_to_memory_dir() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let name = format!("memory-read-{}", pipi_agent::session::new_id());
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
+        let memory_dir = def.memory_dir().unwrap();
+        fs::write(memory_dir.join("note.md"), "hello").unwrap();
+
+        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
+        let read_root = ctx
+            .read_roots
+            .iter()
+            .find(|root| root.ends_with("memory"))
+            .expect("memory dir should be a trusted read root");
+
+        // read 工具路径解析能通过 memory 根
+        let resolved = pipi_tools::resolve_read_path(
+            &ctx.workspace,
+            &ctx.read_roots,
+            &memory_dir.join("note.md").display().to_string(),
+        )
+        .unwrap();
+        assert!(resolved.starts_with(read_root));
+
+        let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_tool_context_rejects_skills_symlink_outside_agent_dir() {
+        use std::os::unix::fs::symlink;
+
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "pipi-skills-link-home-{}",
+            pipi_agent::session::new_id()
+        ));
+        let external = std::env::temp_dir().join(format!(
+            "pipi-skills-link-external-{}",
+            pipi_agent::session::new_id()
+        ));
+        let agent_dir = home.join(".pipi/agents/skills-link-agent");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        std::fs::create_dir_all(&external).unwrap();
+        symlink(&external, agent_dir.join("skills")).unwrap();
+
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+        let def = AgentDefinition {
+            name: "skills-link-agent".into(),
+            description: String::new(),
+            model: String::new(),
+            provider: None,
+            workspace: None,
+            permissions: PermissionsConfig::default(),
+            mcp_servers: Vec::new(),
+            subagent: false,
+            compact_threshold_percent: 75,
+            compact_target_percent: None,
+        };
+
+        let result = build_tool_context(&def, None, pipi_protocol::AbortSignal::new());
+        pipi_test_support::set_env_var("HOME", previous_home);
+        std::fs::remove_dir_all(&home).unwrap();
+        std::fs::remove_dir_all(&external).unwrap();
+
+        let error = match result {
+            Ok(_) => panic!("skills symlink outside the agent must fail closed"),
+            Err(error) => error,
+        };
+        assert!(error.contains("skills"), "unexpected error: {error}");
+    }
+}

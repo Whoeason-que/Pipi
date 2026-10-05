@@ -223,7 +223,196 @@ fn today() -> String {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::{assistant_text, tool_result};
+    use pipi_protocol::{ContentBlock, StopReason, Usage};
 
-#[cfg(test)]
-mod pairing_tests;
+    #[test]
+    fn estimation_heuristic() {
+        // 4 字符 ≈ 1 token
+        assert_eq!(estimate_tokens(&Message::user_text("abcdefgh")), 2);
+        // 图片按 4800 chars 计
+        let image = Message::ToolResult {
+            tool_call_id: "t".into(),
+            tool_name: "read".into(),
+            content: vec![ToolResultContent::Image {
+                data: "x".into(),
+                mime_type: "image/png".into(),
+            }],
+            is_error: false,
+            details: None,
+            timestamp: 0,
+        };
+        assert_eq!(estimate_tokens(&image), ESTIMATED_IMAGE_CHARS as u64 / 4);
+    }
+
+    #[test]
+    fn prune_cuts_at_user_boundaries_only() {
+        // user(长) → assistant → toolResult → user(短) → assistant(短)
+        let messages = vec![
+            Message::user_text("x".repeat(10_000)),
+            assistant_text(&"y".repeat(100)),
+            tool_result("t1", "bash", &"z".repeat(100)),
+            Message::user_text("short question"),
+            assistant_text("answer"),
+        ];
+        // 预算只够放下后两条
+        let (pruned, dropped) = prune_oldest(&messages, 900);
+        assert_eq!(dropped, 3);
+        assert_eq!(pruned.len(), 2);
+        assert_eq!(pruned[0].role(), "user");
+        // 预算充足：不动
+        let (pruned, dropped) = prune_oldest(&messages, 99_900);
+        assert_eq!((pruned.len(), dropped), (5, 0));
+    }
+
+    #[test]
+    fn prune_never_orphans_tool_results() {
+        // 首条就是 assistant + toolResult（无 user 边界在尾部预算内）
+        let messages = vec![
+            Message::user_text("x".repeat(10_000)),
+            assistant_text(&"y".repeat(10_000)),
+            tool_result("t1", "bash", &"z".repeat(10_000)),
+        ];
+        let (pruned, dropped) = prune_oldest(&messages, 500);
+        assert_eq!((pruned.len(), dropped), (3, 0));
+    }
+
+    #[test]
+    fn env_context_renders_tags_and_escapes_hostile_workspace_path() {
+        let ctx = environment_context(Path::new("/home/u/proj"), &SandboxMode::WorkspaceWrite);
+        assert!(ctx.contains("<environment_context>"));
+        assert!(ctx.contains("<cwd>/home/u/proj</cwd>"));
+        assert!(ctx.contains("<sandbox>workspace-write</sandbox>"));
+        assert!(ctx.contains("<date>20"));
+
+        // 工作目录来自用户/仓库，必须转义，不能破坏 XML 结构
+        let hostile = environment_context(
+            Path::new("/tmp/a<&>\"\'\nnext"),
+            &SandboxMode::WorkspaceWrite,
+        );
+        assert!(hostile.contains("<cwd>/tmp/a&lt;&amp;&gt;&quot;&apos;\\nnext</cwd>"));
+        assert!(!hostile.contains("<cwd>/tmp/a<&>\"\'"));
+    }
+
+    fn assistant_with_calls(calls: &[(&str, &str)]) -> Message {
+        Message::Assistant {
+            content: calls
+                .iter()
+                .map(|(id, name)| ContentBlock::ToolCall {
+                    id: (*id).into(),
+                    name: (*name).into(),
+                    arguments: serde_json::json!({}),
+                })
+                .collect(),
+            api: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            usage: Usage::default(),
+            stop_reason: StopReason::ToolUse,
+            error_message: None,
+            timestamp: 0,
+            duration_ms: None,
+        }
+    }
+
+    fn role_ids(messages: &[Message]) -> Vec<(String, String)> {
+        messages
+            .iter()
+            .map(|message| match message {
+                Message::User { .. } => ("user".into(), String::new()),
+                Message::Assistant { .. } => ("assistant".into(), String::new()),
+                Message::ToolResult {
+                    tool_call_id,
+                    is_error,
+                    ..
+                } => (
+                    if *is_error { "tool-error" } else { "tool" }.into(),
+                    tool_call_id.clone(),
+                ),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn healthy_history_is_unchanged() {
+        let messages = vec![
+            Message::user_text("hi"),
+            assistant_with_calls(&[("c1", "bash"), ("c2", "read")]),
+            tool_result("c1", "bash", "out"),
+            tool_result("c2", "read", "out"),
+            Message::assistant_text("done", "m"),
+        ];
+        let repaired = repair_tool_pairing(messages.clone());
+        assert_eq!(repaired, messages);
+    }
+
+    #[test]
+    fn missing_results_are_synthesized_right_after_the_assistant() {
+        let messages = vec![
+            Message::user_text("hi"),
+            assistant_with_calls(&[("c1", "bash")]),
+            Message::user_text("继续"),
+            Message::assistant_text("ok", "m"),
+        ];
+        let repaired = repair_tool_pairing(messages);
+        assert_eq!(
+            role_ids(&repaired),
+            vec![
+                ("user".to_string(), String::new()),
+                ("assistant".to_string(), String::new()),
+                ("tool-error".to_string(), "c1".to_string()),
+                ("user".to_string(), String::new()),
+                ("assistant".to_string(), String::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn partial_batch_is_completed_in_order() {
+        let messages = vec![
+            assistant_with_calls(&[("c1", "bash"), ("c2", "read"), ("c3", "grep")]),
+            tool_result("c1", "bash", "out"),
+        ];
+        let repaired = repair_tool_pairing(messages);
+        assert_eq!(
+            role_ids(&repaired),
+            vec![
+                ("assistant".to_string(), String::new()),
+                ("tool".to_string(), "c1".to_string()),
+                ("tool-error".to_string(), "c2".to_string()),
+                ("tool-error".to_string(), "c3".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn orphan_tool_results_are_dropped() {
+        let messages = vec![
+            Message::user_text("hi"),
+            tool_result("ghost", "bash", "out"),
+            assistant_with_calls(&[("c1", "bash")]),
+            tool_result("c1", "bash", "out"),
+        ];
+        let repaired = repair_tool_pairing(messages);
+        assert_eq!(
+            role_ids(&repaired),
+            vec![
+                ("user".to_string(), String::new()),
+                ("assistant".to_string(), String::new()),
+                ("tool".to_string(), "c1".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn histories_without_tools_pass_through() {
+        let messages = vec![
+            Message::user_text("a"),
+            Message::assistant_text("b", "m"),
+            Message::user_text("c"),
+        ];
+        assert_eq!(repair_tool_pairing(messages.clone()), messages);
+    }
+}
