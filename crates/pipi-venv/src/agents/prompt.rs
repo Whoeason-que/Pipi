@@ -303,7 +303,7 @@ mod tests {
             provider: None,
             workspace: Some(
                 std::env::temp_dir()
-                    .join("pipi-harness-wire-test-does-not-write")
+                    .join("pipi-venv-wire-test-does-not-write")
                     .to_string_lossy()
                     .into_owned(),
             ),
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn project_contract_skills_sources_point_into_the_repo() {
         let root =
-            std::env::temp_dir().join(format!("pipi-skills-sources-{}", pipi_protocol::new_id()));
+            std::env::temp_dir().join(format!("pipi-venv-sources-{}", pipi_protocol::new_id()));
         fs::create_dir_all(root.join(".git")).unwrap();
         let pack = root.join(".agents").join("skills").join("workspace-guide");
         fs::create_dir_all(&pack).unwrap();

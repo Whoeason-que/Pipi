@@ -1,6 +1,6 @@
 //! 宿主事件协议：运行时发给宿主的信封与事件枚举。
 //!
-//! 这是 `pipi-app` 的**叶子模块**：只依赖协议与 Agent 事件类型，不依赖
+//! 这是宿主的**叶子模块**：只依赖协议与 Agent 事件类型，不依赖
 //! `runtime` 或 `approval`。于是 `approval` 能发审批请求、`runtime` 能发全部
 //! 事件，而两者之间不再有类型上的环。宿主把 [`RuntimeEvent`] 映射成自己的
 //! 传输（Tauri event 或 WebSocket frame），不做业务解释。

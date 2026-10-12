@@ -12,8 +12,8 @@
 //! 缓存：`~/.pipi/cache/models.json`（我们的 wire 结构，自带 `fetchedAt`）。
 //! 拉取失败时用缓存顶（`stale=true`）；没缓存就报错，由前端退化成手填模型 ID。
 //!
-//! **缓存路径由宿主注入**（`load_catalog(refresh, cache_path)`）：路径布局是 av
-//! 的职责（`av::paths`），provider 层不该反向依赖它。
+//! **缓存路径由宿主注入**（`load_catalog(refresh, cache_path)`）：路径布局是
+//! `pipi_venv::av::paths` 的职责，provider 层不该反向依赖它。
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};

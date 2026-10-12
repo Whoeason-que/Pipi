@@ -1,7 +1,7 @@
 //! 测试脚手架：进程级环境变量（`HOME` / `AV_HOME` / `PIPI_HOME`）的串行化改写。
 //!
 //! 为什么是独立 crate：拆分后改写环境变量的用例分散在多个 crate（pipi-core、
-//! pipi-skills、pipi-app…），而 `pub(crate)` 助手不跨 crate。每个测试二进制各自
+//! pipi-venv、pipi-agent…），而 `pub(crate)` 助手不跨 crate。每个测试二进制各自
 //! 链接一份本 crate，[`HOME_LOCK`] 因此是「每个测试进程一把锁」—— 同一进程内的
 //! 用例持锁串行，不同测试二进制本来就是不同进程，互不影响。
 //!

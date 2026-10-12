@@ -109,15 +109,6 @@ pub fn list_agent_md_files(agent_name: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// memory 渐进召回的单条索引：相对 memory 目录的路径 + 一句话摘要。
-#[derive(Debug, Clone, PartialEq)]
-pub struct MemoryFileMeta {
-    /// 相对 memory 目录的路径（`/` 分隔）。
-    pub path: String,
-    /// 首个标题或首行非空文本（截断）。
-    pub summary: String,
-}
-
 /// 摘要截断长度（字符）；超长以省略号收尾。
 const MEMORY_SUMMARY_MAX_CHARS: usize = 80;
 

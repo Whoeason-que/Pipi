@@ -504,7 +504,7 @@ pub fn read_agent_output(
         .sessions_dir()
         .ok_or_else(|| "无法解析会话目录".to_string())?;
     // 会话载体装配点（pipi-core 侧）：今天是 JSONL 文件目录。接入第二载体时
-    // 与 `pipi-app::runtime::store` 一起改（设计见 docs/git-session-store.md）。
+    // 与 `crate::runtime::store` 一起改（设计见 docs/git-session-store.md）。
     let repo = JsonlSessionRepo::new(sessions_dir);
 
     let session_id = match session_id {

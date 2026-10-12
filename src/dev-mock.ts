@@ -35,7 +35,7 @@ const initialDemoMessages: Array<Record<string, unknown>> = [
     content: [{ type: "text", text: `项目结构很简洁，核心三块：
 
 - **src/** — React + TS 前端（零 UI 框架）
-- **src-tauri/** — Tauri 薄壳，命令只做 IPC 转发
+- **crates/pipi/** — Tauri 薄壳，命令只做 IPC 转发
 - **crates/pipi-core/** — 从 pi 移植的 Agent 内核
 
 主循环的调用方式：
@@ -530,7 +530,7 @@ const settings: Settings = {
 };
 
 
-// —— 技能（av store 演示数据）：与 pipi-skills 的 DTO 同形 ——
+// —— 技能（av store 演示数据）：与 `skill_library` 命令的 DTO 同形 ——
 const demoSkillLibrary: Array<Record<string, unknown>> = [
   {
     name: "pdf",

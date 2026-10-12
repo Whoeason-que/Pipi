@@ -143,7 +143,7 @@ export interface SessionInfoView {
   isCustomModel?: boolean;
 }
 
-// ---- 技能（av 全局 store 与 Agent 契约；Rust 侧 pipi-skills）----
+// ---- 技能（av 全局 store 与 Agent 契约；Rust 侧 pipi-venv）----
 
 export type SkillSourceType = "git" | "local";
 

@@ -1,6 +1,6 @@
 //! Tauri 事件适配层。
 //!
-//! 会话运行逻辑位于 pipi-app::runtime，本模块只把共享运行时映射为
+//! 会话运行逻辑位于 `pipi_core::runtime`，本模块只把共享运行时映射为
 //! Tauri command 与 event；命令参数与转发目标见 `pipi_core::commands`。
 
 use std::sync::Arc;

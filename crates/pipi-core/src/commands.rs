@@ -1,9 +1,9 @@
 //! 宿主命令的单一事实来源。
 //!
 //! 47 个命令的名称（[`COMMANDS`]）、参数结构体、逻辑与 JSON 分发表都在这里；
-//! `src-tauri`（桌面）与 `pipi-server`（Web）只做 transport：前者把每个命令
-//! 转发成 `#[tauri::command]` 薄壳，后者调用 [`dispatch`]。两边不再各自复制
-//! 命令表，也不再手写 JSON 参数解析。
+//! `crates/pipi`（桌面壳）与 `server` 特性里的 Web 宿主只做 transport：前者把
+//! 每个命令转发成 `#[tauri::command]` 薄壳，后者调用 [`dispatch`]。两边不再各自
+//! 复制命令表，也不再手写 JSON 参数解析。
 //!
 //! 参数结构体统一 `#[serde(rename_all = "camelCase")]`，字段名、类型与可选性
 //! 就是前端 `src/ipc.ts` 的宿主命令契约（由 `tests/ipc-contract.test.ts` 核对）。

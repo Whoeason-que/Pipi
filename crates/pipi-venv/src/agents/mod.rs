@@ -22,9 +22,7 @@ pub use archive::{
     archive_agent, delete_agent, delete_archived_agent, list_archived_agents, restore_agent,
 };
 pub use contract::collect_contract_layers;
-pub use files::{
-    MemoryFileMeta, list_agent_md_files, memory_index, read_agent_file, write_agent_file,
-};
+pub use files::{list_agent_md_files, memory_index, read_agent_file, write_agent_file};
 pub use paths::{agent_dir, agents_dir, ensure_agent_dir, expand_tilde, validate_agent_name};
 pub use prompt::{build_system_prompt, build_system_prompt_with_tools};
 pub use registry::{

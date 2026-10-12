@@ -1,8 +1,8 @@
 //! Agent 可调用的后台任务托管工具。
 //!
 //! 工具只定义能力边界和协议，不持有进程、不知道 Agent 目录如何落盘。具体的
-//! 生命周期、进程组和重启恢复由 `pipi-app` 注入 [`BackgroundTaskService`]。
-//! 这样 core 可以在 Tauri 与 Web 两个宿主中复用同一套工具语义。
+//! 生命周期、进程组和重启恢复由 `runtime` 注入 [`BackgroundTaskService`]。
+//! 这样同一套工具语义可以被 Tauri 与 Web 两个壳复用。
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

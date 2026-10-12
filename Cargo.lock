@@ -5790,7 +5790,6 @@ dependencies = [
  "pipi-core",
  "pipi-protocol",
  "pipi-provider",
- "pipi-tools",
  "pipi-venv",
  "serde",
  "serde_json",
@@ -5804,7 +5803,6 @@ name = "pipi-agent"
 version = "26.9.3"
 dependencies = [
  "async-trait",
- "fastrand",
  "futures-util",
  "pipi-context",
  "pipi-error",
@@ -5920,7 +5918,6 @@ dependencies = [
  "pipi-protocol",
  "pipi-test-support",
  "regex",
- "serde",
  "serde_json",
  "shlex",
  "similar",

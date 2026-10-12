@@ -135,9 +135,9 @@ mod tests {
 
         let _guard = HOME_LOCK.lock().unwrap();
         let home =
-            std::env::temp_dir().join(format!("pipi-skills-link-home-{}", pipi_protocol::new_id()));
+            std::env::temp_dir().join(format!("pipi-venv-link-home-{}", pipi_protocol::new_id()));
         let external = std::env::temp_dir().join(format!(
-            "pipi-skills-link-external-{}",
+            "pipi-venv-link-external-{}",
             pipi_protocol::new_id()
         ));
         let agent_dir = home.join(".pipi/agents/skills-link-agent");

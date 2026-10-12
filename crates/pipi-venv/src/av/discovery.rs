@@ -32,8 +32,8 @@ pub struct Discovered {
     pub layers: Vec<Layer>,
 }
 
-/// 向上定位项目根：`.git` 标记。与 `pipi-harness` 的 `find_project_root`
-/// 同一语义（av 不反向依赖宿主 crate，故此处独立实现）。
+/// 向上定位项目根：`.git` 标记。与 `crate::prompt::find_project_root` 同一语义；
+/// av 模块保持自包含（可独立提取），故此处独立实现、不反向依赖 prompt 层。
 pub fn find_project_root(start: &Path) -> Option<PathBuf> {
     let mut cursor = start.to_path_buf();
     loop {
