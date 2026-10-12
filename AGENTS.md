@@ -205,7 +205,7 @@ src/                 React + TypeScript 前端
   `crates/pipi-tools/tests/permissions_policy.rs` 的表驱动测试（白盒解析回归
   内联在 `permissions/{parse,redirect,paths}.rs` 各自文件底部）。
 - 请求重试分两层，别把重试加到 provider 层：**provider 只分类**（rig 的结构化错误
-  → 可重试 / 终态 + `Retry-After`，见 `retry::classify_rig_error`），**重发只在
+  → 可重试 / 终态 + `Retry-After`，见 `pipi_provider::classify::classify_rig_error`），**重发只在
   agent_loop 一处做**（`stream_assistant_response` 的尝试循环；摘要调用在
   `compaction::llm` 自己那层共用同一策略）—— 双层重试会放大成 N×M 次请求。
   三条不变量：**用户中止永远不可重试**；**已经输出过正文的那一轮不重放**（例外是

@@ -1,5 +1,5 @@
 //! 技能中心的端到端（黑盒）回归：安装 → 启用 / 禁用 → 同步 / 校验 →
-//! 移除的完整生命周期，只经 `pipi_skills` 的公开入口与 av store 的公开 API。
+//! 移除的完整生命周期，只经 `pipi_venv::skills` 的公开入口与 av store 的公开 API。
 //!
 //! 写路径与 `av skill install/add/sync/remove` 共用同一份实现，所以这里也
 //! 是「装 ≠ 启用、缺锁 / 缺内容 fail-closed」语义的回归。

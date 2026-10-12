@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn system_prompt_includes_wire_tool_descriptions() {
         let def = AgentDefinition {
-            name: "__pipi_harness_wire_test__".into(),
+            name: "__pipi_venv_wire_test__".into(),
             description: String::new(),
             model: String::new(),
             provider: None,
@@ -456,7 +456,7 @@ mod tests {
         .unwrap();
 
         let def = AgentDefinition {
-            name: "__pipi_skills_sources__".into(),
+            name: "__pipi_venv_skill_sources__".into(),
             description: String::new(),
             model: String::new(),
             provider: None,

@@ -143,7 +143,7 @@ pub struct AgentLoopConfig {
     pub tools: Arc<ToolRegistry>,
     pub tool_context: ToolContext,
     pub options: StreamOptions,
-    /// 失败重发策略（全局设置 `retry` 段；分类见 [`crate::retry`]）。
+    /// 失败重发策略（全局设置 `retry` 段；分类见 [`pipi_context::retry`]）。
     pub retry: pipi_context::retry::RetryPolicy,
     /// 协议是否由系统管理（设置的「自动」模式）：端点回报「不支持当前协议」时，
     /// 换另一种协议再试一次（不占重试预算）。用户把提供商协议钉死时为 `false`，
@@ -278,7 +278,7 @@ fn stop_reason_of(message: &Message) -> Option<StopReason> {
 
 /// 从 provider 事件流构建一条助手消息（对应 pi 的 streamAssistantResponse）。
 ///
-/// 失败的可重试错误在这里重发整轮请求（分类与退避见 [`crate::retry`]，判定规则：
+/// 失败的可重试错误在这里重发整轮请求（分类与退避见 [`pipi_context::retry`]，判定规则：
 /// - 终态错误（请求不合法、鉴权、上下文超限、配额耗尽……）直接收尾；
 /// - **已经向用户输出过正文（文本 / 思维链增量）就不再重放** —— 重复文本比失败更糟，
 ///   这条对齐 hermes 的「已吐过 delta 不重试」；

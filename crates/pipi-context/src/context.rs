@@ -1,14 +1,12 @@
-//! 上下文预算：token 估算、裁剪与环境上下文。
+//! 上下文预算（纯函数）：token 估算、裁剪、工具配对修复。
 //!
 //! - `estimate_tokens` / `prune_oldest` 移植自
 //!   `packages/agent/src/harness/compaction/compaction.ts` 的启发式部分
 //!   （chars/4、图片按 4800 chars 计）。上游的完整 compaction 用 LLM 做
 //!   摘要替换，属「有意推迟」；这里是 M1 的保底策略：超预算时从最旧的
 //!   完整轮次开始丢弃。
-//! - `environment_context` 移植自 codex
-//!   `core/src/context/environment_context.rs` 的思路：把工作目录、沙箱
-//!   等运行环境以 XML 标签块注入上下文（上游作为独立 user fragment 注入，
-//!   我们拼进系统提示，见 agents::build_system_prompt）。
+//! - 环境上下文的注入（`environment_context`，移植自 codex）随提示词层落在
+//!   `pipi-venv/src/prompt/environment.rs` —— 这个 crate 只做策略，不装配提示词。
 
 use pipi_protocol::{ContentBlock, Message, ToolResultContent};
 

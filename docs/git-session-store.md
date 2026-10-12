@@ -190,10 +190,10 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 
 | 提交点 | 代码位置 | 不提交的后果 |
 | --- | --- | --- |
-| 会话创建 | `slots/mod.rs:95-101`（写 model_change）、`execution/mod.rs:282-283`（env 记账） | 单轮会话在 git 里 0 commit，列表/浏览都看不到——与 §3 否掉的「下次输入才提交」是同一个毛病 |
+| 会话创建 | `crates/pipi-core/src/runtime/slots.rs`（写 model_change）、`runtime/execution.rs`（env 记账） | 单轮会话在 git 里 0 commit，列表/浏览都看不到——与 §3 否掉的「下次输入才提交」是同一个毛病 |
 | 压缩条目 | 轮末之后的 `run_compaction`；空闲时的手动 `compact_now` | 压缩记录不入史，回放按旧历史 |
-| 手动切模型 | `queries.rs::set_session_model`（空闲时追加 model_change） | 模型变更不入史 |
-| 旧会话尾部修复 | `execution/mod.rs:95-124`（`settle_unanswered_tail`） | 只对旧 JSONL 会话需要；git 后端每个 commit 边界都是完整轮，不会出现悬挂尾部 |
+| 手动切模型 | `crates/pipi-core/src/runtime/slots.rs:552`（`set_session_model`，空闲时追加 model_change） | 模型变更不入史 |
+| 旧会话尾部修复 | `crates/pipi-core/src/runtime/execution.rs`（`settle_unanswered_tail`） | 只对旧 JSONL 会话需要；git 后端每个 commit 边界都是完整轮，不会出现悬挂尾部 |
 - 读：`ls-tree -r <branch>` 拿路径与 blob id（顺序即对话顺序）→ 一次
   `cat-file --batch` 流式取内容 → 逐行 serde 成 `SessionEntry` → 之后的
   `active_path` / `replay` / `rebuild_messages` / 统计全部复用，零改动。

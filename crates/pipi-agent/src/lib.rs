@@ -9,7 +9,7 @@
 //! | 模块 | 职责 | pi 对应 |
 //! | --- | --- | --- |
 //! | [`agent_loop`] | 主循环 + steering/follow-up + 工具批次执行 | `packages/agent/src/agent-loop.ts` |
-//! //! | [`stats`] | 会话统计（滚动窗口、命中率） | hermes 口径，见 README |
+//! | [`stats`] | 会话统计（滚动窗口、命中率） | hermes 口径，见 README |
 //!
 //! 不属于这里的：Agent 定义与 av 契约、技能中心、提示词装配（`pipi-venv`），设置与
 //! 模型目录（`pipi-core` / `pipi-provider::catalog`），会话槽、后台编排与宿主事件（`pipi-core`）。

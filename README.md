@@ -361,11 +361,11 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
 | `packages/agent` harness/tools | `pipi-tools` + `pipi-core::tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/glob/grep；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
 | `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness prompt/resources | `pipi-venv::prompt` | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
-| `packages/agent` harness/session | `pipi-agent::session` | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
+| `packages/agent` harness/session | `pipi-protocol::session`（条目格式与回放）+ `pipi-session`（JSONL 载体） | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
 | （Pipi 应用层） | `pipi-core::runtime` | 会话槽、后台 Agent 编排和宿主事件协议；Tauri 与 Web server 共用，IPC payload 不变 |
-| `packages/agent` compaction（启发式） | `pipi-agent::context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
-| `packages/agent` compaction（LLM 摘要替换） | `pipi-agent::compaction` | 见下文「上下文压缩」：摘要替换旧轮次 + 保留近期原文（keepRecentTokens=20000）；摘要骨架 prompt、旧摘要经 `<previous-summary>` 交回 update 版指令、文件操作清单追加在摘要末尾；落盘为 `compaction` 条目（含 `keep_from_entry`），重开/分叉时回放 |
-| `packages/agent` skills（frontmatter） | `av::skills` | 渐进式披露：索引常驻上下文，全文模型按需 read；技能包管理（store/锁/安装）见「agent.toml 契约」一节 |
+| `packages/agent` compaction（启发式） | `pipi-context::context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
+| `packages/agent` compaction（LLM 摘要替换） | `pipi-context::compaction` | 见下文「上下文压缩」：摘要替换旧轮次 + 保留近期原文（keepRecentTokens=20000）；摘要骨架 prompt、旧摘要经 `<previous-summary>` 交回 update 版指令、文件操作清单追加在摘要末尾；落盘为 `compaction` 条目（含 `keep_from_entry`），重开/分叉时回放 |
+| `packages/agent` skills（frontmatter） | `pipi-venv::skills` | 渐进式披露：索引常驻上下文，全文模型按需 read；技能包管理（store/锁/安装）见「agent.toml 契约」一节 |
 
 有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/
 prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-tools::permissions`
