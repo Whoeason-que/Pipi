@@ -132,7 +132,7 @@ pub type BeforeToolCallHook =
 pub type AfterToolCallHook = Arc<dyn Fn(&ContentBlock, &mut ToolOutput, &mut bool) + Send + Sync>;
 
 /// 上下文变换（pi 的 transformContext 钩子）：每次 LLM 调用前对消息历史
-/// 做变换（裁剪、注入等）。默认恒等；见 [`crate::context::prune_transform`]。
+/// 做变换（裁剪、注入等）。默认恒等；见 [`pipi_context::context::prune_transform`]。
 pub type TransformContextHook = Arc<dyn Fn(Vec<Message>) -> Vec<Message> + Send + Sync>;
 
 /// Clone 用于「一次运行结束收割迟到 steering 后再起一轮」的续跑场景。
@@ -144,7 +144,7 @@ pub struct AgentLoopConfig {
     pub tool_context: ToolContext,
     pub options: StreamOptions,
     /// 失败重发策略（全局设置 `retry` 段；分类见 [`crate::retry`]）。
-    pub retry: crate::retry::RetryPolicy,
+    pub retry: pipi_context::retry::RetryPolicy,
     pub tool_execution: ToolExecutionMode,
     pub steering: MessageQueue,
     pub follow_up: MessageQueue,
@@ -295,7 +295,7 @@ async fn stream_assistant_response(
     };
     // 发送前最后一道闸：修复工具配对（缺失结果补合成错误、孤儿结果丢弃）。
     // 破损历史无论来自进程中断、批次中止还是手工编辑，都会让端点按协议 400。
-    let effective_messages = crate::context::repair_tool_pairing(effective_messages);
+    let effective_messages = pipi_context::context::repair_tool_pairing(effective_messages);
     let wire = Context {
         system_prompt: (!context.system_prompt.is_empty()).then(|| context.system_prompt.clone()),
         messages: effective_messages,
@@ -438,8 +438,8 @@ async fn stream_assistant_response(
         }
 
         failures += 1;
-        match crate::retry::retry_decision(&config.retry, failures, Some(hint)) {
-            crate::retry::RetryDecision::Retry { delay } => {
+        match pipi_context::retry::retry_decision(&config.retry, failures, Some(hint)) {
+            pipi_context::retry::RetryDecision::Retry { delay } => {
                 emit(AgentEvent::RetryStart {
                     attempt: failures,
                     max_attempts: config.retry.max_attempts,
@@ -450,7 +450,7 @@ async fn stream_assistant_response(
                     return aborted(emit);
                 }
             }
-            crate::retry::RetryDecision::GiveUp(reason) => {
+            pipi_context::retry::RetryDecision::GiveUp(reason) => {
                 return failed(emit, give_up_message(&message, failures, reason));
             }
         }
@@ -469,15 +469,19 @@ async fn sleep_or_abort(delay: std::time::Duration, abort: &AbortSignal) -> bool
 }
 
 /// 放弃重试后的错误文案：说清「试了几次」与「为什么不再试」。
-fn give_up_message(cause: &str, failures: u32, reason: crate::retry::GiveUpReason) -> String {
+fn give_up_message(
+    cause: &str,
+    failures: u32,
+    reason: pipi_context::retry::GiveUpReason,
+) -> String {
     match reason {
-        crate::retry::GiveUpReason::PolicyExhausted => {
+        pipi_context::retry::GiveUpReason::PolicyExhausted => {
             format!("已重试 {failures} 次仍失败：{cause}")
         }
-        crate::retry::GiveUpReason::TimeoutBudget => {
+        pipi_context::retry::GiveUpReason::TimeoutBudget => {
             format!("请求连续超时（{failures} 次），不再重试：{cause}")
         }
-        crate::retry::GiveUpReason::ServerDelayTooLong(after_ms) => format!(
+        pipi_context::retry::GiveUpReason::ServerDelayTooLong(after_ms) => format!(
             "服务端要求 {} 秒后再试，超过重试上限，已停止：{cause}",
             after_ms / 1_000
         ),
@@ -995,8 +999,8 @@ mod tests {
     }
 
     /// 快速重试策略：次数按用例给，退避压到 1ms 让测试不等待。
-    fn fast_retry(max_attempts: u32) -> crate::retry::RetryPolicy {
-        crate::retry::RetryPolicy {
+    fn fast_retry(max_attempts: u32) -> pipi_context::retry::RetryPolicy {
+        pipi_context::retry::RetryPolicy {
             max_attempts,
             base_delay_ms: 1,
             max_delay_ms: 5,
@@ -1049,7 +1053,7 @@ mod tests {
             options: StreamOptions::default(),
             // 既有用例都是单次尝试的脚本化 provider：默认关掉重试，
             // 需要重试的用例自己指定策略
-            retry: crate::retry::RetryPolicy::NONE,
+            retry: pipi_context::retry::RetryPolicy::NONE,
             tool_execution: ToolExecutionMode::Sequential,
             steering: MessageQueue::new(),
             follow_up: MessageQueue::new(),
@@ -1327,7 +1331,7 @@ mod tests {
         let (sink, emit) = event_sink();
         let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
         // 退避 5 秒：若不与 abort 竞速，这个用例会一直等下去
-        config.retry = crate::retry::RetryPolicy {
+        config.retry = pipi_context::retry::RetryPolicy {
             max_attempts: 5,
             base_delay_ms: 5_000,
             max_delay_ms: 5_000,
@@ -1456,7 +1460,7 @@ mod tests {
 
     #[tokio::test]
     async fn transform_context_prunes_before_llm_call() {
-        use crate::context::prune_transform;
+        use pipi_context::context::prune_transform;
         use std::sync::atomic::AtomicUsize;
 
         // 记录 provider 每次看到的请求长度；第一轮结束后推 follow-up

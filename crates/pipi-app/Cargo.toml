@@ -11,6 +11,7 @@ av = { workspace = true }
 pipi-agent = { workspace = true }
 pipi-catalog = { workspace = true }
 pipi-core = { workspace = true }
+pipi-context = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-session = { workspace = true }
 pipi-provider = { workspace = true }

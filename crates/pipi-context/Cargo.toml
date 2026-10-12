@@ -1,0 +1,19 @@
+[package]
+name = "pipi-context"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Pipi 的上下文与运行策略：token 预算、压缩流水线、重试退避"
+
+[dependencies]
+fastrand = { workspace = true }
+pipi-error = { workspace = true }
+pipi-protocol = { workspace = true }
+serde_json = { workspace = true }
+# 摘要重试的退避等待（time）与中止竞速（macros/select）
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+pipi-session = { workspace = true }
+pipi-test-support = { workspace = true }

@@ -221,7 +221,7 @@ pub fn build_system_prompt_with_tools(
 
         (
             workspace.display().to_string(),
-            Some(pipi_agent::context::environment_context(
+            Some(pipi_context::context::environment_context(
                 workspace,
                 &def.permissions.sandbox,
             )),

@@ -90,7 +90,7 @@ pub(super) fn writer_session_id(writer: &SharedLog) -> Result<String, String> {
 /// 只处理**尾部**：悬挂的 assistant 消息此时就是文件 tip，追加的 tool 结果
 /// 成为它的子节点，消息顺序天然正确，会话记录被修复成合法状态（append-only，
 /// 不重写任何已有条目）。历史中段的悬挂无法原地修复（树的顺序不可变），
-/// 由发送前的 [`pipi_agent::context::repair_tool_pairing`] 兜底 —— 对齐 pi 的
+/// 由发送前的 [`pipi_context::context::repair_tool_pairing`] 兜底 —— 对齐 pi 的
 /// post-tools / recovery 在回合结束时结算「orphaned / aborted」调用的做法。
 pub(super) fn settle_unanswered_tail(
     writer: &mut dyn SessionLog,
@@ -114,7 +114,7 @@ pub(super) fn settle_unanswered_tail(
     }
     let mut appended = Vec::with_capacity(calls.len());
     for (id, name) in calls {
-        let result = pipi_agent::context::missing_tool_result(&id, &name);
+        let result = pipi_context::context::missing_tool_result(&id, &name);
         writer
             .append_message(&result)
             .map_err(|error| error.to_string())?;
@@ -165,9 +165,9 @@ pub(super) fn append_child_timeout_terminal(
 
 /// 投影式压缩流水线的 transform 钩子（组装请求时应用，不落盘）。
 fn projection_transform(
-    budget: pipi_agent::compaction::Budget,
+    budget: pipi_context::compaction::Budget,
 ) -> pipi_agent::agent_loop::TransformContextHook {
-    Arc::new(move |messages: Vec<Message>| pipi_agent::compaction::project(messages, budget))
+    Arc::new(move |messages: Vec<Message>| pipi_context::compaction::project(messages, budget))
 }
 
 /// 不占用 [`RuntimeState`] 当前会话槽的一次性 Agent 执行器。
@@ -417,7 +417,7 @@ pub(crate) async fn run_agent_once_inner_with_sink(
         // 子 Agent 运行同样走投影式压缩流水线（清旧工具输出 → 硬裁），
         // 阈值用子 Agent 自己的 agent.json 配置
         transform_context: (context_window > 0).then(|| {
-            projection_transform(pipi_agent::compaction::Budget::from_window(
+            projection_transform(pipi_context::compaction::Budget::from_window(
                 context_window,
                 definition.compact_threshold_percent(),
             ))
@@ -659,7 +659,7 @@ impl RuntimeState {
         )));
 
         // 压缩预算集中一处（窗口 × Agent 的阈值百分比）：投影式与替换式共用
-        let budget = pipi_agent::compaction::Budget::from_window(
+        let budget = pipi_context::compaction::Budget::from_window(
             model.context_window,
             def.compact_threshold_percent(),
         )

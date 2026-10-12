@@ -96,7 +96,7 @@ impl Default for CompactionSettings {
     }
 }
 
-/// 请求失败重发策略（可重试错误的分类见 [`pipi_agent::retry`]）。
+/// 请求失败重发策略（可重试错误的分类见 [`pipi_context::retry`]）。
 ///
 /// 每次取值都夹到安全区间：配置可能来自旧文件或手工编辑，越界值不该让重试变成
 /// 「几乎无限重试」或「永不重试」。
@@ -115,20 +115,20 @@ pub struct RetrySettings {
 }
 
 fn default_retry_max_attempts() -> u32 {
-    pipi_agent::retry::RetryPolicy::default().max_attempts
+    pipi_context::retry::RetryPolicy::default().max_attempts
 }
 
 fn default_retry_base_delay_ms() -> u64 {
-    pipi_agent::retry::RetryPolicy::default().base_delay_ms
+    pipi_context::retry::RetryPolicy::default().base_delay_ms
 }
 
 fn default_retry_max_delay_ms() -> u64 {
-    pipi_agent::retry::RetryPolicy::default().max_delay_ms
+    pipi_context::retry::RetryPolicy::default().max_delay_ms
 }
 
 impl Default for RetrySettings {
     fn default() -> Self {
-        let policy = pipi_agent::retry::RetryPolicy::default();
+        let policy = pipi_context::retry::RetryPolicy::default();
         RetrySettings {
             max_attempts: policy.max_attempts,
             base_delay_ms: policy.base_delay_ms,
@@ -139,10 +139,10 @@ impl Default for RetrySettings {
 
 impl RetrySettings {
     /// 夹到安全区间后转成运行时策略。
-    pub fn policy(&self) -> pipi_agent::retry::RetryPolicy {
+    pub fn policy(&self) -> pipi_context::retry::RetryPolicy {
         let base_delay_ms = self.base_delay_ms.clamp(100, 10_000);
         let max_delay_ms = self.max_delay_ms.clamp(1_000, 120_000).max(base_delay_ms);
-        pipi_agent::retry::RetryPolicy {
+        pipi_context::retry::RetryPolicy {
             max_attempts: self.max_attempts.clamp(1, 5),
             base_delay_ms,
             max_delay_ms,

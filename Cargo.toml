@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/av",
     "crates/pipi-error",
+    "crates/pipi-context",
     "crates/pipi-protocol",
     "crates/pipi-session",
     "crates/pipi-tools",
@@ -39,6 +40,7 @@ av = { path = "crates/av", default-features = false }
 pipi-agent = { path = "crates/pipi-agent" }
 pipi-app = { path = "crates/pipi-app" }
 pipi-catalog = { path = "crates/pipi-catalog" }
+pipi-context = { path = "crates/pipi-context" }
 pipi-core = { path = "crates/pipi-core" }
 pipi-error = { path = "crates/pipi-error" }
 pipi-harness = { path = "crates/pipi-harness" }

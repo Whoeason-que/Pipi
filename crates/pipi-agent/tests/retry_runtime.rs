@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use pipi_agent::agent_loop::{AgentContext, AgentEvent, AgentLoopConfig, run_agent_loop};
-use pipi_agent::retry::RetryPolicy;
+use pipi_context::retry::RetryPolicy;
 use pipi_protocol::permissions::SandboxMode;
 use pipi_protocol::tools::{ToolContext, ToolRegistry};
 use pipi_protocol::{AbortSignal, Api, Message, Model, StopReason, StreamOptions};
