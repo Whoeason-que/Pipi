@@ -316,16 +316,20 @@ function webListen(
 }
 
 /**
- * 会话/Agent 级命令要求的参数键。`invoke` 的 args 是 `Record<string, unknown>`，
- * TS 检查不到漏参 —— 漏了只有运行时才炸（Tauri 会报 invalid args）。这里显式核对，
- * 让错误在调用点就带上命令名，别等到用户点出来才发现。
+ * Agent 级命令要求的参数键：凡是参数里带 `agentName` 的宿主命令都要在这里登记。
+ * `invoke` 的 args 是 `Record<string, unknown>`，TS 检查不到漏参 —— 漏了只有
+ * 运行时才炸（Tauri 会报 invalid args）。这里显式核对，让错误在调用点就带上
+ * 命令名，别等到用户点出来才发现。
  *
- * 「会话级」= 必须带 agentName；带 sessionId 的表示会话已确定（`send_prompt` 与
- * `new_session` 例外：前者 sessionId 为空表示新建，后者作用于整个 Agent）。
+ * `sessionId: "required"` 表示会话已由命令确定；`"optional"` 只有 `send_prompt`
+ * 一条（sessionId 为空表示新建会话）。其余带 agentName 的命令（作用于整个
+ * Agent：列表、归档、Agent 文件与技能）不需要 sessionId。这张表与
+ * `crates/pipi-core/src/commands.rs` 的对照由 `tests/ipc-contract.test.ts`
+ * 断言 —— 加命令忘了补这里会直接测试失败。
  */
-const SESSION_COMMAND_ARGS: Record<string, { sessionId: "required" | "optional" }> = {
-  ensure_test_session: { sessionId: "optional" },
-  reset_test_session: { sessionId: "optional" },
+const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }> = {
+  ensure_test_session: {},
+  reset_test_session: {},
   session_info: { sessionId: "required" },
   session_running: { sessionId: "required" },
   session_messages: { sessionId: "required" },
@@ -339,15 +343,27 @@ const SESSION_COMMAND_ARGS: Record<string, { sessionId: "required" | "optional" 
   open_session: { sessionId: "required" },
   fork_session: { sessionId: "required" },
   send_prompt: { sessionId: "optional" },
-  new_session: { sessionId: "optional" },
+  new_session: {},
+  list_sessions: {},
+  list_archived_sessions: {},
+  archive_session: { sessionId: "required" },
+  restore_session: { sessionId: "required" },
+  delete_session: { sessionId: "required" },
+  delete_archived_session: { sessionId: "required" },
+  list_agent_files: {},
+  read_agent_file: {},
+  write_agent_file: {},
+  agent_skills: {},
+  set_skill_enabled: {},
+  sync_agent_skills: {},
 };
 
 function assertSessionArgs(command: string, args?: Record<string, unknown>): void {
-  const spec = SESSION_COMMAND_ARGS[command];
+  const spec = AGENT_COMMAND_ARGS[command];
   if (!spec) return;
   const agentName = args?.agentName;
   if (typeof agentName !== "string" || agentName.length === 0) {
-    throw new Error(`调用 ${command} 少了 agentName（会话级命令必须指明是哪个 Agent 的哪条会话）`);
+    throw new Error(`调用 ${command} 少了 agentName（Agent 级命令必须指明是哪个 Agent）`);
   }
   if (spec.sessionId === "required") {
     const sessionId = args?.sessionId;

@@ -104,6 +104,61 @@ test("shared command table matches the typed IPC map, the Tauri shells and the W
   assert.doesNotMatch(web, /fn (?:required|optional)_(?:string|value)\(/, "Web 端不得再手写参数解析");
 });
 
+/** 从 `fn name(` 的左括号扫描到配对右括号，返回形参表原文（括号可出现在类型里，不能靠正则截断）。 */
+function paramList(source: string, openParen: number): string {
+  let depth = 0;
+  for (let index = openParen; index < source.length; index++) {
+    if (source[index] === "(") depth++;
+    else if (source[index] === ")") {
+      depth--;
+      if (depth === 0) return source.slice(openParen + 1, index);
+    }
+  }
+  throw new Error("unbalanced parameter list");
+}
+
+test("front-end guards and the Tauri shells keep the shapes the command table implies", () => {
+  const { commands } = sharedCommands();
+
+  // 前端运行时兜底表（platform.ts）必须与「参数里带 agentName 的命令」一一对应，
+  // 且 sessionId 的必填/可选与 args 结构体的 String / Option<String> 一致。
+  const tableSource = read("src/platform.ts")
+    .match(/const AGENT_COMMAND_ARGS: Record<string, \{[^}]*\}> = \{([\s\S]*?)\n\};/)?.[1];
+  assert.ok(tableSource, "platform.ts 必须有 AGENT_COMMAND_ARGS 兜底表");
+  const guard = new Map<string, "required" | "optional" | undefined>();
+  for (const match of tableSource.matchAll(/^\s*(\w+):\s*\{([^}]*)\},?\s*$/gm)) {
+    assert.equal(guard.has(match[1]), false, `兜底表重复命令 ${match[1]}`);
+    guard.set(match[1], match[2].match(/sessionId:\s*"(\w+)"/)?.[1] as "required" | "optional" | undefined);
+  }
+  const expected = new Map<string, "required" | "optional" | undefined>();
+  for (const [name, { args }] of commands) {
+    if (!args.some(arg => arg.name === "agentName")) continue;
+    const sessionId = args.find(arg => arg.name === "sessionId");
+    expected.set(name, sessionId ? (sessionId.optional ? "optional" : "required") : undefined);
+  }
+  assert.ok(expected.size > 0);
+  assert.deepEqual([...guard.keys()].sort(), [...expected.keys()].sort(), "兜底表必须覆盖且只覆盖带 agentName 的命令");
+  for (const [name, sessionId] of expected) {
+    assert.equal(guard.get(name), sessionId, `${name} 的 sessionId 要求与命令表不一致`);
+  }
+
+  // 桌面壳：带参命令必须用 InvokeArgs<XxxArgs> 扁平反序列化（裸 XxxArgs 会去找
+  // payload.args，与前端实际发送的形状不符）；带参命令数与命令表一致，防止循环落空。
+  const tauriFiles = ["crates/pipi/src/commands.rs", "crates/pipi/src/chat.rs"];
+  const withArgs: string[] = [];
+  for (const file of tauriFiles) {
+    const source = read(file);
+    for (const match of source.matchAll(/#\[tauri::command\]\s*pub (?:async )?fn (\w+)\(/g)) {
+      const params = paramList(source, match.index! + match[0].length - 1);
+      if (!params.includes("args:")) continue;
+      withArgs.push(match[1]);
+      assert.match(params, /args:\s*InvokeArgs</, `${file} 的 ${match[1]} 必须用 InvokeArgs<XxxArgs>`);
+    }
+  }
+  const expectedWithArgs = [...commands].filter(([, command]) => command.args.length > 0).map(([name]) => name);
+  assert.deepEqual(withArgs.sort(), expectedWithArgs.sort(), "带参命令必须与命令表一致");
+});
+
 test("Rust wire fixtures fit frontend DTOs and typed invoke rejects misspelled commands and missing session identity", () => {
   const fixture = read("tests/fixtures/ipc-wire.json");
   const filename = path.join(root, "tests/fixtures/wire-check.ts");
