@@ -27,16 +27,18 @@ may-depend-on = []
 may-depend-on = ["pipi-error"]
 dev-may-depend-on = ["pipi-test-support"]
 # tokio 只允许 sync（Provider 端口的事件流通道）；rt / net / time 不得出现。
-forbid = ["av", "pipi-tools", "pipi-core", "pipi-agent", "reqwest", "rig"]
+forbid = ["pipi-tools", "pipi-core", "pipi-agent", "reqwest", "rig"]
 
 # 上下文与运行策略：token 预算 / 裁剪与配对修复 / 压缩流水线 / 重试退避。
 # 只依赖契约层：不碰载体、不直连网络、不落盘。
 [crates.pipi-context]
 may-depend-on = ["pipi-error", "pipi-protocol"]
-dev-may-depend-on = ["pipi-session", "pipi-test-support"]
+dev-may-depend-on = ["pipi-session"]
 
 # 会话载体：JSONL 文件（未来的 git 分支同属这里）。只实现契约层的存储端口，
-# 也是唯一允许 spawn git 的 crate（见 docs/git-session-store.md）。
+# 也是唯一为**会话存储** spawn git 的 crate（见 docs/git-session-store.md）；
+# 技能包的 git 由 pipi-venv 的 av 负责 —— 进程 spawn 不是依赖，xtask 查不到，
+# 这条靠约定守。
 [crates.pipi-session]
 may-depend-on = ["pipi-protocol"]
 dev-may-depend-on = ["pipi-test-support"]
@@ -54,8 +56,8 @@ may-depend-on = ["pipi-error", "pipi-protocol"]
 # pipi-session；不碰 agent.toml 契约、不直连网络（provider 只以契约层端口出现）。
 [crates.pipi-agent]
 may-depend-on = ["pipi-context", "pipi-error", "pipi-protocol"]
-dev-may-depend-on = ["pipi-provider", "pipi-session", "pipi-test-support"]
-forbid = ["av", "reqwest"]
+dev-may-depend-on = ["pipi-provider"]
+forbid = ["reqwest"]
 
 # 宿主层：命令表、运行编排、后台任务、设置、Agent 组合工具，以及
 # `--features server` 的 Web 宿主（只做 transport 与鉴权）。

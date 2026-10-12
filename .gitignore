@@ -7,3 +7,6 @@ crates/pipi/gen/schemas
 
 # 上游源码参考（pi / codex / opencode / hermes 的浅克隆），只读不提交
 reference/
+
+# ZCode 会话计划草稿（本地协商用，不入库）
+.zcode/plans/
