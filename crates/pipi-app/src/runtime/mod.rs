@@ -22,7 +22,8 @@ use pipi_agent::agent_loop::{
     AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode, run_agent_loop,
 };
 use pipi_agent::session::{
-    EntryKind, SessionSummary, SessionWriter, list_session_summaries, load_session,
+    EntryKind, JsonlSessionRepo, SessionLog, SessionRepo, SessionSummary, SessionWriter,
+    active_model_from_entries, active_path, rebuild_messages,
 };
 use pipi_agent::stats::SessionStatsTracker;
 use pipi_core::agents::{self, AgentDefinition};
@@ -114,10 +115,17 @@ impl Drop for RunningGuard {
     }
 }
 
+/// 共享的会话账本句柄。
+///
+/// 运行时只依赖 [`SessionLog`] 接口；具体载体由 [`store::session_repo`] 注入
+/// （今天只有 JSONL）。`Box` 是为了让压缩分叉能就地换掉整个账本
+/// （`*guard = forked`）—— `dyn` 本身是不可变的定长占位，换不了。
+type SharedLog = Arc<Mutex<Box<dyn SessionLog>>>;
+
 struct Session {
     agent: AgentDefinition,
     messages: Arc<tokio::sync::Mutex<Vec<Message>>>,
-    writer: Arc<Mutex<SessionWriter>>,
+    writer: SharedLog,
     /// 设置工作台的测试会话只活在 RuntimeState 内，不创建 sessions/*.jsonl。
     temporary: bool,
     stats: Arc<Mutex<SessionStatsTracker>>,
@@ -170,21 +178,16 @@ pub struct RuntimeState {
 }
 
 /// 校验会话 ID：必须是单一、稳定的文件名（`<id>.jsonl` 的 stem）。
+/// 字符集规则属于存储契约，实现在 `pipi_agent::session`。
 pub fn validate_session_id(session_id: &str) -> Result<(), String> {
-    if session_id.is_empty()
-        || !session_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-')
-    {
-        return Err("非法会话 ID".into());
-    }
-    Ok(())
+    pipi_agent::session::validate_session_id(session_id)
 }
 
 mod compaction;
 mod events;
 mod execution;
 mod slots;
+mod store;
 
 use compaction::{CompactionContext, CompactionTrigger, make_rekey, run_compaction};
 use events::{make_emitter, make_session_change_sink};
@@ -192,6 +195,7 @@ pub(crate) use execution::RuntimeChildRunner;
 pub use execution::{CHILD_RUN_TIMEOUT_SECS, run_agent_once};
 use execution::{resolve_model, settle_unanswered_tail, writer_session_id};
 pub use slots::list_sessions;
+use store::session_repo;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

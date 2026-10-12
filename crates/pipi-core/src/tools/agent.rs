@@ -15,7 +15,7 @@ use crate::agents;
 use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskOwner, BackgroundTaskService,
 };
-use pipi_agent::session::{active_path, list_session_summaries, load_session, rebuild_messages};
+use pipi_agent::session::{JsonlSessionRepo, SessionRepo, active_path, rebuild_messages};
 use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, ContentBlock, Message, Model, StopReason, ToolResultContent,
 };
@@ -502,26 +502,26 @@ pub fn read_agent_output(
     let sessions_dir = definition
         .sessions_dir()
         .ok_or_else(|| "无法解析会话目录".to_string())?;
-    if !pipi_tools::fs::ensure_real_directory(&sessions_dir, "sessions 目录")? {
-        return Err(format!("Agent「{agent_name}」还没有会话"));
-    }
+    // 会话载体装配点（pipi-core 侧）：今天是 JSONL 文件目录。接入第二载体时
+    // 与 `pipi-app::runtime::store` 一起改（设计见 docs/git-session-store.md）。
+    let repo = JsonlSessionRepo::new(sessions_dir);
 
     let session_id = match session_id {
         Some(id) => {
             validate_session_id(id)?;
             id.to_string()
         }
-        None => list_session_summaries(&sessions_dir)
+        None => repo
+            .list()
             .into_iter()
             .next()
             .map(|summary| summary.id)
             .ok_or_else(|| format!("Agent「{agent_name}」还没有会话"))?,
     };
-    let path = sessions_dir.join(format!("{session_id}.jsonl"));
-    if !pipi_tools::fs::ensure_real_file(&path, "会话文件")? {
+    if !repo.exists(&session_id)? {
         return Err(format!("Agent「{agent_name}」没有会话 {session_id}"));
     }
-    let entries = load_session(&path)?;
+    let entries = repo.entries(&session_id)?;
     let active = active_path(&entries);
     let messages = rebuild_messages(&active);
     Ok(result_from_messages(agent_name, &session_id, &messages))

@@ -4,7 +4,7 @@ use super::*;
 
 pub(super) fn make_emitter(
     sink: EventEmitter,
-    writer: Arc<Mutex<SessionWriter>>,
+    writer: SharedLog,
     stats: Arc<Mutex<SessionStatsTracker>>,
     agent_name: String,
     session_id: String,

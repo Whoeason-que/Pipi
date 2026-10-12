@@ -3,7 +3,7 @@
 use super::*;
 
 fn append_declared_env(
-    writer: &Arc<Mutex<SessionWriter>>,
+    writer: &SharedLog,
     resolved_env: &av::resolve::ResolvedEnv,
 ) -> Result<(), String> {
     let declared = resolved_env
@@ -77,7 +77,7 @@ pub(super) fn resolve_model(
     ))
 }
 
-pub(super) fn writer_session_id(writer: &Arc<Mutex<SessionWriter>>) -> Result<String, String> {
+pub(super) fn writer_session_id(writer: &SharedLog) -> Result<String, String> {
     let writer = writer
         .lock()
         .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
@@ -93,7 +93,7 @@ pub(super) fn writer_session_id(writer: &Arc<Mutex<SessionWriter>>) -> Result<St
 /// 由发送前的 [`pipi_agent::context::repair_tool_pairing`] 兜底 —— 对齐 pi 的
 /// post-tools / recovery 在回合结束时结算「orphaned / aborted」调用的做法。
 pub(super) fn settle_unanswered_tail(
-    writer: &mut SessionWriter,
+    writer: &mut dyn SessionLog,
     messages: &[Message],
 ) -> Result<Vec<Message>, String> {
     let Some(last) = messages.last() else {
@@ -123,25 +123,26 @@ pub(super) fn settle_unanswered_tail(
     Ok(appended)
 }
 
-/// 在向持久化会话追加终态之前，先结算当前文件 tip 上尚未回答的工具调用。
+/// 在向持久化会话追加终态之前，先结算当前 tip 上尚未回答的工具调用。
 ///
 /// 正常 loop 会自行写入每条 `toolResult`；但 child run 被超时取消时，future 会
 /// 在工具执行中被丢弃。此时最后一条已落盘的 assistant 工具调用必须先补齐，
-/// 再写 timeout / aborted assistant，才能保持 JSONL 的工具配对不变量。
-fn settle_unanswered_persistent_tail(writer: &mut SessionWriter) -> Result<Vec<Message>, String> {
-    let path = writer
-        .persistent_path()
-        .ok_or_else(|| "临时会话没有可修复的持久化尾部".to_string())?;
-    let entries = load_session(path).map_err(|error| error.to_string())?;
-    let messages =
-        pipi_agent::session::rebuild_messages(&pipi_agent::session::active_path(&entries));
+/// 再写 timeout / aborted assistant，才能保持工具配对不变量。
+fn settle_unanswered_persistent_tail(
+    repo: &dyn SessionRepo,
+    session_id: &str,
+    writer: &mut dyn SessionLog,
+) -> Result<Vec<Message>, String> {
+    let entries = repo.entries(session_id)?;
+    let messages = rebuild_messages(&active_path(&entries));
     settle_unanswered_tail(writer, &messages)
 }
 
 /// child run 到达总时限后的统一收尾。返回的 assistant 终态只会排在合成的
 /// `toolResult` 之后，避免 `read_agent` 重开会话时遇到中段的孤立工具调用。
 pub(super) fn append_child_timeout_terminal(
-    writer: &Arc<Mutex<SessionWriter>>,
+    repo: &dyn SessionRepo,
+    writer: &SharedLog,
     model: &Model,
     timeout: std::time::Duration,
 ) -> Result<Message, String> {
@@ -153,7 +154,8 @@ pub(super) fn append_child_timeout_terminal(
     let mut writer = writer
         .lock()
         .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
-    settle_unanswered_persistent_tail(&mut writer)
+    let session_id = writer.session_id().to_string();
+    settle_unanswered_persistent_tail(repo, &session_id, &mut **writer)
         .map_err(|error| format!("无法修复超时前的工具调用: {error}"))?;
     writer
         .append_message(&timeout_error)
@@ -227,7 +229,7 @@ impl crate::background::ChildAgentRunner for RuntimeChildRunner {
 /// child session 一旦建立，后续的配置/环境错误也要成为可读取的运行输出，
 /// 不能只给父 Agent 返回一个瞬时错误并留下空 JSONL。
 fn persist_agent_start_failure(
-    writer: &Arc<Mutex<SessionWriter>>,
+    writer: &SharedLog,
     definition: &AgentDefinition,
     session_id: &str,
     prompt: &str,
@@ -309,12 +311,8 @@ pub(crate) async fn run_agent_once_inner_with_sink(
     }
 
     let definition = agents::load_agent(agent_name)?;
-    let sessions_dir = definition
-        .sessions_dir()
-        .ok_or_else(|| "无法解析会话目录".to_string())?;
-    let writer = Arc::new(Mutex::new(
-        SessionWriter::create(&sessions_dir).map_err(|error| error.to_string())?,
-    ));
+    let repo = session_repo(&definition)?;
+    let writer: SharedLog = Arc::new(Mutex::new(repo.create()?));
     let session_id = writer_session_id(&writer)?;
     let run_id = NEXT_RUN_ID.fetch_add(1, Ordering::AcqRel);
     if let Some(session_sink) = session_sink.as_ref() {
@@ -436,7 +434,8 @@ pub(crate) async fn run_agent_once_inner_with_sink(
     {
         Ok(new_messages) => new_messages,
         Err(_) => {
-            let timeout_error = append_child_timeout_terminal(&result_writer, &model, timeout)?;
+            let timeout_error =
+                append_child_timeout_terminal(repo.as_ref(), &result_writer, &model, timeout)?;
             return Ok(result_from_messages(
                 &definition.name,
                 &session_id,
@@ -500,22 +499,22 @@ impl RuntimeState {
         }
         // 载入 / 新建都在 map 之外完成，全部前置步骤成功后才插进 map ——
         // 中途失败必须保持 map 不变，否则半成品会被下一次 send_prompt 当成可复用的。
+        let repo = session_repo(&def)?;
         let mut created: Option<(SessionKey, Session)> = None;
         if reuse_key.is_none() {
             let (key, session) = match session_id {
                 Some(id) => {
-                    let dir = def.sessions_dir().ok_or("无法解析会话目录")?;
-                    let path = dir.join(format!("{id}.jsonl"));
-                    if !path.is_file() {
+                    if !repo.exists(id)? {
                         return Err("会话不存在".into());
                     }
                     (
                         SessionKey::new(agent_name, id),
-                        Self::load_session_object(&def, &path)?,
+                        Self::load_session_object(&def, repo.as_ref(), id)?,
                     )
                 }
                 None => {
-                    let (session, new_id) = Self::create_session_object(&def, model.as_ref())?;
+                    let (session, new_id) =
+                        Self::create_session_object(&def, repo.as_ref(), model.as_ref())?;
                     (SessionKey::new(agent_name, &new_id), session)
                 }
             };
@@ -642,8 +641,7 @@ impl RuntimeState {
         let wire_tools = registry.wire_tools();
         // api_key 随 config 被移走；压缩摘要调用还要用一份
         let compaction_api_key = api_key.clone();
-        // 压缩时的分叉 / 归档需要会话目录与设置（都在同步段取好，move 进任务）
-        let sessions_dir = def.sessions_dir();
+        // 压缩设置与重试策略在同步段取好，move 进任务（会话仓库在更早处已取）
         let runtime_settings = load_settings();
         let compaction_settings = runtime_settings.compaction;
         let retry_policy = runtime_settings.retry.policy();
@@ -759,7 +757,7 @@ impl RuntimeState {
                 writer: &compaction_writer,
                 stats: &ledger_stats,
                 abort: abort.clone(),
-                sessions_dir: sessions_dir.as_deref(),
+                repo: Some(repo.as_ref()),
                 settings: compaction_settings,
                 retry: retry_policy,
                 sink: &completion_sink,
@@ -869,8 +867,9 @@ mod tests {
             pipi_agent::session::new_id()
         ));
         std::fs::create_dir_all(&sessions).unwrap();
-        let writer = Arc::new(Mutex::new(SessionWriter::create(&sessions).unwrap()));
-        let path = writer.lock().unwrap().path().to_path_buf();
+        let repo = JsonlSessionRepo::new(sessions.clone());
+        let writer: SharedLog = Arc::new(Mutex::new(repo.create().unwrap()));
+        let path = sessions.join(format!("{}.jsonl", writer.lock().unwrap().session_id()));
 
         let user = Message::user_text("run a tool");
         let tool_call = Message::Assistant {
@@ -902,9 +901,10 @@ mod tests {
             max_tokens: 1,
             context_window: 0,
         };
-        append_child_timeout_terminal(&writer, &model, std::time::Duration::from_secs(1)).unwrap();
+        append_child_timeout_terminal(&repo, &writer, &model, std::time::Duration::from_secs(1))
+            .unwrap();
 
-        let entries = load_session(&path).unwrap();
+        let entries = pipi_agent::session::load_session(&path).unwrap();
         let messages =
             pipi_agent::session::rebuild_messages(&pipi_agent::session::active_path(&entries));
         assert_eq!(messages.len(), 4);

@@ -7,11 +7,7 @@ use super::*;
 /// 内存历史与落盘条目必须一一对应（见 `session::replay` 的 id 语义）。两边
 /// 长度不一致说明二者脱节 —— 此时退回空 id：宁可只留摘要，也不让回放去猜
 /// 一个错误的位置（猜错会让保留段整体错位）。
-fn keep_from_entry_id(
-    writer: &Arc<Mutex<SessionWriter>>,
-    history: &[Message],
-    keep_from: Option<usize>,
-) -> String {
+fn keep_from_entry_id(writer: &SharedLog, history: &[Message], keep_from: Option<usize>) -> String {
     let Some(index) = keep_from else {
         return String::new();
     };
@@ -50,10 +46,11 @@ pub(super) struct CompactionContext<'a> {
     pub(super) api_key: &'a str,
     pub(super) budget: pipi_agent::compaction::Budget,
     pub(super) messages: &'a Arc<tokio::sync::Mutex<Vec<Message>>>,
-    pub(super) writer: &'a Arc<Mutex<SessionWriter>>,
+    pub(super) writer: &'a SharedLog,
     pub(super) stats: &'a Arc<Mutex<SessionStatsTracker>>,
     pub(super) abort: AbortSignal,
-    pub(super) sessions_dir: Option<&'a std::path::Path>,
+    /// 会话仓库（分叉与归档要它）。临时测试会话没有仓库。
+    pub(super) repo: Option<&'a dyn SessionRepo>,
     pub(super) settings: pipi_core::settings::CompactionSettings,
     /// 摘要调用失败重发策略（与对话共用，见 `retry` 模块）。
     pub(super) retry: pipi_agent::retry::RetryPolicy,
@@ -151,7 +148,7 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
     };
     // 落盘（分叉 / 原地由设置决定）。失败则内存历史不动 —— live 与落盘必须
     // 一致，否则重开会话会退回未压缩。
-    let switched = persist_compaction(ctx.writer, ctx.sessions_dir, &record, ctx.settings)?;
+    let switched = persist_compaction(ctx.writer, ctx.repo, &record, ctx.settings)?;
     *ctx.messages.lock().await = compacted.messages;
     if let Some(usage) = compacted.usage
         && let Ok(mut tracker) = ctx.stats.lock()
@@ -192,15 +189,15 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
 /// 把压缩结果落盘，返回 `Some(new_session_id)` 表示已换到新会话。
 ///
 /// 两条路径：
-/// - **分叉**（`fork_before_compact`）：新会话文件 = 原文件活跃路径的完整拷贝 +
-///   压缩条目；随后把 writer 换过去（旧文件在这时关闭），最后按设置归档原文件。
-/// - **原地**（关闭分叉，或分叉失败时的回退）：在当前文件上追加压缩条目。
+/// - **分叉**（`fork_before_compact`）：新会话 = 原会话活跃路径的完整拷贝 +
+///   压缩条目；随后把账本换过去（旧载体在这时关闭），最后按设置归档原会话。
+/// - **原地**（关闭分叉，或分叉失败时的回退）：在当前会话上追加压缩条目。
 ///
 /// 分叉失败不是致命错误（回退原地）；原地追加失败才是 `Err`，此时调用方不得
 /// 替换内存历史 —— live 与落盘必须一致。
 pub(super) fn persist_compaction(
-    writer: &Arc<Mutex<SessionWriter>>,
-    sessions_dir: Option<&std::path::Path>,
+    writer: &SharedLog,
+    repo: Option<&dyn SessionRepo>,
     record: &pipi_agent::session::CompactionRecord<'_>,
     settings: pipi_core::settings::CompactionSettings,
 ) -> Result<Option<String>, String> {
@@ -220,7 +217,13 @@ pub(super) fn persist_compaction(
 
     let mut fork_error: Option<String> = None;
     if settings.fork_before_compact {
-        match fork_and_write_compaction(writer, sessions_dir, record, settings.archive_original) {
+        let outcome = match repo {
+            Some(repo) => {
+                fork_and_write_compaction(writer, repo, record, settings.archive_original)
+            }
+            None => Err("无法解析会话仓库".to_string()),
+        };
+        match outcome {
             Ok(new_id) => return Ok(Some(new_id)),
             Err(error) => fork_error = Some(error),
         }
@@ -239,39 +242,28 @@ pub(super) fn persist_compaction(
 
 /// 分叉出新会话并把压缩条目写进去，然后归档原会话（可关）。
 ///
-/// 顺序很关键：**先在内存外写好新文件，再换 writer**（换的那一刻旧文件句柄关闭），
-/// 最后才 rename 归档 —— 否则 Linux 上仍打开的 fd 会继续往被移动的文件追加。
+/// 顺序很关键：**先在内存外写好新会话，再换账本**（换的那一刻旧载体关闭），
+/// 最后才归档 —— 否则仍打开的句柄会继续往被归档的对象追加（JSONL 载体上就是
+/// Linux rename 之后旧 fd 仍指向原 inode）。
 fn fork_and_write_compaction(
-    writer: &Arc<Mutex<SessionWriter>>,
-    sessions_dir: Option<&std::path::Path>,
+    writer: &SharedLog,
+    repo: &dyn SessionRepo,
     record: &pipi_agent::session::CompactionRecord<'_>,
     archive_original: bool,
 ) -> Result<String, String> {
-    let sessions_dir = sessions_dir.ok_or_else(|| "无法解析会话目录".to_string())?;
-    let (source_path, source_id) = {
+    let source_id = {
         let guard = writer
             .lock()
             .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
-        let path = guard
-            .persistent_path()
-            .ok_or_else(|| "临时测试会话不能分叉".to_string())?
-            .to_path_buf();
-        let id = guard.session_id().to_string();
-        (path, id)
+        guard.session_id().to_string()
     };
 
-    let mut forked = pipi_agent::session::fork_session(&source_path, sessions_dir, None)?;
-    let new_id = forked
-        .path()
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .ok_or_else(|| "无法解析新会话 ID".to_string())?
-        .to_string();
+    let mut forked = repo.fork(&source_id, None)?;
+    let new_id = forked.session_id().to_string();
     if let Err(error) = forked.append_compaction(record) {
         // 写失败就删掉半成品，别在会话列表里留下空壳
-        let path = forked.path().to_path_buf();
         drop(forked);
-        let _ = std::fs::remove_file(&path);
+        let _ = repo.delete(&new_id);
         return Err(format!("无法把压缩条目写入新会话: {error}"));
     }
     // 溯源标记：回答「这个会话从哪来」（回放中性，见 EntryKind::Custom）
@@ -282,12 +274,10 @@ fn fork_and_write_compaction(
             .lock()
             .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
         let previous = std::mem::replace(&mut *guard, forked);
-        drop(previous); // 关闭原文件句柄 —— 归档前必须做到
+        drop(previous); // 关闭旧载体句柄 —— 归档前必须做到
     }
 
-    if archive_original
-        && let Err(error) = pipi_agent::session::archive_session_file(sessions_dir, &source_id)
-    {
+    if archive_original && let Err(error) = repo.archive(&source_id) {
         // 归档失败不回滚：新会话已经可用，原会话留在活跃列表里即可
         eprintln!("pipi: 原会话归档失败（保留在活跃列表）: {error}");
     }
@@ -324,7 +314,7 @@ impl RuntimeState {
             def.compact_threshold_percent(),
         )
         .with_target_percent(def.compact_target_percent());
-        let sessions_dir = def.sessions_dir();
+        let repo = session_repo(&def)?;
         let runtime_settings = load_settings();
         let settings = runtime_settings.compaction;
         let retry = runtime_settings.retry.policy();
@@ -365,7 +355,7 @@ impl RuntimeState {
                 writer: &writer,
                 stats: &stats,
                 abort: abort.clone(),
-                sessions_dir: sessions_dir.as_deref(),
+                repo: Some(repo.as_ref()),
                 settings,
                 retry,
                 sink: &sink,
@@ -417,7 +407,7 @@ mod tests {
             .append_message(&Message::assistant_text("回答", "mock"))
             .unwrap();
         let source_tip = ledger.tip_id().unwrap().to_string();
-        let writer = Arc::new(Mutex::new(ledger));
+        let writer: SharedLog = Arc::new(Mutex::new(Box::new(ledger)));
         let record = pipi_agent::session::CompactionRecord {
             summary: "内存摘要",
             strategy: "summary",
@@ -439,8 +429,8 @@ mod tests {
 
         assert!(switched.is_none(), "临时压缩不能切换或分叉会话");
         let ledger = writer.lock().unwrap();
+        // 临时账本没有载体（`is_temporary` 即「没有持久化路径」的接口级说法）
         assert!(ledger.is_temporary());
-        assert!(ledger.persistent_path().is_none());
         assert_ne!(ledger.tip_id(), Some(source_tip.as_str()));
     }
 }

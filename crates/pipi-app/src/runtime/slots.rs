@@ -23,88 +23,57 @@ impl RuntimeState {
         self.runtime.spawn(task);
     }
 
-    fn session_file_path(
-        &self,
-        agent_name: &str,
-        session_id: &str,
-    ) -> Result<std::path::PathBuf, String> {
-        let def = agents::load_agent(agent_name)?;
-        let dir = def
-            .sessions_dir()
-            .ok_or_else(|| "无法解析会话目录".to_string())?;
-        // 会话目录必须是真实目录（非符号链接），否则 rename/remove 会沿链接波及外部文件
-        pipi_tools::fs::ensure_real_directory(&dir, "sessions 目录")?;
-        Ok(dir.join(format!("{session_id}.jsonl")))
-    }
-
-    /// 校验会话文件：必须是真实文件（非符号链接）；不存在返回 false。
-    fn ensure_real_session_file(path: &std::path::Path) -> Result<bool, String> {
-        pipi_tools::fs::ensure_real_file(path, "会话文件")
+    /// 该 Agent 的会话仓库。载体由 [`session_repo`] 注入 —— 生命周期操作
+    /// （归档/恢复/删除/分叉/列表）只经过 [`SessionRepo`] 接口。
+    fn session_repo_for(agent_name: &str) -> Result<Arc<dyn SessionRepo>, String> {
+        session_repo(&agents::load_agent(agent_name)?)
     }
 
     // ============ 会话归档 / 恢复 / 删除 ============
-    // 归档 = 移动 `sessions/<id>.jsonl` 到 `sessions/.archive/<id>.jsonl`，
+    // 归档 / 恢复 / 删除都交给 [`SessionRepo`]：JSONL 载体上就是
+    // `sessions/<id>.jsonl` ↔ `sessions/.archive/<id>.jsonl` 的移动与删除，
     // 与 Agent 归档同一套「文件即真相」语义。删除不可恢复，UI 层需确认。
-    // 注意：占用检查、从会话槽脱离与文件操作必须在同一把 sessions 锁内完成，
+    // 注意：占用检查、从会话槽脱离与载体操作必须在同一把 sessions 锁内完成，
     // 否则检查与移动之间可能被并发 open_session 抢跑。空闲的当前会话可以由
     // 归档/删除操作自动脱离；正在运行或仍有托管后台任务的会话必须先停止。
     // （跨进程限制：桌面壳与 Web 服务同时跑时各有 RuntimeState，进程间的
     // 并发打开不在本锁覆盖范围内 —— 产品形态是二选一，已知限制。）
 
-    /// 归档会话：移动到 `sessions/.archive/`。
+    /// 归档会话。
     ///
-    /// 空闲会话即使仍在前端打开，也会在移动前自动从运行时会话槽脱离；实际移动
-    /// 是 [`pipi_agent::session::archive_session_file`]。压缩换会话后的内部归档仍然
-    /// 直接走那个自由函数（那时旧 id 已不再是打开的会话）。
+    /// 空闲会话即使仍在前端打开，也会在移动前自动从运行时会话槽脱离。压缩换
+    /// 会话后的内部归档走压缩路径里的 `repo.archive`（那时旧 id 已不是打开的会话）。
     pub fn archive_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
+        let repo = Self::session_repo_for(agent_name)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        let src = self.session_file_path(agent_name, session_id)?;
-        if !Self::ensure_real_session_file(&src)? {
+        if !repo.exists(session_id)? {
             return Err("会话不存在".into());
         }
         self.detach_idle_session(&mut sessions, agent_name, session_id, "归档")?;
-        let Some(dir) = src.parent() else {
-            return Err("无法解析会话目录".into());
-        };
-        pipi_agent::session::archive_session_file(dir, session_id).map(|_| ())
+        repo.archive(session_id)
     }
 
-    /// 恢复归档会话：移回 `sessions/`。
+    /// 恢复归档会话。
     pub fn restore_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
         let _sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        let live_dir = self
-            .session_file_path(agent_name, session_id)?
-            .parent()
-            .ok_or_else(|| "无法解析会话目录".to_string())?
-            .to_path_buf();
-        let src = live_dir
-            .join(pipi_agent::session::ARCHIVE_DIR)
-            .join(format!("{session_id}.jsonl"));
-        if !Self::ensure_real_session_file(&src)? {
-            return Err("归档区没有该会话".into());
-        }
-        let dst = live_dir.join(format!("{session_id}.jsonl"));
-        if dst.exists() {
-            return Err("活跃区已存在同名会话".into());
-        }
-        std::fs::rename(&src, &dst).map_err(|e| format!("恢复会话失败: {e}"))
+        Self::session_repo_for(agent_name)?.restore(session_id)
     }
 
-    /// 彻底删除会话（`sessions/<id>.jsonl`）。不可恢复；UI 层需确认。
+    /// 彻底删除会话。不可恢复；UI 层需确认。
     pub fn delete_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
+        let repo = Self::session_repo_for(agent_name)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        let path = self.session_file_path(agent_name, session_id)?;
-        if !Self::ensure_real_session_file(&path)? {
+        if !repo.exists(session_id)? {
             return Err("会话不存在".into());
         }
         self.detach_idle_session(&mut sessions, agent_name, session_id, "删除")?;
-        std::fs::remove_file(&path).map_err(|e| format!("删除会话失败: {e}"))
+        repo.delete(session_id)
     }
 
-    /// 删除已归档会话（`sessions/.archive/<id>.jsonl`）。不可恢复。
+    /// 删除已归档会话。不可恢复。
     pub fn delete_archived_session(
         &self,
         agent_name: &str,
@@ -112,34 +81,12 @@ impl RuntimeState {
     ) -> Result<(), String> {
         validate_session_id(session_id)?;
         let _sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        let def = agents::load_agent(agent_name)?;
-        let archive_dir = def
-            .sessions_dir()
-            .ok_or_else(|| "无法解析会话目录".to_string())?
-            .join(pipi_agent::session::ARCHIVE_DIR);
-        if !pipi_tools::fs::ensure_real_directory(&archive_dir, "归档目录")? {
-            return Err("归档区没有该会话".into());
-        }
-        let path = archive_dir.join(format!("{session_id}.jsonl"));
-        if !Self::ensure_real_session_file(&path)? {
-            return Err("归档区没有该会话".into());
-        }
-        std::fs::remove_file(&path).map_err(|e| format!("删除归档会话失败: {e}"))
+        Self::session_repo_for(agent_name)?.delete_archived(session_id)
     }
 
     /// 列出已归档会话摘要。
     pub fn list_archived_sessions(&self, agent_name: &str) -> Result<Vec<SessionSummary>, String> {
-        let def = agents::load_agent(agent_name)?;
-        let dir = def
-            .sessions_dir()
-            .ok_or_else(|| "无法解析会话目录".to_string())?
-            .join(pipi_agent::session::ARCHIVE_DIR);
-        match pipi_tools::fs::ensure_real_directory(&dir, "归档目录") {
-            Ok(false) => return Ok(Vec::new()),
-            Ok(true) => {}
-            Err(error) => return Err(error),
-        }
-        Ok(list_session_summaries(&dir))
+        Self::session_repo_for(agent_name)?.list_archived()
     }
 
     // ============ Agent 归档 / 恢复 / 删除（运行时占用检查） ============
@@ -240,8 +187,7 @@ impl RuntimeState {
 /// 列出指定 Agent 的会话摘要。
 pub fn list_sessions(agent_name: &str) -> Result<Vec<SessionSummary>, String> {
     let def = agents::load_agent(agent_name)?;
-    let dir = def.sessions_dir().ok_or("无法解析会话目录")?;
-    Ok(list_session_summaries(&dir))
+    Ok(session_repo(&def)?.list())
 }
 
 impl RuntimeState {
@@ -249,20 +195,21 @@ impl RuntimeState {
     /// 在全部前置步骤成功后再插入。
     pub(super) fn load_session_object(
         def: &AgentDefinition,
-        path: &std::path::Path,
+        repo: &dyn SessionRepo,
+        session_id: &str,
     ) -> Result<Session, String> {
-        let entries = load_session(path).map_err(|e| e.to_string())?;
-        let active = pipi_agent::session::active_path(&entries);
-        let mut messages = pipi_agent::session::rebuild_messages(&active);
-        let active_model = pipi_agent::session::active_model_from_entries(&entries);
+        let entries = repo.entries(session_id)?;
+        let active = active_path(&entries);
+        let mut messages = rebuild_messages(&active);
+        let active_model = active_model_from_entries(&entries);
         let effective_model = active_model.as_ref().or(def.provider.as_ref());
         let context_max = effective_model
             .map(|provider| provider.context_window)
             .filter(|window| *window > 0);
         // 载入自愈：上次运行被进程中断时，尾部会留下无人回答的工具调用 ——
         // 补上合成的失败结果并落盘，否则之后每次请求都会被端点按协议拒绝。
-        let mut writer = SessionWriter::open(path).map_err(|e| e.to_string())?;
-        match settle_unanswered_tail(&mut writer, &messages) {
+        let mut writer = repo.open(session_id)?;
+        match settle_unanswered_tail(&mut *writer, &messages) {
             Ok(appended) => messages.extend(appended),
             Err(error) => eprintln!("pipi: 会话尾部修复失败（继续载入）: {error}"),
         }
@@ -296,10 +243,10 @@ impl RuntimeState {
     /// 新建一条会话文件并构造会话对象（返回新会话 id）。不插入 map。
     pub(super) fn create_session_object(
         def: &AgentDefinition,
+        repo: &dyn SessionRepo,
         model: Option<&Model>,
     ) -> Result<(Session, String), String> {
-        let sessions_dir = def.sessions_dir().ok_or("无法解析会话目录")?;
-        let mut writer = SessionWriter::create(&sessions_dir).map_err(|e| e.to_string())?;
+        let mut writer = repo.create()?;
         let session_id = writer.session_id().to_string();
         let active_model = model.cloned();
         let effective_model = active_model.as_ref().or(def.provider.as_ref());
@@ -330,7 +277,8 @@ impl RuntimeState {
     /// 构造设置工作台的临时测试会话。不创建目录或文件，完整复用 Agent 的模型、
     /// 工具、权限、工作目录与环境契约；只有对话账本本身是易失的。
     fn create_test_session_object(def: &AgentDefinition) -> (Session, String) {
-        let writer = SessionWriter::temporary();
+        // 临时测试会话永远是内存账本，不随 Agent 的载体设置变化。
+        let writer: Box<dyn SessionLog> = Box::new(SessionWriter::temporary());
         let session_id = writer.session_id().to_string();
         let context_max = def
             .provider
@@ -392,9 +340,8 @@ impl RuntimeState {
     pub fn open_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
         let def = agents::load_agent(agent_name)?;
-        let dir = def.sessions_dir().ok_or("无法解析会话目录")?;
-        let path = dir.join(format!("{session_id}.jsonl"));
-        if !path.is_file() {
+        let repo = session_repo(&def)?;
+        if !repo.exists(session_id)? {
             return Err("会话不存在".into());
         }
 
@@ -403,7 +350,7 @@ impl RuntimeState {
         if sessions.contains_key(&key) {
             return Ok(());
         }
-        let session = Self::load_session_object(&def, &path)?;
+        let session = Self::load_session_object(&def, repo.as_ref(), session_id)?;
         sessions.insert(key, session);
         Ok(())
     }
@@ -423,9 +370,8 @@ impl RuntimeState {
             return Err("非法会话 ID".into());
         }
         let def = agents::load_agent(agent_name)?;
-        let dir = def.sessions_dir().ok_or("无法解析会话目录")?;
-        let source_path = dir.join(format!("{session_id}.jsonl"));
-        if !source_path.is_file() {
+        let repo = session_repo(&def)?;
+        if !repo.exists(session_id)? {
             return Err("源会话不存在".into());
         }
 
@@ -440,18 +386,13 @@ impl RuntimeState {
             ));
         }
 
-        let writer = pipi_agent::session::fork_session(&source_path, &dir, up_to_entry_id)?;
-        let new_session_path = writer.path().to_path_buf();
-        let new_session_id = new_session_path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .ok_or_else(|| "无法解析新会话 ID".to_string())?
-            .to_string();
+        let writer = repo.fork(session_id, up_to_entry_id)?;
+        let new_session_id = writer.session_id().to_string();
 
-        let entries = load_session(&new_session_path).map_err(|e| e.to_string())?;
-        let active = pipi_agent::session::active_path(&entries);
-        let mut messages = pipi_agent::session::rebuild_messages(&active);
-        let active_model = pipi_agent::session::active_model_from_entries(&entries);
+        let entries = repo.entries(&new_session_id)?;
+        let active = active_path(&entries);
+        let mut messages = rebuild_messages(&active);
+        let active_model = active_model_from_entries(&entries);
         let effective_model = active_model.clone().or_else(|| def.provider.clone());
         let context_max = effective_model
             .as_ref()
@@ -460,7 +401,7 @@ impl RuntimeState {
         // 分叉出的会话同样载入自愈：源会话尾部若留下无主工具调用，分叉会
         // 把它原样复制过来（见 settle_unanswered_tail 的说明）。
         let mut writer = writer;
-        match settle_unanswered_tail(&mut writer, &messages) {
+        match settle_unanswered_tail(&mut *writer, &messages) {
             Ok(appended) => messages.extend(appended),
             Err(error) => eprintln!("pipi: 会话尾部修复失败（继续载入）: {error}"),
         }
