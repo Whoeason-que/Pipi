@@ -82,16 +82,11 @@ may-depend-on = ["av", "pipi-core"]
 dev-may-depend-on = ["pipi-agent", "pipi-protocol", "pipi-test-support"]
 forbid = ["reqwest"]
 
-# 模型目录：models.dev 拉取与缓存。这里是唯一直连 HTTP 的领域服务。
-[crates.pipi-catalog]
-may-depend-on = ["av", "pipi-protocol", "pipi-tools"]
-
 # 应用服务层：会话槽、运行编排、审批、宿主事件协议与宿主命令的单一事实来源。
 [crates.pipi-app]
 may-depend-on = [
     "av",
     "pipi-agent",
-    "pipi-catalog",
     "pipi-context",
     "pipi-core",
     "pipi-protocol",
@@ -106,7 +101,6 @@ dev-may-depend-on = ["pipi-test-support"]
 [crates.pipi-server]
 may-depend-on = [
     "pipi-app",
-    "pipi-catalog",
     "pipi-core",
     "pipi-protocol",
     "pipi-skills",
@@ -118,8 +112,8 @@ may-depend-on = [
 may-depend-on = [
     "pipi-agent",
     "pipi-app",
-    "pipi-catalog",
     "pipi-core",
+    "pipi-provider",
     "pipi-protocol",
     "pipi-skills",
     "pipi-tools",

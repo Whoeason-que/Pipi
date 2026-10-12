@@ -2,7 +2,7 @@
 //!
 //! baseUrl 的来源只有三种：① 上游 `api` 字段；② 官方 SDK/文档核实后写死在这里；
 //! ③ 本地运行时（手写条目）。**不要凭记忆填** —— 表里没有的提供商宁可漏收录。
-//! 改这里等于改用户能选到的模型来源，改完跑 `cargo test -p pipi-catalog`。
+//! 改这里等于改用户能选到的模型来源，改完跑 `cargo test -p pipi-provider catalog`。
 
 use pipi_protocol::Api;
 

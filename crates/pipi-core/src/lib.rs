@@ -2,7 +2,7 @@
 //!
 //! 运行时内核（循环、上下文预算、重试、统计、会话存储、压缩）在 `pipi-agent`；
 //! 技能中心在 `pipi-skills`（store 浏览 / 安装 / 校验与启用状态）；模型目录在
-//! `pipi-catalog`（models.dev 拉取与缓存）。这里保留的是「一切皆文件的 Agent
+//! `pipi-provider::catalog`（models.dev 拉取与缓存）。这里保留的是「一切皆文件的 Agent
 //! 注册表 + 契约解析 + 设置 + Agent 组合工具」。
 //!
 //! | 模块 | 职责 | pi / 上游对应 |

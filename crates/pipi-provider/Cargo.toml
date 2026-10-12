@@ -14,5 +14,6 @@ pipi-protocol = { workspace = true }
 rig = { workspace = true }
 # 覆盖工作区条目的 default-features = false，取 reqwest 默认特性
 reqwest = { workspace = true, default-features = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

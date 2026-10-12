@@ -5804,9 +5804,9 @@ version = "26.9.3"
 dependencies = [
  "pipi-agent",
  "pipi-app",
- "pipi-catalog",
  "pipi-core",
  "pipi-protocol",
+ "pipi-provider",
  "pipi-skills",
  "pipi-tools",
  "serde",
@@ -5842,7 +5842,6 @@ dependencies = [
  "async-trait",
  "av",
  "pipi-agent",
- "pipi-catalog",
  "pipi-context",
  "pipi-core",
  "pipi-protocol",
@@ -5851,19 +5850,6 @@ dependencies = [
  "pipi-skills",
  "pipi-test-support",
  "pipi-tools",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "pipi-catalog"
-version = "26.9.3"
-dependencies = [
- "av",
- "pipi-protocol",
- "pipi-tools",
- "reqwest 0.13.5",
  "serde",
  "serde_json",
  "tokio",
@@ -5944,6 +5930,7 @@ dependencies = [
  "pipi-protocol",
  "reqwest 0.13.5",
  "rig",
+ "serde",
  "serde_json",
  "tokio",
 ]
@@ -5954,7 +5941,6 @@ version = "26.9.3"
 dependencies = [
  "axum",
  "pipi-app",
- "pipi-catalog",
  "pipi-core",
  "pipi-protocol",
  "pipi-skills",

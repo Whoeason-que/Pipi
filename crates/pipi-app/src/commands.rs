@@ -13,12 +13,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use pipi_agent::stats::SessionStats;
-use pipi_catalog::ModelCatalog;
 use pipi_core::agents::{self, AgentDefinition};
 use pipi_core::settings::{self, Settings};
 use pipi_protocol::permissions::PermissionsConfig;
 use pipi_protocol::session::SessionSummary;
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
+use pipi_provider::catalog::ModelCatalog;
 use pipi_skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
 };
@@ -93,7 +93,11 @@ pub struct ModelCatalogArgs {
 
 /// 模型目录（models.dev + 本地缓存）。
 pub async fn model_catalog(args: ModelCatalogArgs) -> Result<ModelCatalog, String> {
-    pipi_catalog::load_catalog(args.refresh.unwrap_or(false)).await
+    pipi_provider::catalog::load_catalog(
+        args.refresh.unwrap_or(false),
+        av::paths::catalog_cache_path(),
+    )
+    .await
 }
 
 #[derive(Debug, Deserialize)]

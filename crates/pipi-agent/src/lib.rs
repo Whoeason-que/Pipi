@@ -11,7 +11,7 @@
 //! //! //! //! //! | [`stats`] | 会话统计（滚动窗口、命中率） | hermes 口径，见 README |
 //!
 //! 不属于这里的：Agent 定义与 av 契约、技能中心、模型目录、设置（`pipi-core` /
-//! `pipi-skills` / `pipi-catalog`），会话槽、后台编排与宿主事件（`pipi-app`）。
+//! `pipi-skills` / `pipi-provider::catalog`），会话槽、后台编排与宿主事件（`pipi-app`）。
 
 pub mod agent_loop;
 pub mod stats;

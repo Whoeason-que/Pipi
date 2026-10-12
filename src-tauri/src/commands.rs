@@ -8,9 +8,9 @@ use pipi_app::commands::{
     WriteAgentFileArgs,
 };
 use pipi_app::runtime::RuntimeState;
-use pipi_catalog::ModelCatalog;
 use pipi_core::agents::AgentDefinition;
 use pipi_core::settings::Settings;
+use pipi_provider::catalog::ModelCatalog;
 use pipi_skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
 };

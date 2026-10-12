@@ -1,6 +1,6 @@
 //! Pipi 的应用服务层。
 //!
-//! 领域逻辑在 `pipi-core` / `pipi-agent` / `pipi-skills` / `pipi-catalog`；
+//! 领域逻辑在 `pipi-core` / `pipi-agent` / `pipi-skills` / `pipi-provider::catalog`；
 //! 这里把它们组装为带会话槽、后台运行和宿主事件的应用服务，Tauri 与 Web
 //! server 共用这一层，因此不会各自复制 Agent 调度逻辑或改变 IPC event 的载荷。
 //!

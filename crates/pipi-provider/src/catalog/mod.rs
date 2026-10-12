@@ -11,8 +11,11 @@
 //!
 //! 缓存：`~/.pipi/cache/models.json`（我们的 wire 结构，自带 `fetchedAt`）。
 //! 拉取失败时用缓存顶（`stale=true`）；没缓存就报错，由前端退化成手填模型 ID。
+//!
+//! **缓存路径由宿主注入**（`load_catalog(refresh, cache_path)`）：路径布局是 av
+//! 的职责（`av::paths`），provider 层不该反向依赖它。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -125,10 +128,6 @@ fn has_version_segment(url: &str) -> bool {
     false
 }
 
-pub fn cache_path() -> Option<PathBuf> {
-    av::paths::catalog_cache_path()
-}
-
 /// 缓存的默认刷新策略（纯函数，便于单测）。
 fn is_fresh(fetched_at: i64, now: i64) -> bool {
     now >= fetched_at && now.saturating_sub(fetched_at) < TTL_SECS
@@ -141,13 +140,13 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-fn read_cache() -> Option<ModelCatalog> {
-    let text = std::fs::read_to_string(cache_path()?).ok()?;
+fn read_cache(cache_path: Option<&Path>) -> Option<ModelCatalog> {
+    let text = std::fs::read_to_string(cache_path?).ok()?;
     serde_json::from_str(&text).ok()
 }
 
-fn write_cache(catalog: &ModelCatalog) -> Result<(), String> {
-    let path = cache_path().ok_or("无法定位 ~/.pipi")?;
+fn write_cache(cache_path: Option<&Path>, catalog: &ModelCatalog) -> Result<(), String> {
+    let path = cache_path.ok_or("无法定位 ~/.pipi")?;
     let text = serde_json::to_string(catalog).map_err(|e| format!("序列化目录失败: {e}"))?;
     // 原子替换：进程中途崩溃也不会留下截断的缓存
     // （截断的 models.json 会被 read_cache 当作「没有缓存」，下次冷启动又要拉 4.6MB）。
@@ -475,9 +474,12 @@ static CATALOG_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 ///
 /// `source` 语义：`models.dev` = 本次联网刷新的结果；`cache` = 读的是本地缓存
 /// （此时 `stale=true` 表示缓存已过期且本次刷新失败）。
-pub async fn load_catalog(refresh: bool) -> Result<ModelCatalog, String> {
+pub async fn load_catalog(
+    refresh: bool,
+    cache_path: Option<PathBuf>,
+) -> Result<ModelCatalog, String> {
     let _single_flight = CATALOG_LOCK.lock().await;
-    let cached = read_cache();
+    let cached = read_cache(cache_path.as_deref());
     if !refresh
         && let Some(catalog) = &cached
         && catalog
@@ -495,7 +497,7 @@ pub async fn load_catalog(refresh: bool) -> Result<ModelCatalog, String> {
         .and_then(|raw| build_catalog(&raw, now_secs()));
     let resolved = resolve_catalog(cached, fetched)?;
     if resolved.source == "models.dev"
-        && let Err(error) = write_cache(&resolved)
+        && let Err(error) = write_cache(cache_path.as_deref(), &resolved)
     {
         eprintln!("pipi: 写入模型目录缓存失败：{error}");
     }

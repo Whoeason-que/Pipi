@@ -8,6 +8,9 @@
 //! 错误不在 HTTP 层抛出，而是以 `StreamEvent::Error` 进入事件流 —— 与 pi 的
 //! StreamFn 契约一致。
 //!
+//! 除 rig 适配外，这一层还带 [`catalog`]（models.dev 模型目录）：两者都是
+//! 「模型面」的服务，且都直连 HTTP；契约层的 `Provider` 端口不属于这里。
+//!
 //! rig 0.43 换成了「wire + transport + fold」架构，与 0.42 的几处映射偏差：
 //! - core 不再自带 HTTP transport：reqwest 由 `rig-reqwest` 提供，客户端 =
 //!   配置（`AnthropicConfig` / `OpenAIConfig`）`.connect(transport)`；
@@ -38,6 +41,7 @@ use rig::streaming::{Item as RigItem, StreamEvent as RigStreamEvent};
 use serde_json::{Value, json};
 use tokio::sync::mpsc::{self, Sender};
 
+pub mod catalog;
 mod classify;
 
 use classify::{RetryVerdict, classify_rig_error};

@@ -10,7 +10,6 @@ members = [
     "crates/pipi-harness",
     "crates/pipi-provider",
     "crates/pipi-skills",
-    "crates/pipi-catalog",
     "crates/pipi-test-support",
     "crates/pipi-agent",
     "crates/pipi-core",
@@ -39,7 +38,6 @@ rust-version = "1.95"
 av = { path = "crates/av", default-features = false }
 pipi-agent = { path = "crates/pipi-agent" }
 pipi-app = { path = "crates/pipi-app" }
-pipi-catalog = { path = "crates/pipi-catalog" }
 pipi-context = { path = "crates/pipi-context" }
 pipi-core = { path = "crates/pipi-core" }
 pipi-error = { path = "crates/pipi-error" }

@@ -12,7 +12,6 @@ path = "src/main.rs"
 [dependencies]
 axum = { workspace = true }
 pipi-app = { workspace = true }
-pipi-catalog = { workspace = true }
 pipi-core = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-skills = { workspace = true }
