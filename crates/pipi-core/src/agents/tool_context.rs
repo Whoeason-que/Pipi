@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn tool_context_grants_read_access_to_memory_dir() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let name = format!("memory-read-{}", pipi_agent::session::new_id());
+        let name = format!("memory-read-{}", pipi_protocol::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         let memory_dir = def.memory_dir().unwrap();
         fs::write(memory_dir.join("note.md"), "hello").unwrap();
@@ -133,13 +133,11 @@ mod tests {
         use std::os::unix::fs::symlink;
 
         let _guard = HOME_LOCK.lock().unwrap();
-        let home = std::env::temp_dir().join(format!(
-            "pipi-skills-link-home-{}",
-            pipi_agent::session::new_id()
-        ));
+        let home =
+            std::env::temp_dir().join(format!("pipi-skills-link-home-{}", pipi_protocol::new_id()));
         let external = std::env::temp_dir().join(format!(
             "pipi-skills-link-external-{}",
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         let agent_dir = home.join(".pipi/agents/skills-link-agent");
         std::fs::create_dir_all(&agent_dir).unwrap();

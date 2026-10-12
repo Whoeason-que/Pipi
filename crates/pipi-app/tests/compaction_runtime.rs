@@ -13,11 +13,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pipi_agent::session::{EntryKind, SessionWriter, load_session};
+use pipi_agent::session::{SessionWriter, load_session};
 use pipi_app::events::{EventEmitter, RuntimeEvent};
 use pipi_app::runtime::RuntimeState;
 use pipi_core::agents;
 use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
+use pipi_protocol::session::EntryKind;
 use pipi_protocol::{Api, Message, Model};
 
 /// 本文件的用例都改写进程级 `HOME`，必须串行执行（同 `session_repair.rs`）。
@@ -132,7 +133,7 @@ fn temp_home() -> std::path::PathBuf {
     let home = std::env::temp_dir().join(format!(
         "pipi-compaction-e2e-{}-{}",
         std::process::id(),
-        pipi_agent::session::new_id()
+        pipi_protocol::new_id()
     ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");
@@ -499,7 +500,7 @@ fn compaction_forks_to_new_session_and_archives_original() {
     assert!(!case.old_path.exists(), "原会话应当已离开活跃区");
     let archived = case
         .sessions_dir
-        .join(pipi_agent::session::ARCHIVE_DIR)
+        .join(pipi_protocol::session::ARCHIVE_DIR)
         .join(format!("{}.jsonl", case.old_id));
     assert!(archived.is_file(), "归档区应当有原会话");
     let archived_entries = load_session(&archived).expect("读回归档会话");
@@ -509,8 +510,9 @@ fn compaction_forks_to_new_session_and_archives_original() {
             .any(|entry| matches!(entry.kind, EntryKind::Compaction { .. })),
         "归档的原会话应当是压缩前的完整记录"
     );
-    let archived_messages =
-        pipi_agent::session::rebuild_messages(&pipi_agent::session::active_path(&archived_entries));
+    let archived_messages = pipi_protocol::session::rebuild_messages(
+        &pipi_protocol::session::active_path(&archived_entries),
+    );
     assert!(
         archived_messages.len() >= 121,
         "归档记录应当保留全部 40 轮 + 本轮新消息，实际 {}",
@@ -526,7 +528,7 @@ fn compaction_forks_to_new_session_and_archives_original() {
         )
         .expect("读取消息");
     assert_eq!(
-        pipi_agent::session::summary_text(&messages[0]),
+        pipi_protocol::session::summary_text(&messages[0]),
         Some(summary.as_str())
     );
     assert!(
@@ -586,7 +588,7 @@ fn compaction_keeps_original_in_place_when_archive_is_off() {
     assert!(
         !case
             .sessions_dir
-            .join(pipi_agent::session::ARCHIVE_DIR)
+            .join(pipi_protocol::session::ARCHIVE_DIR)
             .join(format!("{}.jsonl", case.old_id))
             .exists(),
         "关闭归档后不应出现在归档区"
@@ -709,7 +711,7 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
     assert!(!std::path::Path::new(&old_path).exists(), "原会话应已归档");
     assert!(
         sessions_dir
-            .join(pipi_agent::session::ARCHIVE_DIR)
+            .join(pipi_protocol::session::ARCHIVE_DIR)
             .join(format!("{old_id}.jsonl"))
             .is_file()
     );
@@ -955,7 +957,7 @@ fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
         .block_on(state.session_messages("compaction-e2e", &session_id))
         .expect("读取消息");
     assert_eq!(
-        pipi_agent::session::summary_text(&messages[0]),
+        pipi_protocol::session::summary_text(&messages[0]),
         Some(summary.as_str()),
         "首条应是上次的摘要"
     );

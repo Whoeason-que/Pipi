@@ -142,7 +142,7 @@ fn temp_home() -> std::path::PathBuf {
     let home = std::env::temp_dir().join(format!(
         "pipi-concurrent-sessions-{}-{}",
         std::process::id(),
-        pipi_agent::session::new_id()
+        pipi_protocol::new_id()
     ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");

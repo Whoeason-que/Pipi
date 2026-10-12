@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use pipi_agent::session::ARCHIVE_DIR;
+use pipi_protocol::session::ARCHIVE_DIR;
 use pipi_tools::fs::ensure_real_directory;
 
 /// 所有 Agent 数据的根：`~/.pipi/agents`（路径布局由 av 统一定义）。
@@ -107,13 +107,11 @@ mod tests {
         use std::os::unix::fs::symlink;
 
         let _guard = HOME_LOCK.lock().unwrap();
-        let home = std::env::temp_dir().join(format!(
-            "pipi-agent-link-home-{}",
-            pipi_agent::session::new_id()
-        ));
+        let home =
+            std::env::temp_dir().join(format!("pipi-agent-link-home-{}", pipi_protocol::new_id()));
         let external = std::env::temp_dir().join(format!(
             "pipi-agent-link-external-{}",
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         let linked = home.join(".pipi/agents/linked-agent");
         std::fs::create_dir_all(home.join(".pipi/agents")).unwrap();
@@ -154,11 +152,11 @@ mod tests {
         let _guard = HOME_LOCK.lock().unwrap();
         let home = std::env::temp_dir().join(format!(
             "pipi-agent-root-link-home-{}",
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         let external = std::env::temp_dir().join(format!(
             "pipi-agent-root-link-external-{}",
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         std::fs::create_dir_all(home.join(".pipi")).unwrap();
         std::fs::create_dir_all(&external).unwrap();

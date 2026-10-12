@@ -63,7 +63,7 @@ forbid = ["reqwest"]
 # 技能中心：store 视图与安装/校验/同步服务，走 av 实现。
 [crates.pipi-skills]
 may-depend-on = ["av", "pipi-core"]
-dev-may-depend-on = ["pipi-agent", "pipi-test-support"]
+dev-may-depend-on = ["pipi-agent", "pipi-protocol", "pipi-test-support"]
 forbid = ["reqwest"]
 
 # 模型目录：models.dev 拉取与缓存。这里是唯一直连 HTTP 的领域服务。

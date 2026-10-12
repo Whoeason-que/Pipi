@@ -2,7 +2,15 @@
 //!
 //! 归档 = 移动到 `sessions/.archive/<id>.jsonl`；删除 = 删文件。目录与文件的
 //! 符号链接防护在这里（rename/remove 不能沿链接波及外部文件）。
-use super::*;
+use std::path::{Path, PathBuf};
+
+use pipi_protocol::Message;
+use pipi_protocol::session::{
+    ARCHIVE_DIR, EntryKind, SessionEntry, SessionLog, SessionRepo, SessionSummary,
+    active_model_from_entries, active_path, validate_session_id,
+};
+
+use super::{SessionWriter, load_session};
 
 /// [`SessionRepo`] 的 JSONL 实现。
 pub struct JsonlSessionRepo {
@@ -266,6 +274,7 @@ pub fn list_session_summaries(sessions_dir: &Path) -> Vec<SessionSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pipi_protocol::session::EnvDeclared;
 
     #[test]
     fn summaries_list_titles_and_order() {

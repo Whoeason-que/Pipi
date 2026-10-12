@@ -325,10 +325,8 @@ mod tests {
     /// skills 按名过滤、env 解析注入 AV_*，以及包含约束 fail-closed。
     #[test]
     fn agent_contract_drives_instructions_skills_and_env() {
-        let root = std::env::temp_dir().join(format!(
-            "pipi-contract-e2e-{}",
-            pipi_agent::session::new_id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("pipi-contract-e2e-{}", pipi_protocol::new_id()));
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join("AGENTS.md"), "CONVENTION-AGENTS-ROOT-RULES").unwrap();
         fs::write(root.join("PROMPT.md"), "DECLARED-PROMPT-BODY").unwrap();
@@ -413,7 +411,7 @@ mod tests {
         // 逃逸包含根 fail-closed
         let outside = std::env::temp_dir().join(format!(
             "pipi-contract-e2e-outside-{}.md",
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         fs::write(&outside, "outside").unwrap();
         fs::write(
@@ -435,10 +433,8 @@ mod tests {
     /// （多仓库工作区用 `.agents/skills` 这种既有约定），不必改造成 `.pi/skills`。
     #[test]
     fn project_contract_skills_sources_point_into_the_repo() {
-        let root = std::env::temp_dir().join(format!(
-            "pipi-skills-sources-{}",
-            pipi_agent::session::new_id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("pipi-skills-sources-{}", pipi_protocol::new_id()));
         fs::create_dir_all(root.join(".git")).unwrap();
         let pack = root.join(".agents").join("skills").join("workspace-guide");
         fs::create_dir_all(&pack).unwrap();
@@ -483,7 +479,7 @@ mod tests {
         let _guard = HOME_LOCK.lock().unwrap();
         let home = std::env::temp_dir().join(format!(
             "pipi-store-skills-home-{}",
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         fs::create_dir_all(&home).unwrap();
         let previous_home = std::env::var("HOME").unwrap();
@@ -576,7 +572,7 @@ mod tests {
     #[test]
     fn system_prompt_injects_memory_index_with_summaries() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let name = format!("memory-index-{}", pipi_agent::session::new_id());
+        let name = format!("memory-index-{}", pipi_protocol::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         let memory_dir = def.memory_dir().unwrap();
         fs::write(

@@ -12,11 +12,11 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use pipi_agent::session::SessionSummary;
 use pipi_agent::stats::SessionStats;
 use pipi_catalog::ModelCatalog;
 use pipi_core::agents::{self, AgentDefinition};
 use pipi_core::settings::{self, Settings};
+use pipi_protocol::session::SessionSummary;
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
 use pipi_skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,

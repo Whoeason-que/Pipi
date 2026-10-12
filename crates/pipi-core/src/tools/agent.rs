@@ -15,7 +15,8 @@ use crate::agents;
 use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskOwner, BackgroundTaskService,
 };
-use pipi_agent::session::{JsonlSessionRepo, SessionRepo, active_path, rebuild_messages};
+use pipi_agent::session::JsonlSessionRepo;
+use pipi_protocol::session::{SessionRepo, active_path, rebuild_messages};
 use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, ContentBlock, Message, Model, StopReason, ToolResultContent,
 };

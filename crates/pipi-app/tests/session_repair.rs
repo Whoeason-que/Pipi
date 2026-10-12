@@ -35,7 +35,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     let home = std::env::temp_dir().join(format!(
         "pipi-session-repair-{}-{}",
         std::process::id(),
-        pipi_agent::session::new_id()
+        pipi_protocol::new_id()
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -109,7 +109,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     let path = sessions_dir.join(format!("{session_id}.jsonl"));
     let entries = pipi_agent::session::load_session(&path).unwrap();
     let rebuilt =
-        pipi_agent::session::rebuild_messages(&pipi_agent::session::active_path(&entries));
+        pipi_protocol::session::rebuild_messages(&pipi_protocol::session::active_path(&entries));
     assert_eq!(
         rebuilt
             .iter()
@@ -140,7 +140,7 @@ async fn completed_tail_is_left_untouched() {
     let home = std::env::temp_dir().join(format!(
         "pipi-session-intact-{}-{}",
         std::process::id(),
-        pipi_agent::session::new_id()
+        pipi_protocol::new_id()
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();

@@ -10,7 +10,7 @@ fn append_declared_env(
         .provenance
         .iter()
         .filter(|(_, source)| source.as_str() != av::resolve::PROCESS_SOURCE)
-        .map(|(key, source)| pipi_agent::session::EnvDeclared {
+        .map(|(key, source)| pipi_protocol::session::EnvDeclared {
             key: key.clone(),
             source: source.clone(),
         })
@@ -802,7 +802,7 @@ mod tests {
         let empty_home = std::env::temp_dir().join(format!(
             "pipi-resolve-model-home-{}-{}",
             std::process::id(),
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         std::fs::create_dir_all(empty_home.join(".pipi")).unwrap();
         pipi_test_support::set_env_var("HOME", &empty_home);
@@ -864,7 +864,7 @@ mod tests {
         let sessions = std::env::temp_dir().join(format!(
             "pipi-timeout-pairing-{}-{}",
             std::process::id(),
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         std::fs::create_dir_all(&sessions).unwrap();
         let repo = JsonlSessionRepo::new(sessions.clone());
@@ -905,8 +905,9 @@ mod tests {
             .unwrap();
 
         let entries = pipi_agent::session::load_session(&path).unwrap();
-        let messages =
-            pipi_agent::session::rebuild_messages(&pipi_agent::session::active_path(&entries));
+        let messages = pipi_protocol::session::rebuild_messages(
+            &pipi_protocol::session::active_path(&entries),
+        );
         assert_eq!(messages.len(), 4);
         assert!(matches!(
             &messages[2],
@@ -950,7 +951,7 @@ mod tests {
         let home = std::env::temp_dir().join(format!(
             "pipi-child-timeout-{}-{}",
             std::process::id(),
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();

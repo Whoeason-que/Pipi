@@ -43,7 +43,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
         }
 
         let jobs_dir = Self::jobs_dir(&spec.owner.agent_name)?;
-        let job_id = format!("job-{}", pipi_agent::session::new_id());
+        let job_id = format!("job-{}", pipi_protocol::new_id());
         let metadata_path = jobs_dir.join(format!("{job_id}.jsonl"));
         let log_path = jobs_dir.join(format!("{job_id}.log"));
         let started_at = now_millis();
@@ -180,7 +180,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
         }
 
         let jobs_dir = Self::jobs_dir(&spec.owner.agent_name)?;
-        let job_id = format!("job-{}", pipi_agent::session::new_id());
+        let job_id = format!("job-{}", pipi_protocol::new_id());
         let metadata_path = jobs_dir.join(format!("{job_id}.jsonl"));
         let started_at = now_millis();
         let queued = BackgroundTaskInfo {
@@ -432,7 +432,7 @@ mod tests {
         let home = std::env::temp_dir().join(format!(
             "pipi-background-{}-{}",
             std::process::id(),
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();

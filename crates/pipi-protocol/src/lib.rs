@@ -1,21 +1,23 @@
-//! Pipi 的持久化与跨宿主协议类型。
+//! Pipi 的契约层：持久化与跨宿主协议类型，以及各层共用的端口定义。
 //!
 //! 这里的类型同时服务于 session JSONL、Tauri IPC、Web transport 和前端镜像。
-//! 不放文件系统、provider 或工具实现，避免协议层反向牵引运行时。唯一的运行
+//! 不放 provider、工具或载体的**实现**，避免契约层反向牵引运行时。唯一的运行
 //! 控制原语是轻量的 `AbortSignal`，供 provider、harness 与工具共同使用。
+//!
+//! | 模块 | 职责 |
+//! | --- | --- |
+//! | [`session`] | 会话条目格式、回放规则与存储端口（[`session::SessionLog`] / [`session::SessionRepo`]） |
+//! | [`ids`] | 通用 id 与时间戳 |
+
+pub mod ids;
+pub mod session;
+
+pub use ids::{new_id, now_millis};
 
 use pipi_error::{ErrorCode, PipiError, RetryHint};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
-
-/// 生成 session/message 的毫秒时间戳。
-pub fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
-}
 
 /// 支持的 LLM API 协议。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

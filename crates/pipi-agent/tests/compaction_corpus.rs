@@ -9,7 +9,8 @@
 
 use pipi_agent::compaction::{Budget, DEFAULT_THRESHOLD_PERCENT, project};
 use pipi_agent::context::estimate_context_tokens;
-use pipi_agent::session::{active_path, load_session, replay};
+use pipi_agent::session::load_session;
+use pipi_protocol::session::{active_path, replay};
 use pipi_protocol::{ContentBlock, Message, StopReason, ToolResultContent};
 
 // ---------------------------------------------------------------------------

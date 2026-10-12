@@ -21,10 +21,7 @@ use pipi_agent::agent_loop::Emitter as LoopEmitter;
 use pipi_agent::agent_loop::{
     AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode, run_agent_loop,
 };
-use pipi_agent::session::{
-    EntryKind, JsonlSessionRepo, SessionLog, SessionRepo, SessionSummary, SessionWriter,
-    active_model_from_entries, active_path, rebuild_messages,
-};
+use pipi_agent::session::{JsonlSessionRepo, SessionWriter};
 use pipi_agent::stats::SessionStatsTracker;
 use pipi_core::agents::{self, AgentDefinition};
 use pipi_core::settings::load_settings;
@@ -35,6 +32,10 @@ use pipi_core::tools::agent::{
 use pipi_core::tools::background::{
     BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskService,
     ManageBackgroundTaskTool, QueryBackgroundTasksTool, SubmitBackgroundTaskTool,
+};
+use pipi_protocol::session::{
+    EntryKind, SessionLog, SessionRepo, SessionSummary, active_model_from_entries, active_path,
+    rebuild_messages,
 };
 use pipi_protocol::{AbortSignal, Message, Model, StopReason, StreamOptions};
 use pipi_provider::provider_for;
@@ -178,9 +179,9 @@ pub struct RuntimeState {
 }
 
 /// 校验会话 ID：必须是单一、稳定的文件名（`<id>.jsonl` 的 stem）。
-/// 字符集规则属于存储契约，实现在 `pipi_agent::session`。
+/// 字符集规则属于存储契约，实现在 `pipi_protocol::session`。
 pub fn validate_session_id(session_id: &str) -> Result<(), String> {
-    pipi_agent::session::validate_session_id(session_id)
+    pipi_protocol::session::validate_session_id(session_id)
 }
 
 mod compaction;

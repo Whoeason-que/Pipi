@@ -347,8 +347,7 @@ mod tests {
 
     #[test]
     fn save_and_load_roundtrip() {
-        let dir =
-            std::env::temp_dir().join(format!("pipi-settings-{}", pipi_agent::session::new_id()));
+        let dir = std::env::temp_dir().join(format!("pipi-settings-{}", pipi_protocol::new_id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("settings.json");
         let settings = Settings {

@@ -163,7 +163,9 @@ impl<'a> Preparation<'a> {
     /// 历史首条若是上次注入的摘要，取出正文 —— 重复压缩时交回给模型，
     /// 避免措辞与事实逐轮漂移（pi 的 previousSummary 语义）。
     pub fn previous_summary(&self) -> Option<&str> {
-        self.messages.first().and_then(crate::session::summary_text)
+        self.messages
+            .first()
+            .and_then(pipi_protocol::session::summary_text)
     }
 }
 
@@ -642,12 +644,15 @@ mod tests {
         ];
         let plan = Plan {
             keep_from: Some(2),
-            injections: vec![crate::session::summary_message("旧摘要")],
+            injections: vec![pipi_protocol::session::summary_message("旧摘要")],
             ..Default::default()
         };
         let out = plan.apply(&messages);
         assert_eq!(out.len(), 2);
-        assert_eq!(crate::session::summary_text(&out[0]), Some("旧摘要"));
+        assert_eq!(
+            pipi_protocol::session::summary_text(&out[0]),
+            Some("旧摘要")
+        );
         assert_eq!(out[1].role(), "user");
         validate_result(&messages, &out).unwrap();
     }

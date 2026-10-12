@@ -326,11 +326,11 @@ mod tests {
         let _guard = HOME_LOCK.lock().unwrap();
         let home = std::env::temp_dir().join(format!(
             "pipi-agent-manifest-link-home-{}",
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         let external = std::env::temp_dir().join(format!(
             "pipi-agent-manifest-link-external-{}",
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         let agent = home.join(".pipi/agents/manifest-link-agent");
         let external_manifest = external.join("agent.json");
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn create_defaults_to_workspace_write_sandbox() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let name = format!("pipi-default-sandbox-{}", pipi_agent::session::new_id());
+        let name = format!("pipi-default-sandbox-{}", pipi_protocol::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         assert_eq!(
             def.permissions.sandbox,
@@ -396,7 +396,7 @@ mod tests {
         let json = serde_json::to_string(&explicit).unwrap();
         assert!(json.contains("\"subagent\":true"), "{json}");
 
-        let name = format!("pipi-subagent-roundtrip-{}", pipi_agent::session::new_id());
+        let name = format!("pipi-subagent-roundtrip-{}", pipi_protocol::new_id());
         let mut def = create_agent(&name, "", None, None, None, None).unwrap();
         assert!(!def.subagent);
 
@@ -450,8 +450,7 @@ mod tests {
     #[test]
     fn create_writes_skeleton_with_workspace_and_model() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home =
-            std::env::temp_dir().join(format!("pipi-home-{}", pipi_agent::session::new_id()));
+        let home = std::env::temp_dir().join(format!("pipi-home-{}", pipi_protocol::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);
@@ -488,7 +487,7 @@ mod tests {
         assert!(create_agent("tester", "", None, None, None, None).is_err());
 
         // 显式 workspace：不建默认目录，解析结果就是声明的路径
-        let ws = std::env::temp_dir().join(format!("pipi-ws-{}", pipi_agent::session::new_id()));
+        let ws = std::env::temp_dir().join(format!("pipi-ws-{}", pipi_protocol::new_id()));
         let def =
             create_agent("ws-agent", "", Some(ws.to_str().unwrap()), None, None, None).unwrap();
         assert_eq!(def.workspace.as_deref(), Some(ws.to_str().unwrap()));
@@ -526,8 +525,7 @@ mod tests {
     #[test]
     fn seeds_default_agent_when_missing_and_never_overwrites() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home =
-            std::env::temp_dir().join(format!("pipi-home-seed-{}", pipi_agent::session::new_id()));
+        let home = std::env::temp_dir().join(format!("pipi-home-seed-{}", pipi_protocol::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);
@@ -580,8 +578,7 @@ mod tests {
     #[test]
     fn bootstrap_keeps_existing_agents_and_backfills_default() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home =
-            std::env::temp_dir().join(format!("pipi-home-fill-{}", pipi_agent::session::new_id()));
+        let home = std::env::temp_dir().join(format!("pipi-home-fill-{}", pipi_protocol::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);

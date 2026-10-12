@@ -27,7 +27,7 @@ impl TestHome {
     fn new(label: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "pipi-skill-center-{label}-{}",
-            pipi_agent::session::new_id()
+            pipi_protocol::new_id()
         ));
         fs::create_dir_all(&root).unwrap();
         let previous_home = std::env::var("HOME").unwrap();
@@ -96,7 +96,7 @@ fn install_enable_disable_and_purge_roundtrip() {
     assert_eq!(library.skills[0].description.as_deref(), Some("PDF-DESC"));
     assert!(library.skills[0].versions[0].present);
 
-    let name = format!("skill-agent-{}", pipi_agent::session::new_id());
+    let name = format!("skill-agent-{}", pipi_protocol::new_id());
     let def = agents::create_agent(&name, "", None, None, None, None).unwrap();
     let view = agent_skills(&name).unwrap();
     assert!(view.declared.is_empty(), "安装不等于启用");
@@ -166,7 +166,7 @@ fn project_layer_declaration_wins_and_filter_is_reported() {
     let source = write_skill_source(home.root());
     install_skill(source.to_str().unwrap(), None, true, false).unwrap();
 
-    let name = format!("skill-agent-{}", pipi_agent::session::new_id());
+    let name = format!("skill-agent-{}", pipi_protocol::new_id());
     // 项目层：随工作区走的 agent.toml + agent.lock
     let project = home.root().join("project");
     fs::create_dir_all(project.join(".git")).unwrap();
@@ -231,7 +231,7 @@ fn sync_restores_missing_content_resolves_lock_and_repairs_drift() {
     let home = TestHome::new("sync");
     let source = write_skill_source(home.root());
     install_skill(source.to_str().unwrap(), None, true, false).unwrap();
-    let name = format!("skill-agent-{}", pipi_agent::session::new_id());
+    let name = format!("skill-agent-{}", pipi_protocol::new_id());
     agents::create_agent(&name, "", None, None, None, None).unwrap();
     set_skill_enabled(&name, "pdf", true).unwrap();
     let entry = store::read_index().unwrap().skills[0].clone();
@@ -287,7 +287,7 @@ fn install_reports_git_and_name_validation_errors() {
     let error = install_skill("owner/repo", Some(&["pdf".to_string()]), true, false).unwrap_err();
     assert!(error.contains("不能同时"), "{error}");
     // 不在 store 里的技能无法启用
-    let name = format!("skill-agent-{}", pipi_agent::session::new_id());
+    let name = format!("skill-agent-{}", pipi_protocol::new_id());
     agents::create_agent(&name, "", None, None, None, None).unwrap();
     let error = set_skill_enabled(&name, "pdf", true).unwrap_err();
     assert!(error.contains("尚未安装"), "{error}");

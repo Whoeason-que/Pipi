@@ -61,14 +61,13 @@ pub fn delete_archived_agent(name: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::agents::{agents_dir, create_agent, list_agents};
-    use pipi_agent::session::ARCHIVE_DIR;
+    use pipi_protocol::session::ARCHIVE_DIR;
     use pipi_test_support::HOME_LOCK;
 
     #[test]
     fn agent_archive_restore_delete_lifecycle() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home =
-            std::env::temp_dir().join(format!("pipi-home-arch-{}", pipi_agent::session::new_id()));
+        let home = std::env::temp_dir().join(format!("pipi-home-arch-{}", pipi_protocol::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);
@@ -136,8 +135,7 @@ mod tests {
     fn archive_scan_skips_dot_dir_with_manifest() {
         // 归档区里即使意外出现 agent.json，活跃列表也不得扫到（点目录硬跳过）
         let _guard = HOME_LOCK.lock().unwrap();
-        let home =
-            std::env::temp_dir().join(format!("pipi-home-dot-{}", pipi_agent::session::new_id()));
+        let home = std::env::temp_dir().join(format!("pipi-home-dot-{}", pipi_protocol::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);

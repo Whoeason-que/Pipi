@@ -5832,7 +5832,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -5908,6 +5907,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+ "uuid",
 ]
 
 [[package]]
@@ -5950,6 +5950,7 @@ dependencies = [
  "av",
  "pipi-agent",
  "pipi-core",
+ "pipi-protocol",
  "pipi-test-support",
  "serde",
 ]

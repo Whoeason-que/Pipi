@@ -181,8 +181,7 @@ mod tests {
     #[test]
     fn agent_file_editor_is_restricted_to_agents_md_and_memory() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home =
-            std::env::temp_dir().join(format!("pipi-edit-{}", pipi_agent::session::new_id()));
+        let home = std::env::temp_dir().join(format!("pipi-edit-{}", pipi_protocol::new_id()));
         std::fs::create_dir_all(&home).unwrap();
         let prev = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);

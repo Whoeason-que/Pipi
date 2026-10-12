@@ -2,7 +2,15 @@
 //!
 //! [`SessionWriter`] 是 [`SessionLog`] 的 JSONL 实现 —— 正式会话写
 //! `sessions/<millis>-<id>.jsonl`，设置工作台的临时测试只维护内存账本。
-use super::*;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use pipi_protocol::session::{
+    CompactionRecord, EntryKind, EnvDeclared, SessionEntry, SessionLog, active_path, replay,
+};
+use pipi_protocol::{Message, Model, new_id, now_millis};
+
+use super::{load_session, track_message_ids};
 
 /// 一个会话的追加账本。
 ///
@@ -278,6 +286,10 @@ impl SessionLog for SessionWriter {
 mod tests {
     use super::*;
     use pipi_protocol::ContentBlock;
+    use pipi_protocol::Usage;
+    use pipi_protocol::session::{active_model_from_entries, rebuild_messages, summary_text};
+
+    use crate::session::{fork_session, list_session_summaries};
 
     #[test]
     fn temporary_writer_keeps_ledger_state_without_a_file() {

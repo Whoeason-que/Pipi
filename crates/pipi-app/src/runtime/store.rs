@@ -1,6 +1,6 @@
 //! 会话载体装配点。
 //!
-//! 运行时只依赖 `SessionLog` / `SessionRepo` 两个接口（见 `pipi_agent::session`），
+//! 运行时只依赖 `SessionLog` / `SessionRepo` 两个接口（见 `pipi_protocol::session`），
 //! 具体载体在这里选。今天只有 JSONL 文件；接入第二种载体（如 git 分支）时
 //! **只改本文件**，调用点不动 —— 设计见 `docs/git-session-store.md`。
 

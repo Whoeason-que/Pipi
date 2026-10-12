@@ -128,7 +128,7 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
     let summary = compacted
         .messages
         .first()
-        .and_then(pipi_agent::session::summary_text)
+        .and_then(pipi_protocol::session::summary_text)
         .unwrap_or_default()
         .to_string();
     // 保留区间的起点条目 id：回放据此留住这段原文（缺了它就退回旧行为）。
@@ -139,7 +139,7 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
         .ok()
         .and_then(|writer| writer.tip_id().map(str::to_string))
         .unwrap_or_default();
-    let record = pipi_agent::session::CompactionRecord {
+    let record = pipi_protocol::session::CompactionRecord {
         summary: &summary,
         strategy: compacted.strategy,
         keep_from_entry: &keep_from_entry,
@@ -198,7 +198,7 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
 pub(super) fn persist_compaction(
     writer: &SharedLog,
     repo: Option<&dyn SessionRepo>,
-    record: &pipi_agent::session::CompactionRecord<'_>,
+    record: &pipi_protocol::session::CompactionRecord<'_>,
     settings: pipi_core::settings::CompactionSettings,
 ) -> Result<Option<String>, String> {
     // 临时测试上下文需要摘要替换，但绝不能分叉或写入 sessions 目录。内存账本
@@ -248,7 +248,7 @@ pub(super) fn persist_compaction(
 fn fork_and_write_compaction(
     writer: &SharedLog,
     repo: &dyn SessionRepo,
-    record: &pipi_agent::session::CompactionRecord<'_>,
+    record: &pipi_protocol::session::CompactionRecord<'_>,
     archive_original: bool,
 ) -> Result<String, String> {
     let source_id = {
@@ -408,7 +408,7 @@ mod tests {
             .unwrap();
         let source_tip = ledger.tip_id().unwrap().to_string();
         let writer: SharedLog = Arc::new(Mutex::new(Box::new(ledger)));
-        let record = pipi_agent::session::CompactionRecord {
+        let record = pipi_protocol::session::CompactionRecord {
             summary: "内存摘要",
             strategy: "summary",
             keep_from_entry: &keep_from,

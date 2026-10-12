@@ -62,7 +62,7 @@ impl Replacement for LlmSummarize {
 
             Ok(Plan {
                 keep_from: Some(keep_start),
-                injections: vec![crate::session::summary_message(&summary)],
+                injections: vec![pipi_protocol::session::summary_message(&summary)],
                 usage,
                 ..Default::default()
             })

@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, State};
 
-use pipi_agent::session::SessionSummary;
 use pipi_agent::stats::SessionStats;
 use pipi_app::commands::{
     ArchiveAgentArgs, ArchiveSessionArgs, CompactNowArgs, DeleteAgentArgs, DeleteArchivedAgentArgs,
@@ -19,6 +18,7 @@ use pipi_app::commands::{
 };
 use pipi_app::events::{EventEmitter, RuntimeEvent};
 use pipi_app::runtime::{RuntimeState, SessionInfo};
+use pipi_protocol::session::SessionSummary;
 use pipi_protocol::{BackgroundTaskSnapshot, Message};
 
 use crate::invoke_args::InvokeArgs;
