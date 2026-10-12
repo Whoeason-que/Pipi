@@ -453,6 +453,8 @@ const demoCatalog: ModelCatalog = {
       models: [
         { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", context: 1000000, output: 128000, reasoning: true },
         { id: "claude-opus-4-5", name: "Claude Opus 4.5", context: 200000, output: 64000, reasoning: true },
+        // 模型级协议覆盖：网关按模型分协议时上游会这么标（见 pipi-provider 目录）
+        { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", context: 1000000, output: 128000, reasoning: true, api: "anthropic-messages" },
       ],
     },
     {
@@ -503,6 +505,7 @@ const settings: Settings = {
       id: "anthropic",
       name: "Anthropic",
       api: "anthropic-messages",
+      apiMode: "auto",
       baseUrl: "https://api.anthropic.com",
       envKey: "ANTHROPIC_API_KEY",
       apiKey: null,
@@ -511,6 +514,7 @@ const settings: Settings = {
       id: "openai",
       name: "OpenAI",
       api: "openai-completions",
+      apiMode: "auto",
       baseUrl: "https://api.openai.com/v1",
       envKey: "OPENAI_API_KEY",
       apiKey: null,
@@ -519,6 +523,7 @@ const settings: Settings = {
       id: "deepseek",
       name: "DeepSeek",
       api: "openai-completions",
+      apiMode: "manual",
       baseUrl: "https://api.deepseek.com/v1",
       envKey: "DEEPSEEK_API_KEY",
       apiKey: null,

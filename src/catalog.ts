@@ -2,6 +2,8 @@
 //! 取数逻辑在 catalog-client.ts —— 那里才依赖平台层，本模块保持零运行时依赖，
 //! 便于 `node --test` 直接单测。
 
+import type { ApiKind, ApiMode } from "./types";
+
 export type ProviderGroup = "聚合网关" | "国内" | "国际" | "本地";
 
 /** 分组顺序即选择器里的顺序（与 core 的 GROUPS 一致）。 */
@@ -13,12 +15,17 @@ export interface CatalogModel {
   context?: number;
   output?: number;
   reasoning?: boolean;
+  /**
+   * 模型级协议覆盖（上游 models.dev 的 `model.provider.npm` 与 provider 级不同时
+   * 才有）。`undefined` = 与 provider 级相同，跟随条目声明的协议。
+   */
+  api?: ApiKind;
 }
 
 export interface CatalogProvider {
   id: string;
   name: string;
-  api: "anthropic-messages" | "openai-completions";
+  api: ApiKind;
   baseUrl: string;
   envKey?: string | null;
   group: ProviderGroup;
@@ -126,11 +133,38 @@ export function resolveContextWindow(model: CatalogModel | undefined, fallback: 
   return model?.context && model.context > 0 ? model.context : fallback;
 }
 
-/** 从目录条目生成「添加提供商」表单的种子值（不含密钥）。 */
+/**
+ * 该模型在 auto 模式下会用的协议（`null` = 跟随条目声明）。
+ *
+ * 与后端 `pipi_provider::effective_api` 的「目录模型级覆盖」一级同口径；运行期
+ * 实证（进程内记忆）只有后端知道，UI 不猜 —— 这里只用于展示与提示。
+ */
+export function modelApiOverride(
+  model: CatalogModel | undefined,
+  apiMode: ApiMode,
+): ApiKind | null {
+  return apiMode === "auto" ? (model?.api ?? null) : null;
+}
+
+/**
+ * 条目把协议钉死、目录却标注该模型走另一种协议：返回目录标注的那种（用于提示）。
+ * 自动模式下会走目录标注的协议；钉死时不改写，只提醒用户。
+ */
+export function pinnedApiConflict(
+  model: CatalogModel | undefined,
+  providerApi: ApiKind,
+  apiMode: ApiMode,
+): ApiKind | null {
+  if (apiMode !== "manual" || !model?.api) return null;
+  return model.api === providerApi ? null : model.api;
+}
+
+/** 从目录条目生成「添加提供商」表单的种子值（不含密钥；协议默认 auto）。 */
 export function providerSeed(provider: CatalogProvider): {
   id: string;
   name: string;
-  api: "anthropic-messages" | "openai-completions";
+  api: ApiKind;
+  apiMode: ApiMode;
   baseUrl: string;
   envKey: string;
 } {
@@ -138,6 +172,7 @@ export function providerSeed(provider: CatalogProvider): {
     id: provider.id,
     name: provider.name,
     api: provider.api,
+    apiMode: "auto",
     baseUrl: provider.baseUrl,
     envKey: provider.envKey ?? "",
   };

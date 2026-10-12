@@ -4,6 +4,18 @@ export type Theme = "dark" | "light";
 
 export type ApiKind = "anthropic-messages" | "openai-completions";
 
+/**
+ * 提供商协议的来源（Rust 侧 settings::ApiMode）：
+ * `auto`（默认）= 协议由系统按模型目录与运行期实证决定；`manual` = 用户把
+ * `ProviderConfig.api` 钉死，系统不改写、也不做换协议协商。
+ */
+export type ApiMode = "auto" | "manual";
+
+export const API_MODE_LABELS: Record<ApiMode, string> = {
+  auto: "自动",
+  manual: "固定",
+};
+
 export type BashMode = "allowAll" | "allowlist" | "denylist";
 
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
@@ -67,7 +79,10 @@ export interface AgentDefinition {
 export interface ProviderConfig {
   id: string;
   name: string;
+  /** 该条目声明的协议：`apiMode === "auto"` 时是最后回退，`manual` 时是钉死值。 */
   api: ApiKind;
+  /** 协议由谁决定（默认 auto：系统按模型目录与运行期实证决定）。 */
+  apiMode: ApiMode;
   baseUrl: string;
   envKey?: string | null;
   apiKey?: string | null;

@@ -11,6 +11,7 @@ import { ChoiceSelect } from "../Select";
 import {
   API_LABELS,
   type ApiKind,
+  type ApiMode,
   type ProviderConfig
 } from "../types";
 
@@ -121,6 +122,7 @@ export function ProviderForm({ initial, preset, existingIds, onSave, onCancel }:
   const seed = preset ? providerSeed(preset) : null;
   const [name, setName] = useState(initial?.name ?? seed?.name ?? "");
   const [api, setApi] = useState<ApiKind>(initial?.api ?? seed?.api ?? "anthropic-messages");
+  const [apiMode, setApiMode] = useState<ApiMode>(initial?.apiMode ?? seed?.apiMode ?? "auto");
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? seed?.baseUrl ?? "");
   const [envKey, setEnvKey] = useState(initial?.envKey ?? seed?.envKey ?? "");
   const [apiKey, setApiKey] = useState(initial?.apiKey ?? "");
@@ -143,6 +145,7 @@ export function ProviderForm({ initial, preset, existingIds, onSave, onCancel }:
       id,
       name: name.trim(),
       api,
+      apiMode,
       baseUrl: baseUrl.trim().replace(/\/+$/, ""),
       envKey: envKey.trim() || null,
       apiKey: apiKey.trim() || null,
@@ -187,13 +190,30 @@ export function ProviderForm({ initial, preset, existingIds, onSave, onCancel }:
         </div>
         <div className="form-row">
           <label className="label">API 协议</label>
-          <select value={api} onChange={(e) => setApi(e.target.value as ApiKind)}>
+          <select
+            value={apiMode === "auto" ? "auto" : api}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next === "auto") {
+                setApiMode("auto");
+              } else {
+                setApiMode("manual");
+                setApi(next as ApiKind);
+              }
+            }}
+          >
+            <option value="auto">自动（按模型目录，推荐）</option>
             {(Object.keys(API_LABELS) as ApiKind[]).map((k) => (
               <option key={k} value={k}>
                 {API_LABELS[k]}
               </option>
             ))}
           </select>
+          <div className="hint">
+            {apiMode === "auto"
+              ? `自动：逐模型决定协议（有的网关按模型分协议）；目录不可用时回退到 ${API_LABELS[api]}`
+              : `已固定为 ${API_LABELS[api]}：系统不改写，也不会自动换协议纠错`}
+          </div>
         </div>
         <div className="form-row full">
           <label className="label">Base URL</label>

@@ -4,13 +4,15 @@ import {
   fallbackModelChoices,
   findCatalogModel,
   matchProvider,
+  modelApiOverride,
   modelChoices,
+  pinnedApiConflict,
   type CatalogModel,
   type ModelCatalog,
 } from "./catalog";
 import { loadCatalog, peekCatalog } from "./catalog-client";
 import { ChoiceCreatable } from "./Select";
-import type { ProviderConfig } from "./types";
+import { API_LABELS, type ProviderConfig } from "./types";
 
 interface ModelPickerProps {
   /** 已配置的供应商（settings.providers） */
@@ -68,6 +70,13 @@ export function ModelPicker({
   const entry = matchProvider(catalog, provider?.api ?? "", provider?.baseUrl ?? "");
   const choices = entry ? modelChoices(entry) : catalog ? [] : fallbackModelChoices();
 
+  // 目录标注的模型级协议：auto 时后端按它请求；钉死时只提醒、不改写。
+  const providerApi = provider?.api ?? "openai-completions";
+  const apiMode = provider?.apiMode ?? "auto";
+  const selectedModel = findCatalogModel(entry, modelId);
+  const modelOverride = modelApiOverride(selectedModel, apiMode);
+  const pinnedConflict = pinnedApiConflict(selectedModel, providerApi, apiMode);
+
   const hint = (() => {
     if (loading) return "正在加载模型目录（models.dev）…";
     if (error) return `模型目录不可用：${error} —— 直接输入模型 ID，端点以你绑定的供应商为准。`;
@@ -93,6 +102,17 @@ export function ModelPicker({
         menuInPortal
       />
       <span className="hint">{hint}</span>
+      {modelOverride && (
+        <span className="hint">
+          该模型走 {API_LABELS[modelOverride]} 协议（按模型目录）。
+        </span>
+      )}
+      {pinnedConflict && (
+        <span className="hint">
+          目录标注该模型走 {API_LABELS[pinnedConflict]} 协议，但此提供商的协议已固定为{" "}
+          {API_LABELS[providerApi]}：固定模式不会自动改写，改为「自动」即可按模型选择。
+        </span>
+      )}
     </div>
   );
 }

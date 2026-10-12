@@ -15,6 +15,7 @@ import {
 } from "../platform";
 import {
   API_LABELS,
+  API_MODE_LABELS,
   type ProviderConfig,
   type Settings
 } from "../types";
@@ -355,7 +356,11 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
                       <div className="info">
                         <div className="p-name">
                           {provider.name}
-                          <span className="badge neutral">{API_LABELS[provider.api]}</span>
+                          <span className="badge neutral">
+                            {provider.apiMode === "auto"
+                              ? `${API_MODE_LABELS.auto}（按模型）`
+                              : `${API_LABELS[provider.api]}（固定）`}
+                          </span>
                           <span className={`badge ${status.warn ? "warn" : "neutral"}`}>
                             {status.label}
                           </span>

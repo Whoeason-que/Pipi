@@ -3,6 +3,8 @@ import {
   catalogSourceLabel,
   findCatalogModel,
   matchProvider,
+  modelApiOverride,
+  pinnedApiConflict,
   resolveContextWindow,
   resolveMaxTokens,
   type ModelCatalog,
@@ -13,7 +15,7 @@ import {
 } from "../chat-runtime";
 import { ModelPicker } from "../ModelPicker";
 import { ChoiceSelect } from "../Select";
-import type { ModelConfig, ProviderConfig } from "../types";
+import { API_LABELS, type ModelConfig, type ProviderConfig } from "../types";
 
 
 // ============ 会话模型选择 ============
@@ -93,6 +95,11 @@ export default function ModelSelectModal({
     setContextWindow(0);
   };
   const pickedModel = findCatalogModel(entry, modelId);
+  // 目录标注的模型级协议：auto 时后端按它请求；钉死时只提醒、不改写。
+  const providerApi = activeProvider?.api ?? "openai-completions";
+  const apiMode = activeProvider?.apiMode ?? "auto";
+  const modelOverride = modelApiOverride(pickedModel, apiMode);
+  const pinnedConflict = pinnedApiConflict(pickedModel, providerApi, apiMode);
 
   const handleSave = async () => {
     setModalError(null);
@@ -225,6 +232,13 @@ export default function ModelSelectModal({
                   <div className="hint mono">
                     已选 {pickedModel.name} · 上下文 {formatTokens(pickedModel.context)} · 最大输出{" "}
                     {formatTokens(pickedModel.output)}
+                    {modelOverride ? ` · 协议 ${API_LABELS[modelOverride]}（按模型）` : ""}
+                  </div>
+                )}
+                {pinnedConflict && (
+                  <div className="hint">
+                    目录标注该模型走 {API_LABELS[pinnedConflict]} 协议，但此提供商的协议已固定为{" "}
+                    {API_LABELS[providerApi]}：固定模式不会自动改写，改为「自动」即可按模型选择。
                   </div>
                 )}
               </div>

@@ -7,7 +7,9 @@ import {
   fallbackModelChoices,
   findCatalogModel,
   matchProvider,
+  modelApiOverride,
   modelChoices,
+  pinnedApiConflict,
   providerGroups,
   providerSeed,
   resolveContextWindow,
@@ -43,6 +45,26 @@ function catalogFixture(): ModelCatalog {
         group: "国际",
         local: false,
         models: [{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", context: 1000000, output: 128000 }],
+      },
+      {
+        id: "gateway",
+        name: "Gateway",
+        api: "openai-completions",
+        baseUrl: "https://gateway.example.com/v1",
+        envKey: "GATEWAY_API_KEY",
+        group: "聚合网关",
+        local: false,
+        models: [
+          { id: "gateway-chat", name: "Gateway Chat", context: 128000, output: 8192 },
+          {
+            id: "claude-haiku-5-5",
+            name: "Claude Haiku 5.5",
+            context: 1000000,
+            output: 128000,
+            // 模型级协议覆盖：网关按模型分协议（上游 models.dev 这么标）
+            api: "anthropic-messages",
+          },
+        ],
       },
       {
         id: "ollama",
@@ -119,20 +141,44 @@ test("限额回填：目录有数据用目录，没有则保留调用点旧值",
 test("分组选项：顺序跟随 PROVIDER_GROUPS，且丢掉空分组", () => {
   const groups = providerGroups(catalogFixture());
   const labels = groups.map((group) => group.label);
-  assert.deepEqual(labels, ["国内", "国际", "本地"]);
+  assert.deepEqual(labels, ["聚合网关", "国内", "国际", "本地"]);
   assert.deepEqual(
     labels.map((label) => PROVIDER_GROUPS.indexOf(label as (typeof PROVIDER_GROUPS)[number])),
-    [1, 2, 3],
+    [0, 1, 2, 3],
   );
-  assert.deepEqual(groups[0].options, [{ value: "deepseek", label: "DeepSeek" }]);
+  assert.deepEqual(groups[1].options, [{ value: "deepseek", label: "DeepSeek" }]);
+});
+
+test("模型级协议覆盖：auto 按模型走，manual 只提示不改写", () => {
+  const catalog = catalogFixture();
+  const gateway = matchProvider(catalog, "openai-completions", "https://gateway.example.com/v1");
+  const haiku = findCatalogModel(gateway, "claude-haiku-5-5");
+  const chat = findCatalogModel(gateway, "gateway-chat");
+
+  // auto：模型级覆盖生效（与后端 pipi_provider::effective_api 的同一级同口径）
+  assert.equal(modelApiOverride(haiku, "auto"), "anthropic-messages");
+  assert.equal(modelApiOverride(chat, "auto"), null);
+  assert.equal(modelApiOverride(undefined, "auto"), null);
+  // manual：协议被钉死，UI 不做任何改写
+  assert.equal(modelApiOverride(haiku, "manual"), null);
+
+  // 钉死协议与目录标注冲突 → 给提示（返回目录标注的协议）
+  assert.equal(pinnedApiConflict(haiku, "openai-completions", "manual"), "anthropic-messages");
+  // 一致 / auto / 无目录数据：没有冲突可提示
+  assert.equal(pinnedApiConflict(haiku, "anthropic-messages", "manual"), null);
+  assert.equal(pinnedApiConflict(haiku, "openai-completions", "auto"), null);
+  assert.equal(pinnedApiConflict(chat, "openai-completions", "manual"), null);
+  assert.equal(pinnedApiConflict(undefined, "openai-completions", "manual"), null);
 });
 
 test("预设种子不含任何密钥字段", () => {
   const catalog = catalogFixture();
   const seed = providerSeed(catalog.providers[0]);
-  assert.deepEqual(Object.keys(seed).sort(), ["api", "baseUrl", "envKey", "id", "name"]);
+  assert.deepEqual(Object.keys(seed).sort(), ["api", "apiMode", "baseUrl", "envKey", "id", "name"]);
   assert.equal(seed.baseUrl, "https://api.deepseek.com/v1");
   assert.equal(seed.envKey, "DEEPSEEK_API_KEY");
+  // 新加的提供商默认「自动」：协议由系统按模型决定
+  assert.equal(seed.apiMode, "auto");
   assert.ok(!("apiKey" in seed));
 });
 
