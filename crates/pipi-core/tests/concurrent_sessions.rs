@@ -9,6 +9,8 @@
 //!
 //! 端点：接受连接后先回一个内容分片再保持静默 —— 让各轮都停在半途，
 //! 「都 running」才是一个真实可观察的状态。
+//!
+//! 用例改写进程级 HOME：写前持 `pipi_test_support::HOME_LOCK`（全仓唯一的一把锁）。
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,9 +23,6 @@ use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_setting
 use pipi_protocol::{Api, Message, Model};
 use pipi_session::SessionWriter;
 use pipi_venv::agents;
-
-/// 本文件的用例都改写进程级 `HOME`，必须串行执行（同 `session_repair.rs`）。
-static HOME_LOCK: Mutex<()> = Mutex::new(());
 
 fn read_request(stream: &mut std::net::TcpStream) -> String {
     let mut buffer = Vec::new();
@@ -146,8 +145,7 @@ fn temp_home() -> std::path::PathBuf {
     ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");
-    // SAFETY: 调用方先取 HOME_LOCK（见文件头约定），环境改动互斥
-    unsafe { std::env::set_var("HOME", &home) };
+    pipi_test_support::set_env_var("HOME", &home);
     home
 }
 
@@ -309,7 +307,9 @@ fn runtime() -> tokio::runtime::Runtime {
 
 #[test]
 fn multiple_agents_run_at_the_same_time_and_stop_independently() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let home = temp_home();
     // 三个而不是两个：路数是「几条会话几路」，不是写死的双路
     let agents = ["agent-a", "agent-b", "agent-c"];
@@ -433,7 +433,9 @@ fn multiple_agents_run_at_the_same_time_and_stop_independently() {
 /// 一条在跑不再是「这个 Agent 被占用」，它的其他会话照常开跑。
 #[test]
 fn same_agent_runs_two_sessions_in_parallel() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let home = temp_home();
     let base = format!("http://{}/v1", spawn_stalling_endpoint("S"));
     fixture_agent("agent-solo", &base);
@@ -558,7 +560,9 @@ fn same_agent_runs_two_sessions_in_parallel() {
 /// 「离开这个 Agent」清掉）；归档占用检查按 Agent 名判定。
 #[test]
 fn new_session_releases_idle_sessions_only() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let home = temp_home();
     let base = format!("http://{}/v1", spawn_stalling_endpoint("I"));
     fixture_agent("agent-idle", &base);
@@ -662,7 +666,9 @@ fn new_session_releases_idle_sessions_only() {
 /// 自动释放这一槽，而不是要求用户先点返回。运行中会话仍必须拒绝变更。
 #[test]
 fn archive_and_delete_idle_open_sessions_without_leaving_view() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let home = temp_home();
     let base = format!("http://{}/v1", spawn_stalling_endpoint("L"));
     fixture_agent("agent-lifecycle", &base);
@@ -786,7 +792,9 @@ fn archive_and_delete_idle_open_sessions_without_leaving_view() {
 /// 不进入列表、不创建 jsonl，切页式 `new_session` 也不会把它释放。
 #[test]
 fn temporary_test_session_is_memory_only_and_independent() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let home = temp_home();
     let base = format!("http://{}/v1", spawn_stalling_endpoint("T"));
     fixture_agent("agent-test", &base);
@@ -917,7 +925,9 @@ fn temporary_test_session_is_memory_only_and_independent() {
 
 #[test]
 fn temporary_test_keeps_real_tool_side_effects() {
-    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let home = temp_home();
     let workspace = home.join("tool-workspace");
     std::fs::create_dir_all(&workspace).expect("创建工具工作目录");

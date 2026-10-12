@@ -8,7 +8,8 @@
 //! 做法：把供应商端点指向必然拒绝连接的本地端口，跑一轮真实 agent，再从会话 jsonl 里
 //! 读回「实际请求的 URL」——不靠 mock，也不用真密钥。
 //!
-//! 本测试自己改写 HOME（独立测试进程），不会碰用户真实的 `~/.pipi`。
+//! 本测试自己改写 HOME（独立测试进程，写前持 `pipi_test_support::HOME_LOCK`），
+//! 不碰用户真实的 `~/.pipi`。
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,8 +25,8 @@ fn temp_home() -> PathBuf {
     let home = std::env::temp_dir().join(format!("pipi-request-paths-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");
-    // SAFETY: 本二进制只有这一个用例，且写入发生在启动任何工作线程之前
-    unsafe { std::env::set_var("HOME", &home) };
+    // 调用方必须持有 pipi_test_support::HOME_LOCK（见用例开头）
+    pipi_test_support::set_env_var("HOME", &home);
     home
 }
 
@@ -120,6 +121,9 @@ fn request_url(text: &str) -> Option<String> {
 
 #[test]
 fn 两种协议各自打到兼容端点() {
+    let _home = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let home = temp_home();
 
     // ---- openai-completions → /chat/completions（不是 /responses）----

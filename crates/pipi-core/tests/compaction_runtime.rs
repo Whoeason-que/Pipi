@@ -6,7 +6,8 @@
 //! 3. 摘要调用的用量进累计账本，但不改写「当前上下文占用」口径。
 //!
 //! 端点按请求体分流：带 `<conversation>` 的是摘要请求，否则是普通对话请求。
-//! 本测试自己改写 HOME（独立测试进程），不碰用户真实的 `~/.pipi`。
+//! 本测试自己改写 HOME（独立测试进程，写前持 `pipi_test_support::HOME_LOCK`），
+//! 不碰用户真实的 `~/.pipi`。
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,9 +21,6 @@ use pipi_protocol::session::EntryKind;
 use pipi_protocol::{Api, Message, Model};
 use pipi_session::{SessionWriter, load_session};
 use pipi_venv::agents;
-
-/// 本文件的用例都改写进程级 `HOME`，必须串行执行（同 `session_repair.rs`）。
-static HOME_LOCK: Mutex<()> = Mutex::new(());
 
 /// 摘要请求上报的用量（数字刻意与普通请求拉开，便于断言账本）
 const SUMMARY_INPUT: u64 = 50_000;
@@ -137,8 +135,7 @@ fn temp_home() -> std::path::PathBuf {
     ));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");
-    // SAFETY: 调用方先取 HOME_LOCK（见文件头约定），环境改动互斥
-    unsafe { std::env::set_var("HOME", &home) };
+    pipi_test_support::set_env_var("HOME", &home);
     home
 }
 
@@ -439,7 +436,7 @@ impl Drop for Case {
 
 #[test]
 fn saved_target_applies_to_already_open_session() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let case = Case::run_with_target(
@@ -462,7 +459,7 @@ fn saved_target_applies_to_already_open_session() {
 
 #[test]
 fn compaction_forks_to_new_session_and_archives_original() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let case = Case::run(pipi_core::settings::CompactionSettings {
@@ -575,7 +572,7 @@ fn compaction_forks_to_new_session_and_archives_original() {
 
 #[test]
 fn compaction_keeps_original_in_place_when_archive_is_off() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let case = Case::run(pipi_core::settings::CompactionSettings {
@@ -608,7 +605,7 @@ fn compaction_keeps_original_in_place_when_archive_is_off() {
 
 #[test]
 fn compaction_stays_in_place_when_fork_is_off() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let case = Case::run(pipi_core::settings::CompactionSettings {
@@ -630,7 +627,7 @@ fn compaction_stays_in_place_when_fork_is_off() {
 /// 分叉 + 归档路径；界面靠一对 Agent 事件收尾（否则 running 卡住）。
 #[test]
 fn manual_compaction_ignores_threshold_and_switches_session() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = temp_home();
@@ -722,7 +719,7 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
 /// 会话正在运行时手动压缩被拒（UI 会禁用按钮，核心也必须挡住）。
 #[test]
 fn manual_compaction_refused_while_running() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = temp_home();
@@ -791,7 +788,7 @@ fn manual_compaction_refused_while_running() {
 /// 历史太短（都在保留预算内）时手动压缩返回可读错误，并如实报给前端。
 #[test]
 fn manual_compaction_reports_when_nothing_to_compress() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = temp_home();
@@ -864,7 +861,7 @@ fn manual_compaction_reports_when_nothing_to_compress() {
 
 #[test]
 fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = temp_home();

@@ -1,13 +1,13 @@
 //! 载入自愈：被进程中断的会话（尾部留下无主工具调用）在打开时被修复 ——
 //! 补上合成的失败结果并落盘，否则之后每次请求都会被端点按协议 400 拒绝
 //!（"An assistant message with 'tool_calls' must be followed by tool messages"）。
+//!
+//! 改写 HOME 前持 `pipi_test_support::HOME_LOCK`（全仓唯一的一把锁，见 AGENTS.md）。
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use pipi_protocol::permissions::{BashPermissions, PermissionsConfig, SandboxMode};
 use pipi_protocol::{ContentBlock, Message, StopReason, ToolResultContent, Usage};
-
-static HOME_LOCK: Mutex<()> = Mutex::new(());
 
 fn assistant_with_call(id: &str, name: &str) -> Message {
     Message::Assistant {
@@ -29,7 +29,7 @@ fn assistant_with_call(id: &str, name: &str) -> Message {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn opening_a_session_repairs_interrupted_tail_once() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = std::env::temp_dir().join(format!(
@@ -39,8 +39,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
-    unsafe { std::env::set_var("HOME", &home) };
+    pipi_test_support::set_env_var("HOME", &home);
 
     pipi_venv::agents::create_agent(
         "repair-worker",
@@ -134,7 +133,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
 /// 后者由发送前修复兜底（见 agent_loop 的 wire 测试）。
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completed_tail_is_left_untouched() {
-    let _guard = HOME_LOCK
+    let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = std::env::temp_dir().join(format!(
@@ -144,8 +143,7 @@ async fn completed_tail_is_left_untouched() {
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
-    unsafe { std::env::set_var("HOME", &home) };
+    pipi_test_support::set_env_var("HOME", &home);
 
     pipi_venv::agents::create_agent(
         "intact-worker",

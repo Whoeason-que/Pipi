@@ -1,7 +1,8 @@
 //! Agent 组合最小闭环：结构化创建 → 独立运行 → 从 JSONL 重读输出。
 //!
-//! 本集成测试在自己的进程中改写 HOME，不接触用户真实的 ~/.pipi。模型端点
-//! 指向本地 mock（必然拒绝连接或按剧本回放），不依赖外网。
+//! 本集成测试在自己的进程中改写 HOME（写前持 `pipi_test_support::HOME_LOCK`），
+//! 不接触用户真实的 ~/.pipi。模型端点指向本地 mock（必然拒绝连接或按剧本回放），
+//! 不依赖外网。
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,10 +18,6 @@ use pipi_protocol::permissions::{
 use pipi_protocol::tools::{AgentTool, ToolContext};
 use pipi_protocol::{AbortSignal, Api, Model, ToolResultContent};
 use serde_json::json;
-
-/// 本文件内所有改写 HOME 的测试共用此锁：同一进程内并行测试会互相看到
-/// 对方的 HOME，串行化才能保证隔离。
-static HOME_LOCK: Mutex<()> = Mutex::new(());
 
 /// 该 Agent 当前打开的会话 id（测试里一般只有一条）。
 fn open_session_id(state: &RuntimeState, agent_name: &str) -> String {
@@ -44,7 +41,7 @@ fn any_session_running(state: &RuntimeState, agent_name: &str) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn create_run_and_read_agent_output() {
-    let _home_guard = HOME_LOCK
+    let _home_guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = std::env::temp_dir().join(format!(
@@ -54,8 +51,7 @@ async fn create_run_and_read_agent_output() {
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
-    unsafe { std::env::set_var("HOME", &home) };
+    pipi_test_support::set_env_var("HOME", &home);
 
     let model = Model {
         id: "composition-model".into(),
@@ -360,7 +356,7 @@ fn spawn_scripted_mock(script: Vec<String>) -> (std::net::SocketAddr, Arc<Atomic
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn parent_runs_child_agent_through_real_provider_stack() {
-    let _home_guard = HOME_LOCK
+    let _home_guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let home = std::env::temp_dir().join(format!(
@@ -370,8 +366,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     ));
     let workspace = home.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
-    unsafe { std::env::set_var("HOME", &home) };
+    pipi_test_support::set_env_var("HOME", &home);
 
     let (addr, counter) = spawn_scripted_mock(vec![
         sse_tool_call(

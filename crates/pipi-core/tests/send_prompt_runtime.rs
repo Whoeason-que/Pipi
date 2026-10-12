@@ -6,7 +6,8 @@
 //! 核心必须把这一轮 spawn 到宿主注入的运行时上。
 //!
 //! 所以这个集成测试**故意不在 `block_on` 里调用** —— 与桌面壳的调用形态一致。
-//! 它跑在独立的测试进程里并改写 HOME，因此不会和其它用例争 `~/.pipi`。
+//! 它跑在独立的测试进程里并改写 HOME（写前持 `pipi_test_support::HOME_LOCK`），
+//! 因此不会和其它用例争 `~/.pipi`。
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -19,12 +20,15 @@ use pipi_venv::agents;
 
 #[test]
 fn send_prompt_runs_without_an_ambient_reactor() {
+    let _home = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     // 独立 HOME：绝不碰用户真实的 ~/.pipi
     let home = std::env::temp_dir().join(format!("pipi-spawn-regression-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("创建临时 HOME");
-    // SAFETY: 本二进制只有这一个用例，且写入发生在启动运行时/工作线程之前
-    unsafe { std::env::set_var("HOME", &home) };
+    // 调用方必须持有 pipi_test_support::HOME_LOCK（见用例开头）
+    pipi_test_support::set_env_var("HOME", &home);
 
     // 端点指向必然拒绝连接的本地端口：这一轮只需「被调度并产生事件」，不碰真网络
     let model = Model {
