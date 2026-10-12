@@ -161,7 +161,8 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 
 - **外观**：深色 / 浅色主题；
 - **上下文**：压缩是否先分叉新会话、分叉后是否归档原会话；
-- **模型提供商**：端点与密钥、默认提供商、模型目录刷新；
+- **模型提供商**：端点与密钥、默认提供商、模型目录刷新；协议默认「自动」（按模型
+  决定，见「与 opencode 的关系」的模型目录一条），也可对某一家固定协议；
 - **账户**：Web 模式下的远程访问凭据与退出登录（仅在需要认证时出现）。
 
 改动即时保存（写入 `~/.pipi/settings.json`）；齿轮在设置打开时高亮，再点一次或点顶栏
@@ -404,6 +405,11 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
   核实」这一张 `CURATION` 表（`crates/pipi-provider/src/catalog/mod.rs`）。上游给的是 AI SDK
   语义的 baseUrl，未经核实不得直接当 Pipi 的 baseUrl 用 —— 例如上游 DeepSeek 只给
   `https://api.deepseek.com`（无版本段），而 rig 的 OpenAI 兼容客户端会往后拼路径。
+  **协议默认由系统管理**：上游的模型级标注（`model.provider.npm` —— 很多网关按模型分
+  协议，例：opencode zen/go 的 Claude 系只有 Anthropic Messages，其余模型只有 OpenAI
+  兼容）与运行期实证（端点回「不支持这个协议」就换另一种再试一次，成功的那套记在
+  进程内）一起决定每个模型实际走哪套 wire，用户不需要配置协议；想钉死某家的协议时，
+  在设置里把该提供商的「API 协议」从「自动」改成具体协议即可（`ProviderConfig.apiMode`）。
 - **hermes**（NousResearch/hermes-agent）：会话统计面板整套语义来自它 ——
   滚动 N 次调用的平均 tok/s（sum(output)/sum(latency)）、缓存命中率
   （cache_read / prompt 总量，prompt 口径见上）、上下文占用用最近一次请求的实际值

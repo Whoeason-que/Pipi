@@ -139,6 +139,16 @@ src/                 React + TypeScript 前端
 - 模型目录（提供商与模型清单）**不再手写或生成**：运行时从 models.dev 拉取并缓存到
   `~/.pipi/cache/models.json`，实现见 `crates/pipi-provider/src/catalog/mod.rs`。上游给的是
   AI SDK 语义的 baseUrl，未经 `CURATION` 表核实不得直接当 Pipi 的 baseUrl 使用。
+- 协议有两层，别只读一层：**provider 级**（上游 npm / CURATION 核实）与**模型级覆盖**
+  （上游 `model.provider.npm` —— 很多网关按模型分协议，例：opencode zen/go 的 Claude 系
+  只有 Anthropic Messages，其余模型只有 OpenAI 兼容）。模型级映射不到 Pipi 支持的两种
+  协议（如 `@ai-sdk/google`）的模型**跳过**，不猜协议。宿主在每次 run 前用
+  `pipi_provider::effective_api` 解析出实际协议（顺序：运行期实证 → 目录模型级 →
+  目录 provider 级 → 绑定声明）并写进 `Model.api`；provider 按每次请求的 `Model.api`
+  分派（不缓存协议），`provider_for()` 无参。设置里的 `ProviderConfig.apiMode` 决定谁
+  说话：`auto`（默认，旧 settings 缺字段即 auto）按上面的顺序解析；`manual`（表单里
+  显式选了协议）= 用户钉死，目录与协商都不参与。改这里必须跑 `cargo test -p pipi-provider`、
+  `cargo test -p pipi-core`（含 `tests/protocol_negotiation.rs`）与 `npm run test:frontend`。
 - 目录骨架必须与 README「Agent 的组成」表格一致；改动时两边同步更新。
 - provider 协议层用 rig（`rig` crate，依赖重命名自 rig-core）：新增 provider
   能力优先看 rig 是否已支持，不要回退到手写 SSE；映射偏差记录在 provider.rs。
@@ -201,6 +211,12 @@ src/                 React + TypeScript 前端
   三条不变量：**用户中止永远不可重试**；**已经输出过正文的那一轮不重放**（例外是
   只有工具调用块，半截参数绝不交给工具执行）；**无进展超时最多额外重试 1 次**。
   改分类表或判定规则必须更新 `retry.rs` 的表驱动测试与 `tests/retry_runtime.rs`。
+  **协议协商是这条规则唯一的例外**：端点回报「模型不支持这个协议」时（400 +
+  `ModelProtocolUnsupported`，识别见 `classify::protocol_mismatch`），agent_loop 换另一种
+  协议再试一次 —— 它不是故障重试（不占重试预算、不发 RetryStart、最多一次），同样受
+  「已中止 / 已输出正文不重放」约束，且只在 `auto` 协议模式下发生；成功的那套协议由
+  provider 记进进程内记忆（`learned_protocol`），后续请求（含压缩摘要）直接命中，
+  不落盘、不改 settings。摘要调用自身不参与协商。
 - agent.toml 契约（`crates/pipi-venv/src/av`，README「agent.toml 契约（av 标准）」一节）：
   未知键/未知段一律拒绝、秘密值只许引用式（永不内联）、`AV_*` 是运行时
   保留命名空间、项目层文件不得声明身份与权限段 —— 改 schema/合并/解析
