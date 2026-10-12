@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
-use pipi_core::tools::background::BackgroundTaskOwner;
+use crate::tools::background::BackgroundTaskOwner;
 use pipi_protocol::{
     BackgroundTaskInfo, BackgroundTaskOutput, BackgroundTaskSnapshot, BackgroundTaskStatus,
     now_millis,

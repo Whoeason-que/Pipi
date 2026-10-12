@@ -10,7 +10,7 @@ fn runtime_handle() -> tokio::runtime::Handle {
 
 pub fn run() {
     tauri::Builder::default()
-        .manage(pipi_app::runtime::RuntimeState::new(runtime_handle()))
+        .manage(pipi_core::runtime::RuntimeState::new(runtime_handle()))
         .invoke_handler(tauri::generate_handler![
             commands::model_catalog,
             commands::list_agents,

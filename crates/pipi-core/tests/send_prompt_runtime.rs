@@ -11,8 +11,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pipi_app::events::{EventEmitter, RuntimeEvent};
-use pipi_app::runtime::RuntimeState;
+use pipi_core::events::{EventEmitter, RuntimeEvent};
+use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
 use pipi_protocol::{Api, Model};
 use pipi_venv::agents;

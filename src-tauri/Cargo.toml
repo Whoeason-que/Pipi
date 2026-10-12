@@ -17,7 +17,6 @@ tauri = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 pipi-agent = { workspace = true }
 pipi-core = { workspace = true }
-pipi-app = { workspace = true }
 pipi-provider = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-tools = { workspace = true }

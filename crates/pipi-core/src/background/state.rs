@@ -104,7 +104,7 @@ pub(super) async fn wait_for_state(state: &Mutex<JobState>, notify: &Notify, wai
 mod tests {
     use super::*;
     use crate::background::test_support::{agent_entry, entry};
-    use pipi_core::tools::agent::{AgentRunResult, AgentRunStatus};
+    use crate::tools::agent::{AgentRunResult, AgentRunStatus};
 
     #[test]
     fn both_job_kinds_preserve_empty_output_cursor_and_incremental_multibyte_tail() {

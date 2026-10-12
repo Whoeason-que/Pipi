@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use tokio::process::Command;
 use tokio::sync::{Notify, mpsc, oneshot};
 
-use pipi_core::tools::background::{
+use crate::tools::background::{
     BackgroundAgentTaskSpec, BackgroundTaskCommand, BackgroundTaskOwner, BackgroundTaskQuery,
     BackgroundTaskService, BackgroundTaskSpec,
 };

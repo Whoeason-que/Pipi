@@ -1,11 +1,11 @@
 //! Pipi Web/远程运行时。
 //!
 //! 默认只绑定 127.0.0.1，适合由 Tailscale Serve 代理：
-//!   cargo run -p pipi-server
+//!   cargo run -p pipi-core --features server --bin pipi-server
 //!   tailscale serve 1421
 //!
-//! 浏览器与桌面端复用同一组 command 名称和事件 payload。服务端不直接
-//! 暴露 `pipi-app` 的应用服务，所有 Agent 执行都经过共享 RuntimeState。
+//! 浏览器与桌面端复用同一组 command 名称和事件 payload：服务端只做 transport
+//! （鉴权 / WS / 静态资源），所有 Agent 执行都经过共享的 `RuntimeState`。
 
 use std::env;
 use std::net::SocketAddr;
@@ -19,8 +19,8 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 
-use pipi_app::events::{EventEmitter, RuntimeEvent};
-use pipi_app::runtime::RuntimeState;
+use crate::events::{EventEmitter, RuntimeEvent};
+use crate::runtime::RuntimeState;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
@@ -123,8 +123,10 @@ fn build_app(state: AppState) -> Router {
         .with_state(state)
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// 启动 Web/远程宿主：读环境变量、建运行时、serve。
+///
+/// bin `pipi-server`（`--features server`）只调它。
+pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = env::var("PIPI_SERVER_ADDR")
         .unwrap_or_else(|_| DEFAULT_ADDR.to_string())
         .parse()?;
@@ -349,7 +351,7 @@ async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Valu
     let emitter: EventEmitter = Arc::new(move |event| {
         let _ = events.send(event);
     });
-    pipi_app::commands::dispatch(
+    crate::commands::dispatch(
         &state.runtime,
         emitter,
         request.command.trim(),

@@ -2,7 +2,7 @@
 //!
 //! 前端调用是 `invoke(cmd, args)`，`args` 是**扁平**对象；而 `#[tauri::command]`
 //! 默认按参数名从 payload 取键，因此 `args: XxxArgs` 会去找 `payload.args`，
-//! 前端从不这样嵌套。这里改为从整个 payload 反序列化 `pipi_app::commands` 里
+//! 前端从不这样嵌套。这里改为从整个 payload 反序列化 `pipi_core::commands` 里
 //! 定义的共享参数结构体（serde camelCase），使薄壳只需声明
 //! `args: InvokeArgs<XxxArgs>`，线协议与旧实现完全一致。
 

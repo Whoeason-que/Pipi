@@ -57,11 +57,20 @@ may-depend-on = ["pipi-context", "pipi-error", "pipi-protocol"]
 dev-may-depend-on = ["pipi-provider", "pipi-session", "pipi-test-support"]
 forbid = ["av", "reqwest"]
 
-# 领域层：Agent 注册表与 av 契约、设置、Agent 组合工具。网络目录不在这一层。
+# 宿主层：命令表、运行编排、后台任务、设置、Agent 组合工具，以及
+# `--features server` 的 Web 宿主（只做 transport 与鉴权）。
 [crates.pipi-core]
-may-depend-on = ["pipi-agent", "pipi-context", "pipi-protocol", "pipi-session", "pipi-tools", "pipi-venv"]
+may-depend-on = [
+    "pipi-agent",
+    "pipi-context",
+    "pipi-protocol",
+    "pipi-provider",
+    "pipi-session",
+    "pipi-tools",
+    "pipi-venv",
+]
 dev-may-depend-on = ["pipi-test-support"]
-forbid = ["reqwest"]
+forbid = ["rig"]
 
 # Agent 环境域：清单与注册表、agent.toml 契约（含 av CLI）、技能中心、提示词层。
 # 只依赖契约层与内置工具助手；不直连网络（search 特性默认关闭）之外无运行时。
@@ -70,35 +79,10 @@ may-depend-on = ["pipi-protocol", "pipi-tools"]
 dev-may-depend-on = ["pipi-test-support"]
 forbid = ["reqwest", "rig", "tokio"]
 
-# 应用服务层：会话槽、运行编排、审批、宿主事件协议与宿主命令的单一事实来源。
-[crates.pipi-app]
-may-depend-on = [
-    "pipi-agent",
-    "pipi-context",
-    "pipi-core",
-    "pipi-protocol",
-    "pipi-provider",
-    "pipi-session",
-    "pipi-tools",
-    "pipi-venv",
-]
-dev-may-depend-on = ["pipi-test-support"]
-
-# Web/远程宿主：只做 transport、鉴权与静态资源，不含业务逻辑。
-[crates.pipi-server]
-may-depend-on = [
-    "pipi-app",
-    "pipi-core",
-    "pipi-protocol",
-    "pipi-tools",
-    "pipi-venv",
-]
-
 # Tauri 薄壳：commands.rs 只做 IPC 转发。
 [crates.pipi]
 may-depend-on = [
     "pipi-agent",
-    "pipi-app",
     "pipi-core",
     "pipi-provider",
     "pipi-protocol",

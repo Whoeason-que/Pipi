@@ -11,8 +11,6 @@ members = [
     "crates/pipi-test-support",
     "crates/pipi-agent",
     "crates/pipi-core",
-    "crates/pipi-app",
-    "crates/pipi-server",
     "crates/xtask",
     "src-tauri",
 ]
@@ -34,7 +32,6 @@ rust-version = "1.95"
 [workspace.dependencies]
 # 内部 crate：路径只写一次
 pipi-agent = { path = "crates/pipi-agent" }
-pipi-app = { path = "crates/pipi-app" }
 pipi-context = { path = "crates/pipi-context" }
 pipi-core = { path = "crates/pipi-core" }
 pipi-error = { path = "crates/pipi-error" }

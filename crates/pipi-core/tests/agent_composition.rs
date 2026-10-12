@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pipi_app::events::RuntimeEvent;
-use pipi_app::runtime::RuntimeState;
+use pipi_core::events::RuntimeEvent;
+use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
 use pipi_protocol::permissions::{
@@ -183,7 +183,7 @@ async fn create_run_and_read_agent_output() {
     assert!(child_registry.names().contains(&"read"));
     assert!(!child_registry.names().contains(&"run_agent"));
 
-    let run = pipi_app::runtime::run_agent_once(
+    let run = pipi_core::runtime::run_agent_once(
         "composition-worker",
         "Return a result",
         AbortSignal::new(),
@@ -225,7 +225,7 @@ async fn create_run_and_read_agent_output() {
     )
     .unwrap();
     assert!(!manual_definition.subagent);
-    let setup_failure = pipi_app::runtime::run_agent_once(
+    let setup_failure = pipi_core::runtime::run_agent_once(
         "unconfigured-worker",
         "This input should remain readable",
         AbortSignal::new(),
@@ -434,7 +434,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     )
     .unwrap();
 
-    let runtime = Arc::new(pipi_app::runtime::RuntimeState::new(
+    let runtime = Arc::new(pipi_core::runtime::RuntimeState::new(
         tokio::runtime::Handle::current(),
     ));
     let child_session_events = Arc::new(Mutex::new(Vec::<(String, String, usize)>::new()));

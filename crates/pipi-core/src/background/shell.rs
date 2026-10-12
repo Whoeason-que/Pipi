@@ -6,7 +6,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Child;
 use tokio::sync::{Notify, mpsc};
 
-use pipi_core::tools::background::BackgroundTaskOwner;
+use crate::tools::background::BackgroundTaskOwner;
 use pipi_protocol::{
     BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskOutput, BackgroundTaskSnapshot,
     BackgroundTaskStatus, now_millis,

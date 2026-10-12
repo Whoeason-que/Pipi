@@ -640,7 +640,7 @@ impl RuntimeState {
         self.background
             .query(
                 &owner,
-                pipi_core::tools::background::BackgroundTaskQuery {
+                crate::tools::background::BackgroundTaskQuery {
                     job_id,
                     after_seq,
                     wait_ms,
@@ -668,8 +668,8 @@ impl RuntimeState {
             session.running.current_run_id()
         };
         let command = match action {
-            "terminate" => pipi_core::tools::background::BackgroundTaskCommand::Terminate,
-            "writeStdin" => pipi_core::tools::background::BackgroundTaskCommand::WriteStdin(
+            "terminate" => crate::tools::background::BackgroundTaskCommand::Terminate,
+            "writeStdin" => crate::tools::background::BackgroundTaskCommand::WriteStdin(
                 data.ok_or("writeStdin 需要 data")?,
             ),
             _ => return Err("action 必须是 terminate 或 writeStdin".into()),

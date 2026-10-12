@@ -5787,7 +5787,6 @@ name = "pipi"
 version = "26.9.3"
 dependencies = [
  "pipi-agent",
- "pipi-app",
  "pipi-core",
  "pipi-protocol",
  "pipi-provider",
@@ -5819,25 +5818,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pipi-app"
-version = "26.9.3"
-dependencies = [
- "async-trait",
- "pipi-agent",
- "pipi-context",
- "pipi-core",
- "pipi-protocol",
- "pipi-provider",
- "pipi-session",
- "pipi-test-support",
- "pipi-tools",
- "pipi-venv",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "pipi-context"
 version = "26.9.3"
 dependencies = [
@@ -5856,10 +5836,12 @@ name = "pipi-core"
 version = "26.9.3"
 dependencies = [
  "async-trait",
+ "axum",
  "dirs 7.0.0",
  "pipi-agent",
  "pipi-context",
  "pipi-protocol",
+ "pipi-provider",
  "pipi-session",
  "pipi-test-support",
  "pipi-tools",
@@ -5867,6 +5849,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tower",
+ "tower-http 0.7.1",
 ]
 
 [[package]]
@@ -5906,23 +5890,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
-]
-
-[[package]]
-name = "pipi-server"
-version = "26.9.3"
-dependencies = [
- "axum",
- "pipi-app",
- "pipi-core",
- "pipi-protocol",
- "pipi-tools",
- "pipi-venv",
- "serde",
- "serde_json",
- "tokio",
- "tower",
- "tower-http 0.7.1",
 ]
 
 [[package]]

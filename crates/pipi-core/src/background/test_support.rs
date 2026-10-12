@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicU32;
 
 use tokio::sync::{Notify, mpsc};
 
-use pipi_core::tools::background::BackgroundTaskOwner;
+use crate::tools::background::BackgroundTaskOwner;
 use pipi_protocol::{AbortSignal, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskStatus};
 
 use super::agent::AgentJobEntry;

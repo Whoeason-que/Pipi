@@ -3,7 +3,17 @@ name = "pipi-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Pipi 领域层：Agent 定义与 av 契约、设置与 Agent 组合工具"
+description = "Pipi 宿主层：命令表、运行编排、后台任务、设置、Web 宿主（feature）"
+
+[features]
+default = []
+# Web/远程宿主（axum transport + 鉴权 + 静态资源）；桌面壳不需要它
+server = ["dep:axum", "dep:tower-http"]
+
+[[bin]]
+name = "pipi-server"
+path = "src/bin/pipi-server.rs"
+required-features = ["server"]
 
 [dependencies]
 # search feature 关闭：skills.sh 搜索只属于 av CLI，不把第二个 HTTP 栈链进应用
@@ -11,15 +21,21 @@ description = "Pipi 领域层：Agent 定义与 av 契约、设置与 Agent 组�
 pipi-agent = { workspace = true }
 pipi-context = { workspace = true }
 pipi-protocol = { workspace = true }
+pipi-provider = { workspace = true }
 pipi-session = { workspace = true }
 pipi-tools = { workspace = true }
 pipi-venv = { workspace = true }
+async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
-async-trait = { workspace = true }
+
+# 只有 server feature 用得到（tower 仅测试用）
+axum = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
 
 [dev-dependencies]
 # 只有测试用它定位用户 HOME（agents.rs 的 HOME_LOCK 用例）
 dirs = { workspace = true }
 pipi-test-support = { workspace = true }
+tower = { workspace = true }

@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::Notify;
 
-use pipi_core::tools::agent::{AgentRunResult, AgentRunStatus};
-use pipi_core::tools::background::{BackgroundAgentSessionSink, BackgroundTaskOwner};
+use crate::tools::agent::{AgentRunResult, AgentRunStatus};
+use crate::tools::background::{BackgroundAgentSessionSink, BackgroundTaskOwner};
 use pipi_protocol::tools::ToolOutput;
 use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskOutput,

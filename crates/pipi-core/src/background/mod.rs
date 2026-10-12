@@ -24,8 +24,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use pipi_core::tools::agent::{AgentRunResult, ChildProgressTx};
-use pipi_core::tools::background::{
+use crate::tools::agent::{AgentRunResult, ChildProgressTx};
+use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskQuery,
 };
 use pipi_protocol::{AbortSignal, BackgroundTaskInfo, BackgroundTaskSnapshot};

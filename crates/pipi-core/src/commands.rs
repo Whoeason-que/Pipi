@@ -12,8 +12,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::settings::{self, Settings};
 use pipi_agent::stats::SessionStats;
-use pipi_core::settings::{self, Settings};
 use pipi_protocol::permissions::PermissionsConfig;
 use pipi_protocol::session::SessionSummary;
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};

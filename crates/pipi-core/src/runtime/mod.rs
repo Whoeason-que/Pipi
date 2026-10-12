@@ -17,20 +17,20 @@ use crate::events::{
     AgentEventEnvelope, EventEmitter, RuntimeEvent, SessionChangedEnvelope, SessionErrorEnvelope,
     SessionSwitchedEnvelope, StatsEventEnvelope,
 };
+use crate::settings::load_settings;
+use crate::tools::agent::{
+    AgentRunResult, AgentRunStatus, AgentRunner, ChildProgressTx, CreateAgentTool, ReadAgentTool,
+    RunAgentTool, result_from_messages,
+};
+use crate::tools::background::{
+    BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskService,
+    ManageBackgroundTaskTool, QueryBackgroundTasksTool, SubmitBackgroundTaskTool,
+};
 use pipi_agent::agent_loop::Emitter as LoopEmitter;
 use pipi_agent::agent_loop::{
     AgentContext, AgentEvent, AgentLoopConfig, MessageQueue, ToolExecutionMode, run_agent_loop,
 };
 use pipi_agent::stats::SessionStatsTracker;
-use pipi_core::settings::load_settings;
-use pipi_core::tools::agent::{
-    AgentRunResult, AgentRunStatus, AgentRunner, ChildProgressTx, CreateAgentTool, ReadAgentTool,
-    RunAgentTool, result_from_messages,
-};
-use pipi_core::tools::background::{
-    BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskService,
-    ManageBackgroundTaskTool, QueryBackgroundTasksTool, SubmitBackgroundTaskTool,
-};
 use pipi_protocol::session::{
     EntryKind, SessionLog, SessionRepo, SessionSummary, active_model_from_entries, active_path,
     rebuild_messages,

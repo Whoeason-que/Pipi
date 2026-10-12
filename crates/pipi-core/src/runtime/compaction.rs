@@ -51,7 +51,7 @@ pub(super) struct CompactionContext<'a> {
     pub(super) abort: AbortSignal,
     /// 会话仓库（分叉与归档要它）。临时测试会话没有仓库。
     pub(super) repo: Option<&'a dyn SessionRepo>,
-    pub(super) settings: pipi_core::settings::CompactionSettings,
+    pub(super) settings: crate::settings::CompactionSettings,
     /// 摘要调用失败重发策略（与对话共用，见 `retry` 模块）。
     pub(super) retry: pipi_context::retry::RetryPolicy,
     pub(super) sink: &'a EventEmitter,
@@ -199,7 +199,7 @@ pub(super) fn persist_compaction(
     writer: &SharedLog,
     repo: Option<&dyn SessionRepo>,
     record: &pipi_protocol::session::CompactionRecord<'_>,
-    settings: pipi_core::settings::CompactionSettings,
+    settings: crate::settings::CompactionSettings,
 ) -> Result<Option<String>, String> {
     // 临时测试上下文需要摘要替换，但绝不能分叉或写入 sessions 目录。内存账本
     // 仍追加 compaction entry，以保持 message id 映射与正式会话一致。
@@ -420,7 +420,7 @@ mod tests {
             &writer,
             None,
             &record,
-            pipi_core::settings::CompactionSettings {
+            crate::settings::CompactionSettings {
                 fork_before_compact: true,
                 archive_original: true,
             },

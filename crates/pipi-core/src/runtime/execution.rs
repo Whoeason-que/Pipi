@@ -958,9 +958,9 @@ mod tests {
         pipi_test_support::set_env_var("HOME", &home);
 
         let base_url = format!("http://{addr}/v1");
-        pipi_core::settings::save_settings(&pipi_core::settings::Settings {
-            theme: pipi_core::settings::Theme::Dark,
-            providers: vec![pipi_core::settings::ProviderConfig {
+        crate::settings::save_settings(&crate::settings::Settings {
+            theme: crate::settings::Theme::Dark,
+            providers: vec![crate::settings::ProviderConfig {
                 id: "silent".into(),
                 name: "Silent".into(),
                 api: pipi_protocol::Api::OpenAICompletions,
@@ -1013,7 +1013,7 @@ mod tests {
 
         // 终态已落盘：read_agent 读到 Failed 而不是 pending
         let reread =
-            pipi_core::tools::agent::read_agent_output("timeout-worker", Some(&result.session_id))
+            crate::tools::agent::read_agent_output("timeout-worker", Some(&result.session_id))
                 .unwrap();
         assert_eq!(reread.status, AgentRunStatus::Failed);
 

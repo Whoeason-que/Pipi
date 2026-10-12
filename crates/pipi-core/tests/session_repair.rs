@@ -75,7 +75,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
             .into_owned()
     };
 
-    let runtime = pipi_app::runtime::RuntimeState::new(tokio::runtime::Handle::current());
+    let runtime = pipi_core::runtime::RuntimeState::new(tokio::runtime::Handle::current());
     runtime.open_session("repair-worker", &session_id).unwrap();
 
     let messages = runtime
@@ -177,7 +177,7 @@ async fn completed_tail_is_left_untouched() {
             .into_owned()
     };
 
-    let runtime = Arc::new(pipi_app::runtime::RuntimeState::new(
+    let runtime = Arc::new(pipi_core::runtime::RuntimeState::new(
         tokio::runtime::Handle::current(),
     ));
     runtime.open_session("intact-worker", &session_id).unwrap();
