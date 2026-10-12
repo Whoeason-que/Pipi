@@ -16,7 +16,7 @@
 
 工作区仍为 10 个 Cargo 成员。没有新增前端依赖、数据库或持久化格式，39 个命令的名称和 Rust wire 字段保持现有契约。
 
-> 后续变更（不属于本轮）：技能中心一轮新增 8 个命令，现为 47 个；crate 拆分一轮后工作区为 15 个成员，分层与依赖方向见根目录 `architecture.toml`（`cargo xtask arch` 检查）。
+> 后续变更（不属于本轮）：技能中心一轮新增 8 个命令，现为 47 个；crate 拆分一轮后工作区为 15 个成员，2026-10-12 的结构重构再收敛为 **12 个成员** —— `pipi-app` / `pipi-server` 并为 `pipi-core`（server 作 feature），`pipi-skills` / `av` / `pipi-harness` 并入 `pipi-venv`，`src-tauri` 移到 `crates/pipi`。本文上表与下文的旧路径是当时的布局，分层与依赖方向以根目录 `architecture.toml` 为准（`cargo xtask arch` 检查）。
 
 ## 六个阶段
 
