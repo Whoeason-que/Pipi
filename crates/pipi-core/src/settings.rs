@@ -196,7 +196,7 @@ impl Default for Settings {
 
 /// `~/.pipi/settings.json`（路径布局由 av 统一定义）。
 pub fn settings_path() -> Option<PathBuf> {
-    av::paths::settings_path()
+    pipi_venv::av::paths::settings_path()
 }
 
 /// 读取设置；文件缺失或损坏时返回默认值（坏文件不拖垮应用）。

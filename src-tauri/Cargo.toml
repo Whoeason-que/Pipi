@@ -20,7 +20,7 @@ pipi-core = { workspace = true }
 pipi-app = { workspace = true }
 pipi-provider = { workspace = true }
 pipi-protocol = { workspace = true }
-pipi-skills = { workspace = true }
 pipi-tools = { workspace = true }
+pipi-venv = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

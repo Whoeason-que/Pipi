@@ -8,10 +8,10 @@ use pipi_app::commands::{
     WriteAgentFileArgs,
 };
 use pipi_app::runtime::RuntimeState;
-use pipi_core::agents::AgentDefinition;
 use pipi_core::settings::Settings;
 use pipi_provider::catalog::ModelCatalog;
-use pipi_skills::{
+use pipi_venv::agents::AgentDefinition;
+use pipi_venv::skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
 };
 use tauri::State;

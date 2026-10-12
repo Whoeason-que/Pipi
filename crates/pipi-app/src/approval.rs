@@ -15,9 +15,9 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 
 use crate::events::{ApprovalRequestEnvelope, EventEmitter, RuntimeEvent};
-use pipi_core::agents;
 use pipi_protocol::AbortSignal;
 use pipi_protocol::permissions::CommandApprover;
+use pipi_venv::agents;
 
 /// 用户对一次审批请求的决定。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

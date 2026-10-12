@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use tokio::process::Command;
 use tokio::sync::{Notify, mpsc, oneshot};
 
-use pipi_core::agents;
 use pipi_core::tools::background::{
     BackgroundAgentTaskSpec, BackgroundTaskCommand, BackgroundTaskOwner, BackgroundTaskQuery,
     BackgroundTaskService, BackgroundTaskSpec,
@@ -16,6 +15,7 @@ use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskSnapshot,
     BackgroundTaskStatus, now_millis,
 };
+use pipi_venv::agents;
 
 use super::agent::{AgentJobEntry, run_agent_job};
 use super::persist::{PersistedRecord, append_record, validate_job_id};
@@ -445,7 +445,7 @@ mod tests {
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             ..Default::default()
         };
-        pipi_core::agents::create_agent(
+        pipi_venv::agents::create_agent(
             "background-test",
             "background test",
             Some(workspace.to_str().unwrap()),
@@ -620,7 +620,7 @@ mod tests {
 
         // child Agent 也必须走同一套 submit/query/persist 语义；无模型配置让它
         // 在不依赖网络的情况下快速进入失败终态，但仍创建可读取的 child session。
-        pipi_core::agents::create_agent(
+        pipi_venv::agents::create_agent(
             "agent-child",
             "background child",
             Some(workspace.to_str().unwrap()),

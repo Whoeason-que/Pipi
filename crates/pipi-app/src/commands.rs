@@ -13,13 +13,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use pipi_agent::stats::SessionStats;
-use pipi_core::agents::{self, AgentDefinition};
 use pipi_core::settings::{self, Settings};
 use pipi_protocol::permissions::PermissionsConfig;
 use pipi_protocol::session::SessionSummary;
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
 use pipi_provider::catalog::ModelCatalog;
-use pipi_skills::{
+use pipi_venv::agents::{self, AgentDefinition};
+use pipi_venv::skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
 };
 
@@ -95,7 +95,7 @@ pub struct ModelCatalogArgs {
 pub async fn model_catalog(args: ModelCatalogArgs) -> Result<ModelCatalog, String> {
     pipi_provider::catalog::load_catalog(
         args.refresh.unwrap_or(false),
-        av::paths::catalog_cache_path(),
+        pipi_venv::av::paths::catalog_cache_path(),
     )
     .await
 }
@@ -600,7 +600,7 @@ pub fn delete_archived_session(
 
 /// 全局技能 store（`~/.av/skills`）一览：已安装版本、来源与内容存在性。
 pub fn skill_library() -> Result<SkillLibrary, String> {
-    pipi_skills::store_skills()
+    pipi_venv::skills::store_skills()
 }
 
 #[derive(Debug, Deserialize)]
@@ -611,7 +611,7 @@ pub struct AgentSkillsArgs {
 
 /// 某个 Agent 的技能启用视图（`[resources.skills].use` + 解析状态）。
 pub fn agent_skills(args: AgentSkillsArgs) -> Result<AgentSkills, String> {
-    pipi_skills::agent_skills(&args.agent_name)
+    pipi_venv::skills::agent_skills(&args.agent_name)
 }
 
 #[derive(Debug, Deserialize)]
@@ -624,7 +624,7 @@ pub struct SetSkillEnabledArgs {
 
 /// 启用/禁用一个 store 技能（写契约 `use` 与同层 `agent.lock`）。
 pub fn set_skill_enabled(args: SetSkillEnabledArgs) -> Result<AgentSkills, String> {
-    pipi_skills::set_skill_enabled(&args.agent_name, &args.name, args.enabled)
+    pipi_venv::skills::set_skill_enabled(&args.agent_name, &args.name, args.enabled)
 }
 
 #[derive(Debug, Deserialize)]
@@ -635,9 +635,11 @@ pub struct VerifyStoreSkillsArgs {
 
 /// 重算 store 内容哈希。要读全部技能内容，放到阻塞线程池执行。
 pub async fn verify_store_skills(args: VerifyStoreSkillsArgs) -> Result<Vec<SkillVerify>, String> {
-    tokio::task::spawn_blocking(move || pipi_skills::verify_store_skills(args.names.as_deref()))
-        .await
-        .map_err(|error| format!("技能校验任务失败：{error}"))?
+    tokio::task::spawn_blocking(move || {
+        pipi_venv::skills::verify_store_skills(args.names.as_deref())
+    })
+    .await
+    .map_err(|error| format!("技能校验任务失败：{error}"))?
 }
 
 #[derive(Debug, Deserialize)]
@@ -652,7 +654,12 @@ pub struct InstallSkillArgs {
 /// 安装技能到全局 store（只装不启用）。git 源要联网，放到阻塞线程池执行。
 pub async fn install_skill(args: InstallSkillArgs) -> Result<SkillInstallReport, String> {
     tokio::task::spawn_blocking(move || {
-        pipi_skills::install_skill(&args.source, args.skills.as_deref(), args.all, args.dry_run)
+        pipi_venv::skills::install_skill(
+            &args.source,
+            args.skills.as_deref(),
+            args.all,
+            args.dry_run,
+        )
     })
     .await
     .map_err(|error| format!("技能安装任务失败：{error}"))?
@@ -666,7 +673,7 @@ pub struct RemoveStoreSkillArgs {
 
 /// 从 store 移除一个技能的全部版本（仍被 Agent 声明时拒绝）。
 pub fn remove_store_skill(args: RemoveStoreSkillArgs) -> Result<usize, String> {
-    pipi_skills::remove_store_skill(&args.name)
+    pipi_venv::skills::remove_store_skill(&args.name)
 }
 
 #[derive(Debug, Deserialize)]
@@ -679,7 +686,7 @@ pub struct SyncAgentSkillsArgs {
 /// 同步/修复声明技能（可能联网取 git）。放到阻塞线程池执行。
 pub async fn sync_agent_skills(args: SyncAgentSkillsArgs) -> Result<SkillSyncReport, String> {
     tokio::task::spawn_blocking(move || {
-        pipi_skills::sync_agent_skills(&args.agent_name, args.repair)
+        pipi_venv::skills::sync_agent_skills(&args.agent_name, args.repair)
     })
     .await
     .map_err(|error| format!("技能同步任务失败：{error}"))?
@@ -693,7 +700,7 @@ pub struct SkillUsageArgs {
 
 /// 一个技能在各个 Agent 上的启用情况（技能库详情用）。
 pub fn skill_usage(args: SkillUsageArgs) -> Result<Vec<SkillUsage>, String> {
-    pipi_skills::skill_usage(&args.name)
+    pipi_venv::skills::skill_usage(&args.name)
 }
 
 // ============ Web / JSON transport 入口 ============

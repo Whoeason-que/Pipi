@@ -6,10 +6,10 @@ use pipi_app::events::{
     SessionErrorEnvelope, SessionSwitchedEnvelope, StatsEventEnvelope,
 };
 use pipi_app::runtime::SessionInfo;
-use pipi_core::agents::AgentDefinition;
 use pipi_core::settings::Settings;
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
-use pipi_skills::{AgentSkills, SkillLibrary};
+use pipi_venv::agents::AgentDefinition;
+use pipi_venv::skills::{AgentSkills, SkillLibrary};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 

@@ -42,7 +42,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
     // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
     unsafe { std::env::set_var("HOME", &home) };
 
-    pipi_core::agents::create_agent(
+    pipi_venv::agents::create_agent(
         "repair-worker",
         "A worker whose run got killed",
         Some(workspace.to_str().unwrap()),
@@ -55,7 +55,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
         None,
     )
     .unwrap();
-    let definition = pipi_core::agents::load_agent("repair-worker").unwrap();
+    let definition = pipi_venv::agents::load_agent("repair-worker").unwrap();
     let sessions_dir = definition.sessions_dir().unwrap();
 
     // 被中断的会话：user → assistant(tool_calls)，结果没落盘（进程被杀）
@@ -147,7 +147,7 @@ async fn completed_tail_is_left_untouched() {
     // SAFETY: 本用例持 HOME_LOCK，环境改动互斥
     unsafe { std::env::set_var("HOME", &home) };
 
-    pipi_core::agents::create_agent(
+    pipi_venv::agents::create_agent(
         "intact-worker",
         "A worker with a clean history",
         Some(workspace.to_str().unwrap()),
@@ -160,7 +160,7 @@ async fn completed_tail_is_left_untouched() {
         None,
     )
     .unwrap();
-    let definition = pipi_core::agents::load_agent("intact-worker").unwrap();
+    let definition = pipi_venv::agents::load_agent("intact-worker").unwrap();
     let sessions_dir = definition.sessions_dir().unwrap();
 
     let session_id = {

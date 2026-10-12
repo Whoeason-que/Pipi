@@ -126,7 +126,7 @@ async fn create_run_and_read_agent_output() {
         ToolResultContent::Text { text } if text.contains("composition-worker")
     ));
 
-    let definition = pipi_core::agents::load_agent("composition-worker").unwrap();
+    let definition = pipi_venv::agents::load_agent("composition-worker").unwrap();
     assert_eq!(definition.permissions.tools, vec!["read"]);
     assert!(definition.subagent);
     assert!(
@@ -151,7 +151,7 @@ async fn create_run_and_read_agent_output() {
         )
         .await
         .unwrap();
-    let default_definition = pipi_core::agents::load_agent("composition-default-worker").unwrap();
+    let default_definition = pipi_venv::agents::load_agent("composition-default-worker").unwrap();
     assert_eq!(default_definition.permissions.tools, vec!["read", "glob"]);
     assert!(
         BACKGROUND_TASK_TOOLS
@@ -175,7 +175,7 @@ async fn create_run_and_read_agent_output() {
             .await;
         let error = result.expect_err("后台任务工具不得授予新 Agent");
         assert!(error.contains("基础工具"), "{error}");
-        assert!(pipi_core::agents::load_agent(&name).is_err());
+        assert!(pipi_venv::agents::load_agent(&name).is_err());
     }
 
     // 基础 registry 有意忽略目标配置中的 Agent 组合工具；child 深度固定为 1.
@@ -211,7 +211,7 @@ async fn create_run_and_read_agent_output() {
 
     // 即使目标 Agent 尚未配置模型，启动失败也必须落成可读取的 failed 输出，
     // 不能留下一个遮住旧结果的空 session。
-    let manual_definition = pipi_core::agents::create_agent(
+    let manual_definition = pipi_venv::agents::create_agent(
         "unconfigured-worker",
         "A worker without a model",
         Some(workspace.to_str().unwrap()),
@@ -407,7 +407,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
     })
     .unwrap();
 
-    pipi_core::agents::create_agent(
+    pipi_venv::agents::create_agent(
         "mock-worker",
         "A scripted child",
         Some(workspace.to_str().unwrap()),
@@ -420,7 +420,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         Some(model.clone()),
     )
     .unwrap();
-    pipi_core::agents::create_agent(
+    pipi_venv::agents::create_agent(
         "mock-parent",
         "A scripted parent",
         Some(workspace.to_str().unwrap()),

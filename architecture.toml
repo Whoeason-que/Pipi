@@ -17,22 +17,9 @@ may-depend-on = []
 [crates.pipi-error]
 may-depend-on = []
 
-# 纯项目上下文发现与 prompt 渲染：不依赖运行时、网络与实现 crate；
-# 只从契约层取共享的文本转义助手。
-[crates.pipi-harness]
-may-depend-on = ["pipi-protocol"]
-dev-may-depend-on = ["pipi-test-support"]
-forbid = ["serde", "serde_json", "tokio", "reqwest"]
-
 # 叶子：测试脚手架，不依赖任何东西。
 [crates.pipi-test-support]
 may-depend-on = []
-
-# 独立工具（agent.toml 契约 + 技能 store + CLI），不依赖任何 Pipi crate。
-[crates.av]
-may-depend-on = []
-dev-may-depend-on = ["pipi-test-support"]
-forbid = ["tokio", "reqwest", "rig"]
 
 # 契约层：持久化与 transport DTO、会话条目格式、工具/权限/provider 端口。
 # 不碰工具、领域与网络实现。
@@ -66,34 +53,34 @@ may-depend-on = ["pipi-error", "pipi-protocol"]
 # 引擎：主循环 / 上下文 / 重试 / 统计 / 会话存储 / 压缩。
 # 不依赖 av（不碰 agent.toml 契约）、不直连网络：provider 只以契约层的端口出现。
 [crates.pipi-agent]
-may-depend-on = ["pipi-context", "pipi-error", "pipi-protocol", "pipi-harness"]
+may-depend-on = ["pipi-context", "pipi-error", "pipi-protocol"]
 dev-may-depend-on = ["pipi-provider", "pipi-session", "pipi-test-support"]
 forbid = ["av", "reqwest"]
 
 # 领域层：Agent 注册表与 av 契约、设置、Agent 组合工具。网络目录不在这一层。
 [crates.pipi-core]
-may-depend-on = ["av", "pipi-agent", "pipi-context", "pipi-protocol", "pipi-session", "pipi-tools", "pipi-harness"]
+may-depend-on = ["pipi-agent", "pipi-context", "pipi-protocol", "pipi-session", "pipi-tools", "pipi-venv"]
 dev-may-depend-on = ["pipi-test-support"]
 forbid = ["reqwest"]
 
-# 技能中心：store 视图与安装/校验/同步服务，走 av 实现。
-[crates.pipi-skills]
-may-depend-on = ["av", "pipi-core"]
-dev-may-depend-on = ["pipi-agent", "pipi-protocol", "pipi-test-support"]
-forbid = ["reqwest"]
+# Agent 环境域：清单与注册表、agent.toml 契约（含 av CLI）、技能中心、提示词层。
+# 只依赖契约层与内置工具助手；不直连网络（search 特性默认关闭）之外无运行时。
+[crates.pipi-venv]
+may-depend-on = ["pipi-protocol", "pipi-tools"]
+dev-may-depend-on = ["pipi-test-support"]
+forbid = ["reqwest", "rig", "tokio"]
 
 # 应用服务层：会话槽、运行编排、审批、宿主事件协议与宿主命令的单一事实来源。
 [crates.pipi-app]
 may-depend-on = [
-    "av",
     "pipi-agent",
     "pipi-context",
     "pipi-core",
     "pipi-protocol",
     "pipi-provider",
     "pipi-session",
-    "pipi-skills",
     "pipi-tools",
+    "pipi-venv",
 ]
 dev-may-depend-on = ["pipi-test-support"]
 
@@ -103,8 +90,8 @@ may-depend-on = [
     "pipi-app",
     "pipi-core",
     "pipi-protocol",
-    "pipi-skills",
     "pipi-tools",
+    "pipi-venv",
 ]
 
 # Tauri 薄壳：commands.rs 只做 IPC 转发。
@@ -115,6 +102,6 @@ may-depend-on = [
     "pipi-core",
     "pipi-provider",
     "pipi-protocol",
-    "pipi-skills",
     "pipi-tools",
+    "pipi-venv",
 ]

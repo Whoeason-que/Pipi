@@ -24,12 +24,12 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use pipi_core::agents;
 use pipi_core::tools::agent::{AgentRunResult, ChildProgressTx};
 use pipi_core::tools::background::{
     BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskQuery,
 };
 use pipi_protocol::{AbortSignal, BackgroundTaskInfo, BackgroundTaskSnapshot};
+use pipi_venv::agents;
 
 use self::agent::AgentJobEntry;
 use self::persist::{PersistedRecord, append_record, load_persisted_snapshot, validate_job_id};

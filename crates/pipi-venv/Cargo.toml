@@ -1,0 +1,35 @@
+[package]
+name = "pipi-venv"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Pipi 的 Agent 环境域：清单与注册表、agent.toml 契约、技能包、提示词素材"
+
+[lib]
+name = "pipi_venv"
+path = "src/lib.rs"
+
+[[bin]]
+name = "av"
+path = "src/bin/av.rs"
+
+[features]
+default = ["search"]
+# skills.sh 搜索客户端；宿主以 default-features = false 依赖时不链入应用
+search = ["dep:ureq"]
+
+[dependencies]
+dirs = { workspace = true }
+glob = { workspace = true }
+pipi-protocol = { workspace = true }
+pipi-tools = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
+ureq = { workspace = true, optional = true }
+
+[dev-dependencies]
+pipi-test-support = { workspace = true }

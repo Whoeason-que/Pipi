@@ -8,13 +8,12 @@ description = "Pipi 领域层：Agent 定义与 av 契约、设置与 Agent 组�
 [dependencies]
 # search feature 关闭：skills.sh 搜索只属于 av CLI，不把第二个 HTTP 栈链进应用
 # （工作区条目里写的 default-features = false 就是为这条服务）
-av = { workspace = true }
 pipi-agent = { workspace = true }
 pipi-context = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-session = { workspace = true }
 pipi-tools = { workspace = true }
-pipi-harness = { workspace = true }
+pipi-venv = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }

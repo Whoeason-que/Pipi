@@ -7,15 +7,14 @@ description = "Pipi 的应用服务层：会话槽、运行编排与宿主事件
 
 [dependencies]
 async-trait = { workspace = true }
-av = { workspace = true }
 pipi-agent = { workspace = true }
 pipi-core = { workspace = true }
 pipi-context = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-session = { workspace = true }
 pipi-provider = { workspace = true }
-pipi-skills = { workspace = true }
 pipi-tools = { workspace = true }
+pipi-venv = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }

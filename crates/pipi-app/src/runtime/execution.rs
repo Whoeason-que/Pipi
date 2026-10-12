@@ -4,12 +4,12 @@ use super::*;
 
 fn append_declared_env(
     writer: &SharedLog,
-    resolved_env: &av::resolve::ResolvedEnv,
+    resolved_env: &pipi_venv::av::resolve::ResolvedEnv,
 ) -> Result<(), String> {
     let declared = resolved_env
         .provenance
         .iter()
-        .filter(|(_, source)| source.as_str() != av::resolve::PROCESS_SOURCE)
+        .filter(|(_, source)| source.as_str() != pipi_venv::av::resolve::PROCESS_SOURCE)
         .map(|(key, source)| pipi_protocol::session::EnvDeclared {
             key: key.clone(),
             source: source.clone(),

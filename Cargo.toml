@@ -1,15 +1,13 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/av",
     "crates/pipi-error",
     "crates/pipi-context",
     "crates/pipi-protocol",
     "crates/pipi-session",
     "crates/pipi-tools",
-    "crates/pipi-harness",
+    "crates/pipi-venv",
     "crates/pipi-provider",
-    "crates/pipi-skills",
     "crates/pipi-test-support",
     "crates/pipi-agent",
     "crates/pipi-core",
@@ -35,19 +33,17 @@ rust-version = "1.95"
 # 默认特性」（见各自条目），新增依赖时别顺手删掉。
 [workspace.dependencies]
 # 内部 crate：路径只写一次
-av = { path = "crates/av", default-features = false }
 pipi-agent = { path = "crates/pipi-agent" }
 pipi-app = { path = "crates/pipi-app" }
 pipi-context = { path = "crates/pipi-context" }
 pipi-core = { path = "crates/pipi-core" }
 pipi-error = { path = "crates/pipi-error" }
-pipi-harness = { path = "crates/pipi-harness" }
 pipi-protocol = { path = "crates/pipi-protocol" }
 pipi-session = { path = "crates/pipi-session" }
-pipi-skills = { path = "crates/pipi-skills" }
 pipi-provider = { path = "crates/pipi-provider" }
 pipi-test-support = { path = "crates/pipi-test-support" }
 pipi-tools = { path = "crates/pipi-tools" }
+pipi-venv = { path = "crates/pipi-venv", default-features = false }
 
 # 第三方
 async-trait = "0.1"

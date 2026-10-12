@@ -506,22 +506,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
-name = "av"
-version = "26.9.3"
-dependencies = [
- "dirs 7.0.0",
- "glob",
- "pipi-test-support",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tempfile",
- "toml 1.1.6+spec-1.1.0",
- "toml_edit 0.25.15+spec-1.1.0",
- "ureq 3.4.2",
-]
-
-[[package]]
 name = "av-scenechange"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5807,8 +5791,8 @@ dependencies = [
  "pipi-core",
  "pipi-protocol",
  "pipi-provider",
- "pipi-skills",
  "pipi-tools",
+ "pipi-venv",
  "serde",
  "serde_json",
  "tauri",
@@ -5825,7 +5809,6 @@ dependencies = [
  "futures-util",
  "pipi-context",
  "pipi-error",
- "pipi-harness",
  "pipi-protocol",
  "pipi-provider",
  "pipi-session",
@@ -5840,16 +5823,15 @@ name = "pipi-app"
 version = "26.9.3"
 dependencies = [
  "async-trait",
- "av",
  "pipi-agent",
  "pipi-context",
  "pipi-core",
  "pipi-protocol",
  "pipi-provider",
  "pipi-session",
- "pipi-skills",
  "pipi-test-support",
  "pipi-tools",
+ "pipi-venv",
  "serde",
  "serde_json",
  "tokio",
@@ -5874,15 +5856,14 @@ name = "pipi-core"
 version = "26.9.3"
 dependencies = [
  "async-trait",
- "av",
  "dirs 7.0.0",
  "pipi-agent",
  "pipi-context",
- "pipi-harness",
  "pipi-protocol",
  "pipi-session",
  "pipi-test-support",
  "pipi-tools",
+ "pipi-venv",
  "serde",
  "serde_json",
  "tokio",
@@ -5894,14 +5875,6 @@ version = "26.9.3"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "pipi-harness"
-version = "26.9.3"
-dependencies = [
- "pipi-protocol",
- "pipi-test-support",
 ]
 
 [[package]]
@@ -5943,8 +5916,8 @@ dependencies = [
  "pipi-app",
  "pipi-core",
  "pipi-protocol",
- "pipi-skills",
  "pipi-tools",
+ "pipi-venv",
  "serde",
  "serde_json",
  "tokio",
@@ -5959,18 +5932,6 @@ dependencies = [
  "pipi-protocol",
  "pipi-test-support",
  "serde_json",
-]
-
-[[package]]
-name = "pipi-skills"
-version = "26.9.3"
-dependencies = [
- "av",
- "pipi-agent",
- "pipi-core",
- "pipi-protocol",
- "pipi-test-support",
- "serde",
 ]
 
 [[package]]
@@ -5999,6 +5960,24 @@ dependencies = [
  "tempfile",
  "tokio",
  "walkdir",
+]
+
+[[package]]
+name = "pipi-venv"
+version = "26.9.3"
+dependencies = [
+ "dirs 7.0.0",
+ "glob",
+ "pipi-protocol",
+ "pipi-test-support",
+ "pipi-tools",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "toml 1.1.6+spec-1.1.0",
+ "toml_edit 0.25.15+spec-1.1.0",
+ "ureq 3.4.2",
 ]
 
 [[package]]
