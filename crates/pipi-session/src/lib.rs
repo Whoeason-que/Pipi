@@ -8,18 +8,7 @@
 //! - 第二个载体（git 分支，见 `docs/git-session-store.md`）也落在这个 crate ——
 //!   格式、端口与调用点都不动，宿主侧的装配点（`runtime/store.rs`）选实现。
 
-use pipi_protocol::session::{EntryKind, SessionEntry};
-
-/// 保留区间在 id 序列里的起点下标。空 id 或定位失败 → `ids.len()`
-/// （即全部替换，宁可少保留也不猜位置 —— 猜错会让回放出现无主消息）。
-fn kept_start(ids: &[String], keep_from_entry: &str) -> usize {
-    if keep_from_entry.is_empty() {
-        return ids.len();
-    }
-    ids.iter()
-        .position(|id| id == keep_from_entry)
-        .unwrap_or(ids.len())
-}
+use pipi_protocol::session::{EntryKind, SessionEntry, kept_start};
 
 /// 压缩条目对 id 序列的作用：摘要消息占用条目自身的 id 槽位，其后跟上
 /// 保留区间的 id（规则与 `pipi_protocol::session::replay` 必须一致）。

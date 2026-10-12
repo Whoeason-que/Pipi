@@ -26,7 +26,8 @@ pub struct SessionWriter {
     seq: u64,
     /// 环境记账每会话至多一条；打开旧会话时从已有条目恢复。
     env_recorded: bool,
-    /// 与内存消息序列一一对应的条目 id（规则见 [`kept_start`]）。
+    /// 与内存消息序列一一对应的条目 id
+    /// （规则见 [`pipi_protocol::session::kept_start`]）。
     /// runtime 落盘压缩条目时用它把「保留段下标」换算成 `keep_from_entry`。
     message_ids: Vec<String>,
 }

@@ -15,7 +15,7 @@ use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskOwner, BackgroundTaskService,
 };
 use pipi_protocol::permissions::{BACKGROUND_TASK_TOOLS, DEFAULT_TOOLS};
-use pipi_protocol::session::{SessionRepo, active_path, rebuild_messages};
+use pipi_protocol::session::{SessionRepo, active_path, rebuild_messages, validate_session_id};
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, ContentBlock, Message, Model, StopReason, ToolResultContent,
@@ -526,17 +526,6 @@ pub fn read_agent_output(
     let active = active_path(&entries);
     let messages = rebuild_messages(&active);
     Ok(result_from_messages(agent_name, &session_id, &messages))
-}
-
-fn validate_session_id(session_id: &str) -> Result<(), String> {
-    if session_id.is_empty()
-        || !session_id
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '-')
-    {
-        return Err("非法会话 ID".into());
-    }
-    Ok(())
 }
 
 #[cfg(test)]

@@ -294,7 +294,10 @@ pub fn rebuild_messages(entries: &[&SessionEntry]) -> Vec<Message> {
 
 /// 保留区间在 id 序列里的起点下标。空 id 或定位失败 → `ids.len()`
 /// （即全部替换，宁可少保留也不猜位置 —— 猜错会让回放出现无主消息）。
-fn kept_start(ids: &[String], keep_from_entry: &str) -> usize {
+///
+/// 对载体公开：写侧维护「消息 ↔ 条目 id」映射时用的是同一条规则
+/// （见 `pipi-session` 的 `track_message_ids`），规则只有这一份。
+pub fn kept_start(ids: &[String], keep_from_entry: &str) -> usize {
     if keep_from_entry.is_empty() {
         return ids.len();
     }
