@@ -151,7 +151,7 @@ fn write_cache(cache_path: Option<&Path>, catalog: &ModelCatalog) -> Result<(), 
     // 原子替换：进程中途崩溃也不会留下截断的缓存
     // （截断的 models.json 会被 read_cache 当作「没有缓存」，下次冷启动又要拉 4.6MB）。
     // tempfile 的唯一命名也避免了并发刷新时互相覆盖同一个 .tmp。
-    pipi_protocol::fs::write_atomic(&path, text).map_err(|e| format!("写入目录缓存失败: {e}"))
+    pipi_protocol::fs::write_atomic(path, text).map_err(|e| format!("写入目录缓存失败: {e}"))
 }
 
 fn validate_endpoint(
