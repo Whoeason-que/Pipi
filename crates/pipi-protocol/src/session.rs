@@ -170,6 +170,9 @@ pub trait SessionRepo: Send + Sync {
     /// 打开已有会话继续追加。
     fn open(&self, session_id: &str) -> Result<Box<dyn SessionLog>, String>;
     /// 会话是否存在于活跃区（供「先检查、再进临界区」的调用点）。
+    ///
+    /// 实现必须对符号链接 fail-closed（返回 `Err`）—— 读、写、分叉都不得
+    /// 跟随链接逃出 Agent 数据树。
     fn exists(&self, session_id: &str) -> Result<bool, String>;
     /// 读回一个会话的全部条目（含非活跃路径）。坏行跳过。
     fn entries(&self, session_id: &str) -> Result<Vec<SessionEntry>, String>;

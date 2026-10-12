@@ -23,11 +23,16 @@ impl JsonlSessionRepo {
         Self { dir }
     }
 
-    /// 会话文件路径。目录必须是真实目录（非符号链接）；不存在按「没有会话」处理。
+    /// 会话文件路径。目录与文件任何一环是符号链接都拒绝（fail-closed：
+    /// 链接会让读写逃出数据树）；文件不存在按「没有会话」处理，由调用方决定
+    /// 报错还是创建。这是全部目录级操作的唯一入口 —— 读、写、分叉、归档、
+    /// 删除都经它取路径，守卫只有这一处。
     fn session_path(&self, session_id: &str) -> Result<PathBuf, String> {
         validate_session_id(session_id)?;
         pipi_protocol::fs::ensure_real_directory(&self.dir, "sessions 目录")?;
-        Ok(self.dir.join(format!("{session_id}.jsonl")))
+        let path = self.dir.join(format!("{session_id}.jsonl"));
+        pipi_protocol::fs::ensure_real_file(&path, "会话文件")?;
+        Ok(path)
     }
 
     /// 归档区目录；不存在时返回 None。
@@ -55,6 +60,7 @@ impl SessionRepo for JsonlSessionRepo {
     }
 
     fn exists(&self, session_id: &str) -> Result<bool, String> {
+        // session_path 已经拒绝符号链接（Err）；走到这里要么是真文件，要么不存在
         Ok(self.session_path(session_id)?.is_file())
     }
 
@@ -275,6 +281,50 @@ pub fn list_session_summaries(sessions_dir: &Path) -> Vec<SessionSummary> {
 mod tests {
     use super::*;
     use pipi_protocol::session::EnvDeclared;
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_session_file_is_rejected() {
+        let dir = pipi_test_support::temp_dir("pipi-test");
+        let mut writer = SessionWriter::create(&dir).unwrap();
+        writer.append_message(&Message::user_text("hi")).unwrap();
+        let real = writer.path().to_path_buf();
+        drop(writer);
+
+        // 指向真实会话文件的链接：任何目录级操作都必须拒绝，绝不跟随
+        let link = dir.join("linked.jsonl");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let repo = JsonlSessionRepo::new(dir.clone());
+        let errors = [
+            repo.exists("linked").err().expect("exists 必须拒绝符号链接"),
+            repo.entries("linked").err().expect("entries 必须拒绝符号链接"),
+            repo.open("linked").err().expect("open 必须拒绝符号链接"),
+            repo.fork("linked", None).err().expect("fork 必须拒绝符号链接"),
+        ];
+        for error in errors {
+            assert!(error.contains("不能是符号链接"), "{error}");
+        }
+
+        // 真实文件照常可用；缺失的 id 仍是「不存在」而不是报错
+        let real_id = real.file_stem().unwrap().to_str().unwrap();
+        assert!(repo.exists(real_id).unwrap());
+        assert!(!repo.exists("missing").unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_sessions_dir_is_rejected() {
+        let outside = pipi_test_support::temp_dir("pipi-test");
+        let parent = pipi_test_support::temp_dir("pipi-test");
+        let link = parent.join("sessions");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+        let error = JsonlSessionRepo::new(link)
+            .exists("anything")
+            .err()
+            .expect("sessions 目录是符号链接时必须拒绝");
+        assert!(error.contains("不能是符号链接"), "{error}");
+    }
 
     #[test]
     fn summaries_list_titles_and_order() {

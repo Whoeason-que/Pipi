@@ -118,7 +118,15 @@ pub(super) const CURATION: &[Curated] = &[
     ),
     curated!("moonshotai-cn", "国内", name = "Moonshot / Kimi（中国）"),
     curated!("moonshotai", "国内", name = "Moonshot / Kimi（国际）"),
-    curated!("kimi-for-coding", "国内", name = "Kimi For Coding"),
+    // 上游 2026-10 改名（kimi-for-coding → kimi-code-plan-cn）。官方文档核实：同一端点
+    // 两种入口 —— OpenAI 兼容是 `.../coding/v1`（上游 api 字段给的就是它），Anthropic
+    // 兼容是 `.../coding/`；故按上游 npm 收 openai-completions。
+    curated!(
+        "kimi-code-plan-cn",
+        "国内",
+        name = "Kimi For Coding",
+        note = "官方文档：OpenAI 兼容入口是 .../coding/v1，Anthropic 兼容入口是 .../coding/"
+    ),
     curated!("zhipuai", "国内", name = "智谱 GLM（开放平台）"),
     curated!("zai", "国内", name = "Z.ai（GLM 国际）"),
     curated!("minimax-cn", "国内", name = "MiniMax（中国）"),

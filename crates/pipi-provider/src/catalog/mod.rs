@@ -1043,7 +1043,7 @@ mod tests {
         assert_eq!(parsed, catalog);
     }
 
-    /// 真实上游数据：`cargo test -p pipi-core -- --ignored`（默认不跑，避免依赖网络）。
+    /// 真实上游数据：`cargo test -p pipi-provider -- --ignored`（默认不跑，避免依赖网络）。
     #[tokio::test]
     #[ignore]
     async fn 真实上游目录可构建且满足不变量() {
@@ -1091,15 +1091,15 @@ mod tests {
                 false,
             ),
             (
-                "kimi-for-coding",
-                Api::AnthropicMessages,
+                "kimi-code-plan-cn",
+                Api::OpenAICompletions,
                 "https://api.kimi.com/coding/v1",
                 false,
             ),
             (
                 "minimax-cn",
                 Api::AnthropicMessages,
-                "https://api.minimaxi.com/anthropic/v1",
+                "https://api.minimax.cn/anthropic/v1",
                 false,
             ),
             (
