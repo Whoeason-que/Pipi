@@ -15,5 +15,5 @@ tokio = { workspace = true, features = ["macros", "sync", "time"] }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+# 语料回归（tests/compaction_corpus.rs）读真实会话文件
 pipi-session = { workspace = true }
-pipi-test-support = { workspace = true }

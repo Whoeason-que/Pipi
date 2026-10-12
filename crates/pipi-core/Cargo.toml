@@ -35,7 +35,5 @@ axum = { workspace = true, optional = true }
 tower-http = { workspace = true, optional = true }
 
 [dev-dependencies]
-# 只有测试用它定位用户 HOME（agents.rs 的 HOME_LOCK 用例）
-dirs = { workspace = true }
 pipi-test-support = { workspace = true }
 tower = { workspace = true }

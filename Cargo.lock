@@ -5808,8 +5808,6 @@ dependencies = [
  "pipi-error",
  "pipi-protocol",
  "pipi-provider",
- "pipi-session",
- "pipi-test-support",
  "serde",
  "serde_json",
  "tokio",
@@ -5824,7 +5822,6 @@ dependencies = [
  "pipi-error",
  "pipi-protocol",
  "pipi-session",
- "pipi-test-support",
  "serde_json",
  "tokio",
 ]
@@ -5835,7 +5832,6 @@ version = "26.9.3"
 dependencies = [
  "async-trait",
  "axum",
- "dirs 7.0.0",
  "pipi-agent",
  "pipi-context",
  "pipi-protocol",

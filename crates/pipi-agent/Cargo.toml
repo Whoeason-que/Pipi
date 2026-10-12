@@ -3,7 +3,7 @@ name = "pipi-agent"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Pipi Agent 引擎：主循环、上下文预算、重试、统计、会话存储与压缩"
+description = "Pipi Agent 引擎：主循环与用量统计"
 
 [dependencies]
 pipi-context = { workspace = true }
@@ -18,5 +18,3 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", 
 async-trait = { workspace = true }
 # 只有测试需要具体 provider（生产代码只依赖协议层的 Provider 端口）
 pipi-provider = { workspace = true }
-pipi-session = { workspace = true }
-pipi-test-support = { workspace = true }
