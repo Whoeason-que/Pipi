@@ -11,6 +11,12 @@
 //! 除 rig 适配外，这一层还带 [`catalog`]（models.dev 模型目录）：两者都是
 //! 「模型面」的服务，且都直连 HTTP；契约层的 `Provider` 端口不属于这里。
 //!
+//! 协议（`Api`）是**按请求**决定的：绑定里的 `Model.api` 只是声明，真正发出去用
+//! 哪种协议 = 运行期学到的（[`learned_protocol`]，端点实证过的）→ 声明。模型级
+//! 覆盖在目录层（[`catalog::model_api_override`]），宿主在 run 前写进 `Model.api`。
+//! 端点明确回报「不支持这个协议」时事件带 `protocol_mismatch` 标记，**是否换协议
+//! 重发由 agent loop 决定**（这一层只管分类与记录，不重发）。
+//!
 //! rig 0.43 换成了「wire + transport + fold」架构，与 0.42 的几处映射偏差：
 //! - core 不再自带 HTTP transport：reqwest 由 `rig-reqwest` 提供，客户端 =
 //!   配置（`AnthropicConfig` / `OpenAIConfig`）`.connect(transport)`；
@@ -58,6 +64,8 @@ use pipi_protocol::{
 struct StreamError {
     message: String,
     retry: Option<RetryHint>,
+    /// 端点明确回了「这个模型不支持当前协议」（见 [`classify::protocol_mismatch`]）。
+    protocol_mismatch: bool,
 }
 
 impl StreamError {
@@ -65,6 +73,7 @@ impl StreamError {
         Self {
             message: message.into(),
             retry: None,
+            protocol_mismatch: false,
         }
     }
 
@@ -72,12 +81,18 @@ impl StreamError {
         Self {
             message: message.into(),
             retry: Some(hint.unwrap_or_else(RetryHint::plain)),
+            protocol_mismatch: false,
         }
+    }
+
+    fn with_protocol_mismatch(mut self) -> Self {
+        self.protocol_mismatch = true;
+        self
     }
 }
 
-pub fn provider_for(api: Api) -> std::sync::Arc<dyn Provider> {
-    std::sync::Arc::new(RigProvider::new(api))
+pub fn provider_for() -> std::sync::Arc<dyn Provider> {
+    std::sync::Arc::new(RigProvider)
 }
 
 /// 需要「客户端自带会话标识」的供应商：键是 baseUrl 片段，值是要注入的会话头名。
@@ -155,32 +170,88 @@ fn rig_transport(extra: Option<HeaderMap>) -> DynHttpClient {
     }
 }
 
-/// rig 适配器。按 [`Api`] 分派到 rig 的对应 provider client。
-pub struct RigProvider {
-    api: Api,
+/// rig 适配器。协议**按每次请求的 `Model.api` 分派**（不缓存协议）：
+/// 同一个实例因此能跨协议服务 —— 运行期协商会在重试时换协议，实例换不动就断链。
+#[derive(Default)]
+pub struct RigProvider;
+
+/// 运行期实证学到的协议：某 (端点, 模型) 曾经成功用过哪种协议。
+///
+/// 存在的理由：未知网关 / 目录还没刷新时，第一次请求要靠「失败一次 → 换协议」
+/// 探明；探明之后同一个进程里的**所有**请求（下一次 run、压缩摘要）不该再探一遍。
+/// 只在请求**成功**时记录（失败不写），所以记忆里永远是可用的事实；进程内，不落盘。
+static LEARNED_PROTOCOLS: OnceLock<std::sync::Mutex<HashMap<(String, String), Api>>> =
+    OnceLock::new();
+
+fn learned_map() -> &'static std::sync::Mutex<HashMap<(String, String), Api>> {
+    LEARNED_PROTOCOLS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
-impl RigProvider {
-    pub fn new(api: Api) -> Self {
-        RigProvider { api }
-    }
+/// 该 (端点, 模型) 实证过的协议（`None` = 还没学过，用请求里的声明）。
+pub fn learned_protocol(base_url: &str, model_id: &str) -> Option<Api> {
+    let key = (catalog::endpoint_key(base_url), model_id.to_string());
+    learned_map()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&key)
+        .copied()
+}
+
+fn remember_protocol(base_url: &str, model_id: &str, api: Api) {
+    let key = (catalog::endpoint_key(base_url), model_id.to_string());
+    learned_map()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(key, api);
+}
+
+/// 「协议由系统管理」时的解析顺序（用户把协议钉死时不走这里，直接用声明）：
+///
+/// 1. 运行期实证（[`learned_protocol`]）—— 端点真的接受过的那种协议；
+/// 2. 目录里的**模型级**覆盖（`models.dev` 的 `model.provider.npm`）；
+/// 3. 目录里的 provider 级协议（跟随上游 / CURATION 的更新）；
+/// 4. 绑定里的声明（非目录端点：本地运行时、手填端点）。
+///
+/// 目录缺失（未缓存 / 离线）时逐级回退，最终行为与没有这套解析时一致。
+pub fn effective_api(
+    catalog: Option<&catalog::ModelCatalog>,
+    base_url: &str,
+    model_id: &str,
+    declared: Api,
+) -> Api {
+    learned_protocol(base_url, model_id)
+        .or_else(|| {
+            catalog.and_then(|catalog| {
+                catalog::model_api_override(catalog, base_url, model_id, declared)
+            })
+        })
+        .or_else(|| {
+            catalog.and_then(|catalog| catalog::catalog_provider_api(catalog, base_url, declared))
+        })
+        .unwrap_or(declared)
 }
 
 fn send_error(tx: &Sender<StreamEvent>, error: StreamError) {
     let _ = tx.try_send(StreamEvent::Error {
         message: error.message,
         retry: error.retry,
+        protocol_mismatch: error.protocol_mismatch,
     });
 }
 
 /// 把 rig 错误转成带分类的 [`StreamError`]；分类表位于本 crate，provider
-/// 只记录重试事实，不进行重发。
+/// 只记录重试事实（含「协议不被支持」这一事实），不进行重发。
 fn classify_with(prefix: &str, error: &rig::ProviderError) -> StreamError {
     let (verdict, hint) = classify_rig_error(error);
     let message = format!("{prefix}: {error}");
-    match verdict {
+    let classified = match verdict {
         RetryVerdict::Retryable => StreamError::retryable_with(message, hint),
         RetryVerdict::Terminal => StreamError::terminal(message),
+    };
+    if classify::protocol_mismatch(error) {
+        classified.with_protocol_mismatch()
+    } else {
+        classified
     }
 }
 
@@ -500,15 +571,17 @@ impl Accumulator {
 /// 流式生命周期：构造请求 → 迭代映射 → finish 取用量/结束原因 → Done。
 /// 两个协议的 wire 类型不同（Messages / Chat），用宏在分派点统一流程。
 macro_rules! run_with_model {
-    ($tx:expr, $abort:expr, $model:expr, $context:expr, $options:expr, $rig_model:expr) => {{
+    ($tx:expr, $abort:expr, $model:expr, $context:expr, $options:expr, $api:expr, $rig_model:expr) => {{
         let tx = $tx;
         let model: &Model = &$model;
         let context: &Context = &$context;
         let options: &StreamOptions = &$options;
+        // 本次实际使用的协议（可能是运行期学到的，未必等于声明里的）
+        let api: Api = $api;
         let started = Instant::now();
 
         // rig 语义：请求的 prompt 是最后一条消息，messages 是它之前的历史
-        let mut msgs = to_rig_messages(context, model.api);
+        let mut msgs = to_rig_messages(context, api);
         let Some(prompt) = msgs.pop() else {
             return Err(StreamError::terminal("空消息历史"));
         };
@@ -636,6 +709,9 @@ macro_rules! run_with_model {
         let reason = map_finish_reason(response.finish_reason().as_ref(), has_tools);
         let usage_mapped = from_rig_usage(&response.usage);
         let message = acc.finalize(&model.id, usage_mapped, reason, duration_ms);
+        // 完整响应到手 = 这套协议对这个 (端点, 模型) 可用：记进进程内记忆，
+        // 后续请求（下一次 run、压缩摘要）不再从头探协议。
+        remember_protocol(&model.base_url, &model.id, api);
         let _ = tx
             .send(StreamEvent::Done {
                 reason,
@@ -657,20 +733,20 @@ impl Provider for RigProvider {
         abort: AbortSignal,
     ) -> EventStream {
         let (tx, rx) = mpsc::channel(256);
-        let api = self.api;
         let model = model.clone();
         let context = context.clone();
         let options = options.clone();
 
         tokio::spawn(async move {
             async fn stream_impl(
-                api: Api,
                 model: Model,
                 context: Context,
                 options: StreamOptions,
                 abort: AbortSignal,
                 tx: &Sender<StreamEvent>,
             ) -> Result<(), StreamError> {
+                // 协议按请求决定：先看运行期学到的（端点实证过），否则用声明里的。
+                let api = learned_protocol(&model.base_url, &model.id).unwrap_or(model.api);
                 let key = options.api_key.clone().unwrap_or_default();
                 let transport = rig_transport(extra_headers(
                     &model.base_url,
@@ -688,6 +764,7 @@ impl Provider for RigProvider {
                             model,
                             context,
                             options,
+                            api,
                             config.connect(transport).completion(&model.id)
                         )
                     }
@@ -707,12 +784,13 @@ impl Provider for RigProvider {
                             model,
                             context,
                             options,
+                            api,
                             config.connect(transport).chat(&model.id)
                         )
                     }
                 }
             }
-            if let Err(e) = stream_impl(api, model, context, options, abort, &tx).await {
+            if let Err(e) = stream_impl(model, context, options, abort, &tx).await {
                 send_error(&tx, e);
             }
         });
@@ -728,6 +806,28 @@ mod tests {
     #[test]
     fn rig_calls_share_the_same_http_client_pool() {
         assert!(std::ptr::eq(shared_http_client(), shared_http_client()));
+    }
+
+    #[test]
+    fn learned_protocol_memo_is_normalized_and_per_model() {
+        // 记忆只在请求成功后写入（见 run_with_model!）；这里钉住读写口径：
+        // 端点归一化（尾斜杠 / 大小写）与按模型区分。
+        let base = "https://memo.example.com/v1";
+        assert_eq!(learned_protocol(base, "memo-model"), None);
+        remember_protocol(
+            "https://Memo.Example.com/v1/",
+            "memo-model",
+            Api::AnthropicMessages,
+        );
+        assert_eq!(
+            learned_protocol(base, "memo-model"),
+            Some(Api::AnthropicMessages)
+        );
+        assert_eq!(
+            learned_protocol(base, "other-model"),
+            None,
+            "记忆按 (端点, 模型) 分键，不跨模型串"
+        );
     }
 
     fn context() -> Context {

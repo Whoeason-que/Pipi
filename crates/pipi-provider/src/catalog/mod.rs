@@ -5,9 +5,15 @@
 //! 我们直接消费它，只保留两件**不能外包**的东西：
 //!
 //! 1. [`CURATION`]：收录哪些 provider、归到哪一组、显示成什么名字；
-//! 2. baseUrl 与协议的**人工核实**结果 —— 上游给的是 AI SDK 语义的 baseUrl，
-//!    未必满足 rig 的拼装要求（例：上游 DeepSeek 的 api 是 `https://api.deepseek.com`，
-//!    没有版本段，而 rig 的 OpenAI 客户端会往后拼路径）。
+//! 2. baseUrl 与 provider 级协议的**人工核实**结果 —— 上游给的是 AI SDK 语义的
+//!    baseUrl，未必满足 rig 的拼装要求（例：上游 DeepSeek 的 api 是
+//!    `https://api.deepseek.com`，没有版本段，而 rig 的 OpenAI 客户端会往后拼路径）。
+//!
+//! 协议有两层：provider 级（上面的核实结果）与**模型级**覆盖 —— 上游
+//! `model.provider.npm` 与 provider 级不同时，说明「这个模型只走另一套 wire」
+//! （例：opencode zen/go 的 Claude 系只有 Anthropic Messages，其余模型只有
+//! OpenAI 兼容）。模型级映射不到 Pipi 支持的两种协议（如 `@ai-sdk/google`）的
+//! 模型直接跳过：宁可漏收录，也不猜协议。
 //!
 //! 缓存：`~/.pipi/cache/models.json`（我们的 wire 结构，自带 `fetchedAt`）。
 //! 拉取失败时用缓存顶（`stale=true`）；没缓存就报错，由前端退化成手填模型 ID。
@@ -52,6 +58,10 @@ pub struct CatalogModel {
     pub output: Option<u64>,
     #[serde(default)]
     pub reasoning: bool,
+    /// 模型级协议覆盖（上游 `model.provider.npm` 与 provider 级不同时填写）。
+    /// `None` = 与 provider 级相同，按 provider 的协议请求。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api: Option<Api>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -239,7 +249,11 @@ fn assert_invariants(catalog: &ModelCatalog, min_providers: usize) -> Result<(),
 
 /// 上游 provider → 模型清单：只收 `tool_call` 为真的模型（不能工具调用的模型在
 /// Pipi 里没有意义），**不再截断**（搜索交给 UI），保持上游顺序。
-fn models_of(provider: &serde_json::Value) -> Vec<CatalogModel> {
+///
+/// 协议取两层：模型级 `provider.npm` 优先（与 provider 级不同时记进
+/// [`CatalogModel::api`]）；上游说这个模型只走 Pipi 不支持的协议（如
+/// `@ai-sdk/google`）时跳过该模型 —— 宁可漏收录，也不猜协议。
+fn models_of(provider: &serde_json::Value, provider_api: Api) -> Vec<CatalogModel> {
     let Some(models) = provider.get("models").and_then(|v| v.as_object()) else {
         return Vec::new();
     };
@@ -250,6 +264,20 @@ fn models_of(provider: &serde_json::Value) -> Vec<CatalogModel> {
         }
         let Some(id) = model.get("id").and_then(|v| v.as_str()) else {
             continue;
+        };
+        let api = match model
+            .get("provider")
+            .and_then(|v| v.get("npm"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|npm| !npm.is_empty())
+        {
+            None => None,
+            Some(npm) => match protocol_of(npm) {
+                Some(model_api) if model_api != provider_api => Some(model_api),
+                Some(_) => None,
+                None => continue,
+            },
         };
         let limit = model.get("limit");
         list.push(CatalogModel {
@@ -265,6 +293,7 @@ fn models_of(provider: &serde_json::Value) -> Vec<CatalogModel> {
                 .and_then(|v| v.as_u64()),
             output: limit.and_then(|l| l.get("output")).and_then(|v| v.as_u64()),
             reasoning: model.get("reasoning").and_then(|v| v.as_bool()) == Some(true),
+            api,
         });
     }
     list
@@ -324,7 +353,7 @@ fn build_with(
         };
         // 我们表里的端点必须自己合规，这是硬错误
         validate_endpoint(entry.pid, api, &base_url, entry.base_url_note)?;
-        let models = models_of(provider);
+        let models = models_of(provider, api);
         if models.is_empty() && !is_local_endpoint(&base_url) {
             skipped.push(format!("{} 在上游没有任何支持工具调用的模型", entry.pid));
             continue;
@@ -414,6 +443,70 @@ pub fn build_catalog(
     fetched_at: i64,
 ) -> Result<ModelCatalog, String> {
     build_with(CURATION, MANUAL, upstream, fetched_at, MIN_PROVIDERS)
+}
+
+// ---------------------------------------------------------------------------
+// 协议解析：宿主在发起请求前用这三件套把「绑定的协议」修正成「该模型该用的协议」
+// ---------------------------------------------------------------------------
+
+/// 只读本地缓存（**不联网、不判保鲜期**）：宿主在 run 前解析模型级协议用。
+/// 需要刷新走 [`load_catalog`]；没有缓存返回 `None`（调用方按原协议继续）。
+pub fn cached_catalog(cache_path: Option<&Path>) -> Option<ModelCatalog> {
+    read_cache(cache_path)
+}
+
+/// 端点归一化键：去尾斜杠 + 忽略大小写（上游与用户手填的写法可能不同）。
+/// provider 层的协议记忆（[`crate::learned_protocol`]）用同一个口径。
+pub(crate) fn endpoint_key(url: &str) -> String {
+    strip_slash(url).to_ascii_lowercase()
+}
+
+/// 目录里同一端点的全部条目（同一端点可能有多条：协议不同，如 deepseek 与
+/// deepseek-anthropic）。`declared` 命中协议的那条优先 —— 模型级覆盖是相对
+/// 它自己的 provider 说的。
+fn providers_at<'a>(
+    catalog: &'a ModelCatalog,
+    base_url: &str,
+    declared: Api,
+) -> Vec<&'a CatalogProvider> {
+    let key = endpoint_key(base_url);
+    let mut hits: Vec<_> = catalog
+        .providers
+        .iter()
+        .filter(|p| endpoint_key(&p.base_url) == key)
+        .collect();
+    hits.sort_by_key(|p| p.api != declared);
+    hits
+}
+
+/// 该模型在目录里的模型级协议（`None` = 上游没给覆盖）。
+///
+/// 只看**最贴近的那条端点条目**（同端点多条时按声明协议选）：跨条目拼答案会把
+/// 两家的话混在一起。目录里根本没收录这个模型时同样返回 `None` —— 调用方保持
+/// 绑定里的协议（覆盖用户手填的目录外模型与本地运行时）。
+pub fn model_api_override(
+    catalog: &ModelCatalog,
+    base_url: &str,
+    model_id: &str,
+    declared: Api,
+) -> Option<Api> {
+    let provider = providers_at(catalog, base_url, declared).into_iter().next()?;
+    provider
+        .models
+        .iter()
+        .find(|model| model.id == model_id)
+        .and_then(|model| model.api)
+}
+
+/// 端点在目录里的 provider 级协议（跟随上游 / CURATION 的更新）。
+pub fn catalog_provider_api(
+    catalog: &ModelCatalog,
+    base_url: &str,
+    declared: Api,
+) -> Option<Api> {
+    providers_at(catalog, base_url, declared)
+        .first()
+        .map(|provider| provider.api)
 }
 
 /// 共享 HTTP 客户端：连接池与 TLS 会话复用（原来每次拉取都新建 Client）。
@@ -535,11 +628,31 @@ mod tests {
                         "reasoning": true, "limit": { "context": 1000000, "output": 128000 }
                     }
                 }
+            },
+            "gateway": {
+                "id": "gateway", "name": "Gateway", "npm": "@ai-sdk/openai-compatible",
+                "api": "https://gateway.example.com/v1", "env": ["GATEWAY_API_KEY"],
+                "models": {
+                    "mixed-chat": { "id": "mixed-chat", "name": "Mixed Chat", "tool_call": true },
+                    "mixed-claude": {
+                        "id": "mixed-claude", "name": "Mixed Claude", "tool_call": true,
+                        "provider": { "npm": "@ai-sdk/anthropic" }
+                    },
+                    "mixed-same": {
+                        "id": "mixed-same", "name": "Mixed Same", "tool_call": true,
+                        "provider": { "npm": "@ai-sdk/openai-compatible" }
+                    },
+                    "mixed-google": {
+                        "id": "mixed-google", "name": "Mixed Google", "tool_call": true,
+                        "provider": { "npm": "@ai-sdk/google" }
+                    }
+                }
             }
         })
     }
 
     /// 测试用的收录子集：只覆盖 fixture 里出现过的 provider（生产表另有不变量测试）。
+    /// gateway 收了两条同端点的条目（协议不同），用来钉住「同端点优先按声明协议反查」。
     const TEST_CURATION: &[Curated] = &[
         curated!("deepseek", "国内", base_url = "https://api.deepseek.com/v1"),
         curated!(
@@ -551,6 +664,14 @@ mod tests {
             base_url = "https://api.deepseek.com/anthropic"
         ),
         curated!("anthropic", "国际", base_url = "https://api.anthropic.com"),
+        curated!("gateway", "国际"),
+        curated!(
+            "gateway",
+            "国际",
+            id = "gateway-anthropic",
+            name = "Gateway（Anthropic 兼容）",
+            api = Api::AnthropicMessages
+        ),
     ];
 
     const TEST_MANUAL: &[ManualEntry] = &[ManualEntry {
@@ -612,6 +733,89 @@ mod tests {
         assert_eq!(compat.models, plain.models);
         // 但 (协议, 端点) 不同，不会被不变量判成重复
         assert_ne!(compat.base_url, plain.base_url);
+    }
+
+    #[test]
+    fn 模型级协议覆盖只在与_provider_级不同时入列() {
+        let catalog = fixture_catalog();
+        let gateway = find(&catalog, "gateway");
+        assert_eq!(gateway.api, Api::OpenAICompletions);
+
+        let claude = gateway
+            .models
+            .iter()
+            .find(|m| m.id == "mixed-claude")
+            .unwrap();
+        assert_eq!(
+            claude.api,
+            Some(Api::AnthropicMessages),
+            "上游模型级 npm 与 provider 级不同：记成模型级覆盖"
+        );
+        // 无覆盖的模型不写字段（前端/缓存里的形状保持最小）
+        let chat_json = serde_json::to_string(
+            gateway
+                .models
+                .iter()
+                .find(|m| m.id == "mixed-chat")
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(!chat_json.contains("\"api\""), "{chat_json}");
+
+        let same = gateway.models.iter().find(|m| m.id == "mixed-same").unwrap();
+        assert_eq!(same.api, None, "与 provider 级相同不必重复记录");
+        assert!(
+            !gateway.models.iter().any(|m| m.id == "mixed-google"),
+            "上游说这个模型走 Pipi 不支持的协议：跳过，不猜"
+        );
+    }
+
+    #[test]
+    fn 有效协议按模型级覆盖解析且端点归一化() {
+        let catalog = fixture_catalog();
+        let endpoint = "https://gateway.example.com/v1";
+
+        assert_eq!(
+            model_api_override(&catalog, endpoint, "mixed-claude", Api::OpenAICompletions),
+            Some(Api::AnthropicMessages)
+        );
+        assert_eq!(
+            model_api_override(&catalog, endpoint, "mixed-chat", Api::OpenAICompletions),
+            None
+        );
+        assert_eq!(
+            model_api_override(&catalog, endpoint, "no-such-model", Api::OpenAICompletions),
+            None,
+            "目录外的模型（手填 ID / 本地运行时）保持绑定里的协议"
+        );
+        // 尾斜杠与大小写不影响命中
+        assert_eq!(
+            model_api_override(
+                &catalog,
+                "https://Gateway.Example.com/v1/",
+                "mixed-claude",
+                Api::OpenAICompletions
+            ),
+            Some(Api::AnthropicMessages)
+        );
+        // 同端点两条条目：按声明协议选中的那条先看（mixed-claude 在 anthropic 条目里
+        // 无需覆盖，因为它的 provider 级协议已经是 anthropic）
+        assert_eq!(
+            model_api_override(&catalog, endpoint, "mixed-claude", Api::AnthropicMessages),
+            None
+        );
+        assert_eq!(
+            catalog_provider_api(&catalog, endpoint, Api::OpenAICompletions),
+            Some(Api::OpenAICompletions)
+        );
+        assert_eq!(
+            catalog_provider_api(&catalog, endpoint, Api::AnthropicMessages),
+            Some(Api::AnthropicMessages)
+        );
+        assert_eq!(
+            catalog_provider_api(&catalog, "https://unknown.example.com/v1", Api::OpenAICompletions),
+            None
+        );
     }
 
     #[test]

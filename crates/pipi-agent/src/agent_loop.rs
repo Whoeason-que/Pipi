@@ -20,8 +20,8 @@ use serde_json::{Value, json};
 use pipi_protocol::provider::Provider;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, ToolRegistry, validate_args};
 use pipi_protocol::{
-    AbortSignal, ContentBlock, Context, Message, Model, StopReason, StreamEvent, StreamOptions,
-    ToolResultContent,
+    AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
+    StreamOptions, ToolResultContent,
 };
 
 /// 对外事件。与 pi 的 AgentEvent 同名同层；`Serialize` 后可直接发给前端。
@@ -145,6 +145,10 @@ pub struct AgentLoopConfig {
     pub options: StreamOptions,
     /// 失败重发策略（全局设置 `retry` 段；分类见 [`crate::retry`]）。
     pub retry: pipi_context::retry::RetryPolicy,
+    /// 协议是否由系统管理（设置的「自动」模式）：端点回报「不支持当前协议」时，
+    /// 换另一种协议再试一次（不占重试预算）。用户把提供商协议钉死时为 `false`，
+    /// 错误原样透出、不做任何改写。
+    pub auto_protocol: bool,
     pub tool_execution: ToolExecutionMode,
     pub steering: MessageQueue,
     pub follow_up: MessageQueue,
@@ -280,7 +284,10 @@ fn stop_reason_of(message: &Message) -> Option<StopReason> {
 ///   这条对齐 hermes 的「已吐过 delta 不重试」；
 /// - 例外：只有工具调用块（参数被打断）时允许重放 —— 半截参数绝不交给工具执行；
 /// - 无进展超时最多额外重试 1 次（每次尝试都要花掉整个 timeout 预算）；
-/// - 用户中止永远不重试。
+/// - 用户中止永远不重试；
+/// - **协议协商**（仅 `config.auto_protocol`）：端点回报「模型不支持这个协议」时
+///   换另一种协议再试一次。它不是故障重试（不占重试预算、不发 RetryStart、
+///   最多一次），但同样受「已输出正文不重放」与中止判定约束。
 async fn stream_assistant_response(
     context: &AgentContext,
     config: &AgentLoopConfig,
@@ -322,10 +329,16 @@ async fn stream_assistant_response(
     };
 
     let mut failures: u32 = 0;
+    // 本轮请求用的模型副本：协议协商会换协议（`attempt_model.api`），其余字段与
+    // 声明一致。`config` 不可变，协商态只活在这个函数里。
+    let mut attempt_model = config.model.clone();
+    // 本轮换过协议没有（同一次请求最多换一次；同一进程里之后靠 provider 的
+    // 进程内记忆直接命中，不再试探）
+    let mut switched_protocol = false;
     loop {
         let mut rx = config
             .provider
-            .stream(&config.model, &wire, &config.options, abort.clone())
+            .stream(&attempt_model, &wire, &config.options, abort.clone())
             .await;
 
         // 部分消息累积：Text/Thinking 增量填充；工具调用参数以 Value::String
@@ -333,12 +346,15 @@ async fn stream_assistant_response(
         let mut blocks: Vec<ContentBlock> = Vec::new();
         // 本次尝试是否已经向用户输出过正文 —— 决定失败后能不能重放。
         let mut prose_visible = false;
+        // 半截消息的身份：按本次尝试实际使用的协议/模型填
+        let attempt_api = attempt_model.api.as_str().to_string();
+        let attempt_name = attempt_model.display_name().to_string();
         let partial = |blocks: &[ContentBlock]| -> Message {
             Message::Assistant {
                 content: blocks.to_vec(),
-                api: config.model.api.as_str().to_string(),
+                api: attempt_api.clone(),
                 provider: "pending".into(),
-                model: config.model.display_name().to_string(),
+                model: attempt_name.clone(),
                 usage: Default::default(),
                 stop_reason: StopReason::Pending,
                 error_message: None,
@@ -347,7 +363,7 @@ async fn stream_assistant_response(
             }
         };
 
-        let failure: (String, Option<pipi_error::RetryHint>) = loop {
+        let failure: (String, Option<pipi_error::RetryHint>, bool) = loop {
             match rx.recv().await {
                 None => {
                     if abort.is_aborted() {
@@ -358,6 +374,7 @@ async fn stream_assistant_response(
                     break (
                         STREAM_TRUNCATED.into(),
                         Some(pipi_error::RetryHint::plain()),
+                        false,
                     );
                 }
                 Some(StreamEvent::Start) => {
@@ -420,14 +437,46 @@ async fn stream_assistant_response(
                 Some(StreamEvent::Done { message, .. }) => {
                     return finish(emit, *message);
                 }
-                Some(StreamEvent::Error { message, retry }) => break (message, retry),
+                Some(StreamEvent::Error {
+                    message,
+                    retry,
+                    protocol_mismatch,
+                }) => break (message, retry, protocol_mismatch),
             }
         };
 
-        // —— 失败收尾：先判终态，再判能不能重放 ——
-        let (message, hint) = failure;
+        // —— 失败收尾：协议协商 → 终态 → 能不能重放 ——
+        let (message, hint, protocol_mismatch) = failure;
+
+        // 协议协商（仅 auto）：端点说这个模型不支持当前协议 —— 换另一种协议再试
+        // 一次。不占重试预算、不发 RetryStart（这不是故障重试）；已中止或已输出
+        // 正文时按既有不变量收尾。
+        if protocol_mismatch && config.auto_protocol && !switched_protocol {
+            if abort.is_aborted() {
+                return aborted(emit);
+            }
+            if prose_visible {
+                return failed(emit, format!("{message}（已输出部分内容，未自动重试）"));
+            }
+            switched_protocol = true;
+            attempt_model.api = alternate_api(attempt_model.api);
+            continue;
+        }
+
         let Some(hint) = hint else {
-            return failed(emit, message);
+            return failed(
+                emit,
+                if protocol_mismatch {
+                    if switched_protocol {
+                        format!("{message}（Anthropic / OpenAI 两种协议均已尝试）")
+                    } else {
+                        // 协议被用户钉死：不改写，只提示「自动」模式能逐模型选协议
+                        format!("{message}（该提供商的协议已固定；改为「自动」模式可按模型选择协议）")
+                    }
+                } else {
+                    message
+                },
+            );
         };
         if abort.is_aborted() {
             return aborted(emit);
@@ -459,6 +508,14 @@ async fn stream_assistant_response(
 
 /// 流被截断（没等到结束帧）时的兜底说明。
 const STREAM_TRUNCATED: &str = "流提前结束：未收到结束帧（连接被中断或代理截断）";
+
+/// 协议协商的另一半：Pipi 只支持这两种 wire，换协议就是它们互切。
+fn alternate_api(api: Api) -> Api {
+    match api {
+        Api::AnthropicMessages => Api::OpenAICompletions,
+        Api::OpenAICompletions => Api::AnthropicMessages,
+    }
+}
 
 /// 退避等待，期间响应中止。返回 `true` = 被中止。
 async fn sleep_or_abort(delay: std::time::Duration, abort: &AbortSignal) -> bool {
@@ -962,6 +1019,16 @@ mod tests {
         vec![StreamEvent::Error {
             message: message.into(),
             retry: retryable.then(pipi_error::RetryHint::plain),
+            protocol_mismatch: false,
+        }]
+    }
+
+    /// 端点回报「不支持当前协议」的一轮（协议协商的触发条件）。
+    fn protocol_mismatch_turn(message: &str) -> Vec<StreamEvent> {
+        vec![StreamEvent::Error {
+            message: message.into(),
+            retry: None,
+            protocol_mismatch: true,
         }]
     }
 
@@ -975,6 +1042,22 @@ mod tests {
             StreamEvent::Error {
                 message: message.into(),
                 retry: Some(pipi_error::RetryHint::plain()),
+                protocol_mismatch: false,
+            },
+        ]
+    }
+
+    /// 已吐出正文增量、随后被端点以「协议不支持」拒绝的一轮。
+    fn prose_then_protocol_mismatch_turn(text: &str, message: &str) -> Vec<StreamEvent> {
+        vec![
+            StreamEvent::TextDelta {
+                content_index: 0,
+                delta: text.into(),
+            },
+            StreamEvent::Error {
+                message: message.into(),
+                retry: None,
+                protocol_mismatch: true,
             },
         ]
     }
@@ -994,8 +1077,46 @@ mod tests {
             StreamEvent::Error {
                 message: message.into(),
                 retry: Some(pipi_error::RetryHint::plain()),
+                protocol_mismatch: false,
             },
         ]
+    }
+
+    /// 包装 [`ScriptedProvider`] 并记录每次请求实际用的协议 ——
+    /// 协议协商用例靠它断言「第二次换了协议」。
+    struct ApiRecordingProvider {
+        inner: Arc<ScriptedProvider>,
+        seen: Mutex<Vec<Api>>,
+    }
+
+    impl ApiRecordingProvider {
+        fn new(turns: Vec<Vec<StreamEvent>>) -> Self {
+            Self {
+                inner: Arc::new(ScriptedProvider {
+                    turns,
+                    call: AtomicUsize::new(0),
+                }),
+                seen: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn seen(&self) -> Vec<Api> {
+            self.seen.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for ApiRecordingProvider {
+        async fn stream(
+            &self,
+            model: &Model,
+            context: &Context,
+            options: &StreamOptions,
+            abort: AbortSignal,
+        ) -> pipi_protocol::provider::EventStream {
+            self.seen.lock().unwrap().push(model.api);
+            self.inner.stream(model, context, options, abort).await
+        }
     }
 
     /// 快速重试策略：次数按用例给，退避压到 1ms 让测试不等待。
@@ -1054,6 +1175,8 @@ mod tests {
             // 既有用例都是单次尝试的脚本化 provider：默认关掉重试，
             // 需要重试的用例自己指定策略
             retry: pipi_context::retry::RetryPolicy::NONE,
+            // 协议协商默认关（等价于用户把提供商协议钉死）：需要协商的用例自己开
+            auto_protocol: false,
             tool_execution: ToolExecutionMode::Sequential,
             steering: MessageQueue::new(),
             follow_up: MessageQueue::new(),
@@ -1278,6 +1401,143 @@ mod tests {
             other => panic!("期望错误消息，得到 {other:?}"),
         }
         assert!(retry_events(&sink.lock().unwrap()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn protocol_mismatch_switches_protocol_without_spending_retry_budget() {
+        // 第一次请求（OpenAI 协议）被端点拒绝，第二次用 Anthropic 协议成功：
+        // 换协议不是故障重试 —— 不占重试预算（这里 retry = NONE）、不发 RetryStart。
+        let provider = Arc::new(ApiRecordingProvider::new(vec![
+            protocol_mismatch_turn("流错误: Model does not support this protocol."),
+            stop_turn("换协议后的回复"),
+        ]));
+        let (sink, emit) = event_sink();
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        config.auto_protocol = true;
+
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        assert_eq!(
+            provider.seen(),
+            vec![Api::OpenAICompletions, Api::AnthropicMessages],
+            "第二次请求必须换成另一种协议"
+        );
+        match messages.last().expect("至少一条消息") {
+            Message::Assistant { stop_reason, .. } => assert_eq!(*stop_reason, StopReason::Stop),
+            other => panic!("期望成功的助手消息，得到 {other:?}"),
+        }
+        assert!(
+            retry_events(&sink.lock().unwrap()).is_empty(),
+            "协议协商不占重试预算：不该出现 RetryStart"
+        );
+    }
+
+    #[tokio::test]
+    async fn protocol_mismatch_with_pinned_protocol_stays_terminal() {
+        // 用户把提供商协议钉死（auto_protocol=false）：不换协议，错误原样收尾，
+        // 只是多一句「改为自动可按模型选协议」的提示。
+        let provider = Arc::new(ApiRecordingProvider::new(vec![protocol_mismatch_turn(
+            "流错误: Model does not support this protocol.",
+        )]));
+        let (sink, emit) = event_sink();
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        config.auto_protocol = false;
+
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        assert_eq!(provider.seen(), vec![Api::OpenAICompletions], "钉死时不换协议");
+        assert!(retry_events(&sink.lock().unwrap()).is_empty());
+        match messages.last().expect("至少一条消息") {
+            Message::Assistant { error_message, .. } => {
+                let message = error_message.clone().unwrap_or_default();
+                assert!(message.contains("协议已固定"), "{message}");
+            }
+            other => panic!("期望错误消息，得到 {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn protocol_mismatch_after_prose_is_not_replayed() {
+        // 已经吐过正文：沿用「已输出正文不重放」，不换协议也不再试
+        let provider = Arc::new(ApiRecordingProvider::new(vec![
+            prose_then_protocol_mismatch_turn("半截正文", "Model does not support this protocol."),
+            stop_turn("重放会产生重复文本"),
+        ]));
+        let (sink, emit) = event_sink();
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        config.auto_protocol = true;
+
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        assert_eq!(
+            provider.seen(),
+            vec![Api::OpenAICompletions],
+            "已输出正文：协议也不该再试"
+        );
+        assert!(retry_events(&sink.lock().unwrap()).is_empty());
+        match messages.last().expect("至少一条消息") {
+            Message::Assistant { error_message, .. } => {
+                let message = error_message.clone().unwrap_or_default();
+                assert!(message.contains("已输出部分内容，未自动重试"), "{message}");
+            }
+            other => panic!("期望错误消息，得到 {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn protocol_mismatch_after_both_protocols_is_terminal() {
+        // 两种协议都被拒：明确告诉用户两种都试过了，不再无限换
+        let provider = Arc::new(ApiRecordingProvider::new(vec![
+            protocol_mismatch_turn("流错误: Model does not support this protocol."),
+            protocol_mismatch_turn("流错误: Model does not support this protocol."),
+        ]));
+        let (sink, emit) = event_sink();
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        config.auto_protocol = true;
+
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            config,
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+
+        assert_eq!(
+            provider.seen(),
+            vec![Api::OpenAICompletions, Api::AnthropicMessages],
+            "只换一次协议"
+        );
+        assert!(retry_events(&sink.lock().unwrap()).is_empty());
+        match messages.last().expect("至少一条消息") {
+            Message::Assistant { error_message, .. } => {
+                let message = error_message.clone().unwrap_or_default();
+                assert!(message.contains("两种协议均已尝试"), "{message}");
+            }
+            other => panic!("期望错误消息，得到 {other:?}"),
+        }
     }
 
     #[tokio::test]

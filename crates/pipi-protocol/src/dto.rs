@@ -364,6 +364,9 @@ pub enum StreamEvent {
     Error {
         message: String,
         retry: Option<RetryHint>,
+        /// 端点明确说「这个模型不支持当前协议」（可换另一种协议再试一次）。
+        /// 载体不重发；是否换协议由 agent loop 决定（仅 auto 协议模式）。
+        protocol_mismatch: bool,
     },
 }
 

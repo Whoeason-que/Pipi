@@ -93,7 +93,7 @@ async fn drain_stream(addr: std::net::SocketAddr, timeout_secs: u64) -> (bool, O
         timeout_secs,
         session_id: None,
     };
-    let mut rx = provider_for(Api::OpenAICompletions)
+    let mut rx = provider_for()
         .stream(&model, &context, &options, AbortSignal::new())
         .await;
 

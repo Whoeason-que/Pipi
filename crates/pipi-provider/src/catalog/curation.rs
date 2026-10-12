@@ -221,8 +221,9 @@ pub(super) const MANUAL: &[ManualEntry] = &[
     },
 ];
 
-/// 上游 SDK（`npm` 字段）→ Pipi 支持的两种协议。表里没有的一律报错：
-/// 宁可漏收录，也不猜协议。
+/// 上游 SDK（`npm` 字段）→ Pipi 支持的两种协议。provider 级与**模型级**
+/// （`model.provider.npm`）共用这张表：表里没有的一律报错，模型级映射不到时
+/// 跳过那个模型 —— 宁可漏收录，也不猜协议。
 pub(super) fn protocol_of(npm: &str) -> Option<Api> {
     match npm {
         "@ai-sdk/anthropic" => Some(Api::AnthropicMessages),

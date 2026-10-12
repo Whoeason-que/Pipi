@@ -61,6 +61,35 @@ fn classify_response(response: &rig::ProviderResponseError) -> (RetryVerdict, Op
     )
 }
 
+/// 端点是否明确说「这个模型不支持当前协议」（例：opencode 网关的
+/// `{"type":"error","error":{"type":"ModelProtocolUnsupported",...}}`）。
+///
+/// 只认 400：这是网关对「协议用错了」的表达方式，不会与 429 的配额文案、
+/// 5xx 的临时故障混为一谈。认出后事件带上标记，换协议重发由 agent loop 决定
+/// （本层不重发，见 [`classify_rig_error`] 的分类也照旧：它是终态）。
+pub fn protocol_mismatch(err: &ProviderError) -> bool {
+    let (status, body) = match err {
+        ProviderError::ProviderResponse(response)
+        | ProviderError::InvalidAuthentication(response) => {
+            (response.status.map(|status| status.as_u16()), Some(response.body.as_str()))
+        }
+        ProviderError::Http(http_error) => match &**http_error {
+            http_client::Error::InvalidStatusCodeWithDetails { status, body, .. } => {
+                (Some(status.as_u16()), Some(body.as_str()))
+            }
+            _ => (None, None),
+        },
+        _ => (None, None),
+    };
+    status == Some(400) && body.is_some_and(protocol_unsupported_body)
+}
+
+/// 结构化类型串优先（rig 的 body JSON 里 `error.type`），缺了再用文案兜底。
+fn protocol_unsupported_body(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower.contains("modelprotocolunsupported") || lower.contains("does not support this protocol")
+}
+
 /// 按 HTTP 状态码分类（`None` = 捕获不到状态码的传输失败）。
 ///
 /// 408 / 409 / 429 / 5xx 可重试，其他状态 fail closed；429 的永久配额耗尽
@@ -200,5 +229,39 @@ mod tests {
             classify_rig_error(&ProviderError::Relayed(Box::new(report))).0,
             RetryVerdict::Retryable
         );
+    }
+
+    #[test]
+    fn protocol_mismatch_is_recognized_only_on_400() {
+        let body = r#"{"type":"error","error":{"type":"ModelProtocolUnsupported","message":"Model does not support this protocol."}}"#;
+        let hit = ProviderError::ProviderResponse(rig::ProviderResponseError::new(
+            http::StatusCode::BAD_REQUEST,
+            body,
+        ));
+        assert!(protocol_mismatch(&hit));
+        // 分类不受影响：仍是终态，不构成重试理由（换协议由 agent loop 决定）
+        assert_eq!(classify_rig_error(&hit).0, RetryVerdict::Terminal);
+
+        // 文案兜底（不是每个网关都给结构化错误类型）
+        let prose = ProviderError::ProviderResponse(rig::ProviderResponseError::new(
+            http::StatusCode::BAD_REQUEST,
+            "Model does not support this protocol.",
+        ));
+        assert!(protocol_mismatch(&prose));
+
+        // 其他状态码 / 其他 400 文案一律不算
+        for status in [
+            http::StatusCode::UNAUTHORIZED,
+            http::StatusCode::TOO_MANY_REQUESTS,
+            http::StatusCode::NOT_FOUND,
+        ] {
+            let error = ProviderError::ProviderResponse(rig::ProviderResponseError::new(status, body));
+            assert!(!protocol_mismatch(&error), "status {status}");
+        }
+        let other_400 = ProviderError::ProviderResponse(rig::ProviderResponseError::new(
+            http::StatusCode::BAD_REQUEST,
+            r#"{"error":{"message":"invalid tool schema"}}"#,
+        ));
+        assert!(!protocol_mismatch(&other_400));
     }
 }

@@ -97,7 +97,7 @@ async fn run_once(addr: std::net::SocketAddr) -> (Usage, Message) {
         timeout_secs: 5,
         session_id: None,
     };
-    let mut rx = provider_for(Api::OpenAICompletions)
+    let mut rx = provider_for()
         .stream(&model, &context, &options, AbortSignal::new())
         .await;
 

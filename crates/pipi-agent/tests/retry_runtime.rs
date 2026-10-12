@@ -131,7 +131,7 @@ fn sink_and_emit() -> (Arc<Mutex<Vec<AgentEvent>>>, pipi_agent::agent_loop::Emit
 fn test_config(addr: std::net::SocketAddr, retry: RetryPolicy) -> AgentLoopConfig {
     AgentLoopConfig {
         model: test_model(addr),
-        provider: provider_for(Api::OpenAICompletions),
+        provider: provider_for(),
         tools: Arc::new(ToolRegistry::new(vec![])),
         tool_context: ToolContext {
             workspace: std::env::temp_dir(),
@@ -151,6 +151,8 @@ fn test_config(addr: std::net::SocketAddr, retry: RetryPolicy) -> AgentLoopConfi
             session_id: None,
         },
         retry,
+        // 这个套件测的是故障重发：协议协商不参与（等价的钉死模式）
+        auto_protocol: false,
         tool_execution: pipi_agent::agent_loop::ToolExecutionMode::Sequential,
         steering: pipi_agent::agent_loop::MessageQueue::new(),
         follow_up: pipi_agent::agent_loop::MessageQueue::new(),
