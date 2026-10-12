@@ -21,37 +21,37 @@ may-depend-on = []
 [crates.pipi-test-support]
 may-depend-on = []
 
-# 契约层：持久化与 transport DTO、会话条目格式、工具/权限/provider 端口。
-# 不碰工具、领域与网络实现。
+# 契约层：DTO 与 wire 形状、会话条目格式与存储端口、工具/权限/provider 端口，
+# 以及跨层共用的零依赖助手（fs 守卫、文本转义、id）。不放任何实现 crate。
 [crates.pipi-protocol]
 may-depend-on = ["pipi-error"]
 dev-may-depend-on = ["pipi-test-support"]
 # tokio 只允许 sync（Provider 端口的事件流通道）；rt / net / time 不得出现。
 forbid = ["av", "pipi-tools", "pipi-core", "pipi-agent", "reqwest", "rig"]
 
-# 上下文与运行策略：预算 / 压缩流水线 / 重试退避。只依赖契约层，不碰载体、
-# 不直连网络、不落盘。
+# 上下文与运行策略：token 预算 / 裁剪与配对修复 / 压缩流水线 / 重试退避。
+# 只依赖契约层：不碰载体、不直连网络、不落盘。
 [crates.pipi-context]
 may-depend-on = ["pipi-error", "pipi-protocol"]
 dev-may-depend-on = ["pipi-session", "pipi-test-support"]
 
-# 会话载体：JSONL 文件（未来的 git 分支同属这里）。只实现协议层的存储端口；
-# 唯一允许 spawn git 的 crate（见 docs/git-session-store.md）。
+# 会话载体：JSONL 文件（未来的 git 分支同属这里）。只实现契约层的存储端口，
+# 也是唯一允许 spawn git 的 crate（见 docs/git-session-store.md）。
 [crates.pipi-session]
 may-depend-on = ["pipi-protocol"]
 dev-may-depend-on = ["pipi-test-support"]
 
-# 内置工具与权限：只依赖协议（测试用 pipi-test-support 的临时 ID / 环境助手）。
+# 内置工具实现与 bash 权限策略（端口与权限数据在契约层）。
 [crates.pipi-tools]
 may-depend-on = ["pipi-protocol"]
 dev-may-depend-on = ["pipi-test-support"]
 
-# provider 适配：只做协议映射与错误分类，不做重发。
+# 模型面：rig 的 HTTP/SSE 适配与错误分类（不做重发）+ models.dev 模型目录。
 [crates.pipi-provider]
 may-depend-on = ["pipi-error", "pipi-protocol"]
 
-# 引擎：主循环 / 上下文 / 重试 / 统计 / 会话存储 / 压缩。
-# 不依赖 av（不碰 agent.toml 契约）、不直连网络：provider 只以契约层的端口出现。
+# 引擎：主循环与用量统计。上下文 / 压缩 / 重试在 pipi-context，载体在
+# pipi-session；不碰 agent.toml 契约、不直连网络（provider 只以契约层端口出现）。
 [crates.pipi-agent]
 may-depend-on = ["pipi-context", "pipi-error", "pipi-protocol"]
 dev-may-depend-on = ["pipi-provider", "pipi-session", "pipi-test-support"]

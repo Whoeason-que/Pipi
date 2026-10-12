@@ -166,11 +166,11 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 ```
 
 - **提交点（「轮末」）的判定**——权威定义在 `run_turn`
-  （`crates/pipi-app/src/runtime/execution.rs`，`run_agent_loop` 外层的
+  （`crates/pipi-core/src/runtime/execution.rs`，`run_agent_loop` 外层的
   steering 收割循环）：外层循环反复 `run_agent_loop`，每轮之后
   `steering.drain()`，**插话队列排空或 abort 置位即返回**。所以「轮末」= 一次 `run_turn`
   返回，不是「模型停止输出」，也不是「assistant 消息结束」。
-- 落点：`pipi-app/src/runtime/execution/mod.rs:435-473` 的 spawn 块里，
+- 落点：`pipi-core/src/runtime/execution.rs` 的 spawn 块里，
   `run_turn(...).await` 之后、`run_compaction` 之前（压缩可能 fork 新分支，压缩条目应当
   成为新分支的首个 commit），且**必须在 `running.finish(run_token)` 之前完成**——否则
   「running 已释放」不等于「历史已落盘」，前端收到 AgentEnd 后立刻发的新一轮会与提交竞争
@@ -238,22 +238,25 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 ## 7. 代码落点与依赖边界
 
 > 2026-10-12 更新：拆分布局（三个 workspace）已回退，本设计改在**单 workspace**
-> 布局下实施（内核 `crates/pipi-agent`、宿主 `crates/pipi-app`、`crates/pipi-core`）。
+> 布局下实施；同日完成的结构重构（15 → 12 个成员）已把契约层定在
+> `crates/pipi-protocol`、载体定在 `crates/pipi-session`、宿主并成 `crates/pipi-core`。
 > 第一步已落地，见 §10。
 
-- 内核侧（`crates/pipi-agent`，保持宿主无关，不 spawn 进程）：
+- 契约层（`crates/pipi-protocol::session`）：
   - `SessionLog`（身份 + `append_*` + `tip`/`seq`/`message_ids` 记账 + `commit_point`）与
     `SessionRepo`（create/open/exists/entries/list/list_archived/fork/archive/restore/delete/
-    delete_archived）两个接口，定义在 `crates/pipi-agent/src/session/mod.rs`。
-  - `SessionEntry` / `EntryKind` / `replay` / `active_path` / 行级容错留在原地且行为不变；
-    JSONL 实现 = `SessionWriter`（`session/ledger.rs`，`impl SessionLog`）+
-    `JsonlSessionRepo`（`session/repo.rs`，`impl SessionRepo`）。
+    delete_archived）两个接口，与条目格式一起定义在 `crates/pipi-protocol/src/session.rs`。
+  - `SessionEntry` / `EntryKind` / `replay` / `active_path` 与行级容错随格式一起进契约层，
+    行为不变；JSONL 实现 = `SessionWriter`（`crates/pipi-session/src/ledger.rs`，
+    `impl SessionLog`）+ `JsonlSessionRepo`（`crates/pipi-session/src/repo.rs`，
+    `impl SessionRepo`）。
   - 判据：既有测试**全绿不改断言**（唯一例外见 §10 记录）。
 - 宿主侧：
-  - 新 crate `crates/pipi-session-git`（同 workspace），只依赖内核 crate，内部按职责分文件
-    （sink / reader / refs / gc / probe），遵守约 500 行拆分约定；不依赖 `pipi-app`。
+  - 载体侧 `crates/pipi-session`（已存在，今天装 JSONL）：git 实现按职责分文件
+    （sink / reader / refs / gc / probe），遵守约 500 行拆分约定；只依赖契约层，
+    不依赖宿主 `pipi-core`。
   - git 可用性探测仿 `av::requires::probe_version`（`git --version`）。
-  - 装配点：`pipi-app/src/runtime/store.rs`（唯一选载体的地方，已落地）按 per-agent 配置
+  - 装配点：`pipi-core/src/runtime/store.rs`（唯一选载体的地方，已落地）按 per-agent 配置
     选后端；`agent.json` 新增 `sessionStore: "jsonl" | "git"`，**默认 `jsonl`**。
   - `pipi-core/src/tools/agent.rs` 的 `read_agent_output` 已改为走 `SessionRepo`
     （该处注释标了载体装配点）。
@@ -301,19 +304,19 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 | 阶段 | 内容 | 完成判据 | 状态 |
 | --- | --- | --- | --- |
 | P1 | 内核抽取 `SessionLog`/`SessionRepo`，JSONL 后端为现有实现 | 全部既有测试不改断言通过 | **已完成（2026-10-12）** |
-| P2 | `crates/pipi-session-git`：sink/reader/refs/gc/probe + 内联单测 + tests/ 黑盒 | §9 的 1–5、7、8 通过 | 待做 |
+| P2 | `crates/pipi-session` 的 git 载体：sink/reader/refs/gc/probe + 内联单测 + tests/ 黑盒 | §9 的 1–5、7、8 通过 | 待做 |
 | P3 | 装配与配置（`agent.json` 的 `sessionStore`）+ 显式导入命令（逐条校验、原文件保留） | 导入后校验一致且幂等 | 待做 |
 | P4 | 前端：仓库路径提示、导出/bundle 入口（可选） | 手动验证 | 待做 |
 | P5 | 规则与文档：`AGENTS.md` 会话格式条款加「容器可为 git 分支、行格式不变」，更新本文件状态 | `cargo xtask arch` 通过 | 待做 |
 
 ### P1 落地记录（2026-10-12）
 
-- `crates/pipi-agent/src/session.rs`（1139 行）拆成 `session/{mod,history,ledger,repo}.rs`
+- `crates/pipi-agent/src/session.rs`（1139 行）先拆成 `session/{mod,history,ledger,repo}.rs`，
   （按「模块超 ~500 行生产代码拆目录」规则；内联测试跟着被测代码走）。
 - 接口定义在 `session/mod.rs`；`SessionWriter` 实现 `SessionLog`，`JsonlSessionRepo`
   实现 `SessionRepo`；`fork_session` / `archive_session_file` / `list_session_summaries`
   仍是 JSONL 实现的公开函数（黑盒测试在用），但运行时不直接调用它们。
-- 运行时（`crates/pipi-app/src/runtime`）只依赖两个接口：`Session.writer` 类型改为
+- 运行时（`crates/pipi-core/src/runtime`）只依赖两个接口：`Session.writer` 类型改为
   `Arc<Mutex<Box<dyn SessionLog>>>`（`Box` 是为了压缩分叉能就地换账本），
   归档/恢复/删除/分叉/列表全部走 `SessionRepo`；载体选择集中在
   `runtime/store.rs::session_repo`。
