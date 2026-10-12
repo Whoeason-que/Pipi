@@ -133,16 +133,16 @@ impl BackgroundTaskManager {
         agents::validate_agent_name(agent_name)?;
         let agent_dir = agents::agent_dir(agent_name)
             .ok_or_else(|| "无法定位用户主目录，不能创建后台任务目录".to_string())?;
-        if !pipi_tools::fs::ensure_real_directory(&agent_dir, "Agent 目录")? {
+        if !pipi_protocol::fs::ensure_real_directory(&agent_dir, "Agent 目录")? {
             return Err(format!("Agent「{agent_name}」不存在"));
         }
         let jobs_dir = agent_dir.join("jobs");
-        match pipi_tools::fs::ensure_real_directory(&jobs_dir, "后台任务目录")? {
+        match pipi_protocol::fs::ensure_real_directory(&jobs_dir, "后台任务目录")? {
             true => {}
             false => {
                 std::fs::create_dir_all(&jobs_dir)
                     .map_err(|error| format!("无法创建后台任务目录: {error}"))?;
-                pipi_tools::fs::ensure_real_directory(&jobs_dir, "后台任务目录")?;
+                pipi_protocol::fs::ensure_real_directory(&jobs_dir, "后台任务目录")?;
             }
         }
         Ok(jobs_dir)

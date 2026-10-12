@@ -17,7 +17,7 @@ use tokio::sync::oneshot;
 use crate::events::{ApprovalRequestEnvelope, EventEmitter, RuntimeEvent};
 use pipi_core::agents;
 use pipi_protocol::AbortSignal;
-use pipi_tools::permissions::CommandApprover;
+use pipi_protocol::permissions::CommandApprover;
 
 /// 用户对一次审批请求的决定。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -200,7 +200,7 @@ impl InteractiveApprover {
             // Agent 定义读取失败时仍按本次批准放行，只是无从持久化
             return Ok(());
         };
-        if def.permissions.bash.mode != pipi_tools::permissions::BashMode::Allowlist {
+        if def.permissions.bash.mode != pipi_protocol::permissions::BashMode::Allowlist {
             return Ok(());
         }
         let missing = pipi_tools::permissions::split_segments(command)

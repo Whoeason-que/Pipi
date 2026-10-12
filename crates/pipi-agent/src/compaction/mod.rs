@@ -22,6 +22,7 @@ pub use llm::LlmSummarize;
 pub use tool_output::{CLEARED_TOOL_RESULT_PREFIX, ToolOutputPrune};
 
 use crate::context::{DEFAULT_RESERVE_TOKENS, estimate_context_tokens, prune_cut_index};
+use pipi_protocol::compaction::normalize_threshold_percent;
 use pipi_protocol::{AbortSignal, Message, Model, StreamOptions, Usage};
 use pipi_provider::Provider;
 
@@ -39,15 +40,6 @@ pub const TOOL_OUTPUT_KEEP: usize = 6;
 
 /// 小于这个字符数的工具输出不值得清理 —— 占位符本身也要花 token。
 pub const TOOL_OUTPUT_MIN_CHARS: usize = 400;
-
-/// 阈值百分比归一化：0 / >100 视为「没设过」，用默认值。
-pub fn normalize_threshold_percent(percent: u8) -> u8 {
-    if (1..=100).contains(&percent) {
-        percent
-    } else {
-        DEFAULT_THRESHOLD_PERCENT
-    }
-}
 
 /// 压缩预算。默认值集中在这里，从模型的上下文窗口推导；调参只改这一处。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -70,9 +62,6 @@ pub struct Budget {
     /// 小于这个字符数的工具输出不值得清理。
     pub tool_output_min_chars: usize,
 }
-
-/// 默认自动压缩阈值（上下文占用达到窗口的这个百分比时压缩）。
-pub const DEFAULT_THRESHOLD_PERCENT: u8 = 75;
 
 impl Budget {
     /// `threshold_percent` 越界（0 或 >100）时退回默认值 —— 手改过的
@@ -487,6 +476,7 @@ mod tests {
     use super::*;
     use crate::context::estimate_tokens;
     use crate::test_support::{assistant_text, tool_result};
+    use pipi_protocol::compaction::DEFAULT_THRESHOLD_PERCENT;
     use pipi_protocol::{ContentBlock, StopReason};
 
     fn tool_call(name: &str, path: &str) -> Message {

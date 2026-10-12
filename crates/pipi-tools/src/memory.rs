@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{AgentTool, ToolContext, ToolOutput};
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 
 pub struct MemoryTool {
     pub memory_dir: PathBuf,
@@ -79,10 +79,12 @@ impl AgentTool for MemoryTool {
                 let content = args["content"].as_str().ok_or("缺少 content")?;
                 let abs = resolve_in_memory_dir(&self.memory_dir, path)?;
                 let contents = content.to_string();
-                tokio::task::spawn_blocking(move || crate::fs::write_atomic(&abs, contents))
-                    .await
-                    .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?
-                    .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?;
+                tokio::task::spawn_blocking(move || {
+                    pipi_protocol::fs::write_atomic(&abs, contents)
+                })
+                .await
+                .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?
+                .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?;
                 Ok(ToolOutput::text(format!("Saved memory to {path}")))
             }
             other => Err(format!("未知 action: {other}")),

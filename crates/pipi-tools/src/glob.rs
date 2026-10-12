@@ -11,9 +11,9 @@ use glob::Pattern;
 use serde_json::{Value, json};
 use walkdir::WalkDir;
 
-use super::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_head};
 use pipi_protocol::ToolResultContent;
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 
 /// 单次列出的路径上限（截断前的硬上限，对齐 opencode 的 limit=100：
 /// 结果太多会刷爆上下文，模型应改用更精确的 pattern）。
@@ -160,8 +160,8 @@ impl AgentTool for GlobTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permissions::PermissionsConfig;
     use pipi_protocol::AbortSignal;
+    use pipi_protocol::permissions::PermissionsConfig;
     use std::sync::Arc;
 
     async fn glob_fixture() -> (PathBuf, ToolContext, PathBuf) {
@@ -193,7 +193,7 @@ mod tests {
             memory_dir: None,
             read_roots: vec![],
             permissions: Arc::new(PermissionsConfig::default()),
-            sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
             approver: None,

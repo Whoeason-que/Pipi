@@ -17,12 +17,12 @@ use futures_util::future::join_all;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, ToolRegistry, validate_args};
 use pipi_protocol::{
     AbortSignal, ContentBlock, Context, Message, Model, StopReason, StreamEvent, StreamOptions,
     ToolResultContent,
 };
 use pipi_provider::Provider;
-use pipi_tools::{AgentTool, ToolContext, ToolOutput, ToolRegistry, validate_args};
 
 /// 对外事件。与 pi 的 AgentEvent 同名同层；`Serialize` 后可直接发给前端。
 #[derive(Debug, Clone, Serialize)]
@@ -1041,7 +1041,7 @@ mod tests {
                 memory_dir: None,
                 read_roots: Vec::new(),
                 permissions: Arc::new(Default::default()),
-                sandbox: pipi_tools::permissions::SandboxMode::DangerFullAccess,
+                sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
                 resolved_env: Arc::new(std::collections::BTreeMap::new()),
                 abort: AbortSignal::new(),
                 approver: None,

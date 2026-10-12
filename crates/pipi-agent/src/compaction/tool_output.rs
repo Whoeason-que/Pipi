@@ -136,8 +136,9 @@ fn cleared_message(
 #[cfg(test)]
 mod tests {
     use crate::compaction::tool_output::{CLEARED_TOOL_RESULT_PREFIX, ToolOutputPrune};
-    use crate::compaction::{Budget, DEFAULT_THRESHOLD_PERCENT, Preparation, Projection};
+    use crate::compaction::{Budget, Preparation, Projection};
     use crate::test_support::tool_result;
+    use pipi_protocol::compaction::DEFAULT_THRESHOLD_PERCENT;
     use pipi_protocol::{ContentBlock, Message, ToolResultContent};
 
     fn big_history(turns: usize) -> Vec<Message> {

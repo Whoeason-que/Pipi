@@ -6,10 +6,11 @@
 use std::fs;
 use std::path::Path;
 
-use pipi_tools::permissions::{
+use pipi_protocol::permissions::{
     AGENT_TOOLS, BACKGROUND_TASK_TOOLS, BashAssessment, BashMode, BashPermissions, DEFAULT_TOOLS,
     KNOWN_TOOLS, PermissionsConfig, SandboxMode,
 };
+use pipi_tools::permissions::BashPolicy;
 
 /// 与 `config::default_tools` 等价：默认工具名列表（crate 内是 pub(super)）。
 fn default_tools() -> Vec<String> {

@@ -7,9 +7,10 @@
 //! 2. 若本机存在真实会话文件（`~/.pipi/agents/*/sessions/*.jsonl`），把它也喂进
 //!    同一套断言 —— 真实数据的形状永远比合成的更奇怪。没有就跳过（CI 上不失败）。
 
-use pipi_agent::compaction::{Budget, DEFAULT_THRESHOLD_PERCENT, project};
+use pipi_agent::compaction::{Budget, project};
 use pipi_agent::context::estimate_context_tokens;
 use pipi_agent::session::load_session;
+use pipi_protocol::compaction::DEFAULT_THRESHOLD_PERCENT;
 use pipi_protocol::session::{active_path, replay};
 use pipi_protocol::{ContentBlock, Message, StopReason, ToolResultContent};
 

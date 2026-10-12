@@ -13,10 +13,10 @@ use std::sync::{Arc, Mutex};
 
 use pipi_agent::agent_loop::{AgentContext, AgentEvent, AgentLoopConfig, run_agent_loop};
 use pipi_agent::retry::RetryPolicy;
+use pipi_protocol::permissions::SandboxMode;
+use pipi_protocol::tools::{ToolContext, ToolRegistry};
 use pipi_protocol::{AbortSignal, Api, Message, Model, StopReason, StreamOptions};
 use pipi_provider::provider_for;
-use pipi_tools::permissions::SandboxMode;
-use pipi_tools::{ToolContext, ToolRegistry};
 use serde_json::json;
 
 /// OpenAI 流式文本回合的 SSE 响应体。

@@ -11,8 +11,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_protocol::{BackgroundTaskInfo, BackgroundTaskSnapshot, ToolResultContent};
-use pipi_tools::{AgentTool, ToolContext, ToolOutput};
+
+use pipi_tools::permissions::BashPolicy;
 
 const MAX_COMMAND_BYTES: usize = 16 * 1024;
 const MAX_WAIT_MS: u64 = 60_000;
@@ -171,9 +173,9 @@ impl AgentTool for SubmitBackgroundTaskTool {
         validate_managed_command(command)?;
 
         match ctx.permissions.assess_bash_classified(command, &ctx.workspace) {
-            pipi_tools::permissions::BashAssessment::Allowed => {}
-            pipi_tools::permissions::BashAssessment::HardDenied(message) => return Err(message),
-            pipi_tools::permissions::BashAssessment::NeedsApproval { .. } => match &ctx.approver {
+            pipi_protocol::permissions::BashAssessment::Allowed => {}
+            pipi_protocol::permissions::BashAssessment::HardDenied(message) => return Err(message),
+            pipi_protocol::permissions::BashAssessment::NeedsApproval { .. } => match &ctx.approver {
                 Some(approver) => approver.approve(command).await?,
                 None => {
                     return Err(
@@ -384,7 +386,7 @@ fn parse_usize(args: &Value, name: &str) -> Result<Option<usize>, String> {
 
 fn resolve_workspace_cwd(ctx: &ToolContext, requested: Option<&str>) -> Result<PathBuf, String> {
     let path = requested
-        .map(|value| pipi_tools::resolve_path(&ctx.workspace, value))
+        .map(|value| pipi_protocol::tools::resolve_path(&ctx.workspace, value))
         .transpose()?
         .unwrap_or_else(|| ctx.workspace.clone());
     let canonical =

@@ -437,12 +437,12 @@ mod tests {
         let workspace = home.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
         pipi_test_support::set_env_var("HOME", &home);
-        let permissions = pipi_tools::permissions::PermissionsConfig {
-            tools: pipi_tools::permissions::BACKGROUND_TASK_TOOLS
+        let permissions = pipi_protocol::permissions::PermissionsConfig {
+            tools: pipi_protocol::permissions::BACKGROUND_TASK_TOOLS
                 .iter()
                 .map(|name| (*name).to_string())
                 .collect(),
-            sandbox: pipi_tools::permissions::SandboxMode::DangerFullAccess,
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             ..Default::default()
         };
         pipi_core::agents::create_agent(
@@ -624,9 +624,9 @@ mod tests {
             "agent-child",
             "background child",
             Some(workspace.to_str().unwrap()),
-            Some(pipi_tools::permissions::PermissionsConfig {
+            Some(pipi_protocol::permissions::PermissionsConfig {
                 tools: vec!["read".into()],
-                sandbox: pipi_tools::permissions::SandboxMode::WorkspaceWrite,
+                sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
                 ..Default::default()
             }),
             None,

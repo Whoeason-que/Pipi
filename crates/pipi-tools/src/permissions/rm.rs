@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use super::parse::split_segments;
-use super::paths::resolve_write_path;
+use pipi_protocol::permissions::resolve_write_path;
 
 /// `rm` 的 force 变体是否只作用于工作区内的字面量路径（清理构建 / 缓存产物的
 /// 常规操作）。

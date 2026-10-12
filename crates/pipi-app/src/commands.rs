@@ -16,12 +16,12 @@ use pipi_agent::stats::SessionStats;
 use pipi_catalog::ModelCatalog;
 use pipi_core::agents::{self, AgentDefinition};
 use pipi_core::settings::{self, Settings};
+use pipi_protocol::permissions::PermissionsConfig;
 use pipi_protocol::session::SessionSummary;
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
 use pipi_skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
 };
-use pipi_tools::permissions::PermissionsConfig;
 
 use crate::approval::ApprovalDecision;
 use crate::events::EventEmitter;

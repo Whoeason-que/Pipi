@@ -5895,6 +5895,7 @@ dependencies = [
 name = "pipi-harness"
 version = "26.9.3"
 dependencies = [
+ "pipi-protocol",
  "pipi-test-support",
 ]
 
@@ -5902,9 +5903,12 @@ dependencies = [
 name = "pipi-protocol"
 version = "26.9.3"
 dependencies = [
+ "async-trait",
  "pipi-error",
+ "pipi-test-support",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util",
  "uuid",

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use pipi_protocol::Model;
-use pipi_tools::permissions::{KNOWN_TOOLS, PermissionsConfig};
+use pipi_protocol::permissions::{KNOWN_TOOLS, PermissionsConfig};
 
 use super::paths::{expand_tilde, validate_agent_name};
 
@@ -42,14 +42,14 @@ pub struct AgentDefinition {
 }
 
 pub(super) fn default_compact_threshold_percent() -> u8 {
-    pipi_agent::compaction::DEFAULT_THRESHOLD_PERCENT
+    pipi_protocol::compaction::DEFAULT_THRESHOLD_PERCENT
 }
 
 impl AgentDefinition {
     /// 自动压缩阈值百分比：越界（0 / >100）视为「没设过」，用默认值 ——
     /// 手改过的 agent.json 不该让压缩失效。
     pub fn compact_threshold_percent(&self) -> u8 {
-        pipi_agent::compaction::normalize_threshold_percent(self.compact_threshold_percent)
+        pipi_protocol::compaction::normalize_threshold_percent(self.compact_threshold_percent)
     }
 
     /// 无效的手写比例退回未配置行为，避免把历史压到不可预期的目标。

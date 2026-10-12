@@ -5,11 +5,11 @@ use tokio::sync::Notify;
 
 use pipi_core::tools::agent::{AgentRunResult, AgentRunStatus};
 use pipi_core::tools::background::{BackgroundAgentSessionSink, BackgroundTaskOwner};
+use pipi_protocol::tools::ToolOutput;
 use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskOutput,
     BackgroundTaskSnapshot, BackgroundTaskStatus, ToolResultContent, now_millis,
 };
-use pipi_tools::ToolOutput;
 
 use super::ChildAgentRunner;
 use super::persist::{PersistedRecord, append_record};

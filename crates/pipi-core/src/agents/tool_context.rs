@@ -12,7 +12,7 @@ pub fn build_tool_context(
     def: &AgentDefinition,
     session_id: Option<String>,
     abort: pipi_protocol::AbortSignal,
-) -> Result<(pipi_tools::ToolContext, av::ResolvedEnv), String> {
+) -> Result<(pipi_protocol::tools::ToolContext, av::ResolvedEnv), String> {
     let workspace = def.resolve_workspace().ok_or("无法解析工作目录")?;
     fs::create_dir_all(&workspace).map_err(|e| format!("工作目录不可用: {e}"))?;
     let workspace =
@@ -79,7 +79,7 @@ pub fn build_tool_context(
     }
 
     Ok((
-        pipi_tools::ToolContext {
+        pipi_protocol::tools::ToolContext {
             workspace,
             memory_dir: def.memory_dir(),
             read_roots,
@@ -97,8 +97,8 @@ pub fn build_tool_context(
 mod tests {
     use super::*;
     use crate::agents::{AgentDefinition, agent_dir, create_agent};
+    use pipi_protocol::permissions::PermissionsConfig;
     use pipi_test_support::HOME_LOCK;
-    use pipi_tools::permissions::PermissionsConfig;
 
     #[test]
     fn tool_context_grants_read_access_to_memory_dir() {
@@ -116,7 +116,7 @@ mod tests {
             .expect("memory dir should be a trusted read root");
 
         // read 工具路径解析能通过 memory 根
-        let resolved = pipi_tools::resolve_read_path(
+        let resolved = pipi_protocol::tools::resolve_read_path(
             &ctx.workspace,
             &ctx.read_roots,
             &memory_dir.join("note.md").display().to_string(),

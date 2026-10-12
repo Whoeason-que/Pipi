@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use pipi_tools::fs::{ensure_real_directory, ensure_real_file};
+use pipi_protocol::fs::{ensure_real_directory, ensure_real_file};
 
 use super::paths::checked_agent_dir;
 use super::types::AgentDefinition;

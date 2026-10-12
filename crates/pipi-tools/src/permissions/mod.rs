@@ -6,8 +6,8 @@
 //! 1. **切分**：引号感知的词法扫描 + shlex 分词，复合命令按 `&&` `||` `;`
 //!    `|` 换行 `&` 拆段；引号内的连接符不拆段；无法安全解析 → 拒绝。
 //! 2. **白/黑名单**：`denylist` 命中即拒；`allowlist` 必须逐段命中。
-//!    Allowlist 未命中的**非危险**段落是唯一可交互审批的类型（见
-//!    [`crate::approval`]）：用户拒绝 / 超时 / 中止 / 通道缺失一律拒绝。
+//!    Allowlist 未命中的**非危险**段落是唯一可交互审批的类型（审批通道由
+//!    宿主实现 `CommandApprover`）：用户拒绝 / 超时 / 中止 / 通道缺失一律拒绝。
 //! 3. **危险命令**（移植自 codex，见 [`safety`]）：`rm -f` 家族、
 //!    sudo/env/trap/bash-c 包装器 —— 非 `danger-full-access` 下拒绝。
 //!    `rm -f` 家族的唯一例外是「只作用于工作区内的字面量路径、且不是 git
@@ -28,24 +28,17 @@
 //! 防逃逸**——把不含写入的构造一并拦掉只会白付摩擦成本（实测：一个真实
 //! 会话里 91 次拒绝中只有 1 次是真实文件写入）。
 //!
-//! 沙箱模式移植自 codex `protocol/src/config_types.rs` 的 `SandboxMode`：
-//! `read-only` / `workspace-write` / `danger-full-access`（kebab-case）。
+//! 权限**数据**（`PermissionsConfig` / `SandboxMode` / 工具名清单）与沙箱
+//! 模式的 kebab-case 取值在 `pipi_protocol::permissions`（清单与引擎都要读）；
+//! 本模块只放策略实现。
 
 pub mod safety;
 
 mod config;
 mod parse;
-mod paths;
 mod redirect;
 mod rm;
-mod types;
 
-pub use config::PermissionsConfig;
+pub use config::BashPolicy;
 pub use parse::{matches_entry, split_segments};
-pub(crate) use paths::resolve_write_target;
-pub use paths::{is_within, resolve_write_path};
 pub use safety::{DangerousCommandMatch, dangerous_command_match};
-pub use types::{
-    AGENT_TOOLS, BACKGROUND_TASK_TOOLS, BashAssessment, BashMode, BashPermissions, CommandApprover,
-    DEFAULT_TOOLS, KNOWN_TOOLS, SandboxMode, Segment,
-};

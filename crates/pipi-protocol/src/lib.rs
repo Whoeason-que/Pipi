@@ -7,10 +7,20 @@
 //! | 模块 | 职责 |
 //! | --- | --- |
 //! | [`session`] | 会话条目格式、回放规则与存储端口（[`session::SessionLog`] / [`session::SessionRepo`]） |
+//! | [`tools`] | 工具端口：执行结果、执行上下文、[`tools::AgentTool`] 与 [`tools::ToolRegistry`] |
+//! | [`permissions`] | 权限与沙箱的公共词汇、[`permissions::PermissionsConfig`] 与写入路径包含检查 |
+//! | [`fs`] | 跨层共用的文件系统原语（原子写、符号链接守卫） |
+//! | [`compaction`] | 压缩阈值契约（默认值与归一化） |
+//! | [`text`] | 渲染进 prompt 的文本助手 |
 //! | [`ids`] | 通用 id 与时间戳 |
 
+pub mod compaction;
+pub mod fs;
 pub mod ids;
+pub mod permissions;
 pub mod session;
+pub mod text;
+pub mod tools;
 
 pub use ids::{new_id, now_millis};
 

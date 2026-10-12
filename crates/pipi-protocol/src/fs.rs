@@ -7,7 +7,11 @@
 //!   （`~/.pipi/agents/**`）「文件即真相」的前提是路径本身可信 —— 这些目录对
 //!   用户可写，任何一环被换成符号链接，读写就会逃出数据树。不存在返回
 //!   `Ok(false)`，由调用方决定是创建还是报错（fail-closed 的时机在调用方）。
+//!
+//! 放在契约层的原因：会话载体、Agent 注册表、设置、模型目录都要用它们，
+//! 而这些 crate 之间不该互相依赖。
 
+use std::fs;
 use std::io::Write;
 use std::path::Path;
 
@@ -31,8 +35,6 @@ pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<
     tmp.persist(path)?;
     Ok(())
 }
-
-use std::fs;
 
 /// 验证路径是真实目录（不是符号链接）。不存在返回 `Ok(false)`。
 pub fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {

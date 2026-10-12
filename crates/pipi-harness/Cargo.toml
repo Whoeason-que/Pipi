@@ -6,6 +6,8 @@ rust-version.workspace = true
 description = "Pipi 的纯 harness：项目上下文发现与系统提示词渲染"
 
 [dependencies]
+# 只为一个共享的文本转义助手（escape_path_for_prompt）—— 提示词渲染仍不碰运行时与网络
+pipi-protocol = { workspace = true }
 
 [dev-dependencies]
 pipi-test-support = { workspace = true }

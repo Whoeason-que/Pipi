@@ -1,7 +1,7 @@
 //! 引号感知的命令切分与词法读取：连接符切段、白/黑名单条目匹配，以及重定向
 //! 扫描复用的 token 级助手。
 
-use super::types::Segment;
+use pipi_protocol::permissions::Segment;
 
 /// 引号感知的命令切分。
 ///

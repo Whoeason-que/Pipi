@@ -5,9 +5,9 @@ use async_trait::async_trait;
 use base64::Engine;
 use serde_json::{Value, json};
 
-use super::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_head};
 use pipi_protocol::ToolResultContent;
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 
 pub struct ReadTool;
 
@@ -203,8 +203,8 @@ mod tests {
         std::path::PathBuf,
         std::path::PathBuf,
     ) {
-        use crate::permissions::PermissionsConfig;
         use pipi_protocol::AbortSignal;
+        use pipi_protocol::permissions::PermissionsConfig;
         use std::sync::Arc;
 
         let base = std::env::temp_dir().join(format!(
@@ -230,7 +230,7 @@ mod tests {
             memory_dir: None,
             read_roots: vec![skill_root],
             permissions: Arc::new(PermissionsConfig::default()),
-            sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
             approver: None,

@@ -26,14 +26,14 @@ impl JsonlSessionRepo {
     /// 会话文件路径。目录必须是真实目录（非符号链接）；不存在按「没有会话」处理。
     fn session_path(&self, session_id: &str) -> Result<PathBuf, String> {
         validate_session_id(session_id)?;
-        pipi_tools::fs::ensure_real_directory(&self.dir, "sessions 目录")?;
+        pipi_protocol::fs::ensure_real_directory(&self.dir, "sessions 目录")?;
         Ok(self.dir.join(format!("{session_id}.jsonl")))
     }
 
     /// 归档区目录；不存在时返回 None。
     fn archive_dir(&self) -> Result<Option<PathBuf>, String> {
         let dir = self.dir.join(ARCHIVE_DIR);
-        match pipi_tools::fs::ensure_real_directory(&dir, "归档目录")? {
+        match pipi_protocol::fs::ensure_real_directory(&dir, "归档目录")? {
             true => Ok(Some(dir)),
             false => Ok(None),
         }
@@ -92,7 +92,7 @@ impl SessionRepo for JsonlSessionRepo {
             return Err("归档区没有该会话".into());
         };
         let source = archive.join(format!("{session_id}.jsonl"));
-        if !pipi_tools::fs::ensure_real_file(&source, "会话文件")? {
+        if !pipi_protocol::fs::ensure_real_file(&source, "会话文件")? {
             return Err("归档区没有该会话".into());
         }
         let target = self.session_path(session_id)?;
@@ -104,7 +104,7 @@ impl SessionRepo for JsonlSessionRepo {
 
     fn delete(&self, session_id: &str) -> Result<(), String> {
         let path = self.session_path(session_id)?;
-        if !pipi_tools::fs::ensure_real_file(&path, "会话文件")? {
+        if !pipi_protocol::fs::ensure_real_file(&path, "会话文件")? {
             return Err("会话不存在".into());
         }
         std::fs::remove_file(&path).map_err(|error| format!("删除会话失败: {error}"))
@@ -116,7 +116,7 @@ impl SessionRepo for JsonlSessionRepo {
             return Err("归档区没有该会话".into());
         };
         let path = archive.join(format!("{session_id}.jsonl"));
-        if !pipi_tools::fs::ensure_real_file(&path, "会话文件")? {
+        if !pipi_protocol::fs::ensure_real_file(&path, "会话文件")? {
             return Err("归档区没有该会话".into());
         }
         std::fs::remove_file(&path).map_err(|error| format!("删除归档会话失败: {error}"))
@@ -182,12 +182,12 @@ pub fn archive_session_file(sessions_dir: &Path, session_id: &str) -> Result<Pat
         return Err("非法会话 ID".into());
     }
     let source = sessions_dir.join(format!("{session_id}.jsonl"));
-    if !pipi_tools::fs::ensure_real_file(&source, "会话文件")? {
+    if !pipi_protocol::fs::ensure_real_file(&source, "会话文件")? {
         return Err("会话不存在".into());
     }
     let archive_dir = sessions_dir.join(ARCHIVE_DIR);
     // 归档目录：不存在则创建；存在必须是真实目录（防符号链接）
-    if !pipi_tools::fs::ensure_real_directory(&archive_dir, "归档目录")? {
+    if !pipi_protocol::fs::ensure_real_directory(&archive_dir, "归档目录")? {
         std::fs::create_dir_all(&archive_dir).map_err(|e| format!("无法创建归档目录: {e}"))?;
     }
     let target = archive_dir.join(format!("{session_id}.jsonl"));

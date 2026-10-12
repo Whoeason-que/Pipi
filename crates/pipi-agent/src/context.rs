@@ -12,9 +12,9 @@
 
 use std::path::Path;
 
-use pipi_harness::escape_path_for_prompt;
+use pipi_protocol::permissions::SandboxMode;
+use pipi_protocol::text::escape_path_for_prompt;
 use pipi_protocol::{ContentBlock, Message, ToolResultContent};
-use pipi_tools::permissions::SandboxMode;
 
 /// 为 compaction 预留的 token（经验值，对齐 pi 的预留思路）。
 pub const DEFAULT_RESERVE_TOKENS: u64 = 16_384;

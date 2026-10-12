@@ -1,48 +1,31 @@
-//! 权限配置与 bash 命令总闸：切分 → 白/黑名单 → 危险命令 → 沙箱策略。
+//! bash 命令总闸（实现侧）：切分 → 白/黑名单 → 危险命令 → 沙箱策略。
+//!
+//! `PermissionsConfig` 本体（数据）在 `pipi_protocol::permissions` —— 清单与
+//! 引擎都要读它。这里用扩展 trait 给它挂上评估逻辑：数据属契约，策略属实现。
 
-use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+use pipi_protocol::permissions::{BashAssessment, BashMode, PermissionsConfig, SandboxMode};
 
 use super::parse::{matches_entry, split_segments};
 use super::redirect::{RedirectCheck, check_write_redirect};
 use super::rm::forced_rm_inside_workspace;
 use super::safety::{DangerousCommandMatch, dangerous_command_match};
-use super::types::{BashAssessment, BashMode, BashPermissions, DEFAULT_TOOLS, SandboxMode};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PermissionsConfig {
-    /// 启用的工具名列表（`KNOWN_TOOLS` 的子集）。
-    #[serde(default = "default_tools")]
-    pub tools: Vec<String>,
-    #[serde(default)]
-    pub bash: BashPermissions,
-    /// 沙箱策略（codex 的 SandboxMode）。缺省 DangerFullAccess 以兼容旧文件。
-    #[serde(default)]
-    pub sandbox: SandboxMode,
-}
-
-pub(super) fn default_tools() -> Vec<String> {
-    DEFAULT_TOOLS.iter().map(|s| s.to_string()).collect()
-}
-
-impl Default for PermissionsConfig {
-    fn default() -> Self {
-        PermissionsConfig {
-            tools: default_tools(),
-            bash: BashPermissions::default(),
-            sandbox: SandboxMode::default(),
-        }
-    }
-}
-
-impl PermissionsConfig {
-    pub fn tool_enabled(&self, name: &str) -> bool {
-        self.tools.iter().any(|t| t == name)
-    }
-
+/// bash 命令评估入口。调用点 `use pipi_tools::permissions::BashPolicy;` 即可。
+pub trait BashPolicy {
     /// bash 命令总闸：切分 → 白/黑名单 → 危险命令 → 沙箱策略。
-    pub fn assess_bash(&self, command: &str, _workspace: &std::path::Path) -> Result<(), String> {
-        match self.assess_bash_classified(command, _workspace) {
+    fn assess_bash(&self, command: &str, workspace: &Path) -> Result<(), String>;
+
+    /// bash 命令分类评估。只有「Allowlist 模式下白名单未命中、且不命中危险
+    /// 规则」的段落可以交给交互审批救回；黑名单命中、危险命令、沙箱约束
+    /// 一律硬拒 —— 宁可拒绝不可放行。
+    fn assess_bash_classified(&self, command: &str, workspace: &Path) -> BashAssessment;
+}
+
+impl BashPolicy for PermissionsConfig {
+    fn assess_bash(&self, command: &str, workspace: &Path) -> Result<(), String> {
+        match self.assess_bash_classified(command, workspace) {
             BashAssessment::Allowed => Ok(()),
             BashAssessment::HardDenied(message) => Err(message),
             BashAssessment::NeedsApproval { missing } => Err(format!(
@@ -53,14 +36,7 @@ impl PermissionsConfig {
         }
     }
 
-    /// bash 命令分类评估。只有「Allowlist 模式下白名单未命中、且不命中危险
-    /// 规则」的段落可以交给交互审批救回；黑名单命中、危险命令、沙箱约束
-    /// 一律硬拒 —— 宁可拒绝不可放行。
-    pub fn assess_bash_classified(
-        &self,
-        command: &str,
-        _workspace: &std::path::Path,
-    ) -> BashAssessment {
+    fn assess_bash_classified(&self, command: &str, workspace: &Path) -> BashAssessment {
         if self.sandbox == SandboxMode::ReadOnly {
             return BashAssessment::HardDenied(
                 "沙箱策略为 read-only：不允许执行命令（需要执行请调整 Agent 的沙箱设置）".into(),
@@ -139,7 +115,7 @@ impl PermissionsConfig {
                 // 工作区内的字面量 `rm -f`：清理构建 / 缓存产物的常规操作，
                 // 放行；其余强制删除（含包装调用、越界或不可解析的目标）照旧拒绝。
                 let workspace_contained = matches!(matched, DangerousCommandMatch::ForcedRm)
-                    && forced_rm_inside_workspace(&seg.argv, _workspace, command);
+                    && forced_rm_inside_workspace(&seg.argv, workspace, command);
                 if !workspace_contained {
                     return BashAssessment::HardDenied(match matched {
                         DangerousCommandMatch::ForcedRm => format!(

@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
 
+use pipi_protocol::fs::ensure_real_directory;
 use pipi_protocol::session::ARCHIVE_DIR;
-use pipi_tools::fs::ensure_real_directory;
 
 /// 所有 Agent 数据的根：`~/.pipi/agents`（路径布局由 av 统一定义）。
 pub fn agents_dir() -> Option<PathBuf> {
@@ -77,8 +77,8 @@ pub fn ensure_agent_dir(name: &str) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
     use crate::agents::{AgentDefinition, list_agents, load_agent, save_agent};
+    use pipi_protocol::permissions::PermissionsConfig;
     use pipi_test_support::HOME_LOCK;
-    use pipi_tools::permissions::PermissionsConfig;
 
     #[test]
     fn agent_directory_rejects_path_traversal_and_separators() {

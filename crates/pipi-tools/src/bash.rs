@@ -11,9 +11,11 @@ use serde_json::{Value, json};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
-use super::{AgentTool, ToolContext, ToolOutput};
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
 use pipi_protocol::ToolResultContent;
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
+
+use crate::permissions::BashPolicy;
 
 pub struct BashTool;
 
@@ -117,9 +119,9 @@ impl AgentTool for BashTool {
         // Pipi：命令权限检查（切分 → 白/黑名单 → 危险命令 → 沙箱重定向）。
         // 只有 Allowlist 未命中的非危险命令可以走交互审批救回；其余硬拒。
         match ctx.permissions.assess_bash_classified(command, &ctx.workspace) {
-            crate::permissions::BashAssessment::Allowed => {}
-            crate::permissions::BashAssessment::HardDenied(message) => return Err(message),
-            crate::permissions::BashAssessment::NeedsApproval { .. } => match &ctx.approver {
+            pipi_protocol::permissions::BashAssessment::Allowed => {}
+            pipi_protocol::permissions::BashAssessment::HardDenied(message) => return Err(message),
+            pipi_protocol::permissions::BashAssessment::NeedsApproval { .. } => match &ctx.approver {
                 Some(approver) => approver.approve(command).await?,
                 None => {
                     return Err(
@@ -348,8 +350,10 @@ mod tests {
             workspace,
             memory_dir: None,
             read_roots: Vec::new(),
-            permissions: std::sync::Arc::new(crate::permissions::PermissionsConfig::default()),
-            sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            permissions: std::sync::Arc::new(
+                pipi_protocol::permissions::PermissionsConfig::default(),
+            ),
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: std::sync::Arc::new(resolved),
             abort: pipi_protocol::AbortSignal::new(),
             approver: None,
@@ -379,8 +383,10 @@ mod tests {
             workspace,
             memory_dir: None,
             read_roots: Vec::new(),
-            permissions: std::sync::Arc::new(crate::permissions::PermissionsConfig::default()),
-            sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            permissions: std::sync::Arc::new(
+                pipi_protocol::permissions::PermissionsConfig::default(),
+            ),
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
             abort,
             approver: None,

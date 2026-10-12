@@ -5,9 +5,9 @@
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{AgentTool, ToolContext, ToolOutput, resolve_path};
-use crate::permissions::resolve_write_path;
 use pipi_protocol::ToolResultContent;
+use pipi_protocol::permissions::resolve_write_path;
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_path};
 
 pub struct EditTool;
 
@@ -179,7 +179,10 @@ impl AgentTool for EditTool {
         let path = args["path"].as_str().ok_or("缺少 path")?;
         let edits = parse_edits(args)?;
 
-        let abs = if matches!(ctx.sandbox, crate::permissions::SandboxMode::WorkspaceWrite) {
+        let abs = if matches!(
+            ctx.sandbox,
+            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
+        ) {
             resolve_write_path(&ctx.workspace, path)?
         } else {
             let abs = resolve_path(&ctx.workspace, path)?;
@@ -210,10 +213,12 @@ impl AgentTool for EditTool {
         );
         // 原子替换（同步 fs 调用走 blocking 线程池，别占住运行时 worker）
         let target = abs.clone();
-        tokio::task::spawn_blocking(move || crate::fs::write_atomic(&target, final_content))
-            .await
-            .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?
-            .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
+        tokio::task::spawn_blocking(move || {
+            pipi_protocol::fs::write_atomic(&target, final_content)
+        })
+        .await
+        .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?
+        .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());
         }
@@ -258,8 +263,10 @@ mod tests {
             workspace,
             memory_dir: None,
             read_roots: Vec::new(),
-            permissions: std::sync::Arc::new(crate::permissions::PermissionsConfig::default()),
-            sandbox: crate::permissions::SandboxMode::WorkspaceWrite,
+            permissions: std::sync::Arc::new(
+                pipi_protocol::permissions::PermissionsConfig::default(),
+            ),
+            sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
             resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
             abort: pipi_protocol::AbortSignal::new(),
             approver: None,

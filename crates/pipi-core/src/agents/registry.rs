@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use pipi_protocol::Model;
-use pipi_tools::fs::ensure_real_file;
-use pipi_tools::permissions::PermissionsConfig;
+use pipi_protocol::fs::ensure_real_file;
+use pipi_protocol::permissions::PermissionsConfig;
 
 use super::paths::{
     agent_dir, checked_agent_dir, checked_agents_root, expand_tilde,
@@ -182,7 +182,7 @@ pub fn create_agent_with_instructions(
 
     // 新建 Agent 默认使用受限沙箱；旧 agent.json 的 serde 默认仍保持兼容。
     let permissions = permissions.unwrap_or_else(|| PermissionsConfig {
-        sandbox: pipi_tools::permissions::SandboxMode::WorkspaceWrite,
+        sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
         ..Default::default()
     });
 
@@ -375,7 +375,7 @@ mod tests {
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         assert_eq!(
             def.permissions.sandbox,
-            pipi_tools::permissions::SandboxMode::WorkspaceWrite
+            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
         );
         assert!(!def.subagent);
         let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
@@ -462,8 +462,8 @@ mod tests {
             None,
             Some(PermissionsConfig {
                 tools: vec!["read".into(), "bash".into()],
-                bash: pipi_tools::permissions::BashPermissions {
-                    mode: pipi_tools::permissions::BashMode::Allowlist,
+                bash: pipi_protocol::permissions::BashPermissions {
+                    mode: pipi_protocol::permissions::BashMode::Allowlist,
                     commands: vec!["git".into()],
                 },
                 sandbox: Default::default(),
@@ -550,7 +550,7 @@ mod tests {
         // 默认权限：全部基础工具 + 受限沙箱（PermissionsConfig::default 的沙箱是 DangerFullAccess，不能被沿用）
         assert_eq!(
             created.permissions.sandbox,
-            pipi_tools::permissions::SandboxMode::WorkspaceWrite
+            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
         );
         assert!(created.permissions.tools.iter().any(|tool| tool == "bash"));
         assert!(

@@ -342,7 +342,7 @@ pub(crate) async fn run_agent_once_inner_with_sink(
     };
     // 有意只构造基础工具。即使目标 agent.json 显式启用了 Agent 组合工具，
     // 它作为 child 运行时也不会拿到这些工具，从而把首版嵌套深度固定为 1。
-    let registry = Arc::new(ToolRegistry::for_context(&tool_context));
+    let registry = Arc::new(pipi_tools::builtin_registry(&tool_context));
     let wire_tools = registry.wire_tools();
     let system_prompt = match agents::build_system_prompt_with_tools(&definition, &wire_tools) {
         Ok(system_prompt) => system_prompt,
@@ -380,13 +380,13 @@ pub(crate) async fn run_agent_once_inner_with_sink(
             };
             match envelope.event {
                 AgentEvent::ToolExecutionStart { tool_name, .. } => {
-                    let _ = progress.send(pipi_tools::ToolOutput::text(format!(
+                    let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
                         "子 Agent 正在调用工具 {tool_name}"
                     )));
                 }
                 AgentEvent::MessageEnd { message } if message.role() == "assistant" => {
                     let turn = turns.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = progress.send(pipi_tools::ToolOutput::text(format!(
+                    let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
                         "子 Agent 完成第 {turn} 轮回复"
                     )));
                 }
@@ -581,7 +581,7 @@ impl RuntimeState {
         // 被前端按新身份收下（见 SessionSwitched 事件）。
         let mut session_id = writer_session_id(&writer)?;
 
-        let mut registry = ToolRegistry::for_context(&tool_context);
+        let mut registry = pipi_tools::builtin_registry(&tool_context);
         let background_owner =
             BackgroundTaskOwner::new(def.name.clone(), session_id.clone(), run_id);
         if tool_context.permissions.tool_enabled("create_agent") {
@@ -978,10 +978,10 @@ mod tests {
             "timeout-worker",
             "A worker whose endpoint never responds",
             Some(workspace.to_str().unwrap()),
-            Some(pipi_tools::permissions::PermissionsConfig {
+            Some(pipi_protocol::permissions::PermissionsConfig {
                 tools: vec!["read".into()],
                 bash: Default::default(),
-                sandbox: pipi_tools::permissions::SandboxMode::WorkspaceWrite,
+                sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
             }),
             None,
             Some(pipi_protocol::Model {

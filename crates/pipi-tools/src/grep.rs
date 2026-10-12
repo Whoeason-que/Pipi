@@ -10,9 +10,9 @@ use regex::{Regex, RegexBuilder};
 use serde_json::{Value, json};
 use walkdir::WalkDir;
 
-use super::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_head};
 use pipi_protocol::ToolResultContent;
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 
 /// 单次搜索的文件数上限（截断前的硬上限）。
 const MAX_FILES: usize = 2000;
@@ -233,8 +233,8 @@ impl AgentTool for GrepTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permissions::PermissionsConfig;
     use pipi_protocol::AbortSignal;
+    use pipi_protocol::permissions::PermissionsConfig;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -273,7 +273,7 @@ mod tests {
             memory_dir: None,
             read_roots: vec![],
             permissions: Arc::new(PermissionsConfig::default()),
-            sandbox: crate::permissions::SandboxMode::DangerFullAccess,
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
             approver: None,

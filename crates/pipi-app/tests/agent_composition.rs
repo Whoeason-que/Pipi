@@ -11,11 +11,11 @@ use pipi_app::events::RuntimeEvent;
 use pipi_app::runtime::RuntimeState;
 use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
-use pipi_protocol::{AbortSignal, Api, Model, ToolResultContent};
-use pipi_tools::permissions::{
+use pipi_protocol::permissions::{
     BACKGROUND_TASK_TOOLS, BashPermissions, PermissionsConfig, SandboxMode,
 };
-use pipi_tools::{AgentTool, ToolContext, ToolRegistry};
+use pipi_protocol::tools::{AgentTool, ToolContext};
+use pipi_protocol::{AbortSignal, Api, Model, ToolResultContent};
 use serde_json::json;
 
 /// 本文件内所有改写 HOME 的测试共用此锁：同一进程内并行测试会互相看到
@@ -179,7 +179,7 @@ async fn create_run_and_read_agent_output() {
     }
 
     // 基础 registry 有意忽略目标配置中的 Agent 组合工具；child 深度固定为 1.
-    let child_registry = ToolRegistry::for_context(&context);
+    let child_registry = pipi_tools::builtin_registry(&context);
     assert!(child_registry.names().contains(&"read"));
     assert!(!child_registry.names().contains(&"run_agent"));
 

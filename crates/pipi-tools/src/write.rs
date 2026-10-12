@@ -4,9 +4,9 @@
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{AgentTool, ToolContext, ToolOutput, resolve_path};
-use crate::permissions::resolve_write_path;
 use pipi_protocol::ToolResultContent;
+use pipi_protocol::permissions::resolve_write_path;
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_path};
 
 pub struct WriteTool;
 
@@ -43,7 +43,10 @@ impl AgentTool for WriteTool {
         let path = args["path"].as_str().ok_or("缺少 path")?;
         let content = args["content"].as_str().ok_or("缺少 content")?;
 
-        let abs = if matches!(ctx.sandbox, crate::permissions::SandboxMode::WorkspaceWrite) {
+        let abs = if matches!(
+            ctx.sandbox,
+            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
+        ) {
             resolve_write_path(&ctx.workspace, path)?
         } else {
             let abs = resolve_path(&ctx.workspace, path)?;
@@ -54,7 +57,7 @@ impl AgentTool for WriteTool {
         // 写入是同步的文件系统调用，放到 blocking 线程池，别占住运行时 worker。
         let target = abs.clone();
         let contents = content.to_string();
-        tokio::task::spawn_blocking(move || crate::fs::write_atomic(&target, contents))
+        tokio::task::spawn_blocking(move || pipi_protocol::fs::write_atomic(&target, contents))
             .await
             .map_err(|e| format!("Could not write file: {path}. {e}"))?
             .map_err(|e| format!("Could not write file: {path}. {e}"))?;
@@ -75,8 +78,8 @@ impl AgentTool for WriteTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permissions::{PermissionsConfig, SandboxMode};
     use pipi_protocol::AbortSignal;
+    use pipi_protocol::permissions::{PermissionsConfig, SandboxMode};
     use std::sync::Arc;
 
     fn ctx(workspace: std::path::PathBuf, sandbox: SandboxMode) -> ToolContext {

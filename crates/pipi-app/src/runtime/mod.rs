@@ -39,7 +39,6 @@ use pipi_protocol::session::{
 };
 use pipi_protocol::{AbortSignal, Message, Model, StopReason, StreamOptions};
 use pipi_provider::provider_for;
-use pipi_tools::ToolRegistry;
 
 static NEXT_RUN_ID: AtomicUsize = AtomicUsize::new(1);
 

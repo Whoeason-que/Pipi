@@ -285,8 +285,8 @@ pub fn build_system_prompt_with_tools(
 mod tests {
     use super::*;
     use crate::agents::{AgentDefinition, agent_dir, build_tool_context, create_agent};
+    use pipi_protocol::permissions::PermissionsConfig;
     use pipi_test_support::HOME_LOCK;
-    use pipi_tools::permissions::PermissionsConfig;
 
     #[test]
     fn system_prompt_includes_wire_tool_descriptions() {

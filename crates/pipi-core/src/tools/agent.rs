@@ -16,12 +16,12 @@ use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskOwner, BackgroundTaskService,
 };
 use pipi_agent::session::JsonlSessionRepo;
+use pipi_protocol::permissions::{BACKGROUND_TASK_TOOLS, DEFAULT_TOOLS};
 use pipi_protocol::session::{SessionRepo, active_path, rebuild_messages};
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, ContentBlock, Message, Model, StopReason, ToolResultContent,
 };
-use pipi_tools::permissions::{BACKGROUND_TASK_TOOLS, DEFAULT_TOOLS};
-use pipi_tools::{AgentTool, ToolContext, ToolOutput};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -625,7 +625,7 @@ mod tests {
             memory_dir: None,
             read_roots: Vec::new(),
             permissions: Arc::new(Default::default()),
-            sandbox: pipi_tools::permissions::SandboxMode::DangerFullAccess,
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
             approver: None,
