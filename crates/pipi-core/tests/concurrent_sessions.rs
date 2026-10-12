@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use pipi_core::events::{EventEmitter, RuntimeEvent};
 use pipi_core::runtime::RuntimeState;
-use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
+use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
 use pipi_protocol::{Api, Message, Model};
 use pipi_session::SessionWriter;
 use pipi_venv::agents;
@@ -174,6 +174,7 @@ fn write_settings(base_urls: &[String]) {
             id: format!("local-mock-{}", port_of(base_url)),
             name: "Local Mock".into(),
             api: Api::OpenAICompletions,
+            api_mode: ApiMode::Auto,
             base_url: base_url.clone(),
             env_key: None,
             api_key: Some("test-key".into()),

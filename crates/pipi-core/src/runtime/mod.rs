@@ -193,7 +193,7 @@ use compaction::{CompactionContext, CompactionTrigger, make_rekey, run_compactio
 use events::{make_emitter, make_session_change_sink};
 pub(crate) use execution::RuntimeChildRunner;
 pub use execution::{CHILD_RUN_TIMEOUT_SECS, run_agent_once};
-use execution::{resolve_model, settle_unanswered_tail, writer_session_id};
+use execution::{ResolvedModel, resolve_model, settle_unanswered_tail, writer_session_id};
 pub use slots::list_sessions;
 use store::session_repo;
 

@@ -1,6 +1,7 @@
 //! 主轮与单次 child 执行。child 的工具和审批边界保持独立。
 
 use super::*;
+use crate::settings::ApiMode;
 
 fn append_declared_env(
     writer: &SharedLog,
@@ -33,11 +34,21 @@ fn run_stream_options(api_key: String, model: &Model, session_id: &str) -> Strea
     }
 }
 
+/// `resolve_model` 的结果：可用的模型（协议已按设置与目录解析）+ 密钥 + 协议模式。
+#[derive(Debug)]
+pub(super) struct ResolvedModel {
+    pub(super) model: Model,
+    pub(super) api_key: String,
+    /// 协议是否由系统管理（提供商条目的 `api_mode == auto`）：agent loop 据此
+    /// 决定端点回报「不支持当前协议」时要不要换协议再试一次。
+    pub(super) auto_protocol: bool,
+}
+
 pub(super) fn resolve_model(
     def: &AgentDefinition,
     session_model: Option<&Model>,
     env: Option<&std::collections::BTreeMap<String, String>>,
-) -> Result<(Model, String), String> {
+) -> Result<ResolvedModel, String> {
     let target = session_model
         .cloned()
         .or_else(|| def.provider.clone())
@@ -45,10 +56,19 @@ pub(super) fn resolve_model(
             "该 Agent 还未配置默认模型，且当前会话未选择模型（请在 Agent 详情页绑定，或在会话顶部选择模型）".to_string()
         })?;
     let settings = load_settings();
-    let api_key = settings
+    // 同一端点可能被声明成两种协议（模型级覆盖 / 网关双协议）：先精确匹配
+    // (协议, 端点)，再按端点兜底 —— 密钥是按端点配的，不该因为协议选择而丢。
+    let entry = settings
         .providers
         .iter()
         .find(|p| p.api == target.api && p.base_url == target.base_url)
+        .or_else(|| {
+            settings
+                .providers
+                .iter()
+                .find(|p| p.base_url == target.base_url)
+        });
+    let api_key = entry
         .and_then(|p| match env {
             // 与 bash 子进程消费同一份 resolved env；无契约上下文时回退进程环境
             Some(env) => p.resolve_api_key_in(env),
@@ -60,11 +80,24 @@ pub(super) fn resolve_model(
                 target.base_url
             )
         })?;
-    Ok((
-        Model {
+    // 协议：auto（默认）按「运行期实证 → 目录模型级覆盖 → 目录 provider 级 →
+    // 绑定声明」解析；manual（用户钉死）原样使用声明。
+    let auto_protocol = entry
+        .map(|p| p.api_mode == ApiMode::Auto)
+        .unwrap_or(true);
+    let api = if auto_protocol {
+        let catalog = pipi_provider::catalog::cached_catalog(
+            pipi_venv::av::paths::catalog_cache_path().as_deref(),
+        );
+        pipi_provider::effective_api(catalog.as_ref(), &target.base_url, &target.id, target.api)
+    } else {
+        target.api
+    };
+    Ok(ResolvedModel {
+        model: Model {
             id: target.id.clone(),
             name: target.name.clone(),
-            api: target.api,
+            api,
             base_url: target.base_url.clone(),
             max_tokens: if target.max_tokens == 0 {
                 8192
@@ -74,7 +107,8 @@ pub(super) fn resolve_model(
             context_window: target.context_window,
         },
         api_key,
-    ))
+        auto_protocol,
+    })
 }
 
 pub(super) fn writer_session_id(writer: &SharedLog) -> Result<String, String> {
@@ -334,7 +368,11 @@ pub(crate) async fn run_agent_once_inner_with_sink(
         };
     append_declared_env(&writer, &resolved_env)?;
 
-    let (model, api_key) = match resolve_model(&definition, None, Some(&resolved_env.vars)) {
+    let ResolvedModel {
+        model,
+        api_key,
+        auto_protocol,
+    } = match resolve_model(&definition, None, Some(&resolved_env.vars)) {
         Ok(resolved) => resolved,
         Err(error) => {
             return persist_agent_start_failure(&writer, &definition, &session_id, prompt, error);
@@ -404,11 +442,12 @@ pub(crate) async fn run_agent_once_inner_with_sink(
     );
     let config = AgentLoopConfig {
         model: model.clone(),
-        provider: provider_for(model.api),
+        provider: provider_for(),
         tools: registry,
         tool_context,
         options: run_stream_options(api_key, &model, &session_id),
         retry: load_settings().retry.policy(),
+        auto_protocol,
         tool_execution: ToolExecutionMode::Parallel,
         steering: MessageQueue::new(),
         follow_up: MessageQueue::new(),
@@ -567,7 +606,11 @@ impl RuntimeState {
         // 环境记账：每会话至多一条（writer 幂等去重）；只记声明键（非 process 来源）
         append_declared_env(&writer, &resolved_env)?;
         // provider key 与工具子进程消费同一份 resolved env
-        let (model, api_key) = resolve_model(
+        let ResolvedModel {
+            model,
+            api_key,
+            auto_protocol,
+        } = resolve_model(
             &def,
             current_session_model.as_ref(),
             Some(&resolved_env.vars),
@@ -666,11 +709,12 @@ impl RuntimeState {
         .with_target_percent(def.compact_target_percent());
         let config = AgentLoopConfig {
             model: model.clone(),
-            provider: provider_for(model.api),
+            provider: provider_for(),
             tools: registry,
             tool_context,
             options: run_stream_options(api_key, &model, &session_id),
             retry: retry_policy,
+            auto_protocol,
             tool_execution: ToolExecutionMode::Parallel,
             steering: steering.clone(),
             follow_up: MessageQueue::new(),
@@ -851,9 +895,12 @@ mod tests {
 
         // 配上 key 后成功解析
         pipi_test_support::set_env_var("ANTHROPIC_API_KEY", "test-key");
-        let (resolved, key) = super::resolve_model(&def, Some(&session_model), None).unwrap();
-        assert_eq!(resolved.id, "claude-sonnet-4-5");
-        assert_eq!(key, "test-key");
+        let resolved = super::resolve_model(&def, Some(&session_model), None).unwrap();
+        assert_eq!(resolved.model.id, "claude-sonnet-4-5");
+        assert_eq!(resolved.api_key, "test-key");
+        // 没配目录缓存 + auto：协议保持绑定里的声明
+        assert!(resolved.auto_protocol);
+        assert_eq!(resolved.model.api, pipi_protocol::Api::AnthropicMessages);
         pipi_test_support::remove_env_var("ANTHROPIC_API_KEY");
         pipi_test_support::set_env_var("HOME", &previous_home);
         let _ = std::fs::remove_dir_all(&empty_home);
@@ -964,6 +1011,7 @@ mod tests {
                 id: "silent".into(),
                 name: "Silent".into(),
                 api: pipi_protocol::Api::OpenAICompletions,
+                api_mode: crate::settings::ApiMode::Auto,
                 base_url: base_url.clone(),
                 env_key: None,
                 api_key: Some("test-key".into()),

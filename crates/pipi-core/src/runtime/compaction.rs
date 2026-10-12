@@ -114,7 +114,7 @@ pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, S
     // 摘要用量另计入会话账本；请求仍携带当前会话 ID，满足供应商的会话路由要求。
     let summary_options = compaction_stream_options(ctx.api_key, ctx.session_id);
     // provider 实例要活到 compact 调用结束（provider_for 返回 Arc）
-    let summarizer = provider_for(ctx.model.api);
+    let summarizer = provider_for();
     let strategy_env = pipi_context::compaction::StrategyEnv {
         provider: summarizer.as_ref(),
         model: ctx.model,
@@ -308,7 +308,12 @@ impl RuntimeState {
         let def = session.agent.clone();
         let current_model = session.model.lock().ok().and_then(|model| model.clone());
         // 与发送消息同一套解析：会话模型优先，回退 Agent 默认
-        let (model, api_key) = resolve_model(&def, current_model.as_ref(), None)?;
+        // 协议协商只发生在 agent loop 的 run 里；这里只要解析后的模型与密钥
+        let ResolvedModel {
+            model,
+            api_key,
+            ..
+        } = resolve_model(&def, current_model.as_ref(), None)?;
         let budget = pipi_context::compaction::Budget::from_window(
             model.context_window,
             def.compact_threshold_percent(),

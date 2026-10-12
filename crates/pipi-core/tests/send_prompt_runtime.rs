@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use pipi_core::events::{EventEmitter, RuntimeEvent};
 use pipi_core::runtime::RuntimeState;
-use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
+use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
 use pipi_protocol::{Api, Model};
 use pipi_venv::agents;
 
@@ -51,6 +51,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
             id: "local-refusing".into(),
             name: "Local Refusing Endpoint".into(),
             api: Api::OpenAICompletions,
+            api_mode: ApiMode::Auto,
             base_url: "http://127.0.0.1:1/v1".into(),
             env_key: None,
             api_key: Some("test-key".into()),

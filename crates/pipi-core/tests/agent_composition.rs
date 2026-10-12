@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use pipi_core::events::RuntimeEvent;
 use pipi_core::runtime::RuntimeState;
-use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
+use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
 use pipi_protocol::permissions::{
     BACKGROUND_TASK_TOOLS, BashPermissions, PermissionsConfig, SandboxMode,
@@ -71,6 +71,7 @@ async fn create_run_and_read_agent_output() {
             id: "local-refusing".into(),
             name: "Local Refusing Endpoint".into(),
             api: Api::OpenAICompletions,
+            api_mode: ApiMode::Auto,
             base_url: model.base_url.clone(),
             env_key: None,
             api_key: Some("test-key".into()),
@@ -397,6 +398,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
             id: "e2e-mock".into(),
             name: "E2E Mock".into(),
             api: Api::OpenAICompletions,
+            api_mode: ApiMode::Auto,
             base_url: base_url.clone(),
             env_key: None,
             api_key: Some("test-key".into()),

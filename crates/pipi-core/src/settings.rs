@@ -21,6 +21,20 @@ pub enum Theme {
     Light,
 }
 
+/// 提供商协议的选择方式。
+///
+/// `Auto`（默认）：协议由系统决定 —— 运行期实证 → 目录里的模型级覆盖 →
+/// 目录 provider 级协议 → `api` 字段（详见 `pipi_provider::effective_api`）。
+/// `Manual`：用户把 `api` 钉死，系统不改写、也不做换协议协商。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ApiMode {
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "manual")]
+    Manual,
+}
+
 /// 模型提供商。Agent 通过 `agent.json` 的 `provider` 字段绑定其中一家。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,7 +42,11 @@ pub struct ProviderConfig {
     /// 稳定标识（slug），Agent 绑定与展示用。
     pub id: String,
     pub name: String,
+    /// 该条目声明的协议：`api_mode == auto` 时是最后回退，`manual` 时是钉死值。
     pub api: Api,
+    /// 协议是否由系统管理（默认 `auto`；旧 settings.json 缺字段即 auto）。
+    #[serde(default)]
+    pub api_mode: ApiMode,
     /// 例如 https://api.anthropic.com 或 https://api.openai.com/v1
     pub base_url: String,
     /// 环境变量名（推荐）：存在时优先于 api_key。
@@ -174,6 +192,7 @@ impl Default for Settings {
                     id: "anthropic".into(),
                     name: "Anthropic".into(),
                     api: Api::AnthropicMessages,
+                    api_mode: ApiMode::Auto,
                     base_url: "https://api.anthropic.com".into(),
                     env_key: Some("ANTHROPIC_API_KEY".into()),
                     api_key: None,
@@ -182,6 +201,7 @@ impl Default for Settings {
                     id: "openai".into(),
                     name: "OpenAI".into(),
                     api: Api::OpenAICompletions,
+                    api_mode: ApiMode::Auto,
                     base_url: "https://api.openai.com/v1".into(),
                     env_key: Some("OPENAI_API_KEY".into()),
                     api_key: None,
@@ -326,6 +346,27 @@ mod tests {
     }
 
     #[test]
+    fn provider_api_mode_defaults_to_auto_for_legacy_files() {
+        // 旧 settings.json 没有 apiMode：一律 auto（协议由系统管理）
+        let legacy: Settings = serde_json::from_str(
+            r#"{"theme":"dark","providers":[
+                {"id":"go","name":"Go","api":"openai-completions","baseUrl":"https://opencode.ai/zen/go/v1"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.providers[0].api_mode, ApiMode::Auto);
+
+        // 显式「固定协议」能读回；序列化字段名是 camelCase
+        let pinned: Settings = serde_json::from_str(
+            r#"{"theme":"dark","providers":[
+                {"id":"go","name":"Go","api":"anthropic-messages","apiMode":"manual","baseUrl":"https://x/v1"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(pinned.providers[0].api_mode, ApiMode::Manual);
+        let json = serde_json::to_string(&pinned).unwrap();
+        assert!(json.contains("\"apiMode\":\"manual\""), "{json}");
+    }
+
+    #[test]
     fn api_key_env_precedence() {
         // 改写进程环境前持锁：见 `set_env_var` 的安全约定
         let _guard = pipi_test_support::HOME_LOCK
@@ -335,6 +376,7 @@ mod tests {
             id: "t".into(),
             name: "T".into(),
             api: Api::OpenAICompletions,
+            api_mode: ApiMode::Manual,
             base_url: "https://x".into(),
             env_key: Some("PIPI_TEST_KEY".into()),
             api_key: Some("plain".into()),

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use pipi_core::events::EventEmitter;
 use pipi_core::runtime::RuntimeState;
-use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
+use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
 use pipi_protocol::{Api, Model};
 use pipi_venv::agents;
 
@@ -54,6 +54,7 @@ fn fixture(agent: &str, api: Api, base_url: &str) {
             id: "refusing".into(),
             name: "Refusing Endpoint".into(),
             api,
+            api_mode: ApiMode::Auto,
             base_url: base_url.into(),
             env_key: None,
             api_key: Some("test-key".into()),
