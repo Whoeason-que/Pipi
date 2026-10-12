@@ -343,11 +343,11 @@ mod tests {
     use crate::compaction::llm::{LlmSummarize, build_summary_prompt, find_keep_start, summarize};
     use crate::compaction::{Preparation, Replacement, StrategyEnv};
     use crate::test_support::{assistant_text, tool_result};
+    use pipi_protocol::provider::{EventStream, Provider};
     use pipi_protocol::{
         AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
         StreamOptions, Usage,
     };
-    use pipi_provider::{EventStream, Provider};
     use std::sync::Mutex;
 
     struct SummaryProvider {

@@ -17,12 +17,12 @@ use futures_util::future::join_all;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use pipi_protocol::provider::Provider;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, ToolRegistry, validate_args};
 use pipi_protocol::{
     AbortSignal, ContentBlock, Context, Message, Model, StopReason, StreamEvent, StreamOptions,
     ToolResultContent,
 };
-use pipi_provider::Provider;
 
 /// 对外事件。与 pi 的 AgentEvent 同名同层；`Serialize` 后可直接发给前端。
 #[derive(Debug, Clone, Serialize)]
@@ -850,7 +850,7 @@ mod tests {
             _context: &Context,
             _options: &StreamOptions,
             _abort: AbortSignal,
-        ) -> pipi_provider::EventStream {
+        ) -> pipi_protocol::provider::EventStream {
             let (tx, rx) = tokio::sync::mpsc::channel(64);
             let index = self.call.fetch_add(1, Ordering::SeqCst);
             let turn = self
@@ -1474,7 +1474,7 @@ mod tests {
                 context: &Context,
                 options: &StreamOptions,
                 abort: AbortSignal,
-            ) -> pipi_provider::EventStream {
+            ) -> pipi_protocol::provider::EventStream {
                 if self.inner.call.load(Ordering::SeqCst) == 0 {
                     self.follow_up.push(Message::user_text("follow-up"));
                 }
@@ -1536,7 +1536,7 @@ mod tests {
                 context: &Context,
                 options: &StreamOptions,
                 abort: AbortSignal,
-            ) -> pipi_provider::EventStream {
+            ) -> pipi_protocol::provider::EventStream {
                 // 只在第一轮推 —— 否则每轮都注入新消息，循环永不停止
                 if self.inner.call.load(Ordering::SeqCst) == 0 {
                     self.steering.push(Message::user_text("wait, also do X"));
@@ -1620,7 +1620,7 @@ mod tests {
             context: &Context,
             options: &StreamOptions,
             abort: AbortSignal,
-        ) -> pipi_provider::EventStream {
+        ) -> pipi_protocol::provider::EventStream {
             self.abort.abort();
             self.inner.stream(model, context, options, abort).await
         }
@@ -1696,7 +1696,7 @@ mod tests {
             context: &Context,
             options: &StreamOptions,
             abort: AbortSignal,
-        ) -> pipi_provider::EventStream {
+        ) -> pipi_protocol::provider::EventStream {
             let roles = context
                 .messages
                 .iter()

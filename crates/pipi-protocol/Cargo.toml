@@ -11,6 +11,8 @@ pipi-error = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+# 只允许 sync 特性（EventStream 的通道）；不得引入 rt / net / time
+tokio = { workspace = true, features = ["sync"] }
 tokio-util = { workspace = true }
 uuid = { workspace = true }
 

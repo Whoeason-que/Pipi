@@ -23,8 +23,8 @@ pub use tool_output::{CLEARED_TOOL_RESULT_PREFIX, ToolOutputPrune};
 
 use crate::context::{DEFAULT_RESERVE_TOKENS, estimate_context_tokens, prune_cut_index};
 use pipi_protocol::compaction::normalize_threshold_percent;
+use pipi_protocol::provider::Provider;
 use pipi_protocol::{AbortSignal, Message, Model, StreamOptions, Usage};
-use pipi_provider::Provider;
 
 /// 保留近期原文轮次的 token 预算（对齐 pi 的 keepRecentTokens 默认值）。
 pub const KEEP_RECENT_TOKENS: u64 = 20_000;

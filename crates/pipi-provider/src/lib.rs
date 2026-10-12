@@ -42,12 +42,11 @@ mod classify;
 
 use classify::{RetryVerdict, classify_rig_error};
 use pipi_error::RetryHint;
+use pipi_protocol::provider::{EventStream, Provider};
 use pipi_protocol::{
     AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
     StreamOptions, ToolResultContent, Usage,
 };
-
-pub type EventStream = mpsc::Receiver<StreamEvent>;
 
 /// provider 内部错误：只携带要写入事件流的安全消息和重试事实。是否重发始终由
 /// 调用方的 agent loop 决定，provider 本身不重试。
@@ -71,20 +70,6 @@ impl StreamError {
             retry: Some(hint.unwrap_or_else(RetryHint::plain)),
         }
     }
-}
-
-#[async_trait]
-pub trait Provider: Send + Sync {
-    /// 发起流式请求并立即返回事件接收端。HTTP/协议错误以 `StreamEvent::Error`
-    /// 终止；正常结束以 `StreamEvent::Done` 终止。channel 关闭（None）表示
-    /// 请求被中止或异常断开。
-    async fn stream(
-        &self,
-        model: &Model,
-        context: &Context,
-        options: &StreamOptions,
-        abort: AbortSignal,
-    ) -> EventStream;
 }
 
 pub fn provider_for(api: Api) -> std::sync::Arc<dyn Provider> {
