@@ -1,7 +1,7 @@
 node_modules/
 dist/
 target/
-src-tauri/gen/schemas
+crates/pipi/gen/schemas
 *.local
 .DS_Store
 

@@ -12,7 +12,7 @@ members = [
     "crates/pipi-agent",
     "crates/pipi-core",
     "crates/xtask",
-    "src-tauri",
+    "crates/pipi",
 ]
 
 # 版本与 edition 只在这里写一次，成员用 `version.workspace = true` 继承。

@@ -19,9 +19,9 @@ function rustType(input: string): string {
   return aliases[value];
 }
 
-/** 共享命令表：crates/pipi-app/src/commands.rs 是宿主命令的唯一事实来源。 */
+/** 共享命令表：crates/pipi-core/src/commands.rs 是宿主命令的唯一事实来源。 */
 function sharedCommands() {
-  const source = read("crates/pipi-app/src/commands.rs");
+  const source = read("crates/pipi-core/src/commands.rs");
   const commandNames = [...source
     .match(/pub const COMMANDS: &\[&str\] = &\[([\s\S]*?)\];/)![1]
     .matchAll(/"(\w+)"/g)].map(match => match[1]);
@@ -78,10 +78,10 @@ test("shared command table matches the typed IPC map, the Tauri shells and the W
   for (const name of typed.keys()) assert.ok(commands.has(name), `commands.rs 缺少命令 ${name}`);
 
   // 桌面壳：每个命令一个 #[tauri::command] 薄壳，且转发到同名共享函数。
-  const tauriFiles = ["src-tauri/src/commands.rs", "src-tauri/src/chat.rs"];
+  const tauriFiles = ["crates/pipi/src/commands.rs", "crates/pipi/src/chat.rs"];
   const declared = tauriFiles.flatMap(file => [...read(file).matchAll(/#\[tauri::command\]\s*pub (?:async )?fn (\w+)\(/g)].map(match => match[1]));
   assert.deepEqual(declared.sort(), [...commandNames].sort(), "Tauri 壳必须声明全部宿主命令");
-  const forwarded = tauriFiles.flatMap(file => [...read(file).matchAll(/pipi_app::commands::(\w+)/g)].map(match => match[1]));
+  const forwarded = tauriFiles.flatMap(file => [...read(file).matchAll(/pipi_core::commands::(\w+)/g)].map(match => match[1]));
   assert.deepEqual([...new Set(forwarded)].sort(), [...commandNames].sort(), "Tauri 壳必须转发到共享函数");
 
   // Web 端：dispatch 表覆盖全部命令，每个分支调用同名共享函数。
@@ -94,13 +94,13 @@ test("shared command table matches the typed IPC map, the Tauri shells and the W
     assert.ok(body.includes(`${arm[1]}(`), `dispatch 的 ${arm[1]} 分支未调用同名函数`);
   });
 
-  const registrations = read("src-tauri/src/lib.rs").match(/generate_handler!\[([\s\S]*?)\]/)?.[1];
+  const registrations = read("crates/pipi/src/lib.rs").match(/generate_handler!\[([\s\S]*?)\]/)?.[1];
   assert.ok(registrations);
   const registered = [...registrations.matchAll(/(?:chat|commands)::(\w+)/g)].map(match => match[1]);
   assert.deepEqual(registered.sort(), [...commandNames].sort(), "Tauri 注册表必须覆盖全部命令");
 
-  const web = read("crates/pipi-server/src/main.rs");
-  assert.match(web, /pipi_app::commands::dispatch\(/, "Web 端必须调用共享 dispatch");
+  const web = read("crates/pipi-core/src/server/mod.rs");
+  assert.match(web, /crate::commands::dispatch\(/, "Web 端必须调用共享 dispatch");
   assert.doesNotMatch(web, /fn (?:required|optional)_(?:string|value)\(/, "Web 端不得再手写参数解析");
 });
 

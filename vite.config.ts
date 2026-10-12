@@ -20,7 +20,7 @@ export default defineConfig({
     host: true,
     // 忽略 Rust 构建产物、桌面壳与上游源码快照：数量庞大且无需 HMR
     //（target/ 与 reference/ 都会耗尽 inotify watch → ENOSPC 直接打挂 dev server）
-    watch: { ignored: ["**/src-tauri/**", "**/target/**", "**/reference/**"] },
+    watch: { ignored: ["**/crates/pipi/**", "**/target/**", "**/reference/**"] },
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   // reference/ 内的上游 HTML 不是应用入口，避免扫描它们的独立依赖树。

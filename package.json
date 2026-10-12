@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "test:frontend": "node --experimental-strip-types --test --experimental-test-isolation=none tests/*.test.ts",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev --config crates/pipi/tauri.conf.json",
+    "tauri:build": "tauri build --config crates/pipi/tauri.conf.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
