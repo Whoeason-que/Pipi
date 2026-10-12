@@ -60,7 +60,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
 
     // 被中断的会话：user → assistant(tool_calls)，结果没落盘（进程被杀）
     let session_id = {
-        let mut writer = pipi_agent::session::SessionWriter::create(&sessions_dir).unwrap();
+        let mut writer = pipi_session::SessionWriter::create(&sessions_dir).unwrap();
         writer
             .append_message(&Message::user_text("跑一下"))
             .unwrap();
@@ -107,7 +107,7 @@ async fn opening_a_session_repairs_interrupted_tail_once() {
 
     // 落盘：重新从文件读取也是配对完整的（自愈写回，不只是内存）
     let path = sessions_dir.join(format!("{session_id}.jsonl"));
-    let entries = pipi_agent::session::load_session(&path).unwrap();
+    let entries = pipi_session::load_session(&path).unwrap();
     let rebuilt =
         pipi_protocol::session::rebuild_messages(&pipi_protocol::session::active_path(&entries));
     assert_eq!(
@@ -164,7 +164,7 @@ async fn completed_tail_is_left_untouched() {
     let sessions_dir = definition.sessions_dir().unwrap();
 
     let session_id = {
-        let mut writer = pipi_agent::session::SessionWriter::create(&sessions_dir).unwrap();
+        let mut writer = pipi_session::SessionWriter::create(&sessions_dir).unwrap();
         writer.append_message(&Message::user_text("你好")).unwrap();
         writer
             .append_message(&Message::assistant_text("回复", "m"))

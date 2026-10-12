@@ -10,8 +10,7 @@
 //! | [`agent_loop`] | 主循环 + steering/follow-up + 工具批次执行 | `packages/agent/src/agent-loop.ts` |
 //! | [`context`] | token 估算 / 裁剪 / 环境上下文 | `harness/compaction`（启发式部分） |
 //! | [`compaction`] | 摘要替换旧轮次 + 旧工具输出清理 | `harness/compaction`（LLM 摘要） |
-//! | [`session`] | 树状 JSONL 条目（append-only、可分叉） | `harness/session` |
-//! | [`retry`] | 可重试错误的退避决策 | （Pipi 新增） |
+//! //! | [`retry`] | 可重试错误的退避决策 | （Pipi 新增） |
 //! | [`stats`] | 会话统计（滚动窗口、命中率） | hermes 口径，见 README |
 //!
 //! 不属于这里的：Agent 定义与 av 契约、技能中心、模型目录、设置（`pipi-core` /
@@ -21,7 +20,6 @@ pub mod agent_loop;
 pub mod compaction;
 pub mod context;
 pub mod retry;
-pub mod session;
 pub mod stats;
 
 #[cfg(test)]

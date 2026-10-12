@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 /// 临时唯一 ID：只用于临时目录命名与测试 fixture，**不是**任何持久化身份
-/// （Agent/session 的 JSONL id 由 `pipi_agent::session::new_id` 负责）。
+/// （Agent/session 的 JSONL id 由 `pipi_protocol::new_id` 负责）。
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }

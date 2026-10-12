@@ -1,10 +1,12 @@
-//! JSONL 载体的实现（写入侧账本与会话仓库）。
+//! 会话载体：一个 Agent 的会话存储实现。
 //!
 //! 会话的**格式与语义**（条目模型、回放规则）与**两个端口**
-//! （`SessionLog` / `SessionRepo`）在 `pipi_protocol::session`；本模块只放
-//! 今天唯一载体的实现：树状 JSONL 文件，append-only，崩溃安全。
+//! （`SessionLog` / `SessionRepo`）在 `pipi_protocol::session`；这里只放实现：
 //!
-//! 换载体（如 git 分支）时，格式、端口与调用点都不动 —— 只加实现。
+//! - [`SessionWriter`] / [`JsonlSessionRepo`]：树状 JSONL 文件，append-only，
+//!   崩溃安全（今天的唯一载体）；
+//! - 第二个载体（git 分支，见 `docs/git-session-store.md`）也落在这个 crate ——
+//!   格式、端口与调用点都不动，宿主侧的装配点（`runtime/store.rs`）选实现。
 
 use pipi_protocol::session::{EntryKind, SessionEntry};
 

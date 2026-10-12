@@ -4,6 +4,7 @@ members = [
     "crates/av",
     "crates/pipi-error",
     "crates/pipi-protocol",
+    "crates/pipi-session",
     "crates/pipi-tools",
     "crates/pipi-harness",
     "crates/pipi-provider",
@@ -42,6 +43,7 @@ pipi-core = { path = "crates/pipi-core" }
 pipi-error = { path = "crates/pipi-error" }
 pipi-harness = { path = "crates/pipi-harness" }
 pipi-protocol = { path = "crates/pipi-protocol" }
+pipi-session = { path = "crates/pipi-session" }
 pipi-skills = { path = "crates/pipi-skills" }
 pipi-provider = { path = "crates/pipi-provider" }
 pipi-test-support = { path = "crates/pipi-test-support" }

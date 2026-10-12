@@ -15,13 +15,13 @@ use crate::agents;
 use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundAgentTaskSpec, BackgroundTaskOwner, BackgroundTaskService,
 };
-use pipi_agent::session::JsonlSessionRepo;
 use pipi_protocol::permissions::{BACKGROUND_TASK_TOOLS, DEFAULT_TOOLS};
 use pipi_protocol::session::{SessionRepo, active_path, rebuild_messages};
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, ContentBlock, Message, Model, StopReason, ToolResultContent,
 };
+use pipi_session::JsonlSessionRepo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

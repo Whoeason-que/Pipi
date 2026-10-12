@@ -42,6 +42,12 @@ dev-may-depend-on = ["pipi-test-support"]
 # tokio 只允许 sync（Provider 端口的事件流通道）；rt / net / time 不得出现。
 forbid = ["av", "pipi-tools", "pipi-core", "pipi-agent", "reqwest", "rig"]
 
+# 会话载体：JSONL 文件（未来的 git 分支同属这里）。只实现协议层的存储端口；
+# 唯一允许 spawn git 的 crate（见 docs/git-session-store.md）。
+[crates.pipi-session]
+may-depend-on = ["pipi-protocol"]
+dev-may-depend-on = ["pipi-test-support"]
+
 # 内置工具与权限：只依赖协议（测试用 pipi-test-support 的临时 ID / 环境助手）。
 [crates.pipi-tools]
 may-depend-on = ["pipi-protocol"]
@@ -54,13 +60,13 @@ may-depend-on = ["pipi-error", "pipi-protocol"]
 # 引擎：主循环 / 上下文 / 重试 / 统计 / 会话存储 / 压缩。
 # 不依赖 av（不碰 agent.toml 契约）、不直连网络：provider 只以契约层的端口出现。
 [crates.pipi-agent]
-may-depend-on = ["pipi-error", "pipi-protocol", "pipi-tools", "pipi-harness"]
-dev-may-depend-on = ["pipi-provider", "pipi-test-support"]
+may-depend-on = ["pipi-error", "pipi-protocol", "pipi-harness"]
+dev-may-depend-on = ["pipi-provider", "pipi-session", "pipi-test-support"]
 forbid = ["av", "reqwest"]
 
 # 领域层：Agent 注册表与 av 契约、设置、Agent 组合工具。网络目录不在这一层。
 [crates.pipi-core]
-may-depend-on = ["av", "pipi-agent", "pipi-protocol", "pipi-tools", "pipi-harness"]
+may-depend-on = ["av", "pipi-agent", "pipi-protocol", "pipi-session", "pipi-tools", "pipi-harness"]
 dev-may-depend-on = ["pipi-test-support"]
 forbid = ["reqwest"]
 
@@ -83,6 +89,7 @@ may-depend-on = [
     "pipi-core",
     "pipi-protocol",
     "pipi-provider",
+    "pipi-session",
     "pipi-skills",
     "pipi-tools",
 ]

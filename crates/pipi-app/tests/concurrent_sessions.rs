@@ -15,12 +15,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pipi_agent::session::SessionWriter;
 use pipi_app::events::{EventEmitter, RuntimeEvent};
 use pipi_app::runtime::RuntimeState;
 use pipi_core::agents;
 use pipi_core::settings::{ProviderConfig, Settings, Theme, save_settings};
 use pipi_protocol::{Api, Message, Model};
+use pipi_session::SessionWriter;
 
 /// 本文件的用例都改写进程级 `HOME`，必须串行执行（同 `session_repair.rs`）。
 static HOME_LOCK: Mutex<()> = Mutex::new(());

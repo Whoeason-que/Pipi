@@ -904,7 +904,7 @@ mod tests {
         append_child_timeout_terminal(&repo, &writer, &model, std::time::Duration::from_secs(1))
             .unwrap();
 
-        let entries = pipi_agent::session::load_session(&path).unwrap();
+        let entries = pipi_session::load_session(&path).unwrap();
         let messages = pipi_protocol::session::rebuild_messages(
             &pipi_protocol::session::active_path(&entries),
         );

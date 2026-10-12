@@ -9,10 +9,10 @@
 
 use pipi_agent::compaction::{Budget, project};
 use pipi_agent::context::estimate_context_tokens;
-use pipi_agent::session::load_session;
 use pipi_protocol::compaction::DEFAULT_THRESHOLD_PERCENT;
 use pipi_protocol::session::{active_path, replay};
 use pipi_protocol::{ContentBlock, Message, StopReason, ToolResultContent};
+use pipi_session::load_session;
 
 // ---------------------------------------------------------------------------
 // 合成语料

@@ -289,7 +289,7 @@ mod tests {
     use pipi_protocol::Usage;
     use pipi_protocol::session::{active_model_from_entries, rebuild_messages, summary_text};
 
-    use crate::session::{fork_session, list_session_summaries};
+    use crate::{fork_session, list_session_summaries};
 
     #[test]
     fn temporary_writer_keeps_ledger_state_without_a_file() {

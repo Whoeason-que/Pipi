@@ -33,7 +33,7 @@ mod tests {
     use pipi_protocol::Message;
     use pipi_protocol::session::{CompactionRecord, active_path, rebuild_messages, summary_text};
 
-    use crate::session::SessionWriter;
+    use crate::SessionWriter;
 
     #[test]
     fn load_skips_corrupt_lines() {

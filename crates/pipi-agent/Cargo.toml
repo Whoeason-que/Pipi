@@ -8,7 +8,6 @@ description = "Pipi Agent 引擎：主循环、上下文预算、重试、统计
 [dependencies]
 pipi-error = { workspace = true }
 pipi-protocol = { workspace = true }
-pipi-tools = { workspace = true }
 pipi-harness = { workspace = true }
 fastrand = { workspace = true }
 futures-util = { workspace = true }
@@ -20,4 +19,5 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", 
 async-trait = { workspace = true }
 # 只有测试需要具体 provider（生产代码只依赖协议层的 Provider 端口）
 pipi-provider = { workspace = true }
+pipi-session = { workspace = true }
 pipi-test-support = { workspace = true }

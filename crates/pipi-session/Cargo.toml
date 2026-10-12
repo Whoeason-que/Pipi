@@ -1,0 +1,13 @@
+[package]
+name = "pipi-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Pipi 的会话载体实现：JSONL 文件（未来的 git 分支也落在这里）"
+
+[dependencies]
+pipi-protocol = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+pipi-test-support = { workspace = true }

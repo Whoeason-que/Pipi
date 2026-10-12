@@ -11,6 +11,7 @@ description = "Pipi 领域层：Agent 定义与 av 契约、设置与 Agent 组�
 av = { workspace = true }
 pipi-agent = { workspace = true }
 pipi-protocol = { workspace = true }
+pipi-session = { workspace = true }
 pipi-tools = { workspace = true }
 pipi-harness = { workspace = true }
 serde = { workspace = true }

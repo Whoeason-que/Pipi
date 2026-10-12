@@ -5827,8 +5827,8 @@ dependencies = [
  "pipi-harness",
  "pipi-protocol",
  "pipi-provider",
+ "pipi-session",
  "pipi-test-support",
- "pipi-tools",
  "serde",
  "serde_json",
  "tokio",
@@ -5845,6 +5845,7 @@ dependencies = [
  "pipi-core",
  "pipi-protocol",
  "pipi-provider",
+ "pipi-session",
  "pipi-skills",
  "pipi-test-support",
  "pipi-tools",
@@ -5876,6 +5877,7 @@ dependencies = [
  "pipi-agent",
  "pipi-harness",
  "pipi-protocol",
+ "pipi-session",
  "pipi-test-support",
  "pipi-tools",
  "serde",
@@ -5945,6 +5947,15 @@ dependencies = [
  "tokio",
  "tower",
  "tower-http 0.7.1",
+]
+
+[[package]]
+name = "pipi-session"
+version = "26.9.3"
+dependencies = [
+ "pipi-protocol",
+ "pipi-test-support",
+ "serde_json",
 ]
 
 [[package]]
