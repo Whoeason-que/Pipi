@@ -282,6 +282,15 @@ mod tests {
     use super::*;
     use pipi_protocol::session::EnvDeclared;
 
+    /// 断言被拒绝并取出错误消息。用 match 而非 `unwrap_err`：`Result<Box<dyn
+    /// SessionLog>, _>` 的 Ok 侧没有 `Debug`，解不开。
+    fn rejection<T>(what: &str, result: Result<T, String>) -> String {
+        match result {
+            Err(error) => error,
+            Ok(_) => panic!("{what} 必须拒绝符号链接"),
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn symlinked_session_file_is_rejected() {
@@ -296,10 +305,10 @@ mod tests {
         std::os::unix::fs::symlink(&real, &link).unwrap();
         let repo = JsonlSessionRepo::new(dir.clone());
         let errors = [
-            repo.exists("linked").err().expect("exists 必须拒绝符号链接"),
-            repo.entries("linked").err().expect("entries 必须拒绝符号链接"),
-            repo.open("linked").err().expect("open 必须拒绝符号链接"),
-            repo.fork("linked", None).err().expect("fork 必须拒绝符号链接"),
+            rejection("exists", repo.exists("linked")),
+            rejection("entries", repo.entries("linked")),
+            rejection("open", repo.open("linked")),
+            rejection("fork", repo.fork("linked", None)),
         ];
         for error in errors {
             assert!(error.contains("不能是符号链接"), "{error}");
@@ -319,10 +328,10 @@ mod tests {
         let link = parent.join("sessions");
         std::os::unix::fs::symlink(&outside, &link).unwrap();
 
-        let error = JsonlSessionRepo::new(link)
-            .exists("anything")
-            .err()
-            .expect("sessions 目录是符号链接时必须拒绝");
+        let error = rejection(
+            "sessions 目录",
+            JsonlSessionRepo::new(link).exists("anything"),
+        );
         assert!(error.contains("不能是符号链接"), "{error}");
     }
 
