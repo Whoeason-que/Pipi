@@ -1,10 +1,9 @@
 //! 上下文预算（纯函数）：token 估算、裁剪、工具配对修复。
 //!
-//! - `estimate_tokens` / `prune_oldest` 移植自
+//! - `estimate_tokens` / `prune_cut_index` 移植自
 //!   `packages/agent/src/harness/compaction/compaction.ts` 的启发式部分
 //!   （chars/4、图片按 4800 chars 计）。上游的完整 compaction 用 LLM 做
-//!   摘要替换，属「有意推迟」；这里是 M1 的保底策略：超预算时从最旧的
-//!   完整轮次开始丢弃。
+//!   摘要替换，属「有意推迟」；这里的切点规则由压缩管线（`compaction`）使用。
 //! - 环境上下文的注入（`environment_context`，移植自 codex）随提示词层落在
 //!   `pipi-venv/src/prompt/environment.rs` —— 这个 crate 只做策略，不装配提示词。
 
@@ -70,7 +69,7 @@ pub fn estimate_context_tokens(messages: &[Message]) -> u64 {
 /// 处理路径）。
 ///
 /// 投影式压缩策略（如旧工具输出清理）需要「切在哪」而不是「切完是什么」，
-/// 所以决策与执行分开：`prune_oldest` 也走这里，规则只有一份。
+/// 所以决策与执行分开：本函数只回答切点，应用由调用方（`compaction`）完成。
 pub fn prune_cut_index(messages: &[Message], budget_tokens: u64) -> Option<usize> {
     let budget = budget_tokens;
     let total = estimate_context_tokens(messages);
@@ -90,20 +89,6 @@ pub fn prune_cut_index(messages: &[Message], budget_tokens: u64) -> Option<usize
         cum += estimate_tokens(message);
     }
     None
-}
-
-/// 保底裁剪：从最旧的**完整轮次**开始丢弃，直到尾部预算 ≤ 上限。
-/// 返回 (裁剪后消息, 丢弃条数)。切点规则见 [`prune_cut_index`]。
-pub fn prune_oldest(messages: &[Message], budget_tokens: u64) -> (Vec<Message>, usize) {
-    match prune_cut_index(messages, budget_tokens) {
-        Some(i) => (messages[i..].to_vec(), i),
-        None => (messages.to_vec(), 0),
-    }
-}
-
-/// 生成供 loop 用的裁剪 transform（pi 的 transformContext 钩子的默认实现）。
-pub fn prune_transform(budget_tokens: u64) -> impl Fn(Vec<Message>) -> Vec<Message> + Send + Sync {
-    move |messages| prune_oldest(&messages, budget_tokens).0
 }
 
 /// 结果缺失时写给模型看的合成 tool 结果文案（发送前修复与载入自愈共用）。
@@ -220,13 +205,12 @@ mod tests {
             assistant_text("answer"),
         ];
         // 预算只够放下后两条
-        let (pruned, dropped) = prune_oldest(&messages, 900);
-        assert_eq!(dropped, 3);
-        assert_eq!(pruned.len(), 2);
-        assert_eq!(pruned[0].role(), "user");
+        let cut = prune_cut_index(&messages, 900).expect("超预算应给切点");
+        assert_eq!(cut, 3);
+        assert_eq!(messages[cut].role(), "user");
+        assert_eq!(messages.len() - cut, 2);
         // 预算充足：不动
-        let (pruned, dropped) = prune_oldest(&messages, 99_900);
-        assert_eq!((pruned.len(), dropped), (5, 0));
+        assert_eq!(prune_cut_index(&messages, 99_900), None);
     }
 
     #[test]
@@ -237,8 +221,7 @@ mod tests {
             assistant_text(&"y".repeat(10_000)),
             tool_result("t1", "bash", &"z".repeat(10_000)),
         ];
-        let (pruned, dropped) = prune_oldest(&messages, 500);
-        assert_eq!((pruned.len(), dropped), (3, 0));
+        assert_eq!(prune_cut_index(&messages, 500), None);
     }
 
     fn assistant_with_calls(calls: &[(&str, &str)]) -> Message {

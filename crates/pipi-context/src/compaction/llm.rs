@@ -71,7 +71,7 @@ impl Replacement for LlmSummarize {
 }
 
 /// 找到保留尾部的切点：从尾部向前累计预算，切点只落在 user 消息边界
-/// （`prune_oldest` 的镜像逻辑：前者从头找能保留的尾，这里从尾找该丢的头）。
+/// （`prune_cut_index` 的镜像逻辑：前者从头找能保留的尾，这里从尾找该丢的头）。
 /// 返回 `None` 表示整段历史都在预算内（无需压缩）；返回 `Some(len)` 表示
 /// 尾部无可行 user 边界，保留空段（全部摘要化，由摘要自身兜底）。
 pub(super) fn find_keep_start(messages: &[Message], budget_tokens: u64) -> Option<usize> {

@@ -870,7 +870,6 @@ mod tests {
 
     #[tokio::test]
     async fn transform_context_prunes_before_llm_call() {
-        use pipi_context::context::prune_transform;
         use std::sync::atomic::AtomicUsize;
 
         // 记录 provider 每次看到的请求长度；第一轮结束后推 follow-up
@@ -912,7 +911,12 @@ mod tests {
         let mut config = test_config(provider, registry, None);
         config.follow_up = follow_up;
         // 预算很小：第二次调用时历史超限，transform 应裁掉旧轮次
-        config.transform_context = Some(Arc::new(prune_transform(80)));
+        config.transform_context = Some(Arc::new(|messages| {
+            match pipi_context::context::prune_cut_index(&messages, 80) {
+                Some(cut) => messages[cut..].to_vec(),
+                None => messages,
+            }
+        }));
         let emit: Emitter = Arc::new(|_| {});
 
         run_agent_loop(
