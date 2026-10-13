@@ -8,7 +8,7 @@ pub fn list_sessions(agent_name: &str) -> Result<Vec<SessionSummary>, String> {
 }
 
 impl RuntimeState {
-    /// 从会话文件载入一条会话（含尾部自愈与账本重建）。不插入 map —— 调用方
+    /// 从会话载体读回并载入一条会话（账本重建）。不插入 map —— 调用方
     /// 在全部前置步骤成功后再插入。
     pub(super) fn load_session_object(
         def: &AgentDefinition,
@@ -58,7 +58,7 @@ impl RuntimeState {
         ))
     }
     fn create_test_session_object(def: &AgentDefinition) -> (HostSession, String) {
-        let log = Box::new(SessionWriter::temporary());
+        let log = Box::new(MemoryLog::new());
         let id = log.session_id().to_string();
         let engine = AgentSession::create(
             SessionStorage { log, repo: None },

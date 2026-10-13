@@ -49,7 +49,8 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
     │   └── memory/         #   持久记忆（Markdown，人机共写）
     ├── workspace/          # Agent 目录内的默认工作区（也可指向任意本地路径）
     ├── jobs/               # 托管后台任务的状态 JSONL 与完整输出日志
-    └── sessions/           # 运行记录（JSONL，append-only）
+    ├── sessions.git/       # 会话载体：git 分支（一轮一个 commit，`git log` 即对话）
+    └── sessions/           # 旧会话文件（JSONL）：仅显式导入 git 时读取，导入后改名 .jsonl.imported 保留
 ```
 
 全局技能 store 由 av 独立管理（`AV_HOME` 可覆盖，默认 `~/.av`）：
@@ -104,7 +105,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 请求重试 | `settings.json` → `retry` | 可重试错误的重发策略：`maxAttempts`（含首次，1 = 不重试）/ `baseDelayMs` / `maxDelayMs`；默认 3 次尝试、1s 起指数退避、30s 封顶、25% 抖动，尊重 `Retry-After` |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 环境契约 | `agent.toml`（Agent 定义目录，**必需**；项目根可选）+ `agent.local.toml` + `agent.lock` | av 标准：env 声明、工具链断言、资源覆盖与技能包管理（`av skill`）；**Agent 层契约还负责编排 Agent 侧素材的路径**（`instructions` / `memory` / `skills.sources` 三项必须显式声明，`[]` = 不要），项目层不得声明 `memory`；会话启动解析一次，秘密值永不内联 |
-| 会话 | `sessions.git/`（git 分支） | 一轮一个 commit，一条 entry 一个文件（内容就是那一行 JSON）；压缩＝新建分支、`git log` 即对话。旧 `sessions/*.jsonl` 会话照旧可读可续写，导入后迁到 git（Agent 工作台「文件」页） |
+| 会话 | `sessions.git/`（git 分支） | 一轮一个 commit，一条 entry 一个文件（内容就是那一行 JSON）；压缩＝新建分支、`git log` 即对话。旧 `sessions/*.jsonl` 只经 Agent 工作台「文件」页的显式导入迁到分支（原文件改名保留），运行时不再直接读它们 |
 | 后台任务 | `jobs/<job-id>.jsonl` + `.log` | shell 进程与 child Agent 的生命周期、状态和输出；任务按 Agent/session 所有，重启只显示 orphaned，不按旧 PID 或 future 自动接管 |
 
 ### 默认 Agent
@@ -218,7 +219,7 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 │                                      │  / 技能中心 / 纯提示词层
 ├──────────────────────────────────────┤
 │  pipi-protocol  契约层               │  DTO + 会话条目格式 + 端口（唯一被所有层依赖）
-│  pipi-session   会话载体             │  git 分支（一轮一 commit）+ 旧 JSONL 兼容
+│  pipi-session   会话载体             │  git 分支（一轮一 commit）+ 旧会话导入
 │  pipi-tools     工具实现             │  内置工具 + bash 权限策略
 │  pipi-provider  模型面               │  rig 适配 + models.dev 目录（唯一 HTTP）
 │  pipi-error     错误语义             │  错误码与 RetryHint
@@ -229,7 +230,7 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 `(Agent 名, sessionId)` 路由到 `session-controller.ts`。控制器负责历史快照、
 run 代际、停止确认与压缩重键；`Chat.tsx` 只持有输入、滚动和检查器等界面状态。
 退出或卸载视图不会中止运行。实际运行状态仍由 Rust 会话守卫与 `session_infos`
-确认，持久历史仍来自 JSONL；前端缓存不设置运行会话数量上限。
+确认，持久历史仍来自会话载体（git 分支）；前端缓存不设置运行会话数量上限。
 
 `pipi_agent::session::AgentSession` 拥有单会话的消息、账本、模型绑定、统计、
 运行守卫与 abort / steering。宿主注入存储端口、provider、工具与已解析的预算和选项；
@@ -373,7 +374,7 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
 | `packages/agent` harness/tools | `pipi-tools` + `pipi-core::tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/glob/grep；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
 | `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness prompt/resources | `pipi-venv::prompt` | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
-| `packages/agent` harness/session | `pipi-protocol::session`（条目格式与回放）+ `pipi-session`（载体） | 树状 Entry（id/parentId/seq）；载体默认是 git 分支（一轮一 commit，压缩＝建分支），旧 JSONL 文件按 id 兼容；Pipi 增量新增 `compaction` 条目类型 |
+| `packages/agent` harness/session | `pipi-protocol::session`（条目格式与回放）+ `pipi-session`（载体） | 树状 Entry（id/parentId/seq）；载体是 git 分支（一轮一 commit，压缩＝建分支），旧 JSONL 文件只经显式导入迁移；Pipi 增量新增 `compaction` 条目类型 |
 | `packages/agent` harness/runtime | `pipi-agent::session` | 单会话生命周期、运行守卫、历史恢复、累计用量和压缩持久化；通过协议端口注入能力 |
 | （Pipi 应用层） | `pipi-core::runtime` | 会话槽、后台 Agent 编排和宿主事件协议；Tauri 与 Web server 共用，IPC payload 不变 |
 | `packages/agent` compaction（启发式） | `pipi-context::context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
@@ -618,7 +619,7 @@ Pipi 也可以把 React 前端和宿主运行时以浏览器服务方式启动�
 - [x] **M2 — Agent 管理**：UI 全字段编辑 `agent.json` / `harness/AGENTS.md` 双向同步，memory 渐进召回（索引常驻 + 按需读取）
 - [ ] **M3 — Skills 与 MCP**：Skills 渐进注入已实现；技能库与 Agent 技能页已接线（安装 / 校验 / 启用 / 同步）；stdio MCP 服务器接入未动
 - [x] **M4（部分）— 会话树状分叉**：`fork_session` 已实现并接线 UI；LLM 摘要式 compaction 已实现（turn 边界触发，摘要落盘可回放）。模板市场、多语言未动
-- [x] **M5 — 会话进 git**：会话载体从 JSONL 换成 git 分支（一轮一个 commit，`git log` 即对话、压缩＝新建分支、`git bundle` 可分发）；旧会话照旧可读，Agent 工作台「文件」页可一键导入（逐条校验、幂等、原文件保留）
+- [x] **M5 — 会话进 git**：会话载体从 JSONL 换成 git 分支（一轮一个 commit，`git log` 即对话、压缩＝新建分支、`git bundle` 可分发）；旧会话经显式导入迁到分支（Agent 工作台「文件」页，逐条校验、幂等、原文件保留）。2026-10-13 单轨化：JSONL 载体删除，git 分支成为唯一载体
 
 ## 致谢
 

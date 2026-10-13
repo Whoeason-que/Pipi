@@ -1,11 +1,9 @@
 //! git 载体的写侧：条目先进内存缓冲，提交点用一次 `fast-import` 落盘。
 //!
-//! [`GitSink`] 是 [`SessionLog`] 的 git 实现。与 JSONL 的 [`SessionWriter`]
-//! 相比，唯一的行为差别是**持久化时机**：append 只进缓冲（O2：一轮一个
+//! [`GitSink`] 是 [`SessionLog`] 的 git 实现：append 只进缓冲（O2：一轮一个
 //! commit），由运行时在提交点调用 `commit_point` 固化 —— 提交失败时缓冲
-//! 原样保留（内存状态不前进），下一次提交会把它一起带上。
-//!
-//! [`SessionWriter`]: crate::SessionWriter
+//! 原样保留（内存状态不前进），下一次提交会把它一起带上。内存账本
+//! （[`crate::MemoryLog`]）与之共享同一套账本推进规则，差别只在持久化。
 
 use std::sync::Arc;
 

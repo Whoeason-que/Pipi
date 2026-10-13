@@ -19,10 +19,10 @@ use pipi_agent::session::{
     AbortPolicy, AgentSession, CompactionPolicy, CompactionRequest, RunRequest, RunTimeout,
     SessionEvent, SessionEventKind, SessionHooks, SessionStorage,
 };
-use pipi_protocol::session::{SessionRepo, SessionSummary, validate_session_id};
+use pipi_protocol::session::{SessionLog, SessionRepo, SessionSummary, validate_session_id};
 use pipi_protocol::{AbortSignal, Message, Model, StreamOptions};
 use pipi_provider::provider_for;
-use pipi_session::SessionWriter;
+use pipi_session::MemoryLog;
 use pipi_venv::agents::{self, AgentDefinition};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -97,7 +97,7 @@ use store::session_repo;
 pub struct SessionInfo {
     pub agent_name: String,
     pub session_id: String,
-    /// true = 设置工作台的内存测试会话，不对应 sessions/*.jsonl。
+    /// true = 设置工作台的内存测试会话，不对应任何落盘会话。
     pub temporary: bool,
     pub running: bool,
     /// 该 session 当前仍在运行的托管后台任务数；它们会阻止会话槽被释放。

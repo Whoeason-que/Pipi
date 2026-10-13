@@ -5,7 +5,7 @@
 //! 2. **同一个 Agent 的多条会话同时跑**（每条独立，互不顶掉）；
 //! 3. 守卫按会话：同一条会话的第二轮被拒，别的会话照跑；
 //! 4. `stop_run` / `new_session` 的作用域：只停指定那条、只释放空闲的；
-//! 5. 事件带身份、各写各的会话文件，互不串。
+//! 5. 事件带身份、各写各的会话线，互不串。
 //!
 //! 端点：接受连接后先回一个内容分片再保持静默 —— 让各轮都停在半途，
 //! 「都 running」才是一个真实可观察的状态。
@@ -22,7 +22,7 @@ use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
 use pipi_protocol::session::SessionRepo;
 use pipi_protocol::{Api, Message, Model};
-use pipi_session::SessionWriter;
+use pipi_session::GitSessionRepo;
 use pipi_venv::agents;
 
 fn read_request(stream: &mut std::net::TcpStream) -> String {
@@ -221,22 +221,13 @@ fn any_session_running(state: &RuntimeState, agent_name: &str) -> bool {
         .any(|info| info.agent_name == agent_name && info.running)
 }
 
-/// 往该 Agent 的会话目录里预置一条带历史的会话文件，返回它的 id。
+/// 往该 Agent 的会话载体里预置一条带历史的会话（git 分支），返回它的 id。
 fn seed_session(agent_name: &str, prompt: &str) -> String {
-    let sessions_dir = agents::load_agent(agent_name)
-        .expect("加载 Agent")
-        .sessions_dir()
-        .expect("会话目录");
-    let mut writer = SessionWriter::create(&sessions_dir).expect("创建会话文件");
-    writer
-        .append_message(&Message::user_text(prompt))
+    let mut sink = agent_repo(agent_name).create().expect("创建会话");
+    sink.append_message(&Message::user_text(prompt))
         .expect("写入种子消息");
-    writer
-        .path()
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .expect("会话 id")
-        .to_string()
+    sink.commit_point().expect("提交种子会话");
+    sink.session_id().to_string()
 }
 
 /// 记录事件种类的共享 sink：用来验证事件不串。
@@ -290,16 +281,21 @@ fn wait_until(deadline_ms: u64, mut condition: impl FnMut() -> bool) -> bool {
     condition()
 }
 
-/// 一个 Agent 的会话仓库（与运行时同源：git 分支 + 旧 JSONL 兼容）。
-fn agent_repo(agent_name: &str) -> pipi_session::AgentSessionRepo {
+/// 一个 Agent 的会话仓库（与运行时同源：git 分支）。
+fn agent_repo(agent_name: &str) -> GitSessionRepo {
     let sessions_dir = agents::load_agent(agent_name)
         .expect("加载 Agent")
         .sessions_dir()
         .expect("会话目录");
-    pipi_session::AgentSessionRepo::new(sessions_dir.parent().expect("Agent 目录"))
+    GitSessionRepo::new(
+        sessions_dir
+            .parent()
+            .expect("Agent 目录")
+            .join("sessions.git"),
+    )
 }
 
-/// 会话内容的文本视图：经载体端口读，不假设文件长什么样（新会话在 git 分支）。
+/// 会话内容的文本视图：经载体端口读，不假设持久层长什么样（会话在 git 分支上）。
 fn read_session_text(agent_name: &str, session_id: &str) -> String {
     serde_json::to_string(
         &agent_repo(agent_name)
@@ -421,18 +417,18 @@ fn multiple_agents_run_at_the_same_time_and_stop_independently() {
         assert!(belongs, "事件必须能归属到某条会话：{label}");
     }
 
-    // 各写各的文件：每个 Agent 的会话文件只含自己的输入
+    // 各写各的线：每个 Agent 的会话只含自己的输入
     for (index, name) in agents.iter().enumerate() {
         let text = read_session_text(name, &session_ids[index]);
         assert!(
             text.contains(prompts[index]),
-            "{name} 的文件应当有自己的输入"
+            "{name} 的会话应当有自己的输入"
         );
         for (other_index, prompt) in prompts.iter().enumerate() {
             if other_index != index {
                 assert!(
                     !text.contains(prompt),
-                    "{name} 的文件不应包含其他 Agent 的输入（{prompt}）"
+                    "{name} 的会话不应包含其他 Agent 的输入（{prompt}）"
                 );
             }
         }
@@ -536,14 +532,6 @@ fn same_agent_runs_two_sessions_in_parallel() {
         "停止第一条不应影响第二条"
     );
 
-    // 各写各的文件
-    let first_text = read_session_text("agent-solo", &first);
-    let second_text = read_session_text("agent-solo", &second);
-    assert!(first_text.contains("第一条：跑起来"), "{first_text}");
-    assert!(!first_text.contains("第二条：跑起来"), "{first_text}");
-    assert!(second_text.contains("第二条：也跑起来"), "{second_text}");
-    assert!(!second_text.contains("第一条：跑起来"), "{second_text}");
-
     // 事件带会话身份
     let labels: Vec<String> = events.lock().unwrap().clone();
     assert!(
@@ -564,6 +552,14 @@ fn same_agent_runs_two_sessions_in_parallel() {
         &state,
         "agent-solo"
     )));
+
+    // 各写各的线（都在轮末提交点之后读：进行中的一轮在缓冲里，不落盘）
+    let first_text = read_session_text("agent-solo", &first);
+    let second_text = read_session_text("agent-solo", &second);
+    assert!(first_text.contains("第一条：跑起来"), "{first_text}");
+    assert!(!first_text.contains("第二条：跑起来"), "{first_text}");
+    assert!(second_text.contains("第二条：也跑起来"), "{second_text}");
+    assert!(!second_text.contains("第一条：跑起来"), "{second_text}");
 
     let _ = std::fs::remove_dir_all(home);
 }
@@ -804,7 +800,7 @@ fn archive_and_delete_idle_open_sessions_without_leaving_view() {
 }
 
 /// 设置工作台的测试会话与正式会话共享运行时协议和并发守卫，但账本只在内存中：
-/// 不进入列表、不创建 jsonl，切页式 `new_session` 也不会把它释放。
+/// 不进入列表、不落盘，切页式 `new_session` 也不会把它释放。
 #[test]
 fn temporary_test_session_is_memory_only_and_independent() {
     let _guard = pipi_test_support::HOME_LOCK
@@ -860,7 +856,7 @@ fn temporary_test_session_is_memory_only_and_independent() {
         pipi_core::runtime::list_sessions("agent-test")
             .expect("读取正式会话列表")
             .is_empty(),
-        "运行多轮所用的用户消息也不能创建正式文件"
+        "运行多轮所用的用户消息也不能创建正式会话"
     );
 
     // 正式会话与临时测试是两条独立会话，可以同时运行。

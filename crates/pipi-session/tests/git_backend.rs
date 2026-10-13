@@ -4,15 +4,28 @@
 //! （「标准 git 工具能读到什么」是验收的一部分）。载体一致性由
 //! `tests/backend_conformance.rs` 盯，这里盯 git 特有的性质。
 
-use pipi_protocol::Message;
-use pipi_protocol::session::SessionRepo;
-use pipi_session::{GitExec, GitSessionRepo, SessionWriter, entry_path, load_session};
+use pipi_protocol::session::{EntryKind, SessionEntry, SessionRepo};
+use pipi_protocol::{Message, new_id, now_millis};
+use pipi_session::{GitExec, GitSessionRepo, entry_path, load_session};
 
 fn branch(id: &str) -> String {
     format!("refs/heads/session/{id}")
 }
 
-/// 造一条已落盘的 JSONL 会话，返回 (id, 文件路径, 条目)。
+/// 追加一条挂在当前 tip 上的条目（旧 JSONL 的行内容就是它）。
+fn push_entry(entries: &mut Vec<SessionEntry>, kind: EntryKind, timestamp: u64) {
+    let parent_id = entries.last().map(|entry| entry.id.clone());
+    entries.push(SessionEntry {
+        id: new_id(),
+        parent_id,
+        seq: entries.len() as u64,
+        timestamp,
+        kind,
+    });
+}
+
+/// 直接写一条落盘的 JSONL 会话（旧格式 = 导入读取的那一行 JSON），
+/// 返回 (id, 文件路径, 条目)。
 fn make_jsonl_session(
     dir: &std::path::Path,
 ) -> (
@@ -20,17 +33,40 @@ fn make_jsonl_session(
     std::path::PathBuf,
     Vec<pipi_protocol::session::SessionEntry>,
 ) {
-    let mut writer = SessionWriter::create(&dir.join("sessions")).unwrap();
-    writer
-        .append_message(&Message::user_text("第一轮：读一下 README"))
-        .unwrap();
-    writer
-        .append_message(&Message::assistant_text("好的", "mock"))
-        .unwrap();
-    writer.append_custom("mark").unwrap();
-    let id = writer.session_id().to_string();
-    let file = writer.path().to_path_buf();
-    drop(writer);
+    let id = format!("{}-{}", now_millis(), new_id());
+    let sessions = dir.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let file = sessions.join(format!("{id}.jsonl"));
+
+    let mut entries: Vec<SessionEntry> = Vec::new();
+    let user = Message::user_text("第一轮：读一下 README");
+    let timestamp = user.timestamp();
+    push_entry(
+        &mut entries,
+        EntryKind::Message { message: user },
+        timestamp,
+    );
+    let assistant = Message::assistant_text("好的", "mock");
+    let timestamp = assistant.timestamp();
+    push_entry(
+        &mut entries,
+        EntryKind::Message { message: assistant },
+        timestamp,
+    );
+    push_entry(
+        &mut entries,
+        EntryKind::Custom {
+            custom_type: "mark".into(),
+        },
+        now_millis(),
+    );
+
+    let text: String = entries
+        .iter()
+        .map(|entry| format!("{}\n", serde_json::to_string(entry).unwrap()))
+        .collect();
+    std::fs::write(&file, text).unwrap();
+
     let entries = load_session(&file).unwrap();
     (id, file, entries)
 }
@@ -194,7 +230,7 @@ fn bundle_roundtrip_reaches_a_receiver() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// §9.6 缺 git / 仓库不可信：fail-closed，不静默回落成 JSONL。
+/// §9.6 缺 git / 仓库不可信：fail-closed，不静默降级成别的路径。
 #[test]
 fn unusable_repo_fails_closed_instead_of_falling_back() {
     let outside = pipi_test_support::temp_dir("pipi-git-outside");

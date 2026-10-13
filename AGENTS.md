@@ -27,7 +27,8 @@ crates/pipi-provider/ 模型面：rig 的 HTTP/SSE 适配与错误分类（不�
                       models.dev 模型目录（拉取 / CURATION / 本地缓存）
 crates/pipi-context/  上下文与运行策略：token 预算 / 裁剪与配对修复 / 压缩
                       流水线 / 重试退避（只依赖契约层，不碰载体与网络）
-crates/pipi-session/  会话载体：git 分支（一轮一个 commit）与旧 JSONL 兼容；
+crates/pipi-session/  会话载体：git 分支（一轮一个 commit）、旧 JSONL 导入路径
+                      （legacy）与内存测试账本（memory）；
                       唯一为会话存储 spawn git 的 crate
 crates/pipi-venv/     Agent 环境域：agents（清单与注册表、契约层收集、prompt
                       装配）/ av（agent.toml 契约 + 全局技能 store + `av` CLI）
@@ -84,7 +85,7 @@ src/                 React + TypeScript 前端
 
 - Rust 数据模型一律 `derive(Serialize, Deserialize)` 并 `#[serde(rename_all = "camelCase")]`，与前端类型对齐。
 - 消息 / 会话的 JSON 字段名与 pi 保持一致（`role`、`toolResult`、`toolCall`、`parentId`……），移植改动不许悄悄改格式。
-- **会话载体是 git 分支**（`sessions.git`，见 `docs/git-session-store.md`）：一条 entry 一个文件、一轮一个 commit，**行格式与 JSONL 完全一致**（blob 内容就是今天那一行）。写入是缓冲式的，所以**提交点由内核决定**（`pipi-agent/src/session/commit.rs`）：轮末在 `harvest` 返回后、`run_compaction` 之前、运行守卫释放之前；轮外还有会话创建、env 记账、空闲切模型、旧会话尾部修复；压缩分叉的新载体在换账本之前提交。提交失败不失败本轮（条目留在缓冲随下一轮自愈）。旧 `sessions/*.jsonl` 会话按 id 兼容（同一个会话只有一个载体），显式导入命令把它们迁到 git。
+- **会话载体是 git 分支，且是唯一载体**（`sessions.git`，见 `docs/git-session-store.md`）：一条 entry 一个文件、一轮一个 commit，**行格式与 JSONL 完全一致**（blob 内容就是今天那一行）。写入是缓冲式的，所以**提交点由内核决定**（`pipi-agent/src/session/commit.rs`）：轮末在 `harvest` 返回后、`run_compaction` 之前、运行守卫释放之前；轮外还有会话创建、env 记账、空闲切模型、异常终态的尾部修复；压缩分叉的新载体在换账本之前提交。提交失败不失败本轮（条目留在缓冲随下一轮自愈）。新增、续写、压缩、归档全在分支上；未迁移机器上的旧 `sessions/*.jsonl` 不再被运行时直接读取，只经显式 `import_sessions` 命令（或 `cargo run -p pipi-session --example import_legacy_sessions`）迁到 git 后才可用 —— 导入实现在 `pipi-session/src/legacy.rs`，幂等、原文件改名 `.jsonl.imported` 保留。
 - **分层与依赖方向以 `architecture.toml` 为准**（`cargo xtask arch` 机检）：
   契约层（`pipi-protocol`）只放 DTO 与端口，不放实现；引擎（`pipi-agent`）不碰
   agent.toml 契约、不直连网络（provider 只以契约层端口出现），拥有单会话状态、运行守卫、恢复与压缩

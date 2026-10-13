@@ -5,7 +5,7 @@
 //! 本地运行时（ollama / vLLM / DeepSeek / 硅基流动…）只实现 `/chat/completions`。
 //! 所以 provider.rs 必须显式 `completions_api()`。
 //!
-//! 做法：把供应商端点指向必然拒绝连接的本地端口，跑一轮真实 agent，再从会话 jsonl 里
+//! 做法：把供应商端点指向必然拒绝连接的本地端口，跑一轮真实 agent，再从会话条目里
 //! 读回「实际请求的 URL」——不靠 mock，也不用真密钥。
 //!
 //! 本测试自己改写 HOME（独立测试进程，写前持 `pipi_test_support::HOME_LOCK`），
@@ -85,7 +85,7 @@ fn send_and_collect(agent: &str, home: &Path) -> String {
         .expect("send_prompt 应能启动这一轮");
 
     let agent_dir = home.join(".pipi").join("agents").join(agent);
-    let repo = pipi_session::AgentSessionRepo::new(&agent_dir);
+    let repo = pipi_session::GitSessionRepo::new(agent_dir.join("sessions.git"));
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut text = String::new();
     while Instant::now() < deadline {
@@ -104,7 +104,7 @@ fn send_and_collect(agent: &str, home: &Path) -> String {
     panic!("这一轮没有在 20s 内落到错误状态；已记录内容：{text}");
 }
 
-/// 从「errorMessage 里的 URL」抽出来便于断言（会话 jsonl 是转义过的 JSON 字符串）。
+/// 从「errorMessage 里的 URL」抽出来便于断言（条目序列化成 JSON 时字符串被转义过）。
 fn request_url(text: &str) -> Option<String> {
     let start = text.find("for url (")? + "for url (".len();
     let rest = &text[start..];

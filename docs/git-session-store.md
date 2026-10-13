@@ -24,7 +24,8 @@
 
 - 不写用户项目的 `.git`（影子仓库，见 §3）。
 - 不改 `SessionEntry` / `EntryKind` 的 JSON 结构、不改 IPC/DTO、不改 session id 形态。
-- 不做隐式迁移：既有 `sessions/*.jsonl` 继续按 JSONL 读，导入是显式命令（§10 P3）。
+- 不做隐式迁移：旧 `sessions/*.jsonl` 只经显式导入命令迁进 git（§记录），
+  运行时不再直接读它们。
 - 不把 workspace 文件快照进 git（opencode 那套；与本设计无关）。
 
 ## 2. 实测依据
@@ -144,8 +145,11 @@ git log --format='%s  [%(trailers:key=Turn,valueonly)]' # 每行带轮号
   提交点，那「一个用户输入提交上一次」已不成立。
   ③ **正常关窗也丢**——发一轮、看完、关窗，没有下一次输入，该轮永不提交（强杀更补不了）。
 
-  结构性副产物：O2 下「悬挂工具调用」在落盘层不可能出现（每个 commit 边界都是完整轮），
-  今天的 `settle_unanswered_tail` 从常态兜底退化为旧 JSONL 会话的兼容路径；
+  结构性副产物：**崩溃**（强杀、重编译重启）丢的是整个进行中的一轮 —— 提交点只在
+  轮边界，被杀进程不会留下半轮记录。但**超时 / 中止收尾**是个例外：那条路要把缓冲里
+  的半配对批次（assistant + 部分工具结果）连同终态一起提交，`settle_unanswered_tail`
+  因此在 git 载体下仍是活路径 —— 提交前补齐缺失的工具结果，载入时再兜一道（幂等）。
+  发送前的配对修复仍是历史中段破损（分叉、手工编辑）的兜底。
   轮内 steer 消息随该轮 settle 一起提交（或按需单独提交）。
   - author：`<role> <role@pipi.local>`；committer：`Pipi <pipi@local>`；日期取 entry 的
     `timestamp`（git 只到秒，毫秒精度仍由 payload 承载 → `git shortlog -sn` 可按角色/模型统计）。
@@ -193,7 +197,7 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 | 会话创建 | `pipi-agent/src/session/state.rs`（写 model_change / env，宿主提供声明） | 单轮会话在 git 里 0 commit，列表/浏览都看不到——与 §3 否掉的「下次输入才提交」是同一个毛病 |
 | 压缩条目 | 轮末之后的 `run_compaction`；空闲时的手动 `compact_now` | 压缩记录不入史，回放按旧历史 |
 | 手动切模型 | `pipi-agent/src/session/state.rs`（`set_model`，空闲时追加 model_change） | 模型变更不入史 |
-| 旧会话尾部修复 | `pipi-agent/src/session/ledger.rs`（`settle_unanswered_tail`） | 只对旧 JSONL 会话需要；git 后端每个 commit 边界都是完整轮，不会出现悬挂尾部 |
+| 异常终态尾部修复 | `pipi-agent/src/session/ledger.rs`（`settle_unanswered_tail`） | 超时 / 中止收尾会把半配对批次与终态一起提交；提交前先补齐缺失的工具结果，载入时再兜一道（幂等） |
 - 读：`ls-tree -r <branch>` 拿路径与 blob id（顺序即对话顺序）→ 一次
   `cat-file --batch` 流式取内容 → 逐行 serde 成 `SessionEntry` → 之后的
   `active_path` / `replay` / `rebuild_messages` / 统计全部复用，零改动。
@@ -295,8 +299,8 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 5. 分发：`bundle` → `fetch` → 接收方 `log`/`show` 与源一致。
 6. 缺 git：探测失败时启动会话报明确错误，不产生半 git 半 jsonl 的会话。
 7. 并发：同 Agent 两个会话并行跑，两条分支内容互不串（对齐现有 `concurrent_sessions.rs` 口径）。
-8. 崩溃：写入中途被杀，重启后能读到已提交条目；悬挂工具调用仍由 `settle_unanswered_tail`
-   在打开时补齐。
+8. 崩溃：写入中途被杀，重启后能读到已提交条目；进行中的那一轮整轮不落盘。
+   超时 / 中止收尾提交的半配对批次由 `settle_unanswered_tail` 在提交前补齐。
 9. 现有测试：JSONL 后端下全部既有断言不变通过。
 
 ## 10. 实施阶段
@@ -379,3 +383,28 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 载体选择仍只在 `pipi-core::runtime::store`。新内核通过 `SessionLog` / `SessionRepo`
 注入存储；这次迁移不实现 git 后端，也不增加 `commit_point` 调用，以上 git 提交点
 仍是 P2 的待实施设计，JSONL 的逐条刷盘口径不变。
+
+### 记录：JSONL 载体退场，单轨化完成（2026-10-13）
+
+**git 分支成为唯一会话载体**，旧 JSONL 只留显式导入这一条逃生通道。
+
+- 迁移已跑（本机）：9 个 Agent 目录中 7 个有活跃会话、0 条归档待导入 →
+  `--dry-run` 全为 0 条；21 条会话此前已导入（16 条活跃 + 5 条已归档，
+  原文件全部以 `.jsonl.imported` 保留）。`--list` 在改动前后逐行一致。
+- 删除的组件：`SessionWriter`（JSONL 账本，含 `temporary` 内存模式）、
+  `JsonlSessionRepo` 与自由函数 `fork_session` / `list_session_summaries` /
+  `archive_session_file`、组合载体 `AgentSessionRepo`（装配点
+  `pipi-core/src/runtime/store.rs` 改为直接构造 `GitSessionRepo`）。
+- **`settle_unanswered_tail` 保留**：原计划按「git 的提交边界即完整轮」一并删除，
+  复核后发现该前提只对**崩溃**成立 —— 超时 / 中止收尾会把半配对批次（assistant +
+  部分工具结果）与终态一起提交，尾部自愈在 git 载体下仍是活路径
+  （`append_terminal` 提交前补齐、载入时再兜一道）。
+- 保留：`import_sessions` 宿主命令与
+  `cargo run -p pipi-session --example import_legacy_sessions`（同一份
+  `pipi-session/src/legacy.rs::import_legacy_sessions` 实现；逐条校验、幂等、
+  原文件改名 `.jsonl.imported` 保留），供未迁移的机器使用；设置工作台的临时
+  测试会话改用 `pipi_session::MemoryLog`（内存账本，接口语义不变）。
+- §7 的「JSONL 实现」条目与 §10 各阶段记录里对组合载体 `AgentSessionRepo`、
+  `SessionWriter`、按 id 兼容的描述都是阶段记录，随本次单轨化失效
+  （对应实现已删除）；本节的装配与组件清单是当前状态。
+

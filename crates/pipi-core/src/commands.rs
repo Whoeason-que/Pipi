@@ -570,8 +570,12 @@ pub async fn import_sessions(
     runtime.prepare_session_import(&args.agent_name)?;
     let agent_name = args.agent_name.clone();
     tokio::task::spawn_blocking(move || {
-        let repo = agent_repo(&agents::load_agent(&agent_name)?)?;
-        Ok(repo.import_legacy_sessions())
+        let def = agents::load_agent(&agent_name)?;
+        let legacy_dir = def.sessions_dir().ok_or("无法解析会话目录")?;
+        Ok(pipi_session::import_legacy_sessions(
+            &agent_repo(&def)?,
+            &legacy_dir,
+        ))
     })
     .await
     .map_err(|error| format!("会话导入任务失败：{error}"))?

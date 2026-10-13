@@ -1,13 +1,13 @@
-//! 载体装配的端到端：新建走 git 分支，旧 JSONL 会话按 id 兼容（可继续对话），
-//! 显式导入把它们迁到 git（逐条校验、幂等、原文件改名保留），归档/删除对两种
-//! 载体都成立。
+//! 载体装配的端到端：git 分支是唯一持久载体 —— 新建、续写、归档、删除都在
+//! 分支上；未迁移机器上的旧 `sessions/*.jsonl` 只经显式导入命令迁进 git，
+//! 导入后原文件改名保留、幂等。
 //!
 //! 改写 HOME 前持 `pipi_test_support::HOME_LOCK`（全仓唯一的一把锁）。
 
 use pipi_protocol::Message;
 use pipi_protocol::permissions::{BashPermissions, PermissionsConfig, SandboxMode};
-use pipi_protocol::session::SessionRepo;
-use pipi_session::{AgentSessionRepo, SessionWriter};
+use pipi_protocol::session::{EntryKind, SessionEntry, SessionRepo};
+use pipi_session::{GitSessionRepo, import_legacy_sessions};
 use pipi_venv::agents;
 
 /// 造一个 Agent 与它的目录（返回 Agent 数据目录）。
@@ -42,17 +42,33 @@ fn fixture_agent(name: &str) -> std::path::PathBuf {
         .to_path_buf()
 }
 
-fn repo(agent_dir: &std::path::Path) -> AgentSessionRepo {
-    AgentSessionRepo::new(agent_dir)
+fn repo(agent_dir: &std::path::Path) -> GitSessionRepo {
+    GitSessionRepo::new(agent_dir.join("sessions.git"))
 }
 
-/// 旧 JSONL 会话（历史遗留）：用 JSONL 载体直接播种。
+/// 直接写一条旧格式的 JSONL 会话（导入读的就是这一行 JSON），返回它的 id。
 fn seed_legacy(agent_dir: &std::path::Path, first_message: &str) -> String {
-    let mut writer = SessionWriter::create(&agent_dir.join("sessions")).unwrap();
-    writer
-        .append_message(&Message::user_text(first_message))
-        .unwrap();
-    writer.session_id().to_string()
+    let id = format!(
+        "{}-{}",
+        pipi_protocol::now_millis(),
+        pipi_protocol::new_id()
+    );
+    let message = Message::user_text(first_message);
+    let entry = SessionEntry {
+        id: pipi_protocol::new_id(),
+        parent_id: None,
+        seq: 0,
+        timestamp: message.timestamp(),
+        kind: EntryKind::Message { message },
+    };
+    let dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!("{id}.jsonl")),
+        format!("{}\n", serde_json::to_string(&entry).unwrap()),
+    )
+    .unwrap();
+    id
 }
 
 /// 归档区的旧会话（导入后必须仍留在归档区）。
@@ -66,7 +82,7 @@ fn seed_archived_legacy(agent_dir: &std::path::Path, first_message: &str) -> Str
 }
 
 #[test]
-fn new_sessions_land_in_git_and_legacy_ones_stay_readable_until_imported() {
+fn new_sessions_land_in_git_and_legacy_ones_need_an_explicit_import() {
     let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -81,10 +97,7 @@ fn new_sessions_land_in_git_and_legacy_ones_stay_readable_until_imported() {
         .unwrap();
     fresh.commit_point().unwrap();
     drop(fresh);
-    assert!(
-        repo.git().exists(&fresh_id).unwrap(),
-        "新会话应当落在 git 分支"
-    );
+    assert!(repo.exists(&fresh_id).unwrap(), "新会话应当落在 git 分支");
     assert!(
         !agent_dir
             .join("sessions")
@@ -93,41 +106,23 @@ fn new_sessions_land_in_git_and_legacy_ones_stay_readable_until_imported() {
         "新会话不该再写 JSONL 文件"
     );
 
-    // 旧会话照旧可读、可继续（同一个会话只有一个载体）
+    // 旧文件不再是运行时载体：未导入前既不可读、也不进列表
     let legacy_id = seed_legacy(&agent_dir, "旧会话的第一句");
-    assert!(repo.exists(&legacy_id).unwrap());
-    let mut resumed = repo.open(&legacy_id).unwrap();
-    resumed
-        .append_message(&Message::user_text("旧会话继续对话"))
-        .unwrap();
-    resumed.commit_point().unwrap();
-    drop(resumed);
-    let entries = repo.entries(&legacy_id).unwrap();
-    assert_eq!(entries.len(), 2, "旧会话继续写在自己的 JSONL 里");
-    assert!(
-        !repo.git().exists(&legacy_id).unwrap(),
-        "未导入前 git 里没有它"
-    );
-
-    // 列表合并两个载体
+    assert!(!repo.exists(&legacy_id).unwrap());
+    assert!(repo.open(&legacy_id).is_err(), "未导入的旧会话应当报不存在");
     let listed = repo.list();
     assert!(listed.iter().any(|summary| summary.id == fresh_id));
-    assert!(listed.iter().any(|summary| summary.id == legacy_id));
-    let legacy_summary = listed
-        .iter()
-        .find(|summary| summary.id == legacy_id)
-        .unwrap();
-    assert_eq!(legacy_summary.title, "旧会话的第一句");
-    assert_eq!(legacy_summary.message_count, 2);
+    assert!(listed.iter().all(|summary| summary.id != legacy_id));
 
     // 归档区的旧会话：导入后必须仍留在归档区
     let archived_id = seed_archived_legacy(&agent_dir, "归档的旧会话");
-    let report = repo.import_legacy_sessions();
+    let legacy_dir = agent_dir.join("sessions");
+    let report = import_legacy_sessions(&repo, &legacy_dir);
     assert!(
-        report.imported.contains(&archived_id),
-        "归档会话也要导入：{:?}",
-        report
+        report.imported.contains(&archived_id) && report.imported.contains(&legacy_id),
+        "活跃与归档的旧会话都要导入：{report:?}"
     );
+    assert!(report.failed.is_empty(), "{:?}", report.failed);
     assert!(
         repo.list_archived()
             .unwrap()
@@ -139,19 +134,14 @@ fn new_sessions_land_in_git_and_legacy_ones_stay_readable_until_imported() {
         !repo.exists(&archived_id).unwrap(),
         "导入不该把归档会话搬回活跃区"
     );
-    // 内容经「先恢复再读」验一遍（与旧载体的产品流程一致：归档区只出摘要）
+    // 内容经「先恢复再读」验一遍（与产品流程一致：归档区只出摘要）
     repo.restore(&archived_id).unwrap();
     assert_eq!(repo.entries(&archived_id).unwrap().len(), 1);
     repo.archive(&archived_id).unwrap();
 
-    // 导入：迁到 git、原文件改名保留、幂等
-    assert_eq!(
-        report.imported,
-        vec![legacy_id.clone(), archived_id.clone()]
-    );
-    assert!(report.failed.is_empty(), "{:?}", report.failed);
-    assert!(repo.git().exists(&legacy_id).unwrap());
-    assert_eq!(repo.entries(&legacy_id).unwrap().len(), 2);
+    // 导入后：旧会话改由 git 提供、原文件改名保留、再跑一次幂等
+    assert!(repo.exists(&legacy_id).unwrap());
+    assert_eq!(repo.entries(&legacy_id).unwrap().len(), 1);
     assert!(
         agent_dir
             .join("sessions")
@@ -159,11 +149,11 @@ fn new_sessions_land_in_git_and_legacy_ones_stay_readable_until_imported() {
             .is_file(),
         "原文件应当改名保留"
     );
-    let again = repo.import_legacy_sessions();
-    assert!(again.imported.is_empty(), "重复导入幂等：{:?}", again);
-    assert!(again.failed.is_empty());
+    let again = import_legacy_sessions(&repo, &legacy_dir);
+    assert!(again.imported.is_empty(), "重复导入幂等：{again:?}");
+    assert!(again.failed.is_empty(), "{again:?}");
 
-    // 导入后列表仍能看到它（且只有一条，不重复）
+    // 导入后列表里只有一条，标题与内容来自分支
     let listed = repo.list();
     assert_eq!(
         listed
@@ -172,6 +162,12 @@ fn new_sessions_land_in_git_and_legacy_ones_stay_readable_until_imported() {
             .count(),
         1
     );
+    let legacy_summary = listed
+        .iter()
+        .find(|summary| summary.id == legacy_id)
+        .unwrap();
+    assert_eq!(legacy_summary.title, "旧会话的第一句");
+    assert_eq!(legacy_summary.message_count, 1);
     std::fs::remove_dir_all(agent_dir.parent().unwrap()).ok();
 }
 

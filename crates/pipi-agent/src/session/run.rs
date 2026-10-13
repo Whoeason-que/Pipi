@@ -215,8 +215,7 @@ async fn drive_run(
                     &request.model,
                     timeout.message,
                     StopReason::Error,
-                )
-                .await?;
+                )?;
                 let result = terminal.last().cloned().into_iter().collect();
                 session
                     .messages
@@ -253,8 +252,7 @@ async fn drive_run(
             &request.model,
             "已中止".into(),
             StopReason::Aborted,
-        )
-        .await?;
+        )?;
         session
             .messages
             .lock()

@@ -500,7 +500,7 @@ pub fn read_agent_output(
     session_id: Option<&str>,
 ) -> Result<AgentRunResult, String> {
     let definition = agents::load_agent(agent_name)?;
-    // 载体装配点与运行时同源（git 分支 + 旧 JSONL 兼容），不要在这里另起一份
+    // 载体装配点与运行时同源（git 分支），不要在这里另起一份
     let repo = crate::runtime::agent_repo(&definition)?;
 
     let session_id = match session_id {

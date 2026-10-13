@@ -178,9 +178,9 @@ pub(super) fn persist_compaction(
 
 /// 分叉出新会话并把压缩条目写进去，然后归档原会话（可关）。
 ///
-/// 顺序很关键：**先在内存外写好新会话，再换账本**（换的那一刻旧载体关闭），
-/// 最后才归档 —— 否则仍打开的句柄会继续往被归档的对象追加（JSONL 载体上就是
-/// Linux rename 之后旧 fd 仍指向原 inode）。
+/// 顺序很关键：**先把新会话完整落盘，再换账本**（换的那一刻旧账本被丢弃），
+/// 最后才归档原会话 —— 顺序反了的话，旧账本缓冲里的条目会在归档之后提交到
+/// `session/<旧 id>`，把刚归档的分支重新建回活跃区。
 fn fork_and_write_compaction(
     writer: &SharedLog,
     repo: &dyn SessionRepo,

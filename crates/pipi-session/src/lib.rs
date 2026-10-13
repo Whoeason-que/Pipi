@@ -3,19 +3,18 @@
 //! 会话的**格式与语义**（条目模型、回放规则）与**两个端口**
 //! （`SessionLog` / `SessionRepo`）在 `pipi_protocol::session`；这里只放实现：
 //!
-//! - [`GitSessionRepo`] / [`GitSink`]：git 分支，一轮一个 commit（默认载体，
-//!   见 `docs/git-session-store.md`）；
-//! - [`SessionWriter`] / [`JsonlSessionRepo`]：树状 JSONL 文件，append-only
-//!   （旧会话的兼容路径，导入后退出）；
-//! - [`AgentSessionRepo`]：一个 Agent 的仓库门面 —— 新建走 git，旧会话按 id
-//!   分发，列表合并两载体。宿主侧的装配点（`runtime/store.rs`）只认它。
+//! - [`GitSessionRepo`] / [`GitSink`]：git 分支，一轮一个 commit —— **唯一**的
+//!   持久载体（见 `docs/git-session-store.md`）；
+//! - [`MemoryLog`]：设置工作台临时测试会话的内存账本（不落盘）；
+//! - [`import_legacy_sessions`] / [`load_session`]：旧 `sessions/*.jsonl` 的显式
+//!   导入与逐行读取（逃生通道，供未迁移的机器使用）。
 
 use pipi_protocol::session::{EntryKind, SessionEntry, active_path, kept_start, replay};
 use pipi_protocol::{Message, new_id};
 
 /// 会话标题：首个用户消息的首行（截断 48 字符）；没有用户消息时「(空会话)」。
 ///
-/// 两个载体共用这一条规则 —— JSONL 的列表与 git 的列表必须给出同一个标题。
+/// 列表（git 载体）与内存账本的诊断输出共用这一条规则。
 fn title_from_entries<'a>(entries: impl IntoIterator<Item = &'a SessionEntry>) -> String {
     entries
         .into_iter()
@@ -40,7 +39,7 @@ fn title_of(text: &str) -> String {
 }
 
 /// 列表里的模型名回退：最近一条带非空模型名的 assistant 消息
-/// （没有 model_change 条目时的口径，两个载体的列表必须一致）。
+/// （没有 model_change 条目时的口径）。
 fn latest_assistant_model<'a>(
     entries: impl DoubleEndedIterator<Item = &'a SessionEntry>,
 ) -> Option<String> {
@@ -61,10 +60,10 @@ fn truncate_chars(text: &str, max: usize) -> String {
     cut
 }
 
-/// 两个载体共用的账本状态：tip / seq / 环境记账 / 消息 id 映射。
+/// 写侧账本状态：tip / seq / 环境记账 / 消息 id 映射。
 ///
-/// `SessionWriter`（JSONL）与 `GitSink`（git）的差别只在持久化时机；账本推进
-/// 规则必须完全一致 —— 回放、压缩的 id 换算与事件语义都依赖它。
+/// [`GitSink`]（git）与 [`MemoryLog`]（内存）共用这一套推进规则 —— 回放、压缩
+/// 的 id 换算与事件语义都依赖它。
 struct LedgerState {
     tip_id: Option<String>,
     seq: u64,
@@ -85,7 +84,7 @@ impl LedgerState {
         }
     }
 
-    /// 从已读回的条目恢复（`SessionWriter::open` 与 `GitSink::from_entries` 共用）。
+    /// 从已读回的条目恢复（`GitSessionRepo::open` 与 `fork` 共用）。
     fn from_entries(entries: &[SessionEntry]) -> Self {
         let (tip_id, seq) = match entries.last() {
             Some(last) => (Some(last.id.clone()), last.seq + 1),
@@ -143,12 +142,63 @@ fn track_message_ids(ids: &mut Vec<String>, entry: &SessionEntry) {
 
 mod git;
 mod history;
-mod ledger;
-mod repo;
-mod store;
+mod legacy;
+mod memory;
 
 pub use git::{GitExec, GitSessionRepo, GitSink, entry_path};
 pub use history::load_session;
-pub use ledger::SessionWriter;
-pub use repo::{JsonlSessionRepo, archive_session_file, fork_session, list_session_summaries};
-pub use store::AgentSessionRepo;
+pub use legacy::import_legacy_sessions;
+pub use memory::MemoryLog;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pipi_protocol::session::CompactionRecord;
+
+    /// 账本推进（`message_ids`）必须与回放结果一致 —— 下一次压缩的
+    /// `keep_from_entry` 换算就靠这份一致性；git 写侧与内存账本共用它。
+    #[test]
+    fn ledger_message_ids_match_replay() {
+        fn append(
+            ledger: &mut LedgerState,
+            entries: &mut Vec<SessionEntry>,
+            kind: EntryKind,
+        ) -> String {
+            let entry = ledger.begin(kind, 0);
+            ledger.advance(&entry);
+            let id = entry.id.clone();
+            entries.push(entry);
+            id
+        }
+        let mut ledger = LedgerState::empty();
+        let mut entries = Vec::new();
+        let user = |ledger: &mut LedgerState, entries: &mut Vec<SessionEntry>, text: &str| {
+            append(
+                ledger,
+                entries,
+                EntryKind::Message {
+                    message: Message::user_text(text),
+                },
+            )
+        };
+        user(&mut ledger, &mut entries, "turn 1");
+        user(&mut ledger, &mut entries, "turn 2");
+        let kept = user(&mut ledger, &mut entries, "turn 3");
+        user(&mut ledger, &mut entries, "turn 4");
+        let source_tip = ledger.tip_id.clone().unwrap();
+        let record = CompactionRecord {
+            summary: "前两轮摘要",
+            strategy: "llm-summarize",
+            keep_from_entry: &kept,
+            source_tip: &source_tip,
+            usage: None,
+        };
+        append(&mut ledger, &mut entries, record.to_entry_kind());
+        user(&mut ledger, &mut entries, "turn 5");
+
+        let (messages, ids) = replay(&active_path(&entries));
+        // 摘要 + 保留的 turn 3/4 + 压缩后的 turn 5
+        assert_eq!(messages.len(), 4);
+        assert_eq!(ledger.message_ids, ids);
+    }
+}

@@ -326,12 +326,17 @@ fn run_prompt(
         wait_until(10_000, || !state.session_running(agent_name, &id)),
         "本轮应当在 10s 内收尾"
     );
-    // 经载体端口读：新会话在 git 分支上（不假设文件长什么样）
+    // 经载体端口读：会话在 git 分支上（不假设持久层长什么样）
     let sessions_dir = agents::load_agent(agent_name)
         .expect("加载 Agent")
         .sessions_dir()
         .expect("会话目录");
-    let repo = pipi_session::AgentSessionRepo::new(sessions_dir.parent().expect("Agent 目录"));
+    let repo = pipi_session::GitSessionRepo::new(
+        sessions_dir
+            .parent()
+            .expect("Agent 目录")
+            .join("sessions.git"),
+    );
     serde_json::to_string(&repo.entries(&id).expect("读取会话条目")).expect("序列化会话条目")
 }
 
@@ -477,24 +482,23 @@ fn switching_to_manual_ignores_a_previously_learned_protocol() {
 
 #[cfg(unix)]
 #[test]
-fn reading_agent_output_rejects_external_session_symlinks() {
+fn reading_agent_output_does_not_follow_legacy_session_symlinks() {
     let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let _home = isolated_home("pipi-output-symlink");
     fixture_agent("output-agent", "http://127.0.0.1:1");
+    // 旧 sessions 目录里放一个指向外部文件的符号链接：git 载体只认分支名，
+    // 既不会读它，也不会跟随链接泄露外部内容
     let outside = pipi_test_support::temp_dir("pipi-output-outside");
-    let mut writer = pipi_session::SessionWriter::create(&outside).unwrap();
-    writer
-        .append_message(&pipi_protocol::Message::assistant_text("secret", "mock"))
-        .unwrap();
-    let source = writer.path().to_path_buf();
-    drop(writer);
+    let secret = outside.join("secret.jsonl");
+    std::fs::write(&secret, r#"{"role":"assistant","content":"secret"}"#).unwrap();
     let dir = agents::load_agent("output-agent")
         .unwrap()
         .sessions_dir()
         .unwrap();
     std::fs::create_dir_all(&dir).unwrap();
-    std::os::unix::fs::symlink(source, dir.join("linked.jsonl")).unwrap();
+    std::os::unix::fs::symlink(&secret, dir.join("linked.jsonl")).unwrap();
     let error =
         pipi_core::tools::agent::read_agent_output("output-agent", Some("linked")).unwrap_err();
-    assert!(error.contains("不能是符号链接"), "{error}");
+    assert!(error.contains("没有会话"), "{error}");
+    assert!(!error.contains("secret"), "{error}");
 }

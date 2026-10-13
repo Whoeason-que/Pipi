@@ -35,8 +35,9 @@ forbid = ["pipi-tools", "pipi-core", "pipi-agent", "reqwest", "rig"]
 may-depend-on = ["pipi-error", "pipi-protocol"]
 dev-may-depend-on = ["pipi-session"]
 
-# 会话载体：git 分支（一轮一个 commit，见 docs/git-session-store.md）与旧 JSONL
-# 兼容路径。只实现契约层的存储端口，
+# 会话载体：git 分支（一轮一个 commit，唯一持久载体，见 docs/git-session-store.md）、
+# 旧 JSONL 的显式导入路径与设置工作台的内存测试账本。
+# 只实现契约层的存储端口，
 # 也是唯一为**会话存储** spawn git 的 crate（见 docs/git-session-store.md）；
 # 技能包的 git 由 pipi-venv 的 av 负责 —— 进程 spawn 不是依赖，xtask 查不到，
 # 这条靠约定守。

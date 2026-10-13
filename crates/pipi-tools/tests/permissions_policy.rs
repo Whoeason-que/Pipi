@@ -84,7 +84,11 @@ fn allowlist_checks_compound_segments() {
         sandbox: SandboxMode::DangerFullAccess,
     };
     assert!(allowed(&p, "git add . && git commit", Path::new("/tmp")));
-    assert!(!allowed(&p, "git add . && rm -rf /tmp/x", Path::new("/tmp")));
+    assert!(!allowed(
+        &p,
+        "git add . && rm -rf /tmp/x",
+        Path::new("/tmp")
+    ));
     assert!(!allowed(&p, "echo hi; git status", Path::new("/tmp")));
 }
 
@@ -136,7 +140,11 @@ fn sandbox_blocks_forced_rm_unless_full_access() {
     assert!(allowed(&p, "rm -rf build/", Path::new("/tmp")));
     // danger-full-access：放行
     p.sandbox = SandboxMode::DangerFullAccess;
-    assert!(allowed(&p, "rm -rf /var/tmp/pipi-outside", Path::new("/tmp")));
+    assert!(allowed(
+        &p,
+        "rm -rf /var/tmp/pipi-outside",
+        Path::new("/tmp")
+    ));
 }
 
 #[test]

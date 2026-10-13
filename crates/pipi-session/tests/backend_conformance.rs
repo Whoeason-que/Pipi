@@ -1,16 +1,16 @@
-//! 载体一致性：同一套场景与断言跑在**全部**后端上。
+//! 载体一致性：把端口（`SessionRepo` / `SessionLog`）的语义写进断言。
 //!
-//! 抄 pi `session-backends` 的 conformance 做法：端口（`SessionRepo` /
-//! `SessionLog`）的语义不写在文档里、写在断言里 —— 新增载体时把
-//! [`run_conformance`] 再跑一遍即可，不用重写一批用例。
+//! 抄 pi `session-backends` 的 conformance 做法：语义不写在文档里、写在断言里 ——
+//! git 载体（唯一持久载体）跑 [`run_conformance`]；将来再加载体时把同一套再跑
+//! 一遍即可，不用重写一批用例。
 //!
-//! 只用公开入口（黑盒）：契约层类型 + `pipi_session` 的两个实现。
+//! 只用公开入口（黑盒）：契约层类型 + `pipi_session` 的实现。
 
 use pipi_protocol::Message;
 use pipi_protocol::session::{
     CompactionRecord, EnvDeclared, SessionRepo, active_path, rebuild_messages, summary_text,
 };
-use pipi_session::{GitSessionRepo, JsonlSessionRepo};
+use pipi_session::GitSessionRepo;
 
 fn run_conformance(repo: &dyn SessionRepo, label: &str) {
     let at = |what: &str| format!("[{label}] {what}");
@@ -269,14 +269,6 @@ fn run_conformance(repo: &dyn SessionRepo, label: &str) {
         "{}",
         at("路径字符的 id 一律拒绝")
     );
-}
-
-#[test]
-fn jsonl_backend_satisfies_the_conformance_suite() {
-    let dir = pipi_test_support::temp_dir("pipi-conformance-jsonl");
-    let repo = JsonlSessionRepo::new(dir.clone());
-    run_conformance(&repo, "jsonl");
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

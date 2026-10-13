@@ -6,6 +6,7 @@
 //! 3. 摘要调用的用量进累计账本，但不改写「当前上下文占用」口径。
 //!
 //! 端点按请求体分流：带 `<conversation>` 的是摘要请求，否则是普通对话请求。
+//! 会话载体是 git 分支（与运行时同源），断言一律经 `SessionRepo` 端口读回。
 //! 本测试自己改写 HOME（独立测试进程，写前持 `pipi_test_support::HOME_LOCK`），
 //! 不碰用户真实的 `~/.pipi`。
 
@@ -17,9 +18,9 @@ use std::time::{Duration, Instant};
 use pipi_core::events::{EventEmitter, RuntimeEvent};
 use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
-use pipi_protocol::session::EntryKind;
+use pipi_protocol::session::{EntryKind, SessionRepo, active_path, rebuild_messages};
 use pipi_protocol::{Api, Message, Model};
-use pipi_session::{SessionWriter, load_session};
+use pipi_session::GitSessionRepo;
 use pipi_venv::agents;
 
 /// 摘要请求上报的用量（数字刻意与普通请求拉开，便于断言账本）
@@ -191,65 +192,67 @@ fn open_session_id(state: &RuntimeState, agent_name: &str) -> String {
         .session_id
 }
 
-/// 往会话里预置一段历史（每轮：user + assistant(tool_call) + toolResult）。
-/// 尾部留在 user 边界上，于是压缩会产生非空的保留区间。
-fn seed_history(sessions_dir: &std::path::Path) -> (String, String) {
+/// 该 Agent 的会话仓库（与运行时同源：git 分支）。
+fn session_repo(sessions_dir: &std::path::Path) -> GitSessionRepo {
+    GitSessionRepo::new(
+        sessions_dir
+            .parent()
+            .expect("Agent 目录")
+            .join("sessions.git"),
+    )
+}
+
+/// 往会话载体里预置一段历史（每轮：user + assistant(tool_call) + toolResult，
+/// 轮末提交 —— 与运行时的提交点同粒度）。尾部留在 user 边界上，于是压缩会
+/// 产生非空的保留区间。返回种子会话的 id。
+fn seed_history(sessions_dir: &std::path::Path) -> String {
     seed_history_turns(sessions_dir, 40)
 }
 
-fn seed_history_turns(sessions_dir: &std::path::Path, turns: u32) -> (String, String) {
-    let mut writer = SessionWriter::create(sessions_dir).expect("创建会话文件");
+fn seed_history_turns(sessions_dir: &std::path::Path, turns: u32) -> String {
+    let mut sink = session_repo(sessions_dir).create().expect("创建会话");
     for turn in 0..turns {
-        writer
-            .append_message(&Message::user_text(format!(
-                "第 {turn} 轮：看文件并跑测试 {}",
-                "补".repeat(500)
-            )))
-            .unwrap();
+        sink.append_message(&Message::user_text(format!(
+            "第 {turn} 轮：看文件并跑测试 {}",
+            "补".repeat(500)
+        )))
+        .unwrap();
         let call_id = format!("call_{turn}");
-        writer
-            .append_message(&Message::Assistant {
-                content: vec![
-                    pipi_protocol::ContentBlock::Text {
-                        text: format!("先读文件（第 {turn} 轮）。"),
-                    },
-                    pipi_protocol::ContentBlock::ToolCall {
-                        id: call_id.clone(),
-                        name: "read".into(),
-                        arguments: serde_json::json!({ "path": format!("src/m{turn}.rs") }),
-                    },
-                ],
-                api: String::new(),
-                provider: String::new(),
-                model: "compaction-model".into(),
-                usage: Default::default(),
-                stop_reason: pipi_protocol::StopReason::ToolUse,
-                error_message: None,
-                timestamp: 0,
-                duration_ms: None,
-            })
-            .unwrap();
-        writer
-            .append_message(&Message::ToolResult {
-                tool_call_id: call_id,
-                tool_name: "read".into(),
-                content: vec![pipi_protocol::ToolResultContent::Text {
-                    text: format!("// m{turn}\n{}", "fn f() {}\n".repeat(400)),
-                }],
-                is_error: false,
-                details: None,
-                timestamp: 0,
-            })
-            .unwrap();
+        sink.append_message(&Message::Assistant {
+            content: vec![
+                pipi_protocol::ContentBlock::Text {
+                    text: format!("先读文件（第 {turn} 轮）。"),
+                },
+                pipi_protocol::ContentBlock::ToolCall {
+                    id: call_id.clone(),
+                    name: "read".into(),
+                    arguments: serde_json::json!({ "path": format!("src/m{turn}.rs") }),
+                },
+            ],
+            api: String::new(),
+            provider: String::new(),
+            model: "compaction-model".into(),
+            usage: Default::default(),
+            stop_reason: pipi_protocol::StopReason::ToolUse,
+            error_message: None,
+            timestamp: 0,
+            duration_ms: None,
+        })
+        .unwrap();
+        sink.append_message(&Message::ToolResult {
+            tool_call_id: call_id,
+            tool_name: "read".into(),
+            content: vec![pipi_protocol::ToolResultContent::Text {
+                text: format!("// m{turn}\n{}", "fn f() {}\n".repeat(400)),
+            }],
+            is_error: false,
+            details: None,
+            timestamp: 0,
+        })
+        .unwrap();
+        sink.commit_point().expect("提交种子轮");
     }
-    let session_id = writer
-        .path()
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .expect("会话文件名")
-        .to_string();
-    let path = writer.path().to_string_lossy().to_string();
-    (session_id, path)
+    sink.session_id().to_string()
 }
 
 fn collect_events() -> (EventEmitter, Arc<Mutex<Vec<RuntimeEvent>>>) {
@@ -321,7 +324,6 @@ struct Case {
     runtime: tokio::runtime::Runtime,
     sessions_dir: std::path::PathBuf,
     old_id: String,
-    old_path: std::path::PathBuf,
     events: Arc<Mutex<Vec<RuntimeEvent>>>,
 }
 
@@ -341,7 +343,7 @@ impl Case {
         fixture("compaction-e2e", &base_url, 60_000, compaction);
         let def = agents::load_agent("compaction-e2e").expect("加载 Agent");
         let sessions_dir = def.sessions_dir().expect("会话目录");
-        let (old_id, old_path) = seed_history(&sessions_dir);
+        let old_id = seed_history(&sessions_dir);
 
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -380,9 +382,12 @@ impl Case {
             runtime,
             sessions_dir,
             old_id,
-            old_path: std::path::PathBuf::from(old_path),
             events: seen,
         }
+    }
+
+    fn repo(&self) -> GitSessionRepo {
+        session_repo(&self.sessions_dir)
     }
 
     fn new_session_id(&self) -> String {
@@ -404,9 +409,10 @@ impl Case {
 
     /// 压缩条目里的（keep_from_entry, strategy, usage, summary）。
     fn compaction_entry(
-        path: &std::path::Path,
+        &self,
+        session_id: &str,
     ) -> (String, String, Option<pipi_protocol::Usage>, String) {
-        let entries = load_session(path).expect("读回会话");
+        let entries = self.repo().entries(session_id).expect("读回会话");
         entries
             .iter()
             .find_map(|entry| match &entry.kind {
@@ -474,10 +480,13 @@ fn compaction_forks_to_new_session_and_archives_original() {
         "必须发出 SessionSwitched 指到新会话"
     );
 
-    // 新会话文件：活跃区里存在，含压缩条目 + 溯源标记
-    let new_path = case.sessions_dir.join(format!("{new_id}.jsonl"));
-    assert!(new_path.is_file(), "新会话文件应当存在");
-    let (keep_from_entry, strategy, usage, summary) = Case::compaction_entry(&new_path);
+    // 新会话：活跃区里存在，含压缩条目 + 溯源标记
+    let repo = case.repo();
+    assert!(
+        repo.exists(&new_id).expect("查询新会话"),
+        "新会话应当在活跃区"
+    );
+    let (keep_from_entry, strategy, usage, summary) = case.compaction_entry(&new_id);
     assert_eq!(strategy, "llm-summarize");
     assert!(
         !keep_from_entry.is_empty(),
@@ -485,7 +494,7 @@ fn compaction_forks_to_new_session_and_archives_original() {
     );
     assert_eq!(usage.expect("摘要用量必须落盘").input, SUMMARY_INPUT);
     assert!(summary.contains("## Goal"));
-    let new_entries = load_session(&new_path).expect("读回新会话");
+    let new_entries = repo.entries(&new_id).expect("读回新会话");
     assert!(
         new_entries.iter().any(|entry| matches!(
             &entry.kind,
@@ -495,27 +504,33 @@ fn compaction_forks_to_new_session_and_archives_original() {
     );
 
     // 原会话已归档，且归档副本是**完整记录**（没有压缩条目）
-    assert!(!case.old_path.exists(), "原会话应当已离开活跃区");
-    let archived = case
-        .sessions_dir
-        .join(pipi_protocol::session::ARCHIVE_DIR)
-        .join(format!("{}.jsonl", case.old_id));
-    assert!(archived.is_file(), "归档区应当有原会话");
-    let archived_entries = load_session(&archived).expect("读回归档会话");
+    assert!(
+        !repo.exists(&case.old_id).expect("查询原会话"),
+        "原会话应当已离开活跃区"
+    );
+    assert!(
+        repo.list_archived()
+            .expect("读归档列表")
+            .iter()
+            .any(|summary| summary.id == case.old_id),
+        "归档区应当有原会话"
+    );
+    // 归档区只出摘要，读内容走「先恢复再读」的产品流程，读完放回去
+    repo.restore(&case.old_id).expect("恢复归档会话");
+    let archived_entries = repo.entries(&case.old_id).expect("读回归档会话");
     assert!(
         !archived_entries
             .iter()
             .any(|entry| matches!(entry.kind, EntryKind::Compaction { .. })),
         "归档的原会话应当是压缩前的完整记录"
     );
-    let archived_messages = pipi_protocol::session::rebuild_messages(
-        &pipi_protocol::session::active_path(&archived_entries),
-    );
+    let archived_messages = rebuild_messages(&active_path(&archived_entries));
     assert!(
         archived_messages.len() >= 121,
         "归档记录应当保留全部 40 轮 + 本轮新消息，实际 {}",
         archived_messages.len()
     );
+    repo.archive(&case.old_id).expect("读取后放回归档区");
 
     // 当前会话是压缩后的视图：摘要在前，长度明显变短
     let messages = case
@@ -545,7 +560,7 @@ fn compaction_forks_to_new_session_and_archives_original() {
     assert_eq!(stats.context_used, Some(CHAT_INPUT));
 
     // 键也跟着搬到了新 id：新会话是「打开中的那条」，旧 id 已经不是
-    //（没搬的话会有两个问题：旧键仍指向新文件、旧文件却已归档）
+    //（没搬的话会有两个问题：旧键仍指向新会话、旧会话却已归档）
     let new_id = case.new_session_id();
     assert!(
         case.state
@@ -566,7 +581,7 @@ fn compaction_forks_to_new_session_and_archives_original() {
         case.state
             .open_session("compaction-e2e", &case.old_id)
             .is_err(),
-        "旧会话文件已归档，重新打开应当失败"
+        "旧会话已归档，重新打开应当失败"
     );
 }
 
@@ -582,17 +597,21 @@ fn compaction_keeps_original_in_place_when_archive_is_off() {
     let new_id = case.new_session_id();
     assert_ne!(new_id, case.old_id);
     // 分叉照常，但原会话留在活跃区
-    assert!(case.old_path.is_file(), "关闭归档后原会话应留在活跃区");
+    let repo = case.repo();
     assert!(
-        !case
-            .sessions_dir
-            .join(pipi_protocol::session::ARCHIVE_DIR)
-            .join(format!("{}.jsonl", case.old_id))
-            .exists(),
+        repo.exists(&case.old_id).expect("查询原会话"),
+        "关闭归档后原会话应留在活跃区"
+    );
+    assert!(
+        !repo
+            .list_archived()
+            .expect("读归档列表")
+            .iter()
+            .any(|summary| summary.id == case.old_id),
         "关闭归档后不应出现在归档区"
     );
     assert!(
-        case.sessions_dir.join(format!("{new_id}.jsonl")).is_file(),
+        repo.exists(&new_id).expect("查询新会话"),
         "新会话仍然照常创建"
     );
     let events = case.events.lock().unwrap();
@@ -617,9 +636,12 @@ fn compaction_stays_in_place_when_fork_is_off() {
         case.switched_to().is_none(),
         "关闭分叉时不应发 SessionSwitched"
     );
-    assert!(case.old_path.is_file(), "原文件就地写入压缩条目");
-    // 压缩条目落在原文件上（原地压缩的既有行为）
-    let (_, strategy, _, _) = Case::compaction_entry(&case.old_path);
+    assert!(
+        case.repo().exists(&case.old_id).expect("查询原会话"),
+        "原会话就地写入压缩条目"
+    );
+    // 压缩条目落在原会话的分支上（原地压缩的既有行为）
+    let (_, strategy, _, _) = case.compaction_entry(&case.old_id);
     assert_eq!(strategy, "llm-summarize");
 }
 
@@ -646,7 +668,7 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
     let sessions_dir = def.sessions_dir().expect("会话目录");
     // 40 轮 ≈ 五十几 k token：已超过保留预算（可压），但远低于
     // 200k × 75% = 150k 的触发线 —— 手动压缩的意义正在于此
-    let (old_id, old_path) = seed_history(&sessions_dir);
+    let old_id = seed_history(&sessions_dir);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -705,13 +727,14 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
         "结束后必须不再是运行中"
     );
     assert_ne!(new_id, old_id, "手动压缩同样分叉到新会话");
-    assert!(sessions_dir.join(format!("{new_id}.jsonl")).is_file());
-    assert!(!std::path::Path::new(&old_path).exists(), "原会话应已归档");
+    let repo = session_repo(&sessions_dir);
+    assert!(repo.exists(&new_id).expect("查询新会话"));
+    assert!(!repo.exists(&old_id).expect("查询原会话"), "原会话应已归档");
     assert!(
-        sessions_dir
-            .join(pipi_protocol::session::ARCHIVE_DIR)
-            .join(format!("{old_id}.jsonl"))
-            .is_file()
+        repo.list_archived()
+            .expect("读归档列表")
+            .iter()
+            .any(|summary| summary.id == old_id)
     );
     let _ = std::fs::remove_dir_all(&home);
 }
@@ -736,7 +759,7 @@ fn manual_compaction_refused_while_running() {
     );
     let def = agents::load_agent("compaction-e2e").expect("加载 Agent");
     let sessions_dir = def.sessions_dir().expect("会话目录");
-    let (session_id, _) = seed_history(&sessions_dir);
+    let session_id = seed_history(&sessions_dir);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -805,7 +828,7 @@ fn manual_compaction_reports_when_nothing_to_compress() {
     );
     let def = agents::load_agent("compaction-e2e").expect("加载 Agent");
     let sessions_dir = def.sessions_dir().expect("会话目录");
-    let (session_id, path) = seed_history_turns(&sessions_dir, 1);
+    let session_id = seed_history_turns(&sessions_dir, 1);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -845,7 +868,7 @@ fn manual_compaction_reports_when_nothing_to_compress() {
         0,
         "没有可压的就不该调摘要"
     );
-    // 会话没有被换掉、文件还在原地
+    // 会话没有被换掉、仍在活跃区
     assert_eq!(
         state
             .session_info("compaction-e2e", &session_id)
@@ -855,7 +878,7 @@ fn manual_compaction_reports_when_nothing_to_compress() {
         session_id,
         "失败时不该换会话"
     );
-    assert!(std::path::Path::new(&path).is_file());
+    assert!(session_repo(&sessions_dir).exists(&session_id).unwrap());
     let _ = std::fs::remove_dir_all(&home);
 }
 
@@ -878,7 +901,7 @@ fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
     );
     let def = agents::load_agent("compaction-e2e").expect("加载 Agent");
     let sessions_dir = def.sessions_dir().expect("会话目录");
-    let (session_id, session_path) = seed_history(&sessions_dir);
+    let session_id = seed_history(&sessions_dir);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -913,7 +936,9 @@ fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
     assert_eq!(summaries.load(Ordering::SeqCst), 1, "应当发生一次摘要调用");
 
     // 1) 落盘的压缩条目：保留区间 + 策略 + 用量
-    let entries = load_session(std::path::Path::new(&session_path)).expect("读回会话");
+    let entries = session_repo(&sessions_dir)
+        .entries(&session_id)
+        .expect("读回会话");
     let compaction = entries
         .iter()
         .find_map(|entry| match &entry.kind {

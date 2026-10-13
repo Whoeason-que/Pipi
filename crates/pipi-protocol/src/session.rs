@@ -6,10 +6,10 @@
 //! （parentId 构成树），Pipi 永远不修改已写入的条目。
 //!
 //! **格式、语义与载体分离**：本模块的 [`SessionEntry`] / [`EntryKind`] /
-//! [`replay`] 等对所有载体一致；落盘动作走两个端口 —— [`SessionLog`]
+//! [`replay`] 等对所有载体一致；读写走两个端口 —— [`SessionLog`]
 //! （追加账本，运行时持有）与 [`SessionRepo`]（目录级操作：建/开/列/分叉/
-//! 归档/删）。端口属主是协议层，实现（JSONL 文件、git 分支）在宿主侧的载体
-//! crate；换载体只换实现，条目格式与 IPC 契约不变
+//! 归档/删）。端口属主是协议层，实现在载体 crate `pipi-session`（git 分支、
+//! 内存测试账本、旧 JSONL 导入）；换载体只换实现，条目格式与 IPC 契约不变
 //! （设计见 `docs/git-session-store.md`）。
 
 use serde::{Deserialize, Serialize};
@@ -82,7 +82,8 @@ pub struct SessionEntry {
 }
 
 /// 归档子目录名。Agent 数据树里两处归档共用这一个名字：整个 Agent 的归档
-/// （`agents/.archive/<name>/`）与会话文件的归档（`sessions/.archive/<id>.jsonl`）。
+/// （`agents/.archive/<name>/`）与旧会话文件的归档（`sessions/.archive/<id>.jsonl`，
+/// 仅对旧 JSONL 的显式导入有意义）。
 pub const ARCHIVE_DIR: &str = ".archive";
 
 /// 一次摘要压缩要落盘的内容。策略产出，runtime 交给 writer。
@@ -115,12 +116,12 @@ impl CompactionRecord<'_> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
-    /// 文件名 stem：`{millis}-{uuid}`，open_session 用它定位文件
+    /// 会话 id：`{millis}-{uuid}`，open_session 用它定位会话
     pub id: String,
     /// 标题：首条用户消息截断；空会话给占位文案
     pub title: String,
     pub message_count: usize,
-    /// 会话开始时间（文件名里的 millis）
+    /// 会话开始时间（id 前缀里的 millis）
     pub started_at: u64,
     /// 最后一条消息的时间戳
     pub last_active: u64,
@@ -151,7 +152,7 @@ pub struct SessionImportFailure {
 
 /// 会话 ID 校验：只允许 ASCII 字母数字与 `-`。
 ///
-/// 会话 id 同时是文件名（JSONL 载体）与分支名（git 载体），必须拒绝
+/// 会话 id 同时是 git 分支名与旧会话文件名（导入），必须拒绝
 /// 路径分隔符、`.` 与空串；所有载体共用这一条规则，别在调用点各写一份。
 pub fn validate_session_id(session_id: &str) -> Result<(), String> {
     if session_id.is_empty()
@@ -188,9 +189,8 @@ pub trait SessionLog: Send {
     fn append_env(&mut self, declared: Vec<EnvDeclared>) -> std::io::Result<Option<String>>;
     /// 提交点：把尚未固化的条目落定。
     ///
-    /// 时机由运行时决定（今天的口径是每个 turn 结束，见
-    /// `docs/git-session-store.md`）。JSONL 实现逐条即刷，所以是空操作；
-    /// 缓冲式载体（如 git 分支）在这里写一次提交。
+    /// 时机由运行时决定（轮末，见 `docs/git-session-store.md`）。git 载体在这里
+    /// 写一次提交；内存账本（设置工作台）没有持久化，是空操作。
     fn commit_point(&mut self) -> std::io::Result<()>;
 }
 

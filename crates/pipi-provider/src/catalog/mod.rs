@@ -496,7 +496,11 @@ pub(crate) fn model_api_override(
 }
 
 /// 端点在目录里的 provider 级协议（跟随上游 / CURATION 的更新）。
-pub(crate) fn catalog_provider_api(catalog: &ModelCatalog, base_url: &str, declared: Api) -> Option<Api> {
+pub(crate) fn catalog_provider_api(
+    catalog: &ModelCatalog,
+    base_url: &str,
+    declared: Api,
+) -> Option<Api> {
     providers_at(catalog, base_url, declared)
         .first()
         .map(|provider| provider.api)

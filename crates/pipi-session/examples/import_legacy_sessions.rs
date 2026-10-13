@@ -1,7 +1,7 @@
 //! 把所有 Agent 的旧 JSONL 会话导入 git 分支（无壳迁移，维护工具）。
 //!
 //! 与宿主命令 `import_sessions`（Agent 工作台「文件」页的「导入到 git」）走同一实现
-//! （[`AgentSessionRepo::import_legacy_sessions`]），区别只是不需要起桌面壳：
+//! （[`import_legacy_sessions`]），区别只是不需要起桌面壳：
 //!
 //! ```text
 //! cargo run -p pipi-session --example import_legacy_sessions
@@ -11,14 +11,14 @@
 //! 默认扫描 `$PIPI_HOME/agents`（缺省 `~/.pipi/agents`）下带 `agent.json` 的目录，
 //! 含 `.archive/` 里的归档 Agent（环境变量口径与 `av::paths` 一致，但本 crate 不依赖
 //! pipi-venv，这里自己解析）。逐条校验、幂等，原文件改名 `.jsonl.imported` 保留。
+//! `--list` 经 git 载体列出会话（迁移前的旧会话用 `--dry-run` 看清单）。
 //!
-//! **先停掉应用再跑**：应用打开的 JSONL 句柄会跟着改名后的文件继续追加（Linux）；
-//! 应用内的「导入到 git」会先脱离槽位，这个工具做不到。
+//! **先停掉应用再跑**：应用内打开的会话与导入命令会先脱离槽位，这个工具做不到。
 
 use std::path::PathBuf;
 
 use pipi_protocol::session::SessionRepo;
-use pipi_session::AgentSessionRepo;
+use pipi_session::{GitSessionRepo, import_legacy_sessions};
 
 fn main() {
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -50,7 +50,7 @@ fn main() {
             .and_then(|value| value.to_str())
             .unwrap_or("<unknown>");
         if list {
-            let repo = AgentSessionRepo::new(dir);
+            let repo = GitSessionRepo::new(dir.join("sessions.git"));
             let archived = repo.list_archived().unwrap_or_default();
             let active = repo.list();
             println!(
@@ -77,7 +77,11 @@ fn main() {
             }
             continue;
         }
-        let report = AgentSessionRepo::new(dir).import_legacy_sessions();
+        let sessions_dir = dir.join("sessions");
+        let report = import_legacy_sessions(
+            &GitSessionRepo::new(dir.join("sessions.git")),
+            &sessions_dir,
+        );
         println!(
             "{label}: 导入 {} 条，跳过 {} 条，失败 {} 条",
             report.imported.len(),

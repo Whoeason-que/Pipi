@@ -1,7 +1,9 @@
-//! JSONL 载体的读侧：整文件读取（坏行跳过）。
+//! 旧 JSONL 的读侧：整文件逐行读取（坏行跳过）。
 //!
 //! 条目格式与回放规则（活跃路径、摘要正文、保留区间换算）在
-//! `pipi_protocol::session`；这里只负责「文件 → 条目」这一段。
+//! `pipi_protocol::session`；这里只负责「文件 → 条目」这一段。单轨化后运行时
+//! 不再直接读会话文件 —— 它服务显式导入（[`crate::import_legacy_sessions`]）
+//! 与按单条 entry blob 读回的 git 读侧（同一套逐行解析口径）。
 
 use std::path::Path;
 
@@ -31,74 +33,56 @@ pub fn load_session(path: &Path) -> Result<Vec<SessionEntry>, String> {
 mod tests {
     use super::*;
     use pipi_protocol::Message;
-    use pipi_protocol::session::{CompactionRecord, active_path, rebuild_messages, summary_text};
+    use pipi_protocol::session::EntryKind;
 
-    use crate::SessionWriter;
+    /// 直接写一行 JSON（旧格式就是这一行）；不依赖任何载体实现。
+    fn write_lines(path: &Path, lines: &[String]) {
+        std::fs::write(path, lines.join("\n") + "\n").unwrap();
+    }
+
+    fn message_entry(id: &str, parent: Option<&str>, seq: u64, text: &str) -> SessionEntry {
+        SessionEntry {
+            id: id.into(),
+            parent_id: parent.map(str::to_string),
+            seq,
+            timestamp: seq,
+            kind: EntryKind::Message {
+                message: Message::user_text(text),
+            },
+        }
+    }
 
     #[test]
     fn load_skips_corrupt_lines() {
         let dir = pipi_test_support::temp_dir("pipi-test");
-        let mut writer = SessionWriter::create(&dir).unwrap();
-        writer.append_message(&Message::user_text("good")).unwrap();
-        let path = writer.path().to_path_buf();
+        let path = dir.join("session.jsonl");
+        let good = serde_json::to_string(&message_entry("m1", None, 0, "good")).unwrap();
         // 模拟崩溃留下的半行
-        use std::io::Write;
-        let mut f = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .unwrap();
-        writeln!(f, r#"{{"id":"broken""#).unwrap();
-        drop(f);
+        write_lines(&path, &[good, r#"{"id":"broken""#.into()]);
 
         let entries = load_session(&path).unwrap();
         assert_eq!(entries.len(), 1);
+        assert!(matches!(
+            &entries[0].kind,
+            EntryKind::Message { message } if message.role() == "user"
+        ));
     }
 
-    /// 落盘条目、回放结果与 writer 的 id 映射三者必须一致 ——
-    /// 下一次压缩的 `keep_from_entry` 就靠这份一致性换算。
     #[test]
-    fn replay_and_writer_mapping_stay_in_sync() {
+    fn load_reads_a_whole_append_only_file_in_order() {
         let dir = pipi_test_support::temp_dir("pipi-test");
-        let mut writer = SessionWriter::create(&dir).unwrap();
-        writer
-            .append_message(&Message::user_text("turn 1"))
-            .unwrap();
-        writer
-            .append_message(&Message::user_text("turn 2"))
-            .unwrap();
-        let kept = writer
-            .append_message(&Message::user_text("turn 3"))
-            .unwrap();
-        writer
-            .append_message(&Message::user_text("turn 4"))
-            .unwrap();
-        let tip = writer.tip_id().unwrap().to_string();
-        // 内存历史：[1,2,3,4]，保留区间从 index 2（turn 3）开始
-        assert_eq!(writer.message_ids().len(), 4);
-        assert_eq!(writer.message_ids()[2], kept);
-        writer
-            .append_compaction(&CompactionRecord {
-                summary: "前两轮摘要",
-                strategy: "llm-summarize",
-                keep_from_entry: &kept,
-                source_tip: &tip,
-                usage: None,
-            })
-            .unwrap();
-        writer
-            .append_message(&Message::user_text("turn 5"))
-            .unwrap();
+        let path = dir.join("session.jsonl");
+        let first = message_entry("m1", None, 0, "第一句");
+        let second = message_entry("m2", Some("m1"), 1, "第二句");
+        let lines = vec![
+            serde_json::to_string(&first).unwrap(),
+            serde_json::to_string(&second).unwrap(),
+        ];
+        write_lines(&path, &lines);
 
-        let entries = load_session(writer.path()).unwrap();
-        let active = active_path(&entries);
-        let messages = rebuild_messages(&active);
-        // 摘要 + 保留的 turn 3/4 + 压缩后的 turn 5
-        assert_eq!(messages.len(), 4);
-        assert_eq!(summary_text(&messages[0]), Some("前两轮摘要"));
-
-        // 重开后 writer 的映射与回放结果一致（下一次压缩能继续换算 id）
-        let reopened = SessionWriter::open(writer.path()).unwrap();
-        assert_eq!(reopened.message_ids().len(), messages.len());
-        assert_eq!(reopened.message_ids()[1], kept);
+        let entries = load_session(&path).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].parent_id.as_deref(), Some("m1"));
+        assert_eq!(entries[1].seq, 1);
     }
 }

@@ -118,7 +118,7 @@ impl AgentSession {
         {
             log.append_model_change(model).map_err(|e| e.to_string())?;
         }
-        // 提交点（会话创建）：空会话也要在列表里可见（与 JSONL 的空文件同义）
+        // 提交点（会话创建）：空会话也要在列表里可见
         log.commit_point()
             .map_err(|error| format!("无法提交新会话: {error}"))?;
         let context_max = selected_model
@@ -156,8 +156,9 @@ impl AgentSession {
         match ledger::settle_unanswered_tail(&mut *log, &messages) {
             Ok(appended) => {
                 if !appended.is_empty() {
-                    // 提交点（旧会话尾部修复）：只对旧 JSONL 会话有意义 —— git
-                    // 载体的每个 commit 边界都是完整轮，不会出现悬挂尾部
+                    // 提交点（尾部修复）：超时 / 中止收尾可能把半配对的批次写进
+                    // 载体（提交边界只保证整轮，不保证配对完整），载入时补上
+                    // 合成的失败结果并提交 —— 之后每次打开读到的都是合法记录。
                     if let Err(error) = log.commit_point() {
                         eprintln!("pipi: 会话尾部修复未能提交: {error}");
                     }
