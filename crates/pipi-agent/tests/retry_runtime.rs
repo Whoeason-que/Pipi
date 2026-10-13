@@ -144,6 +144,7 @@ fn test_config(addr: std::net::SocketAddr, retry: RetryPolicy) -> AgentLoopConfi
             approver: None,
         },
         options: StreamOptions {
+            auto_protocol: false,
             api_key: Some("test-key".into()),
             temperature: None,
             max_tokens: Some(64),
@@ -152,7 +153,6 @@ fn test_config(addr: std::net::SocketAddr, retry: RetryPolicy) -> AgentLoopConfi
         },
         retry,
         // 这个套件测的是故障重发：协议协商不参与（等价的钉死模式）
-        auto_protocol: false,
         tool_execution: pipi_agent::agent_loop::ToolExecutionMode::Sequential,
         steering: pipi_agent::agent_loop::MessageQueue::new(),
         follow_up: pipi_agent::agent_loop::MessageQueue::new(),

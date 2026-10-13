@@ -32,8 +32,9 @@ crates/pipi-session/  会话载体：JSONL 文件（未来的 git 分支同属�
 crates/pipi-venv/     Agent 环境域：agents（清单与注册表、契约层收集、prompt
                       装配）/ av（agent.toml 契约 + 全局技能 store + `av` CLI）
                       / skills（技能中心）/ prompt（纯提示词层）
-crates/pipi-agent/    引擎：主循环（agent_loop）与用量统计（stats）
-crates/pipi-core/     宿主层：runtime（会话槽与运行编排）/ events / approval /
+crates/pipi-agent/    L5 单会话内核：session（运行守卫 / abort / steering /
+                      账本恢复 / 压缩编排）/ agent_loop / stats
+crates/pipi-core/     宿主层：runtime（多会话索引、能力装配与调度）/ events / approval /
                       background / commands（**宿主命令表**）/ settings /
                       tools（Agent 组合工具）；`--features server` 的 Web 宿主
 crates/pipi-test-support/ 测试脚手架（HOME/AV_HOME 串行化改写），仅 dev-dependency
@@ -85,8 +86,9 @@ src/                 React + TypeScript 前端
 - 消息 / 会话的 JSON 字段名与 pi 保持一致（`role`、`toolResult`、`toolCall`、`parentId`……），移植改动不许悄悄改格式。
 - **分层与依赖方向以 `architecture.toml` 为准**（`cargo xtask arch` 机检）：
   契约层（`pipi-protocol`）只放 DTO 与端口，不放实现；引擎（`pipi-agent`）不碰
-  agent.toml 契约、不直连网络（provider 只以契约层端口出现）；宿主
-  （`pipi-core`）持有命令表、会话槽与后台编排；Tauri 壳（`crates/pipi`）与 Web
+  agent.toml 契约、不直连网络（provider 只以契约层端口出现），拥有单会话状态、运行守卫、恢复与压缩
+  编排；宿主
+  （`pipi-core`）持有命令表、多会话索引、能力装配、执行器调度与后台编排；Tauri 壳（`crates/pipi`）与 Web
   宿主（`pipi-core` 的 `server` feature）是薄壳，不写业务逻辑。
   改依赖或加 crate 先改 `architecture.toml` 再跑检查 —— 想放宽边界要在那里
   写明理由，不要在成员 `Cargo.toml` 里偷偷加。
@@ -173,7 +175,7 @@ src/                 React + TypeScript 前端
   `agent.json.compactThresholdPercent`，默认 75）；可选的
   `agent.json.compactTargetPercent` 只决定摘要后保留多少近期原文，以压缩前估算
   token 为基数，缺失时继续使用固定 2 万 token 预算，不改变触发线。手动压缩与自动压缩共用
-  `pipi-core::runtime::run_compaction`，差别只在 `CompactionTrigger`（手动跳过阈值预检，
+  `pipi-agent::session` 内部的 `run_compaction`，差别只在手动触发标记（手动跳过阈值预检，
   并且要在首尾补一对 AgentStart/AgentEnd —— 前端靠 agent_end 落 running）。
   压缩默认**分叉 + 归档**（settings 的 `compaction.forkBeforeCompact` /
   `archiveOriginal`）：压缩写进新会话、原会话留作完整记录。换会话是**原地替换
@@ -182,11 +184,11 @@ src/                 React + TypeScript 前端
   `session-switched` 用旧 id（前端此刻身份还是旧的）、后续事件用新 id；
   归档只在旧 writer 关闭之后做 —— 否则 Linux 上打开的 fd 会继续往被移动的文件追加。
 - 并发模型是**按会话**的：`RuntimeState` 的会话槽是
-  `Mutex<HashMap<SessionKey, Session>>`，`SessionKey = (Agent 名, 会话 id)` ——
+  `Mutex<HashMap<SessionKey, HostSession>>`，`SessionKey = (Agent 名, 会话 id)` ——
   同一个 Agent 可以同时开多条会话、每条各跑一轮，数量不限（**没有并发上限，别引入
   全局信号量**）。守卫也按会话：**同一条会话同时只能跑一轮是硬不变量**（第二轮必须
   拒绝并提示先停止或走 steering），别的会话照跑。压缩分叉换 id 时要把条目从旧键
-  搬到新键（`SessionRekey`，同一条会话、新 id），并保持 `session-switched` 的语义。
+  搬到新键（`SessionRekey`，同一条 `AgentSession`、新 id），并保持 `session-switched` 的语义。
   所有会话类命令都带 `agentName` + `sessionId`；`session_infos` 是「哪些会话在跑」
   的唯一来源。改这里必须跑 `pipi-core/tests/concurrent_sessions.rs`（多 Agent 同时跑、
   **同一个 Agent 两条会话同时跑**、停一条不影响其他、只释放空闲会话、事件与落盘

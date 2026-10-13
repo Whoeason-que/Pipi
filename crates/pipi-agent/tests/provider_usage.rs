@@ -91,6 +91,7 @@ async fn run_once(addr: std::net::SocketAddr) -> (Usage, Message) {
         tools: Vec::new(),
     };
     let options = StreamOptions {
+        auto_protocol: true,
         api_key: Some("test-key".into()),
         temperature: None,
         max_tokens: Some(16),

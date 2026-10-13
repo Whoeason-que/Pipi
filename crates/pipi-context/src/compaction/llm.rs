@@ -293,12 +293,10 @@ async fn summarize_once(
                 }
                 saw_done = true;
             }
-            StreamEvent::Error {
-                message, retry, ..
-            } => {
+            StreamEvent::Error { message, retry, .. } => {
                 // 摘要调用不参与协议协商（它不经过 agent loop）：端点说协议不支持
                 // 时原样当终态报错；本轮里已经协商成功的协议会由 provider 的
-                // 进程内记忆覆盖到这次请求上。
+                // 进程内记忆在 auto 模式下覆盖到这次请求上；manual 只用声明协议。
                 failure = Some(match retry {
                     Some(hint) => SummarizeFailure::Retryable {
                         message,

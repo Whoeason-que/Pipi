@@ -373,6 +373,8 @@ pub enum StreamEvent {
 /// 单次 provider 请求的运行时参数。
 #[derive(Debug, Clone)]
 pub struct StreamOptions {
+    /// 自动模式允许采用运行期协议记忆与一次协议协商；false 时严格使用 Model.api。
+    pub auto_protocol: bool,
     pub api_key: Option<String>,
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
@@ -385,6 +387,7 @@ pub struct StreamOptions {
 impl Default for StreamOptions {
     fn default() -> Self {
         Self {
+            auto_protocol: true,
             api_key: None,
             temperature: None,
             max_tokens: None,

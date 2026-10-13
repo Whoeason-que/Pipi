@@ -1,296 +1,7 @@
-//! 自动与手动压缩、writer 替换和会话重键。
-
+//! 手动压缩的产品装配；自动与手动的执行均由单会话内核拥有。
 use super::*;
 
-/// 把「保留区间下标」换算成条目 id（compaction 条目的 `keep_from_entry`）。
-///
-/// 内存历史与落盘条目必须一一对应（见 `session::replay` 的 id 语义）。两边
-/// 长度不一致说明二者脱节 —— 此时退回空 id：宁可只留摘要，也不让回放去猜
-/// 一个错误的位置（猜错会让保留段整体错位）。
-fn keep_from_entry_id(writer: &SharedLog, history: &[Message], keep_from: Option<usize>) -> String {
-    let Some(index) = keep_from else {
-        return String::new();
-    };
-    let Ok(writer) = writer.lock() else {
-        return String::new();
-    };
-    let ids = writer.message_ids();
-    if ids.len() != history.len() {
-        eprintln!(
-            "pipi: 压缩时内存历史（{} 条）与落盘条目（{} 条）不一致，本轮只保留摘要",
-            history.len(),
-            ids.len()
-        );
-        return String::new();
-    }
-    ids.get(index).cloned().unwrap_or_default()
-}
-
-/// 压缩的触发方式。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CompactionTrigger {
-    /// turn 边界：历史达到触发线才压。
-    Auto,
-    /// 用户手动点：不管阈值都压（历史太短时返回可读错误）。
-    Manual,
-}
-
-/// 跑一次压缩所需的全部素材 —— 自动（turn 边界）与手动（UI 按钮）共用，
-/// 保证「摘要 → 分叉/归档 → 换会话 → 落事件」只有一条实现。
-pub(super) struct CompactionContext<'a> {
-    pub(super) agent_name: &'a str,
-    /// 换会话后就地改成新 id，后续事件才会带新身份。
-    pub(super) session_id: &'a mut String,
-    pub(super) run_id: usize,
-    pub(super) model: &'a Model,
-    pub(super) api_key: &'a str,
-    pub(super) budget: pipi_context::compaction::Budget,
-    pub(super) messages: &'a Arc<tokio::sync::Mutex<Vec<Message>>>,
-    pub(super) writer: &'a SharedLog,
-    pub(super) stats: &'a Arc<Mutex<SessionStatsTracker>>,
-    pub(super) abort: AbortSignal,
-    /// 会话仓库（分叉与归档要它）。临时测试会话没有仓库。
-    pub(super) repo: Option<&'a dyn SessionRepo>,
-    pub(super) settings: crate::settings::CompactionSettings,
-    /// 摘要调用失败重发策略（与对话共用，见 `retry` 模块）。
-    pub(super) retry: pipi_context::retry::RetryPolicy,
-    pub(super) sink: &'a EventEmitter,
-    pub(super) trigger: CompactionTrigger,
-    /// 压缩分叉换了会话 id 后，把 map 里的条目搬到新键（None = 不需要，如子 Agent）。
-    pub(super) rekey: Option<SessionRekey>,
-}
-
-/// 构造「把条目从旧键搬到新键」的回调（同一把锁、同一个 Session 对象）。
-pub(super) fn make_rekey(
-    sessions: Arc<Mutex<HashMap<SessionKey, Session>>>,
-    background: BackgroundTaskManager,
-) -> SessionRekey {
-    Arc::new(move |old: &SessionKey, new_session_id: &str| {
-        background.rekey_session(&old.agent_name, &old.session_id, new_session_id);
-        let Ok(mut map) = sessions.lock() else {
-            return;
-        };
-        if let Some(session) = map.remove(old) {
-            map.insert(SessionKey::new(&old.agent_name, new_session_id), session);
-        }
-    })
-}
-
-pub(super) fn compaction_stream_options(api_key: &str, session_id: &str) -> StreamOptions {
-    StreamOptions {
-        api_key: Some(api_key.to_string()),
-        temperature: None,
-        max_tokens: None,
-        timeout_secs: 300,
-        // 摘要虽是一次性提示词，也必须属于当前会话。OpenCode Go 等供应商
-        // 依赖这个 ID 注入 x-opencode-session，并据此路由请求。
-        session_id: Some(session_id.to_string()),
-    }
-}
-
-/// 压缩本体。`Ok(false)` 表示按触发方式判断「无需压缩」（自动且未达触发线）——
-/// 调用方不应把它当失败；`Err` 才是真的没压成（手动时的「历史还不用压」也走这里）。
-pub(super) async fn run_compaction(ctx: CompactionContext<'_>) -> Result<bool, String> {
-    let history = ctx.messages.lock().await.clone();
-    if ctx.trigger == CompactionTrigger::Auto
-        && !pipi_context::compaction::needs_compaction(&history, ctx.budget)
-    {
-        return Ok(false);
-    }
-    // session_id 显式传入：换会话后就地改写它，之后的 envelope 才会带新身份
-    let agent_name = ctx.agent_name.to_string();
-    let run_id = ctx.run_id;
-    let envelope = |session_id: &str, event: AgentEvent| {
-        RuntimeEvent::AgentEvent(AgentEventEnvelope {
-            agent_name: agent_name.clone(),
-            session_id: session_id.to_string(),
-            run_id,
-            event,
-        })
-    };
-    (ctx.sink)(envelope(ctx.session_id, AgentEvent::CompactionStart));
-    let tokens_before = pipi_context::context::estimate_context_tokens(&history);
-
-    // 摘要用量另计入会话账本；请求仍携带当前会话 ID，满足供应商的会话路由要求。
-    let summary_options = compaction_stream_options(ctx.api_key, ctx.session_id);
-    // provider 实例要活到 compact 调用结束（provider_for 返回 Arc）
-    let summarizer = provider_for();
-    let strategy_env = pipi_context::compaction::StrategyEnv {
-        provider: summarizer.as_ref(),
-        model: ctx.model,
-        options: &summary_options,
-        abort: ctx.abort.clone(),
-        retry: ctx.retry,
-    };
-    let compacted = pipi_context::compaction::compact(&history, ctx.budget, &strategy_env).await?;
-
-    // 落盘的摘要正文是**未包裹**的原文（回放时统一包裹，见 session::summary_message）。
-    let summary = compacted
-        .messages
-        .first()
-        .and_then(pipi_protocol::session::summary_text)
-        .unwrap_or_default()
-        .to_string();
-    // 保留区间的起点条目 id：回放据此留住这段原文（缺了它就退回旧行为）。
-    let keep_from_entry = keep_from_entry_id(ctx.writer, &history, compacted.keep_from);
-    let source_tip = ctx
-        .writer
-        .lock()
-        .ok()
-        .and_then(|writer| writer.tip_id().map(str::to_string))
-        .unwrap_or_default();
-    let record = pipi_protocol::session::CompactionRecord {
-        summary: &summary,
-        strategy: compacted.strategy,
-        keep_from_entry: &keep_from_entry,
-        source_tip: &source_tip,
-        usage: compacted.usage,
-    };
-    // 落盘（分叉 / 原地由设置决定）。失败则内存历史不动 —— live 与落盘必须
-    // 一致，否则重开会话会退回未压缩。
-    let switched = persist_compaction(ctx.writer, ctx.repo, &record, ctx.settings)?;
-    *ctx.messages.lock().await = compacted.messages;
-    if let Some(usage) = compacted.usage
-        && let Ok(mut tracker) = ctx.stats.lock()
-    {
-        tracker.record_ledger(&usage);
-    }
-    let tokens_after = pipi_context::context::estimate_context_tokens(&ctx.messages.lock().await);
-    // 换会话：先发 SessionSwitched（envelope 用旧 id，前端此刻身份还是旧的），
-    // 把身份切到新 id，再发后续事件 —— 顺序反了会导致前端收不到切换、running 卡住。
-    if let Some(new_id) = &switched {
-        // 先把 map 里的条目搬到新键（同一条会话、新 id），再让前端与后续事件跟上 ——
-        // 否则键会指向旧 id：归档/删除的占用检查与 session_infos 会各说各话。
-        if let Some(rekey) = &ctx.rekey {
-            rekey(&SessionKey::new(ctx.agent_name, ctx.session_id), new_id);
-        }
-        (ctx.sink)(RuntimeEvent::SessionSwitched(SessionSwitchedEnvelope {
-            agent_name: ctx.agent_name.to_string(),
-            session_id: ctx.session_id.clone(),
-            run_id: ctx.run_id,
-            to_session_id: new_id.clone(),
-            archived: ctx.settings.archive_original,
-        }));
-        *ctx.session_id = new_id.clone();
-    }
-    (ctx.sink)(envelope(
-        ctx.session_id,
-        AgentEvent::CompactionEnd {
-            summary,
-            replaced: compacted.replaced as u64,
-            strategy: compacted.strategy.to_string(),
-            tokens_before,
-            tokens_after,
-        },
-    ));
-    Ok(true)
-}
-
-/// 把压缩结果落盘，返回 `Some(new_session_id)` 表示已换到新会话。
-///
-/// 两条路径：
-/// - **分叉**（`fork_before_compact`）：新会话 = 原会话活跃路径的完整拷贝 +
-///   压缩条目；随后把账本换过去（旧载体在这时关闭），最后按设置归档原会话。
-/// - **原地**（关闭分叉，或分叉失败时的回退）：在当前会话上追加压缩条目。
-///
-/// 分叉失败不是致命错误（回退原地）；原地追加失败才是 `Err`，此时调用方不得
-/// 替换内存历史 —— live 与落盘必须一致。
-pub(super) fn persist_compaction(
-    writer: &SharedLog,
-    repo: Option<&dyn SessionRepo>,
-    record: &pipi_protocol::session::CompactionRecord<'_>,
-    settings: crate::settings::CompactionSettings,
-) -> Result<Option<String>, String> {
-    // 临时测试上下文需要摘要替换，但绝不能分叉或写入 sessions 目录。内存账本
-    // 仍追加 compaction entry，以保持 message id 映射与正式会话一致。
-    {
-        let mut guard = writer
-            .lock()
-            .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
-        if guard.is_temporary() {
-            guard
-                .append_compaction(record)
-                .map_err(|error| format!("无法更新临时压缩账本: {error}"))?;
-            return Ok(None);
-        }
-    }
-
-    let mut fork_error: Option<String> = None;
-    if settings.fork_before_compact {
-        let outcome = match repo {
-            Some(repo) => {
-                fork_and_write_compaction(writer, repo, record, settings.archive_original)
-            }
-            None => Err("无法解析会话仓库".to_string()),
-        };
-        match outcome {
-            Ok(new_id) => return Ok(Some(new_id)),
-            Err(error) => fork_error = Some(error),
-        }
-    }
-    let mut guard = writer
-        .lock()
-        .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
-    guard
-        .append_compaction(record)
-        .map_err(|error| format!("无法写入压缩条目: {error}"))?;
-    if let Some(error) = fork_error {
-        eprintln!("pipi: 压缩分叉失败，已改为原地压缩: {error}");
-    }
-    Ok(None)
-}
-
-/// 分叉出新会话并把压缩条目写进去，然后归档原会话（可关）。
-///
-/// 顺序很关键：**先在内存外写好新会话，再换账本**（换的那一刻旧载体关闭），
-/// 最后才归档 —— 否则仍打开的句柄会继续往被归档的对象追加（JSONL 载体上就是
-/// Linux rename 之后旧 fd 仍指向原 inode）。
-fn fork_and_write_compaction(
-    writer: &SharedLog,
-    repo: &dyn SessionRepo,
-    record: &pipi_protocol::session::CompactionRecord<'_>,
-    archive_original: bool,
-) -> Result<String, String> {
-    let source_id = {
-        let guard = writer
-            .lock()
-            .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
-        guard.session_id().to_string()
-    };
-
-    let mut forked = repo.fork(&source_id, None)?;
-    let new_id = forked.session_id().to_string();
-    if let Err(error) = forked.append_compaction(record) {
-        // 写失败就删掉半成品，别在会话列表里留下空壳
-        drop(forked);
-        let _ = repo.delete(&new_id);
-        return Err(format!("无法把压缩条目写入新会话: {error}"));
-    }
-    // 溯源标记：回答「这个会话从哪来」（回放中性，见 EntryKind::Custom）
-    let _ = forked.append_custom(&format!("compaction-fork:{source_id}"));
-
-    {
-        let mut guard = writer
-            .lock()
-            .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
-        let previous = std::mem::replace(&mut *guard, forked);
-        drop(previous); // 关闭旧载体句柄 —— 归档前必须做到
-    }
-
-    if archive_original && let Err(error) = repo.archive(&source_id) {
-        // 归档失败不回滚：新会话已经可用，原会话留在活跃列表里即可
-        eprintln!("pipi: 原会话归档失败（保留在活跃列表）: {error}");
-    }
-    Ok(new_id)
-}
-
 impl RuntimeState {
-    /// 手动压缩某条会话（UI「立即压缩」）：跳过阈值预检，其余与自动压缩完全同一条
-    /// 路径（摘要 → 分叉/归档 → 换会话）。
-    ///
-    /// 工作交给注入的运行时异步执行，结果通过事件回报 —— 前端据
-    /// `compaction_start/end`、`session-switched`、`session-error` 更新界面。
-    /// 这里会占住 running 位：与正在跑的一轮互斥，且 `stop_run` 能中止摘要调用。
     pub fn compact_now(
         &self,
         agent_name: &str,
@@ -299,143 +10,50 @@ impl RuntimeState {
     ) -> Result<(), String> {
         let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         let key = SessionKey::new(agent_name, session_id);
-        let Some(session) = sessions.get(&key) else {
-            return Err(format!("会话「{session_id}」没有打开"));
-        };
-        if session.running.is_running() {
+        let session = sessions
+            .get(&key)
+            .ok_or_else(|| format!("会话「{session_id}」没有打开"))?;
+        let snapshot = session.engine.snapshot()?;
+        if snapshot.running {
             return Err("会话正在运行，请先停止再压缩".into());
         }
-        let def = session.agent.clone();
-        let current_model = session.model.lock().ok().and_then(|model| model.clone());
-        // 与发送消息同一套解析：会话模型优先，回退 Agent 默认
-        // 协议协商只发生在 agent loop 的 run 里；这里只要解析后的模型与密钥
+        let def = &session.agent;
         let ResolvedModel {
             model,
             api_key,
-            ..
-        } = resolve_model(&def, current_model.as_ref(), None)?;
+            auto_protocol,
+        } = resolve_model(def, snapshot.selected_model.as_ref(), None)?;
         let budget = pipi_context::compaction::Budget::from_window(
             model.context_window,
             def.compact_threshold_percent(),
         )
         .with_target_percent(def.compact_target_percent());
-        let repo = session_repo(&def)?;
-        let runtime_settings = load_settings();
-        let settings = runtime_settings.compaction;
-        let retry = runtime_settings.retry.policy();
-        let messages = session.messages.clone();
-        let writer = session.writer.clone();
-        let stats = session.stats.clone();
-        let abort = session.abort.clone();
-        let running = session.running.clone();
-        abort.reset();
-        // 锁内占位：避免释放锁后与新一轮 send_prompt 抢跑
-        let running_guard = RunningGuard::new(running.clone());
-        let run_token = running_guard.token;
-        let run_id = running.current_run_id();
-        let sink = event_sink.clone();
-        let sessions_map = self.sessions.clone();
-        let rekey = make_rekey(sessions_map, self.background.clone());
-
+        let settings = load_settings();
+        let request = CompactionRequest {
+            options: run_stream_options(api_key, &model, session_id, auto_protocol),
+            model,
+            provider: provider_for(),
+            retry: settings.retry.policy(),
+            budget,
+            policy: CompactionPolicy {
+                fork_before_compact: settings.compaction.fork_before_compact,
+                archive_original: settings.compaction.archive_original,
+            },
+        };
+        let hooks = make_session_hooks(
+            event_sink,
+            def.name.clone(),
+            Some(make_rekey(self.sessions.clone(), self.background.clone())),
+        );
+        let prepared = session
+            .engine
+            .reserve_run(AbortPolicy::Reset)?
+            .prepare_compaction(request, hooks);
         self.spawn_run(async move {
-            let _running_guard = running_guard;
-            let mut session_id = writer_session_id(&writer).unwrap_or_default();
-            // 发一对 Agent 事件：前端在 compaction_start 会把 running 置 true，
-            // 而只有 agent_end 会清 —— 手动压缩没有 agent loop，缺了它界面会
-            // 永久停在「运行中」（停止按钮、模型切换、新会话全被禁）。
-            sink(RuntimeEvent::AgentEvent(AgentEventEnvelope {
-                agent_name: def.name.clone(),
-                session_id: session_id.clone(),
-                run_id,
-                event: AgentEvent::AgentStart,
-            }));
-            let outcome = run_compaction(CompactionContext {
-                agent_name: &def.name,
-                session_id: &mut session_id,
-                run_id,
-                model: &model,
-                api_key: &api_key,
-                budget,
-                messages: &messages,
-                writer: &writer,
-                stats: &stats,
-                abort: abort.clone(),
-                repo: Some(repo.as_ref()),
-                settings,
-                retry,
-                sink: &sink,
-                trigger: CompactionTrigger::Manual,
-                rekey: Some(rekey),
-            })
-            .await;
-            if let Err(error) = outcome {
-                // 手动路径要让人看到原因（例如「历史还不用压」），走会话错误通道
-                sink(RuntimeEvent::SessionError(SessionErrorEnvelope {
-                    agent_name: def.name.clone(),
-                    session_id: session_id.clone(),
-                    run_id,
-                    message: format!("压缩未执行：{error}"),
-                }));
+            if let Err(error) = prepared.run().await {
+                eprintln!("pipi: 手动压缩失败: {error}");
             }
-            running.finish(run_token);
-            sink(RuntimeEvent::AgentEvent(AgentEventEnvelope {
-                agent_name: def.name.clone(),
-                session_id,
-                run_id,
-                event: AgentEvent::AgentEnd {
-                    messages: Vec::new(),
-                },
-            }));
         });
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compaction_summary_request_uses_active_session_id() {
-        let options = compaction_stream_options("test-key", "active-session");
-        assert_eq!(options.session_id.as_deref(), Some("active-session"));
-        assert_eq!(options.api_key.as_deref(), Some("test-key"));
-    }
-
-    #[test]
-    fn temporary_compaction_updates_memory_ledger_without_forking() {
-        let mut ledger = SessionWriter::temporary();
-        let keep_from = ledger
-            .append_message(&Message::user_text("保留这条"))
-            .unwrap();
-        ledger
-            .append_message(&Message::assistant_text("回答", "mock"))
-            .unwrap();
-        let source_tip = ledger.tip_id().unwrap().to_string();
-        let writer: SharedLog = Arc::new(Mutex::new(Box::new(ledger)));
-        let record = pipi_protocol::session::CompactionRecord {
-            summary: "内存摘要",
-            strategy: "summary",
-            keep_from_entry: &keep_from,
-            source_tip: &source_tip,
-            usage: None,
-        };
-
-        let switched = persist_compaction(
-            &writer,
-            None,
-            &record,
-            crate::settings::CompactionSettings {
-                fork_before_compact: true,
-                archive_original: true,
-            },
-        )
-        .expect("临时账本压缩");
-
-        assert!(switched.is_none(), "临时压缩不能切换或分叉会话");
-        let ledger = writer.lock().unwrap();
-        // 临时账本没有载体（`is_temporary` 即「没有持久化路径」的接口级说法）
-        assert!(ledger.is_temporary());
-        assert_ne!(ledger.tip_id(), Some(source_tip.as_str()));
     }
 }

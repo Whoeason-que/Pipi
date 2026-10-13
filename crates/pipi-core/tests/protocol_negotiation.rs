@@ -11,8 +11,8 @@
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use pipi_core::events::{EventEmitter, RuntimeEvent};
@@ -27,8 +27,7 @@ use pipi_test_support::HOME_LOCK;
 
 const MODEL_ID: &str = "mock-gateway-model";
 /// opencode 网关的原话：模型只走另一套 wire 时它就是这么回的。
-const PROTOCOL_MISMATCH_BODY: &str =
-    r#"{"type":"error","error":{"type":"ModelProtocolUnsupported","message":"Model does not support this protocol."}}"#;
+const PROTOCOL_MISMATCH_BODY: &str = r#"{"type":"error","error":{"type":"ModelProtocolUnsupported","message":"Model does not support this protocol."}}"#;
 
 // ---------------------------------------------------------------------------
 // mock 端点：/chat/completions 与 /v1/messages 两条路径各自可配「拒绝 / 正常」
@@ -226,8 +225,15 @@ fn fixture_agent(name: &str, base_url: &str) {
         max_tokens: 256,
         context_window: 0,
     };
-    agents::create_agent(name, "协议协商回归", None, None, Some(MODEL_ID), Some(model))
-        .expect("播种测试 Agent");
+    agents::create_agent(
+        name,
+        "协议协商回归",
+        None,
+        None,
+        Some(MODEL_ID),
+        Some(model),
+    )
+    .expect("播种测试 Agent");
 }
 
 fn write_settings(base_url: &str, api_mode: ApiMode) {
@@ -305,7 +311,12 @@ fn open_session_id(state: &RuntimeState, agent_name: &str) -> String {
 }
 
 /// 跑一轮并等它收尾，返回会话文件内容。
-fn run_prompt(state: &RuntimeState, agent_name: &str, session_id: Option<&str>, prompt: &str) -> String {
+fn run_prompt(
+    state: &RuntimeState,
+    agent_name: &str,
+    session_id: Option<&str>,
+    prompt: &str,
+) -> String {
     state
         .send_prompt(agent_name, session_id, prompt, None, recording_sink())
         .unwrap_or_else(|error| panic!("本轮应当被接受：{error}"));
@@ -380,6 +391,19 @@ fn runtime_negotiation_switches_once_and_remembers() {
         "学到之后不该再打被拒绝的协议：{second}"
     );
     assert_eq!(endpoint.messages_hits(), 2, "第二轮直接走对的协议");
+
+    // 摘要不参与协商，但 auto 模式沿用本轮已经学到的协议。
+    state
+        .compact_now("negotiation-agent", &session_id, recording_sink())
+        .unwrap();
+    assert!(wait_until(10_000, || state
+        .session_infos()
+        .unwrap()
+        .iter()
+        .all(|info| !info.running)));
+    assert_eq!(endpoint.chat_hits(), 1);
+    assert_eq!(endpoint.messages_hits(), 3, "auto 摘要直接采用已学协议");
+    assert_ne!(open_session_id(&state, "negotiation-agent"), session_id);
 }
 
 #[test]
@@ -406,4 +430,68 @@ fn pinned_protocol_is_not_rewritten() {
         !session.contains("来自 Anthropic 协议的回复"),
         "钉死模式下不该有成功回复：{session}"
     );
+}
+
+#[test]
+fn switching_to_manual_ignores_a_previously_learned_protocol() {
+    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _home = isolated_home("pipi-protocol-mode-switch");
+    let endpoint = spawn_protocol_endpoint(Reply::ProtocolUnsupported, Reply::Ok);
+    fixture_agent("mode-switch-agent", &endpoint.base_url);
+    write_settings(&endpoint.base_url, ApiMode::Auto);
+    let runtime = runtime();
+    let state = RuntimeState::new(runtime.handle().clone());
+    run_prompt(&state, "mode-switch-agent", None, "auto");
+    assert_eq!(endpoint.chat_hits(), 1);
+    assert_eq!(endpoint.messages_hits(), 1);
+
+    write_settings(&endpoint.base_url, ApiMode::Manual);
+    let id = open_session_id(&state, "mode-switch-agent");
+    let history = run_prompt(&state, "mode-switch-agent", Some(&id), "manual");
+    assert_eq!(endpoint.chat_hits(), 2, "manual 必须使用声明的 OpenAI 协议");
+    assert_eq!(endpoint.messages_hits(), 1, "manual 不采用旧记忆，也不协商");
+    assert!(history.contains("协议已固定"), "{history}");
+
+    // 同一个 provider 的摘要路径也必须遵守 manual，不能命中旧的学习记忆。
+    let errors = Arc::new(AtomicUsize::new(0));
+    let captured = errors.clone();
+    state
+        .compact_now(
+            "mode-switch-agent",
+            &id,
+            Arc::new(move |event| {
+                if matches!(event, RuntimeEvent::SessionError(_)) {
+                    captured.fetch_add(1, Ordering::SeqCst);
+                }
+            }),
+        )
+        .unwrap();
+    assert!(wait_until(10_000, || !state.session_running("mode-switch-agent", &id)));
+    assert_eq!(endpoint.chat_hits(), 3, "manual 摘要使用声明的 OpenAI 协议");
+    assert_eq!(endpoint.messages_hits(), 1, "摘要不采用旧记忆，也不协商");
+    assert_eq!(errors.load(Ordering::SeqCst), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn reading_agent_output_rejects_external_session_symlinks() {
+    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _home = isolated_home("pipi-output-symlink");
+    fixture_agent("output-agent", "http://127.0.0.1:1");
+    let outside = pipi_test_support::temp_dir("pipi-output-outside");
+    let mut writer = pipi_session::SessionWriter::create(&outside).unwrap();
+    writer
+        .append_message(&pipi_protocol::Message::assistant_text("secret", "mock"))
+        .unwrap();
+    let source = writer.path().to_path_buf();
+    drop(writer);
+    let dir = agents::load_agent("output-agent")
+        .unwrap()
+        .sessions_dir()
+        .unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::os::unix::fs::symlink(source, dir.join("linked.jsonl")).unwrap();
+    let error =
+        pipi_core::tools::agent::read_agent_output("output-agent", Some("linked")).unwrap_err();
+    assert!(error.contains("不能是符号链接"), "{error}");
 }

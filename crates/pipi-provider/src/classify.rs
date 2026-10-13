@@ -70,9 +70,10 @@ fn classify_response(response: &rig::ProviderResponseError) -> (RetryVerdict, Op
 pub fn protocol_mismatch(err: &ProviderError) -> bool {
     let (status, body) = match err {
         ProviderError::ProviderResponse(response)
-        | ProviderError::InvalidAuthentication(response) => {
-            (response.status.map(|status| status.as_u16()), Some(response.body.as_str()))
-        }
+        | ProviderError::InvalidAuthentication(response) => (
+            response.status.map(|status| status.as_u16()),
+            Some(response.body.as_str()),
+        ),
         ProviderError::Http(http_error) => match &**http_error {
             http_client::Error::InvalidStatusCodeWithDetails { status, body, .. } => {
                 (Some(status.as_u16()), Some(body.as_str()))
@@ -255,7 +256,8 @@ mod tests {
             http::StatusCode::TOO_MANY_REQUESTS,
             http::StatusCode::NOT_FOUND,
         ] {
-            let error = ProviderError::ProviderResponse(rig::ProviderResponseError::new(status, body));
+            let error =
+                ProviderError::ProviderResponse(rig::ProviderResponseError::new(status, body));
             assert!(!protocol_mismatch(&error), "status {status}");
         }
         let other_400 = ProviderError::ProviderResponse(rig::ProviderResponseError::new(

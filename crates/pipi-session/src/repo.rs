@@ -322,6 +322,22 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn broken_session_symlink_is_rejected_instead_of_treated_as_missing() {
+        let dir = pipi_test_support::temp_dir("pipi-broken-session-link");
+        std::os::unix::fs::symlink(dir.join("missing.jsonl"), dir.join("broken.jsonl")).unwrap();
+        let repo = JsonlSessionRepo::new(dir);
+        for error in [
+            rejection("exists", repo.exists("broken")),
+            rejection("entries", repo.entries("broken")),
+            rejection("open", repo.open("broken")),
+            rejection("fork", repo.fork("broken", None)),
+        ] {
+            assert!(error.contains("不能是符号链接"), "{error}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn symlinked_sessions_dir_is_rejected() {
         let outside = pipi_test_support::temp_dir("pipi-test");
         let parent = pipi_test_support::temp_dir("pipi-test");

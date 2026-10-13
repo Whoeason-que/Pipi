@@ -277,6 +277,7 @@ mod tests {
 
     #[test]
     fn tilde_and_relative_resolution() {
+        let _guard = pipi_test_support::HOME_LOCK.lock().unwrap();
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
         assert_eq!(expand_tilde("~"), home);
         assert_eq!(expand_tilde("~/x"), home.join("x"));

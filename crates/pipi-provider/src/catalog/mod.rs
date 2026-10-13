@@ -490,7 +490,9 @@ pub fn model_api_override(
     model_id: &str,
     declared: Api,
 ) -> Option<Api> {
-    let provider = providers_at(catalog, base_url, declared).into_iter().next()?;
+    let provider = providers_at(catalog, base_url, declared)
+        .into_iter()
+        .next()?;
     provider
         .models
         .iter()
@@ -499,11 +501,7 @@ pub fn model_api_override(
 }
 
 /// 端点在目录里的 provider 级协议（跟随上游 / CURATION 的更新）。
-pub fn catalog_provider_api(
-    catalog: &ModelCatalog,
-    base_url: &str,
-    declared: Api,
-) -> Option<Api> {
+pub fn catalog_provider_api(catalog: &ModelCatalog, base_url: &str, declared: Api) -> Option<Api> {
     providers_at(catalog, base_url, declared)
         .first()
         .map(|provider| provider.api)
@@ -762,7 +760,11 @@ mod tests {
         .unwrap();
         assert!(!chat_json.contains("\"api\""), "{chat_json}");
 
-        let same = gateway.models.iter().find(|m| m.id == "mixed-same").unwrap();
+        let same = gateway
+            .models
+            .iter()
+            .find(|m| m.id == "mixed-same")
+            .unwrap();
         assert_eq!(same.api, None, "与 provider 级相同不必重复记录");
         assert!(
             !gateway.models.iter().any(|m| m.id == "mixed-google"),
@@ -813,7 +815,11 @@ mod tests {
             Some(Api::AnthropicMessages)
         );
         assert_eq!(
-            catalog_provider_api(&catalog, "https://unknown.example.com/v1", Api::OpenAICompletions),
+            catalog_provider_api(
+                &catalog,
+                "https://unknown.example.com/v1",
+                Api::OpenAICompletions
+            ),
             None
         );
     }

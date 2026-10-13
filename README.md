@@ -203,12 +203,12 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 │  pipi-core      Web 宿主（feature）  │  axum WS + /api/invoke + 鉴权
 ├──────────────────────────────────────┤
 │  pipi-core      宿主层               │  命令表、会话槽、运行编排、审批、后台
-│  ├─ runtime      会话槽与主轮/child  │  唯一持有运行态的地方
+│  ├─ runtime      多会话索引与装配    │  主轮 / child / 压缩共用单会话内核
 │  ├─ commands     宿主命令表          │  参数结构 + 实现 + dispatch（只有一份）
 │  ├─ settings     全局设置            │  供应商、压缩阈值、重试策略
 │  └─ tools::agent Agent 组合工具      │  显式启用；基础工具来自 pipi-tools
 ├──────────────────────────────────────┤
-│  pipi-agent     引擎                 │  主循环与用量统计，与宿主无关
+│  pipi-agent     L5 单会话内核        │  生命周期 / 账本 / 主循环 / 压缩编排
 │  pipi-context   上下文与运行策略     │  预算 / 裁剪 / 压缩流水线 / 重试退避
 │  pipi-venv      Agent 环境域         │  清单与注册表 / av 契约（含 av CLI）
 │                                      │  / 技能中心 / 纯提示词层
@@ -227,9 +227,16 @@ run 代际、停止确认与压缩重键；`Chat.tsx` 只持有输入、滚动�
 退出或卸载视图不会中止运行。实际运行状态仍由 Rust 会话守卫与 `session_infos`
 确认，持久历史仍来自 JSONL；前端缓存不设置运行会话数量上限。
 
-`pipi_core::runtime` 的公共入口位于 `runtime/mod.rs`，内部按 `slots`（会话与文件）、
-`execution`（主轮与 child）、`compaction`（压缩与重键）、`events`（事件与落盘）
-拆分；宿主事件协议（`RuntimeEvent` 与各 envelope）在 `pipi_core::events`，审批与
+`pipi_agent::session::AgentSession` 拥有单会话的消息、账本、模型绑定、统计、
+运行守卫与 abort / steering。宿主注入存储端口、provider、工具与已解析的预算和选项；
+同步预约并落输入后返回可调度的 `PreparedRun`，内核不选择执行器、不读取产品配置。
+手动压缩、交互运行和一次性子运行共用进程级 runId 分配与同会话互斥。
+
+`pipi_core::runtime` 的公共入口位于 `runtime/mod.rs`，内部按 `slots`（多会话索引）、
+`lifecycle`（宿主生命周期）、`execution` / `child` / `compaction`（能力装配与调度）、
+`model`（模型与凭据解析）、`events`（身份信封与宿主重键）拆分。内核压缩更换账本后
+通知宿主移动索引和后台任务归属，再发旧 id 的 `session-switched`，后续事件用新 id。
+宿主事件协议（`RuntimeEvent` 与各 envelope）在 `pipi_core::events`，审批与
 runtime 都依赖这个叶子模块，`background` 通过 `ChildAgentRunner` 端口拿到 child
 运行能力。桌面与 Web 共用这些实现（Web 宿主是 `pipi_core::server`，`--features
 server`）。前端 `ipc.ts` 声明命令参数、返回值和事件类型，`npm run test:frontend`
@@ -248,9 +255,9 @@ server`）。前端 `ipc.ts` 声明命令参数、返回值和事件类型，`np
 | 类别 | 例子 | 持久化 | 应用位置 |
 | --- | --- | --- | --- |
 | `Projection`（投影式，纯函数、确定性） | 旧工具输出清理、边界硬裁 | **不落盘**（回放时重算） | `transform_context`（组装请求时） |
-| `Replacement`（替换式，信息已丢失） | LLM 摘要 | 必须落盘为 `compaction` 条目 | turn 边界（runtime 触发） |
+| `Replacement`（替换式，信息已丢失） | LLM 摘要 | 必须落盘为 `compaction` 条目 | turn 边界（单会话内核触发） |
 
-- 「何时压」由 runtime 决定，策略只回答「我能不能压」。触发口径只有一处
+- 「何时压」由 `pipi-agent::session` 决定，策略只回答「我能不能压」。触发口径只有一处
   （`Budget::trigger_tokens` = **窗口 × 百分比**，默认 75%，按 Agent 在
   `agent.json` 的 `compactThresholdPercent` 调；窗口未知时为 0 → 不压缩）；
   **手动压缩**（右栏「状态」→ 上下文行的「立即压缩」）跳过阈值 —— 用户点了就压，
@@ -265,6 +272,7 @@ server`）。前端 `ipc.ts` 声明命令参数、返回值和事件类型，`np
 - 替换式目前只有摘要一档，落盘字段对齐 pi：`keep_from_entry`（= 上游
   `firstKeptEntryId`，回放时保住这段原文）、`strategy`、`usage`（摘要调用的用量
   计入会话账本，但不改写「当前上下文占用」口径，见 `stats::record_ledger`）；
+  重开时从活跃路径的原始消息和压缩用量重建累计统计，被摘要替换的请求仍计费；
 - 硬不变量集中在 `compaction::validate` / `validate_result`：切点不得孤立
   toolResult、就地改写不得改角色、压缩后破损度不得增加（历史里本来就有的中段
   悬挂不算在压缩头上）；
@@ -325,14 +333,14 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
 ### 并发模型（多路会话同时运行）
 
 - **会话槽按 (Agent 名, 会话 id) 索引**：`RuntimeState` 持的是
-  `Mutex<HashMap<SessionKey, Session>>`，不是「当前那个会话」。每个槽自带
+  `Mutex<HashMap<SessionKey, HostSession>>`，每个槽持有一个 `AgentSession`，内核拥有
   abort / 运行守卫 / writer / 统计，所以**同一个 Agent 可以同时开多条会话、每条
   各跑一轮；不同 Agent 更是互不影响，路数不限**（没有并发上限设置、没有信号量；
   每轮运行是注入运行时上的一个独立任务）。桌面壳与 Web 服务同款语义。
 - **运行守卫按会话**：同一条会话同时只能跑一轮（**同会话串行是硬不变量**，第二轮
   会被拒并提示先停止或走插话）；别的会话、别的 Agent 照跑。`stop_run` 只停指定的
   那一条。
-- **换会话要换键**：压缩分叉出新会话时，条目从旧键搬到新键（同一个 `Session`
+- **换会话要换键**：压缩分叉出新会话时，条目从旧键搬到新键（同一个 `AgentSession`
   对象：运行守卫 / abort / writer 跟着走），随后发 `session-switched` 让前端把
   视图身份切到新 id。
 - **身份进 IPC**：会话类命令都带 `agentName` + `sessionId`
@@ -362,6 +370,7 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
 | `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness prompt/resources | `pipi-venv::prompt` | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
 | `packages/agent` harness/session | `pipi-protocol::session`（条目格式与回放）+ `pipi-session`（JSONL 载体） | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
+| `packages/agent` harness/runtime | `pipi-agent::session` | 单会话生命周期、运行守卫、历史恢复、累计用量和压缩持久化；通过协议端口注入能力 |
 | （Pipi 应用层） | `pipi-core::runtime` | 会话槽、后台 Agent 编排和宿主事件协议；Tauri 与 Web server 共用，IPC payload 不变 |
 | `packages/agent` compaction（启发式） | `pipi-context::context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
 | `packages/agent` compaction（LLM 摘要替换） | `pipi-context::compaction` | 见下文「上下文压缩」：摘要替换旧轮次 + 保留近期原文（keepRecentTokens=20000）；摘要骨架 prompt、旧摘要经 `<previous-summary>` 交回 update 版指令、文件操作清单追加在摘要末尾；落盘为 `compaction` 条目（含 `keep_from_entry`），重开/分叉时回放 |

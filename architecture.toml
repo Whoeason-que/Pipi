@@ -52,14 +52,14 @@ dev-may-depend-on = ["pipi-test-support"]
 [crates.pipi-provider]
 may-depend-on = ["pipi-error", "pipi-protocol"]
 
-# 引擎：主循环与用量统计。上下文 / 压缩 / 重试在 pipi-context，载体在
-# pipi-session；不碰 agent.toml 契约、不直连网络（provider 只以契约层端口出现）。
+# L5 单会话内核：运行守卫、abort / steering、账本恢复与统计、主循环和压缩编排。
+# 算法在 pipi-context，载体在 pipi-session；不碰 agent.toml、具体能力或网络。
 [crates.pipi-agent]
 may-depend-on = ["pipi-context", "pipi-error", "pipi-protocol"]
 dev-may-depend-on = ["pipi-provider"]
-forbid = ["reqwest"]
+forbid = ["reqwest", "rig", "tauri"]
 
-# 宿主层：命令表、运行编排、后台任务、设置、Agent 组合工具，以及
+# 宿主层：命令表、多会话索引、能力装配与调度、后台任务、设置、Agent 组合工具，以及
 # `--features server` 的 Web 宿主（只做 transport 与鉴权）。
 [crates.pipi-core]
 may-depend-on = [

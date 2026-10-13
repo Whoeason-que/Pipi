@@ -87,6 +87,7 @@ async fn drain_stream(addr: std::net::SocketAddr, timeout_secs: u64) -> (bool, O
         tools: Vec::new(),
     };
     let options = StreamOptions {
+        auto_protocol: true,
         api_key: Some("test-key".into()),
         temperature: None,
         max_tokens: Some(16),

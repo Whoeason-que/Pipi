@@ -5,6 +5,7 @@
 //! **只改本文件**，调用点不动 —— 设计见 `docs/git-session-store.md`。
 
 use super::*;
+use pipi_session::JsonlSessionRepo;
 
 /// 该 Agent 的会话仓库。
 pub(super) fn session_repo(def: &AgentDefinition) -> Result<Arc<dyn SessionRepo>, String> {

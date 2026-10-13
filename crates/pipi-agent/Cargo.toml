@@ -3,7 +3,7 @@ name = "pipi-agent"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Pipi Agent 引擎：主循环与用量统计"
+description = "Pipi L5 单会话内核：生命周期、主循环、账本与压缩编排"
 
 [dependencies]
 pipi-context = { workspace = true }
@@ -12,9 +12,10 @@ pipi-protocol = { workspace = true }
 futures-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util"] }
+tokio = { workspace = true, features = ["rt", "macros", "time", "sync"] }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 async-trait = { workspace = true }
 # 只有测试需要具体 provider（生产代码只依赖协议层的 Provider 端口）
 pipi-provider = { workspace = true }

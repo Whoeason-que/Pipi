@@ -165,21 +165,21 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
                                → spawn 一次 git fast-import
 ```
 
-- **提交点（「轮末」）的判定**——权威定义在 `run_turn`
-  （`crates/pipi-core/src/runtime/execution.rs`，`run_agent_loop` 外层的
+- **提交点（「轮末」）的判定**——权威定义在 `harvest`
+  （`crates/pipi-agent/src/session/run.rs`，`run_agent_loop` 外层的
   steering 收割循环）：外层循环反复 `run_agent_loop`，每轮之后
-  `steering.drain()`，**插话队列排空或 abort 置位即返回**。所以「轮末」= 一次 `run_turn`
+  `steering.drain()`，**插话队列排空或 abort 置位即返回**。所以「轮末」= 一次 `harvest`
   返回，不是「模型停止输出」，也不是「assistant 消息结束」。
-- 落点：`pipi-core/src/runtime/execution.rs` 的 spawn 块里，
-  `run_turn(...).await` 之后、`run_compaction` 之前（压缩可能 fork 新分支，压缩条目应当
-  成为新分支的首个 commit），且**必须在 `running.finish(run_token)` 之前完成**——否则
+- 落点：`pipi-agent/src/session/run.rs` 的 `drive_run` 内，
+  `harvest(...).await` 之后、`run_compaction` 之前（压缩可能 fork 新分支，压缩条目应当
+  成为新分支的首个 commit），且**必须在运行守卫释放之前完成**——否则
   「running 已释放」不等于「历史已落盘」，前端收到 AgentEnd 后立刻发的新一轮会与提交竞争
   同一分支。
 - 汇聚到这条路径的结束方式：正常结束、用户点停止（abort 置位）、provider 报错；
-  child 会话同理，其超时在 `child.rs:266-280`（`tokio::time::timeout` →
-  `append_child_timeout_terminal`）后收尾。
+  child 会话共用这个内核，其超时在 `session/run.rs`（`tokio::time::timeout` →
+  `ledger::append_terminal`）后收尾。
 - **steer 插话不结束轮**：队列非空就继续 `run_agent_loop`，所以一轮可能含多条 user entry，
-  Turn trailer 的轮号必须按 `run_turn` 次数递增，不能按 user entry 数。
+  Turn trailer 的轮号必须按 `harvest` 次数递增，不能按 user entry 数。
 - **进程被杀**（强杀/崩溃）：spawn 的 task 随进程消失，提交点不执行 → 这一轮不落盘
   （O2 的已知代价，见 §3）。
 - 提交耗时（实测写入吞吐 0.27 ms/条）：一轮中位 14 条/49 KB ≈ 6 ms；最大轮 118 条/0.44 MB
@@ -190,10 +190,10 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 
 | 提交点 | 代码位置 | 不提交的后果 |
 | --- | --- | --- |
-| 会话创建 | `crates/pipi-core/src/runtime/slots.rs`（写 model_change）、`runtime/execution.rs`（env 记账） | 单轮会话在 git 里 0 commit，列表/浏览都看不到——与 §3 否掉的「下次输入才提交」是同一个毛病 |
+| 会话创建 | `pipi-agent/src/session/state.rs`（写 model_change / env，宿主提供声明） | 单轮会话在 git 里 0 commit，列表/浏览都看不到——与 §3 否掉的「下次输入才提交」是同一个毛病 |
 | 压缩条目 | 轮末之后的 `run_compaction`；空闲时的手动 `compact_now` | 压缩记录不入史，回放按旧历史 |
-| 手动切模型 | `crates/pipi-core/src/runtime/slots.rs:552`（`set_session_model`，空闲时追加 model_change） | 模型变更不入史 |
-| 旧会话尾部修复 | `crates/pipi-core/src/runtime/execution.rs`（`settle_unanswered_tail`） | 只对旧 JSONL 会话需要；git 后端每个 commit 边界都是完整轮，不会出现悬挂尾部 |
+| 手动切模型 | `pipi-agent/src/session/state.rs`（`set_model`，空闲时追加 model_change） | 模型变更不入史 |
+| 旧会话尾部修复 | `pipi-agent/src/session/ledger.rs`（`settle_unanswered_tail`） | 只对旧 JSONL 会话需要；git 后端每个 commit 边界都是完整轮，不会出现悬挂尾部 |
 - 读：`ls-tree -r <branch>` 拿路径与 blob id（顺序即对话顺序）→ 一次
   `cat-file --batch` 流式取内容 → 逐行 serde 成 `SessionEntry` → 之后的
   `active_path` / `replay` / `rebuild_messages` / 统计全部复用，零改动。
@@ -325,3 +325,11 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 - 唯一改动的断言：删掉 `assert!(ledger.persistent_path().is_none())` —— `persistent_path`
   是 JSONL 载体细节、已不在接口上；同测试的 `assert!(ledger.is_temporary())` 保留，
   语义等价。其余改动均为机械适配。
+
+### L5 单会话内核迁移（2026-10-13）
+
+单会话的 writer / 消息 / 统计 / 运行守卫和恢复、压缩编排已归入
+`pipi-agent::session`。core 保留多会话索引、能力装配、宿主事件与后台任务归属，
+载体选择仍只在 `pipi-core::runtime::store`。新内核通过 `SessionLog` / `SessionRepo`
+注入存储；这次迁移不实现 git 后端，也不增加 `commit_point` 调用，以上 git 提交点
+仍是 P2 的待实施设计，JSONL 的逐条刷盘口径不变。

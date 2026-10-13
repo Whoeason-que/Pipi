@@ -745,8 +745,12 @@ impl Provider for RigProvider {
                 abort: AbortSignal,
                 tx: &Sender<StreamEvent>,
             ) -> Result<(), StreamError> {
-                // 协议按请求决定：先看运行期学到的（端点实证过），否则用声明里的。
-                let api = learned_protocol(&model.base_url, &model.id).unwrap_or(model.api);
+                // 协议按请求决定：auto 采用运行期记忆，manual 严格使用声明。
+                let api = if options.auto_protocol {
+                    learned_protocol(&model.base_url, &model.id).unwrap_or(model.api)
+                } else {
+                    model.api
+                };
                 let key = options.api_key.clone().unwrap_or_default();
                 let transport = rig_transport(extra_headers(
                     &model.base_url,
