@@ -811,8 +811,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            47,
-            "宿主命令数应为 47（前端 CommandMap 同步）"
+            48,
+            "宿主命令数应为 48（前端 CommandMap 同步）"
         );
     }
 
