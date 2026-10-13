@@ -70,4 +70,4 @@ pub use git::{GitExec, GitSessionRepo, GitSink, entry_path};
 pub use history::load_session;
 pub use ledger::SessionWriter;
 pub use repo::{JsonlSessionRepo, archive_session_file, fork_session, list_session_summaries};
-pub use store::{AgentSessionRepo, ImportReport};
+pub use store::AgentSessionRepo;

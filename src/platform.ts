@@ -346,6 +346,7 @@ const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }
   new_session: {},
   list_sessions: {},
   list_archived_sessions: {},
+  import_sessions: {},
   archive_session: { sessionId: "required" },
   restore_session: { sessionId: "required" },
   delete_session: { sessionId: "required" },

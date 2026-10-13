@@ -14,7 +14,7 @@ function rustType(input: string): string {
   if (value.startsWith("Option<")) return rustType(value.slice(7, -1)) + "|null";
   if (value.startsWith("Vec<")) return rustType(value.slice(4, -1)) + "[]";
   if (value.startsWith("Result<")) return rustType(value.slice(7, -1).replace(/,\s*String$/, ""));
-  const aliases: Record<string, string> = { String: "string", bool: "boolean", u64: "number", usize: "number", "()": "void", AgentDefinition: "AgentDefinition", Settings: "Settings", Model: "ModelConfig", PermissionsConfig: "PermissionsConfig", SessionInfo: "SessionInfoView", Message: "MessageView", SessionSummary: "SessionSummaryView", SessionStats: "SessionStatsView", BackgroundTaskSnapshot: "BackgroundTaskSnapshot", ModelCatalog: "ModelCatalog", SkillLibrary: "SkillLibrary", AgentSkills: "AgentSkills", SkillVerify: "SkillVerify", SkillInstallReport: "SkillInstallReport", SkillSyncReport: "SkillSyncReport", SkillUsage: "SkillUsage" };
+  const aliases: Record<string, string> = { String: "string", bool: "boolean", u64: "number", usize: "number", "()": "void", AgentDefinition: "AgentDefinition", Settings: "Settings", Model: "ModelConfig", PermissionsConfig: "PermissionsConfig", SessionInfo: "SessionInfoView", Message: "MessageView", SessionSummary: "SessionSummaryView", SessionImportReport: "SessionImportReportView", SessionStats: "SessionStatsView", BackgroundTaskSnapshot: "BackgroundTaskSnapshot", ModelCatalog: "ModelCatalog", SkillLibrary: "SkillLibrary", AgentSkills: "AgentSkills", SkillVerify: "SkillVerify", SkillInstallReport: "SkillInstallReport", SkillSyncReport: "SkillSyncReport", SkillUsage: "SkillUsage" };
   assert.ok(aliases[value], `unsupported command wire type: ${value}`);
   return aliases[value];
 }

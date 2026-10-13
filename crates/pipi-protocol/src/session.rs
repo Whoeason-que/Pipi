@@ -116,9 +116,29 @@ pub struct SessionSummary {
     pub model: Option<String>,
 }
 
+/// 显式导入（旧 JSONL 会话 → git 分支）的结果：宿主命令回报给用户。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionImportReport {
+    /// 新导入的会话 id。
+    pub imported: Vec<String>,
+    /// 已在目标载体里且内容一致的会话 id（幂等跳过）。
+    pub skipped: Vec<String>,
+    /// 失败的会话与原因。
+    pub failed: Vec<SessionImportFailure>,
+}
+
+/// 一条导入失败记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionImportFailure {
+    pub session_id: String,
+    pub reason: String,
+}
+
 /// 会话 ID 校验：只允许 ASCII 字母数字与 `-`。
 ///
-/// 会话 id 同时是文件名（JSONL 载体）与引用名（未来的 git 载体），必须拒绝
+/// 会话 id 同时是文件名（JSONL 载体）与分支名（git 载体），必须拒绝
 /// 路径分隔符、`.` 与空串；所有载体共用这一条规则，别在调用点各写一份。
 pub fn validate_session_id(session_id: &str) -> Result<(), String> {
     if session_id.is_empty()

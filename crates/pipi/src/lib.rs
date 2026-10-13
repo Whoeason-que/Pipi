@@ -47,6 +47,7 @@ pub fn run() {
             chat::delete_session,
             chat::delete_archived_session,
             chat::list_archived_sessions,
+            chat::import_sessions,
             commands::list_archived_agents,
             commands::list_agent_files,
             commands::read_agent_file,

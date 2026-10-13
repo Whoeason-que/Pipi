@@ -15,7 +15,7 @@ use serde_json::Value;
 use crate::settings::{self, Settings};
 use pipi_agent::stats::SessionStats;
 use pipi_protocol::permissions::PermissionsConfig;
-use pipi_protocol::session::SessionSummary;
+use pipi_protocol::session::{SessionImportReport, SessionSummary};
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
 use pipi_provider::catalog::ModelCatalog;
 use pipi_venv::agents::{self, AgentDefinition};
@@ -25,7 +25,7 @@ use pipi_venv::skills::{
 
 use crate::approval::ApprovalDecision;
 use crate::events::EventEmitter;
-use crate::runtime::{self, RuntimeState, SessionInfo};
+use crate::runtime::{self, RuntimeState, SessionInfo, agent_repo};
 
 /// 全部宿主命令名，顺序与前端 `src/ipc.ts` 的 `CommandMap` 一致。
 pub const COMMANDS: &[&str] = &[
@@ -64,6 +64,7 @@ pub const COMMANDS: &[&str] = &[
     "delete_agent",
     "delete_archived_agent",
     "list_archived_sessions",
+    "import_sessions",
     "archive_session",
     "restore_session",
     "delete_session",
@@ -551,6 +552,30 @@ pub fn list_archived_sessions(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImportSessionsArgs {
+    pub agent_name: String,
+}
+
+/// 把旧 JSONL 会话导入 git（逐条校验、幂等、原文件改名保留）。
+///
+/// 占用检查与脱离槽位在锁内同步做（快），读全部旧会话并 spawn git 的部分放到
+/// 阻塞线程池执行（与技能安装同一条约定）。
+pub async fn import_sessions(
+    runtime: &RuntimeState,
+    args: ImportSessionsArgs,
+) -> Result<SessionImportReport, String> {
+    runtime.prepare_session_import(&args.agent_name)?;
+    let agent_name = args.agent_name.clone();
+    tokio::task::spawn_blocking(move || {
+        let repo = agent_repo(&agents::load_agent(&agent_name)?)?;
+        Ok(repo.import_legacy_sessions())
+    })
+    .await
+    .map_err(|error| format!("会话导入任务失败：{error}"))?
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ArchiveSessionArgs {
     pub agent_name: String,
     pub session_id: String,
@@ -748,6 +773,7 @@ pub async fn dispatch(
         "delete_agent" => to_value(delete_agent(runtime, parse(args)?)?),
         "delete_archived_agent" => to_value(delete_archived_agent(runtime, parse(args)?)?),
         "list_archived_sessions" => to_value(list_archived_sessions(runtime, parse(args)?)?),
+        "import_sessions" => to_value(import_sessions(runtime, parse(args)?).await?),
         "archive_session" => to_value(archive_session(runtime, parse(args)?)?),
         "restore_session" => to_value(restore_session(runtime, parse(args)?)?),
         "delete_session" => to_value(delete_session(runtime, parse(args)?)?),

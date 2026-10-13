@@ -120,10 +120,13 @@ impl GitSink {
     }
 
     /// 组装一次 `fast-import`：缓冲里的每条 entry 一个 blob，整批一个 commit。
+    ///
+    /// 空缓冲也是合法的（空会话的首个提交）：此时没有 M 行，提交的是一棵空树。
     fn build_stream(&self, parent: Option<&str>, message: &str) -> Vec<u8> {
-        let first = self.buffer.first().expect("缓冲非空");
-        let role = layout::entry_role(first);
-        let timestamp = first.timestamp / 1000;
+        let (role, timestamp) = match self.buffer.first() {
+            Some(first) => (layout::entry_role(first), first.timestamp / 1000),
+            None => ("pipi", now_millis() / 1000),
+        };
         let mut stream = String::new();
         stream.push_str(&format!("commit {}\n", refs::session_ref(&self.session_id)));
         stream.push_str(&format!(
@@ -220,12 +223,6 @@ impl SessionLog for GitSink {
     }
 
     fn commit_point(&mut self) -> std::io::Result<()> {
-        if self.buffer.is_empty() {
-            return Ok(());
-        }
-        let has_user = self.buffer.iter().any(layout::is_user_entry);
-        let turn = if has_user { Some(self.turn + 1) } else { None };
-        let message = layout::commit_message(&self.buffer, turn);
         let ref_name = refs::session_ref(&self.session_id);
         // 父提交 = 分支当前 tip；分支还不存在时用 root_parent（entry 级分叉
         // 从目标提交的父起写前缀），都没有就是一条新线的首个提交。
@@ -233,6 +230,14 @@ impl SessionLog for GitSink {
             Some(tip) => Some(tip),
             None => self.root_parent.clone(),
         };
+        // 空缓冲 + 分支已存在 = 无事可做；空缓冲 + 分支不存在 = 空会话的首个
+        // 提交（空会话也要在列表里可见，与 JSONL 的空文件同义）。
+        if self.buffer.is_empty() && parent.is_some() {
+            return Ok(());
+        }
+        let has_user = self.buffer.iter().any(layout::is_user_entry);
+        let turn = if has_user { Some(self.turn + 1) } else { None };
+        let message = layout::commit_message(&self.buffer, turn);
         let stream = self.build_stream(parent.as_deref(), &message);
         self.exec.fast_import(stream).map_err(io_error)?;
         self.buffer.clear();

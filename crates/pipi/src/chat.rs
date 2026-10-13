@@ -11,10 +11,11 @@ use pipi_agent::stats::SessionStats;
 use pipi_core::commands::{
     ArchiveAgentArgs, ArchiveSessionArgs, CompactNowArgs, DeleteAgentArgs, DeleteArchivedAgentArgs,
     DeleteArchivedSessionArgs, DeleteSessionArgs, EnsureTestSessionArgs, ForkSessionArgs,
-    ListArchivedSessionsArgs, ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs,
-    OpenSessionArgs, QueryBackgroundTasksArgs, ResetTestSessionArgs, ResolveApprovalArgs,
-    RestoreAgentArgs, RestoreSessionArgs, SendPromptArgs, SessionInfoArgs, SessionMessagesArgs,
-    SessionRunningArgs, SessionStatsArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
+    ImportSessionsArgs, ListArchivedSessionsArgs, ListSessionsArgs, ManageBackgroundTaskArgs,
+    NewSessionArgs, OpenSessionArgs, QueryBackgroundTasksArgs, ResetTestSessionArgs,
+    ResolveApprovalArgs, RestoreAgentArgs, RestoreSessionArgs, SendPromptArgs, SessionInfoArgs,
+    SessionMessagesArgs, SessionRunningArgs, SessionStatsArgs, SetSessionModelArgs, SteerArgs,
+    StopRunArgs,
 };
 use pipi_core::events::{EventEmitter, RuntimeEvent};
 use pipi_core::runtime::{RuntimeState, SessionInfo};
@@ -225,6 +226,15 @@ pub fn list_archived_sessions(
     args: InvokeArgs<ListArchivedSessionsArgs>,
 ) -> Result<Vec<SessionSummary>, String> {
     pipi_core::commands::list_archived_sessions(&state, args.0)
+}
+
+/// 把旧 JSONL 会话导入 git（逐条校验、幂等、原文件改名保留）。
+#[tauri::command]
+pub async fn import_sessions(
+    state: State<'_, RuntimeState>,
+    args: InvokeArgs<ImportSessionsArgs>,
+) -> Result<pipi_protocol::session::SessionImportReport, String> {
+    pipi_core::commands::import_sessions(&state, args.0).await
 }
 
 #[tauri::command]

@@ -1,7 +1,7 @@
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, ApprovalRequestPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
-import type { AgentDefinition, AgentSkills, ModelConfig, PermissionsConfig, SessionChangedPayload, SessionInfoView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify } from "./types";
+import type { AgentDefinition, AgentSkills, ModelConfig, PermissionsConfig, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify } from "./types";
 
 export interface BackgroundTaskSnapshot {
   task: {
@@ -51,6 +51,7 @@ export interface CommandMap {
   delete_agent: { args: { name: string }; result: void };
   delete_archived_agent: { args: { name: string }; result: void };
   list_archived_sessions: { args: { agentName: string }; result: SessionSummaryView[] };
+  import_sessions: { args: { agentName: string }; result: SessionImportReportView };
   archive_session: { args: { agentName: string; sessionId: string }; result: void };
   restore_session: { args: { agentName: string; sessionId: string }; result: void };
   delete_session: { args: { agentName: string; sessionId: string }; result: void };

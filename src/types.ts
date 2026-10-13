@@ -139,6 +139,13 @@ export interface SessionSummaryView {
   model?: string;
 }
 
+/** 旧 JSONL 会话导入 git 的结果（逐条校验、幂等；失败逐条回报）。 */
+export interface SessionImportReportView {
+  imported: string[];
+  skipped: string[];
+  failed: Array<{ sessionId: string; reason: string }>;
+}
+
 /** child Agent 创建持久会话后，宿主要求刷新该 Agent 的列表。 */
 export interface SessionChangedPayload {
   agentName: string;

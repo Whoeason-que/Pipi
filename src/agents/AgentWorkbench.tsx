@@ -58,6 +58,8 @@ export default function AgentWorkbench({
   const { bash } = agent.permissions;
   const [testSession, setTestSession] = useState<SessionInfoView | null>(null);
   const [testLoadError, setTestLoadError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importReport, setImportReport] = useState<string | null>(null);
   const [testLoadVersion, setTestLoadVersion] = useState(0);
   const [settingsTab, setSettingsTab] = useState<AgentSettingsTab>("basic");
   const [providerId, setProviderId] = useState<string>(() => {
@@ -107,6 +109,31 @@ export default function AgentWorkbench({
       active = false;
     };
   }, [agent.name, onError, testLoadVersion]);
+
+  /** 把旧 JSONL 会话导入 git：逐条校验、幂等，原文件改名保留。 */
+  const importLegacySessions = async () => {
+    setImporting(true);
+    try {
+      const report = await invoke("import_sessions", { agentName: agent.name });
+      const failed = report.failed.length;
+      setImportReport(
+        `已导入 ${report.imported.length} 条，跳过 ${report.skipped.length} 条` +
+          (failed ? `，失败 ${failed} 条` : "")
+      );
+      if (failed) {
+        onError(
+          `导入失败：${report.failed
+            .map((item) => `${item.sessionId}（${item.reason}）`)
+            .join("；")}`
+        );
+      }
+      await onSaved();
+    } catch (errorValue) {
+      onError(formatRuntimeError(errorValue));
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const resetTestSession = async () => {
     const info = await invoke("reset_test_session", { agentName: agent.name });
@@ -432,6 +459,24 @@ export default function AgentWorkbench({
                 <div className="settings-summary-row">
                   <span className="field-label">agent_dir</span>
                   <span className="mono">~/.pipi/agents/{agent.name}/</span>
+                </div>
+                <div className="settings-summary-row">
+                  <span className="field-label">旧会话</span>
+                  <div className="settings-tags">
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={importing || context.running}
+                      onClick={() => void importLegacySessions()}
+                    >
+                      {importing ? "导入中…" : "导入到 git"}
+                    </button>
+                    {importReport && <span className="dim">{importReport}</span>}
+                  </div>
+                </div>
+                <div className="hint">
+                  把 sessions/*.jsonl 里的旧会话逐条导入 git 分支（读回校验、幂等）；
+                  原文件改名 .jsonl.imported 保留，不删数据。
                 </div>
                 <div className="settings-summary-row">
                   <span className="field-label">mcp_servers</span>

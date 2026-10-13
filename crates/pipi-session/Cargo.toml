@@ -3,7 +3,7 @@ name = "pipi-session"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Pipi 的会话载体实现：JSONL 文件（未来的 git 分支也落在这里）"
+description = "Pipi 的会话载体实现：git 分支（一轮一个 commit）与旧 JSONL 兼容"
 
 [dependencies]
 pipi-protocol = { workspace = true }

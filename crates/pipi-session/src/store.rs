@@ -10,21 +10,13 @@
 
 use std::path::{Path, PathBuf};
 
-use pipi_protocol::session::{SessionEntry, SessionLog, SessionRepo, SessionSummary};
+use pipi_protocol::session::{
+    SessionEntry, SessionImportFailure, SessionImportReport, SessionLog, SessionRepo,
+    SessionSummary,
+};
 
 use crate::git::GitSessionRepo;
 use crate::{JsonlSessionRepo, load_session};
-
-/// 旧 JSONL 会话导入 git 的结果（供命令回报给用户）。
-#[derive(Debug, Default)]
-pub struct ImportReport {
-    /// 新导入的会话 id。
-    pub imported: Vec<String>,
-    /// 已在 git 里且内容一致的会话 id（幂等跳过）。
-    pub skipped: Vec<String>,
-    /// 失败的会话与原因。
-    pub failed: Vec<(String, String)>,
-}
 
 /// 一个 Agent 的会话仓库：git 分支 + 旧 JSONL 文件。
 pub struct AgentSessionRepo {
@@ -62,26 +54,35 @@ impl AgentSessionRepo {
     ///
     /// 逐条校验（读回与原文一致才算成功）、幂等（已在 git 里且一致则跳过）、
     /// 原文件改名 `.jsonl.imported` 保留 —— 不改内容、不做隐式迁移。
-    pub fn import_legacy_sessions(&self) -> ImportReport {
-        let mut report = ImportReport::default();
+    pub fn import_legacy_sessions(&self) -> SessionImportReport {
+        let mut report = SessionImportReport::default();
         for (id, path) in self.legacy_files() {
             let entries = match load_session(&path) {
                 Ok(entries) => entries,
                 Err(error) => {
-                    report.failed.push((id, error));
+                    report.failed.push(SessionImportFailure {
+                        session_id: id,
+                        reason: error,
+                    });
                     continue;
                 }
             };
             match self.git.import(&id, &entries) {
                 Ok(true) => {
                     if let Err(error) = mark_imported(&path) {
-                        report.failed.push((id, error));
+                        report.failed.push(SessionImportFailure {
+                            session_id: id,
+                            reason: error,
+                        });
                         continue;
                     }
                     report.imported.push(id);
                 }
                 Ok(false) => report.skipped.push(id),
-                Err(error) => report.failed.push((id, error)),
+                Err(error) => report.failed.push(SessionImportFailure {
+                    session_id: id,
+                    reason: error,
+                }),
             }
         }
         report
