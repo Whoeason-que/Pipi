@@ -19,11 +19,18 @@ where
 {
     fn from_command(command: CommandItem<'de, R>) -> Result<Self, InvokeError> {
         match command.message.payload() {
-            InvokeBody::Json(payload) => serde_json::from_value(payload.clone())
-                .map(InvokeArgs)
-                .map_err(|error| {
-                    tauri::Error::InvalidArgs(command.name, command.key, error).into()
-                }),
+            InvokeBody::Json(payload) => {
+                let json = if payload.is_null() {
+                    serde_json::json!({})
+                } else {
+                    payload.clone()
+                };
+                serde_json::from_value(json)
+                    .map(InvokeArgs)
+                    .map_err(|error| {
+                        tauri::Error::InvalidArgs(command.name, command.key, error).into()
+                    })
+            }
             InvokeBody::Raw(_) => Err(tauri::Error::InvalidArgs(
                 command.name,
                 command.key,

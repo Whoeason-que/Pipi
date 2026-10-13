@@ -85,7 +85,7 @@ export function useSessionList(
 
   const refreshArchived = useCallback(async () => {
     try {
-      const next = await invoke("list_archived_agents");
+      const next = await invoke("list_agents", { archived: true });
       setArchivedAgents(next);
     } catch (errorValue) {
       if (isAuthSilentError(errorValue)) return;

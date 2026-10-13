@@ -193,35 +193,40 @@ export class SessionController {
       this.patch({ load: "ready" });
     } else {
       const args = { agentName: this.agent.name, sessionId: id };
-      const [messages, stats, running, info] = await Promise.allSettled([
-        this.transport.invoke("session_messages", args),
-        this.transport.invoke("session_stats", args),
-        this.transport.invoke("session_running", args),
-        this.transport.invoke("session_info", args),
-      ]);
-      if (epoch !== this.loadEpoch) return;
-      const identityValid = info.status === "fulfilled" && info.value !== null
-        && info.value.agentName === this.agent.name && info.value.sessionId === id;
-      if (!identityValid || messages.status === "rejected" || stats.status === "rejected" || running.status === "rejected") {
+      try {
+        const snapshot = await this.transport.invoke("open_session", args);
+        if (epoch !== this.loadEpoch) return;
+        const info = snapshot.info;
+        const identityValid = info !== null && info.agentName === this.agent.name && info.sessionId === id;
+        if (!identityValid) {
+          this.pending = [];
+          this.patch({ load: "failed" });
+          this.fail("无法确认当前会话身份，请返回后重试");
+          return;
+        }
+        const knownRun = this.identity?.runId ?? 0;
+        const stale = (info.runId ?? 0) < knownRun;
+        if (!stale) {
+          this.adopt(info, false);
+          this.settledRun = info.running ? null : (info.runId ?? null);
+        }
+        // 新快照是 JSONL 的权威；现有 transient 消息由 reducer 合并。
+        const previous = this.value.chat;
+        this.patch({ chat: { ...previous, stats: null, liveEventSeen: false } });
+        this.dispatch({
+          type: "hydrate",
+          messages: snapshot.messages,
+          stats: snapshot.stats,
+          running: stale ? previous.running : info.running,
+        });
+        this.patch({ load: "ready" });
+      } catch (error) {
+        if (epoch !== this.loadEpoch) return;
         this.pending = [];
         this.patch({ load: "failed" });
-        const rejected = [messages, stats, running, info].find(result => result.status === "rejected");
-        this.fail(rejected?.status === "rejected" ? rejected.reason : "无法确认当前会话身份，请返回后重试");
+        this.fail(error instanceof Error ? error.message : String(error));
         return;
       }
-      if (info.status === "fulfilled" && info.value) {
-        const knownRun = this.identity?.runId ?? 0;
-        const stale = (info.value.runId ?? 0) < knownRun;
-        if (!stale) {
-          this.adopt(info.value, false);
-          this.settledRun = info.value.running ? null : (info.value.runId ?? null);
-        }
-      }
-      // 新快照是 JSONL 的权威；现有 transient 消息由 reducer 合并。
-      const previous = this.value.chat;
-      this.patch({ chat: { ...previous, stats: null, liveEventSeen: false } });
-      this.dispatch({ type: "hydrate", messages: messages.value, stats: stats.value, running: (info.value?.runId ?? 0) < (this.identity?.runId ?? 0) ? previous.running : running.value });
-      this.patch({ load: "ready" });
     }
     const pending = this.pending;
     this.pending = [];
@@ -269,11 +274,11 @@ export class SessionController {
       await this.transport.invoke("stop_run", { agentName: this.agent.name, sessionId: this.requireSessionId() });
       for (let attempt = 0; attempt <= 50; attempt++) {
         if (epoch !== this.runEpoch || this.getSnapshot().operation !== "stopping") return;
-        const running = await this.transport.invoke("session_running", {
+        const info = await this.transport.invoke("session_info", {
           agentName: this.agent.name, sessionId: this.requireSessionId(),
         });
         if (epoch !== this.runEpoch || this.getSnapshot().operation !== "stopping") return;
-        if (!running) {
+        if (!info?.running) {
           this.ignoreEvents = true;
           await this.hydrate();
           if (epoch !== this.runEpoch) return;

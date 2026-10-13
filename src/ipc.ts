@@ -1,7 +1,7 @@
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, ApprovalRequestPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
-import type { AgentDefinition, AgentEditableFiles, AgentSkills, ModelConfig, PermissionsConfig, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify } from "./types";
+import type { AgentDefinition, AgentEditableFiles, AgentSkills, ModelConfig, PermissionsConfig, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify } from "./types";
 
 export interface BackgroundTaskSnapshot {
   task: {
@@ -16,24 +16,20 @@ export interface BackgroundTaskSnapshot {
 }
 
 export interface CommandMap {
-  list_agents: { args: {  }; result: AgentDefinition[] };
+  list_agents: { args: { archived?: boolean | null }; result: AgentDefinition[] };
   model_catalog: { args: { refresh?: boolean | null }; result: ModelCatalog };
   create_agent: { args: { name: string; description: string; workspace?: string | null; permissions?: PermissionsConfig | null; model?: string | null; provider?: ModelConfig | null }; result: AgentDefinition };
-  load_agent: { args: { name: string }; result: AgentDefinition };
   save_agent: { args: { def: AgentDefinition }; result: void };
-  list_archived_agents: { args: {  }; result: AgentDefinition[] };
   list_agent_files: { args: { agentName: string }; result: AgentEditableFiles };
   read_agent_file: { args: { agentName: string; relPath: string }; result: string };
   write_agent_file: { args: { agentName: string; relPath: string; content: string }; result: void };
   get_settings: { args: {  }; result: Settings };
   save_settings: { args: { settings: Settings }; result: void };
-  list_sessions: { args: { agentName: string }; result: SessionSummaryView[] };
-  open_session: { args: { agentName: string; sessionId: string }; result: void };
+  list_sessions: { args: { agentName: string; archived?: boolean | null }; result: SessionSummaryView[] };
+  open_session: { args: { agentName: string; sessionId: string }; result: SessionSnapshotView };
   session_info: { args: { agentName: string; sessionId: string }; result: SessionInfoView | null };
   session_infos: { args: {  }; result: SessionInfoView[] };
-  ensure_test_session: { args: { agentName: string }; result: SessionInfoView };
-  reset_test_session: { args: { agentName: string }; result: SessionInfoView };
-  session_running: { args: { agentName: string; sessionId: string }; result: boolean };
+  open_workbench_session: { args: { agentName: string; reset?: boolean | null }; result: SessionInfoView };
   stop_run: { args: { agentName: string; sessionId: string }; result: void };
   query_background_tasks: { args: { agentName: string; sessionId: string; jobId?: string | null; afterSeq?: number | null; waitMs?: number | null; includeCompleted?: boolean | null; limit?: number | null }; result: BackgroundTaskSnapshot[] };
   manage_background_task: { args: { agentName: string; sessionId: string; jobId: string; action: string; data?: string | null }; result: BackgroundTaskSnapshot };
@@ -48,14 +44,11 @@ export interface CommandMap {
   fork_session: { args: { agentName: string; sessionId: string; upToEntryId?: string | null }; result: SessionInfoView };
   archive_agent: { args: { name: string }; result: void };
   restore_agent: { args: { name: string }; result: void };
-  delete_agent: { args: { name: string }; result: void };
-  delete_archived_agent: { args: { name: string }; result: void };
-  list_archived_sessions: { args: { agentName: string }; result: SessionSummaryView[] };
+  delete_agent: { args: { name: string; archived?: boolean | null }; result: void };
   import_sessions: { args: { agentName: string }; result: SessionImportReportView };
   archive_session: { args: { agentName: string; sessionId: string }; result: void };
   restore_session: { args: { agentName: string; sessionId: string }; result: void };
-  delete_session: { args: { agentName: string; sessionId: string }; result: void };
-  delete_archived_session: { args: { agentName: string; sessionId: string }; result: void };
+  delete_session: { args: { agentName: string; sessionId: string; archived?: boolean | null }; result: void };
   skill_library: { args: {  }; result: SkillLibrary };
   agent_skills: { args: { agentName: string }; result: AgentSkills };
   set_skill_enabled: { args: { agentName: string; name: string; enabled: boolean }; result: AgentSkills };
@@ -68,7 +61,7 @@ export interface CommandMap {
 
 export type CommandName = keyof CommandMap;
 export type CommandResult<K extends CommandName> = CommandMap[K]["result"];
-export type CommandArgs<K extends CommandName> = keyof CommandMap[K]["args"] extends never
+export type CommandArgs<K extends CommandName> = {} extends CommandMap[K]["args"]
   ? [args?: CommandMap[K]["args"]] : [args: CommandMap[K]["args"]];
 export type Invoke = <K extends CommandName>(command: K, ...args: CommandArgs<K>) => Promise<CommandResult<K>>;
 

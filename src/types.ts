@@ -1,4 +1,5 @@
 // 与 Rust 侧类型对齐（serde camelCase）—— 前端共享类型
+import type { MessageView } from "./chat-runtime";
 
 export type Theme = "dark" | "light";
 
@@ -201,6 +202,12 @@ export interface SessionInfoView {
   runId?: number;
   model?: ModelConfig | null;
   isCustomModel?: boolean;
+}
+
+export interface SessionSnapshotView {
+  info: SessionInfoView;
+  messages: MessageView[];
+  stats: SessionStatsView;
 }
 
 // ---- 技能（av 全局 store 与 Agent 契约；Rust 侧 pipi-venv）----

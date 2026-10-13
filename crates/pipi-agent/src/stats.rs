@@ -12,7 +12,7 @@
 
 use std::collections::VecDeque;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use pipi_protocol::{Message, Usage};
 
@@ -28,7 +28,7 @@ struct LastCall {
 }
 
 /// 会话级聚合统计，序列化后直接驱动前端状态栏。
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStats {
     /// 累计输入（不含缓存命中部分）。

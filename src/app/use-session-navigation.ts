@@ -92,9 +92,8 @@ export function useSessionNavigation(
     }
     blockedSessionIdsRef.current.delete(sessionId);
     await enqueueNavigation(requestId, async () => {
-      let infoRequestId = 0;
       try {
-        await invoke("open_session", { agentName, sessionId });
+        const snapshot = await invoke("open_session", { agentName, sessionId });
         if (requestId !== navigationRequestRef.current) {
           return;
         }
@@ -105,21 +104,10 @@ export function useSessionNavigation(
         setSidebarOpen(false);
         setExpandedAgents((prev) => ({ ...prev, [agentName]: true }));
         setViewSessionId(sessionId);
-        setActiveSession(null);
         setChatKey((key) => key + 1);
-        infoRequestId = ++sessionInfoRequestRef.current;
-        const info = await invoke("session_info", { agentName, sessionId });
-        if (
-          requestId === navigationRequestRef.current
-          && infoRequestId === sessionInfoRequestRef.current
-        ) {
-          setActiveSession(info);
-        }
+        setActiveSession(snapshot.info);
       } catch (errorValue) {
-        if (
-          requestId === navigationRequestRef.current
-          && (infoRequestId === 0 || infoRequestId === sessionInfoRequestRef.current)
-        ) {
+        if (requestId === navigationRequestRef.current) {
           if (previousSessionId && previousSessionId !== sessionId) {
             blockedSessionIdsRef.current.delete(previousSessionId);
           }

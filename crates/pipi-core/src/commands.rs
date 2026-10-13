@@ -25,16 +25,14 @@ use pipi_venv::skills::{
 
 use crate::approval::ApprovalDecision;
 use crate::events::EventEmitter;
-use crate::runtime::{self, RuntimeState, SessionInfo, agent_repo};
+use crate::runtime::{self, RuntimeState, SessionInfo, SessionSnapshot, agent_repo};
 
 /// 全部宿主命令名，顺序与前端 `src/ipc.ts` 的 `CommandMap` 一致。
 pub const COMMANDS: &[&str] = &[
     "list_agents",
     "model_catalog",
     "create_agent",
-    "load_agent",
     "save_agent",
-    "list_archived_agents",
     "list_agent_files",
     "read_agent_file",
     "write_agent_file",
@@ -44,9 +42,7 @@ pub const COMMANDS: &[&str] = &[
     "open_session",
     "session_info",
     "session_infos",
-    "ensure_test_session",
-    "reset_test_session",
-    "session_running",
+    "open_workbench_session",
     "stop_run",
     "query_background_tasks",
     "manage_background_task",
@@ -62,13 +58,10 @@ pub const COMMANDS: &[&str] = &[
     "archive_agent",
     "restore_agent",
     "delete_agent",
-    "delete_archived_agent",
-    "list_archived_sessions",
     "import_sessions",
     "archive_session",
     "restore_session",
     "delete_session",
-    "delete_archived_session",
     "skill_library",
     "agent_skills",
     "set_skill_enabled",
@@ -81,9 +74,19 @@ pub const COMMANDS: &[&str] = &[
 
 // ============ Agent ============
 
-/// 首次启动时播种默认 Agent（Pipi），已存在则原样返回。
-pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
-    agents::list_agents_bootstrapped()
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListAgentsArgs {
+    pub archived: Option<bool>,
+}
+
+/// 列出活跃或归档的 Agent。活跃 Agent 在首次启动时自动播种默认 Agent（Pipi）。
+pub fn list_agents(args: ListAgentsArgs) -> Result<Vec<AgentDefinition>, String> {
+    if args.archived.unwrap_or(false) {
+        agents::list_archived_agents()
+    } else {
+        agents::list_agents_bootstrapped()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,26 +136,12 @@ pub fn create_agent(args: CreateAgentArgs) -> Result<AgentDefinition, String> {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LoadAgentArgs {
-    pub name: String,
-}
-
-pub fn load_agent(args: LoadAgentArgs) -> Result<AgentDefinition, String> {
-    agents::load_agent(&args.name)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SaveAgentArgs {
     pub def: AgentDefinition,
 }
 
 pub fn save_agent(runtime: &RuntimeState, args: SaveAgentArgs) -> Result<(), String> {
     runtime.save_agent_definition(&args.def)
-}
-
-pub fn list_archived_agents() -> Result<Vec<AgentDefinition>, String> {
-    agents::list_archived_agents()
 }
 
 #[derive(Debug, Deserialize)]
@@ -212,10 +201,18 @@ pub fn save_settings(args: SaveSettingsArgs) -> Result<(), String> {
 #[serde(rename_all = "camelCase")]
 pub struct ListSessionsArgs {
     pub agent_name: String,
+    pub archived: Option<bool>,
 }
 
-pub fn list_sessions(args: ListSessionsArgs) -> Result<Vec<SessionSummary>, String> {
-    runtime::list_sessions(&args.agent_name)
+pub fn list_sessions(
+    runtime: &RuntimeState,
+    args: ListSessionsArgs,
+) -> Result<Vec<SessionSummary>, String> {
+    if args.archived.unwrap_or(false) {
+        runtime.list_archived_sessions(&args.agent_name)
+    } else {
+        runtime::list_sessions(&args.agent_name)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -225,7 +222,10 @@ pub struct OpenSessionArgs {
     pub session_id: String,
 }
 
-pub fn open_session(runtime: &RuntimeState, args: OpenSessionArgs) -> Result<(), String> {
+pub fn open_session(
+    runtime: &RuntimeState,
+    args: OpenSessionArgs,
+) -> Result<SessionSnapshot, String> {
     runtime.open_session(&args.agent_name, &args.session_id)
 }
 
@@ -250,41 +250,21 @@ pub fn session_infos(runtime: &RuntimeState) -> Result<Vec<SessionInfo>, String>
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EnsureTestSessionArgs {
+pub struct OpenWorkbenchSessionArgs {
     pub agent_name: String,
+    pub reset: Option<bool>,
 }
 
-/// 设置工作台的内存测试会话：每个 Agent 在应用运行期最多一条。
-pub fn ensure_test_session(
+/// 打开或重置工作台测试会话。
+pub fn open_workbench_session(
     runtime: &RuntimeState,
-    args: EnsureTestSessionArgs,
+    args: OpenWorkbenchSessionArgs,
 ) -> Result<SessionInfo, String> {
-    runtime.ensure_test_session(&args.agent_name)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResetTestSessionArgs {
-    pub agent_name: String,
-}
-
-/// 清空临时测试上下文，并用磁盘上最新保存的 Agent 定义重建。
-pub fn reset_test_session(
-    runtime: &RuntimeState,
-    args: ResetTestSessionArgs,
-) -> Result<SessionInfo, String> {
-    runtime.reset_test_session(&args.agent_name)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionRunningArgs {
-    pub agent_name: String,
-    pub session_id: String,
-}
-
-pub fn session_running(runtime: &RuntimeState, args: SessionRunningArgs) -> bool {
-    runtime.session_running(&args.agent_name, &args.session_id)
+    if args.reset.unwrap_or(false) {
+        runtime.reset_test_session(&args.agent_name)
+    } else {
+        runtime.ensure_test_session(&args.agent_name)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -520,37 +500,15 @@ pub fn restore_agent(runtime: &RuntimeState, args: RestoreAgentArgs) -> Result<(
 #[serde(rename_all = "camelCase")]
 pub struct DeleteAgentArgs {
     pub name: String,
+    pub archived: Option<bool>,
 }
 
 pub fn delete_agent(runtime: &RuntimeState, args: DeleteAgentArgs) -> Result<(), String> {
-    runtime.delete_agent(&args.name)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeleteArchivedAgentArgs {
-    pub name: String,
-}
-
-pub fn delete_archived_agent(
-    runtime: &RuntimeState,
-    args: DeleteArchivedAgentArgs,
-) -> Result<(), String> {
-    let _ = runtime;
-    agents::delete_archived_agent(&args.name)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ListArchivedSessionsArgs {
-    pub agent_name: String,
-}
-
-pub fn list_archived_sessions(
-    runtime: &RuntimeState,
-    args: ListArchivedSessionsArgs,
-) -> Result<Vec<SessionSummary>, String> {
-    runtime.list_archived_sessions(&args.agent_name)
+    if args.archived.unwrap_or(false) {
+        agents::delete_archived_agent(&args.name)
+    } else {
+        runtime.delete_agent(&args.name)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -608,24 +566,15 @@ pub fn restore_session(runtime: &RuntimeState, args: RestoreSessionArgs) -> Resu
 pub struct DeleteSessionArgs {
     pub agent_name: String,
     pub session_id: String,
+    pub archived: Option<bool>,
 }
 
 pub fn delete_session(runtime: &RuntimeState, args: DeleteSessionArgs) -> Result<(), String> {
-    runtime.delete_session(&args.agent_name, &args.session_id)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeleteArchivedSessionArgs {
-    pub agent_name: String,
-    pub session_id: String,
-}
-
-pub fn delete_archived_session(
-    runtime: &RuntimeState,
-    args: DeleteArchivedSessionArgs,
-) -> Result<(), String> {
-    runtime.delete_archived_session(&args.agent_name, &args.session_id)
+    if args.archived.unwrap_or(false) {
+        runtime.delete_archived_session(&args.agent_name, &args.session_id)
+    } else {
+        runtime.delete_session(&args.agent_name, &args.session_id)
+    }
 }
 
 // ============ 技能（av store 与 Agent 契约）============
@@ -745,24 +694,20 @@ pub async fn dispatch(
     args: Value,
 ) -> Result<Value, String> {
     match name {
-        "list_agents" => to_value(list_agents()?),
+        "list_agents" => to_value(list_agents(parse(args)?)?),
         "model_catalog" => to_value(model_catalog(parse(args)?).await?),
         "create_agent" => to_value(create_agent(parse(args)?)?),
-        "load_agent" => to_value(load_agent(parse(args)?)?),
         "save_agent" => to_value(save_agent(runtime, parse(args)?)?),
-        "list_archived_agents" => to_value(list_archived_agents()?),
         "list_agent_files" => to_value(list_agent_files(parse(args)?)?),
         "read_agent_file" => to_value(read_agent_file(parse(args)?)?),
         "write_agent_file" => to_value(write_agent_file(runtime, parse(args)?)?),
         "get_settings" => to_value(get_settings()),
         "save_settings" => to_value(save_settings(parse(args)?)?),
-        "list_sessions" => to_value(list_sessions(parse(args)?)?),
+        "list_sessions" => to_value(list_sessions(runtime, parse(args)?)?),
         "open_session" => to_value(open_session(runtime, parse(args)?)?),
         "session_info" => to_value(session_info(runtime, parse(args)?)?),
         "session_infos" => to_value(session_infos(runtime)?),
-        "ensure_test_session" => to_value(ensure_test_session(runtime, parse(args)?)?),
-        "reset_test_session" => to_value(reset_test_session(runtime, parse(args)?)?),
-        "session_running" => to_value(session_running(runtime, parse(args)?)),
+        "open_workbench_session" => to_value(open_workbench_session(runtime, parse(args)?)?),
         "stop_run" => to_value(stop_run(runtime, parse(args)?)?),
         "query_background_tasks" => to_value(query_background_tasks(runtime, parse(args)?).await?),
         "manage_background_task" => to_value(manage_background_task(runtime, parse(args)?).await?),
@@ -778,13 +723,10 @@ pub async fn dispatch(
         "archive_agent" => to_value(archive_agent(runtime, parse(args)?)?),
         "restore_agent" => to_value(restore_agent(runtime, parse(args)?)?),
         "delete_agent" => to_value(delete_agent(runtime, parse(args)?)?),
-        "delete_archived_agent" => to_value(delete_archived_agent(runtime, parse(args)?)?),
-        "list_archived_sessions" => to_value(list_archived_sessions(runtime, parse(args)?)?),
         "import_sessions" => to_value(import_sessions(runtime, parse(args)?).await?),
         "archive_session" => to_value(archive_session(runtime, parse(args)?)?),
         "restore_session" => to_value(restore_session(runtime, parse(args)?)?),
         "delete_session" => to_value(delete_session(runtime, parse(args)?)?),
-        "delete_archived_session" => to_value(delete_archived_session(runtime, parse(args)?)?),
         "skill_library" => to_value(skill_library()?),
         "agent_skills" => to_value(agent_skills(parse(args)?)?),
         "set_skill_enabled" => to_value(set_skill_enabled(parse(args)?)?),
@@ -798,6 +740,11 @@ pub async fn dispatch(
 }
 
 fn parse<T: DeserializeOwned>(args: Value) -> Result<T, String> {
+    let args = if args.is_null() {
+        serde_json::json!({})
+    } else {
+        args
+    };
     serde_json::from_value(args).map_err(|error| format!("命令参数无效：{error}"))
 }
 
@@ -818,8 +765,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            48,
-            "宿主命令数应为 48（前端 CommandMap 同步）"
+            41,
+            "宿主命令数应为 41（前端 CommandMap 同步）"
         );
     }
 
@@ -838,16 +785,17 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_parses_flat_camel_case_args() {
+        let _guard = pipi_test_support::HOME_LOCK.lock().unwrap();
         let runtime = RuntimeState::new(tokio::runtime::Handle::current());
         let emitter: EventEmitter = Arc::new(|_| {});
         let value = dispatch(
             &runtime,
             emitter,
-            "session_running",
-            serde_json::json!({ "agentName": "ghost", "sessionId": "none" }),
+            "list_agents",
+            serde_json::json!({ "archived": false }),
         )
         .await
-        .expect("session_running 应当成功");
-        assert_eq!(value, Value::Bool(false));
+        .expect("list_agents 应当成功");
+        assert!(value.is_array());
     }
 }

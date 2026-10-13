@@ -523,8 +523,9 @@ export default function App() {
                     void refreshSessions([current.name]);
                     // 压缩换会话可能把原会话移进归档：折叠区正展开时同步刷新
                     if (archivedSessionsExpanded[current.name]) {
-                      void invoke("list_archived_sessions", {
+                      void invoke("list_sessions", {
                         agentName: current.name,
+                        archived: true,
                       })
                         .then((list) =>
                           setArchivedSessions((previous) => ({

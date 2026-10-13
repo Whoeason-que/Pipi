@@ -139,7 +139,7 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
         "其目录下的会话、技能、记忆与工作区文件将一并删除，此操作不可恢复。",
       action: async () => {
         try {
-          await invoke(archived ? "delete_archived_agent" : "delete_agent", { name });
+          await invoke("delete_agent", { name, archived });
           if (!archived) forgetAgentRuntime(name);
           if (!archived && selectedRef.current === name) {
             setSelected(null);
@@ -172,8 +172,9 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
       await refreshSessions([agentName]);
       // 「已归档」折叠区若正展开，同步回写新归档的会话，避免收起再展开才可见
       if (archivedSessionsExpanded[agentName]) {
-        const list = await invoke("list_archived_sessions", {
+        const list = await invoke("list_sessions", {
           agentName,
+          archived: true,
         });
         setArchivedSessions((previous) => ({ ...previous, [agentName]: list }));
       }
@@ -204,8 +205,9 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
     setArchivedSessionsExpanded((previous) => ({ ...previous, [agentName]: willOpen }));
     if (!willOpen) return;
     try {
-      const list = await invoke("list_archived_sessions", {
+      const list = await invoke("list_sessions", {
         agentName,
+        archived: true,
       });
       setArchivedSessions((previous) => ({ ...previous, [agentName]: list }));
     } catch (errorValue) {
@@ -232,7 +234,7 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
       message: "其记录文件将被删除，此操作不可恢复。",
       action: async () => {
         try {
-          await invoke("delete_archived_session", { agentName, sessionId });
+          await invoke("delete_session", { agentName, sessionId, archived: true });
           setArchivedSessions((previous) => ({
             ...previous,
             [agentName]: (previous[agentName] ?? []).filter((s) => s.id !== sessionId),

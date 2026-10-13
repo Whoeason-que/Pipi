@@ -2,7 +2,7 @@
 //! 逻辑与参数结构体在 `pipi_core::commands`（宿主命令的单一事实来源）。
 
 use pipi_core::commands::{
-    AgentSkillsArgs, CreateAgentArgs, InstallSkillArgs, ListAgentFilesArgs, LoadAgentArgs,
+    AgentSkillsArgs, CreateAgentArgs, InstallSkillArgs, ListAgentFilesArgs, ListAgentsArgs,
     ModelCatalogArgs, ReadAgentFileArgs, RemoveStoreSkillArgs, SaveAgentArgs, SaveSettingsArgs,
     SetSkillEnabledArgs, SkillUsageArgs, SyncAgentSkillsArgs, VerifyStoreSkillsArgs,
     WriteAgentFileArgs,
@@ -19,8 +19,8 @@ use tauri::State;
 use crate::invoke_args::InvokeArgs;
 
 #[tauri::command]
-pub fn list_agents() -> Result<Vec<AgentDefinition>, String> {
-    pipi_core::commands::list_agents()
+pub fn list_agents(args: InvokeArgs<ListAgentsArgs>) -> Result<Vec<AgentDefinition>, String> {
+    pipi_core::commands::list_agents(args.0)
 }
 
 /// 模型目录（models.dev + 本地缓存）。必须 async：它要联网，Tauri 会把它放到
@@ -36,21 +36,11 @@ pub fn create_agent(args: InvokeArgs<CreateAgentArgs>) -> Result<AgentDefinition
 }
 
 #[tauri::command]
-pub fn load_agent(args: InvokeArgs<LoadAgentArgs>) -> Result<AgentDefinition, String> {
-    pipi_core::commands::load_agent(args.0)
-}
-
-#[tauri::command]
 pub fn save_agent(
     state: State<'_, RuntimeState>,
     args: InvokeArgs<SaveAgentArgs>,
 ) -> Result<(), String> {
     pipi_core::commands::save_agent(&state, args.0)
-}
-
-#[tauri::command]
-pub fn list_archived_agents() -> Result<Vec<AgentDefinition>, String> {
-    pipi_core::commands::list_archived_agents()
 }
 
 /// 列出 Agent 目录内可编辑的 Markdown（契约声明的指令文件 + 记忆文件）。

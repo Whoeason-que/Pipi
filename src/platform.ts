@@ -324,10 +324,8 @@ function webListen(
  * 断言 —— 加命令忘了补这里会直接测试失败。
  */
 const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }> = {
-  ensure_test_session: {},
-  reset_test_session: {},
+  open_workbench_session: {},
   session_info: { sessionId: "required" },
-  session_running: { sessionId: "required" },
   session_messages: { sessionId: "required" },
   session_stats: { sessionId: "required" },
   stop_run: { sessionId: "required" },
@@ -341,12 +339,10 @@ const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }
   send_prompt: { sessionId: "optional" },
   new_session: {},
   list_sessions: {},
-  list_archived_sessions: {},
   import_sessions: {},
   archive_session: { sessionId: "required" },
   restore_session: { sessionId: "required" },
   delete_session: { sessionId: "required" },
-  delete_archived_session: { sessionId: "required" },
   list_agent_files: {},
   read_agent_file: {},
   write_agent_file: {},

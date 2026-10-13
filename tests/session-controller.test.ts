@@ -37,10 +37,15 @@ class Host implements RuntimeTransport {
     const session = String(args?.sessionId ?? "s");
     let value: unknown;
     switch (command) {
+      case "open_session": {
+        const currentInfo = this.infos.get(session) ?? info(session);
+        const messages = this.held ? await this.held : [...this.history];
+        value = { info: currentInfo, messages, stats };
+        break;
+      }
       case "session_messages": value = this.held ? await this.held : [...this.history]; break;
       case "session_stats": value = stats; break;
       case "session_info": value = this.infos.get(session) ?? null; break;
-      case "session_running": value = this.infos.get(session)?.running ?? false; break;
       case "stop_run": this.infos.set(session, { ...this.infos.get(session)!, running: false }); break;
       case "send_prompt": {
         // 与核心同构：不带 sessionId = 新会话，响应返回它的权威身份。
@@ -265,16 +270,16 @@ test("a late stop poll cannot finish a newly started run", async () => {
   const { host, controller, runtime } = await fixture();
   await controller.hydrate();
   host.event({ type: "agent_start" }, "s", 2);
-  const held = deferred<boolean>();
+  const held = deferred<SessionInfoView | null>();
   const original = host.invoke.bind(host);
-  host.invoke = async (command, ...args) => command === "session_running"
+  host.invoke = async (command, ...args) => command === "session_info"
     ? await held.promise as never : original(command, ...args);
   const stopping = controller.stop();
   await Promise.resolve();
   host.event({ type: "agent_end" }, "s", 2);
   await controller.send("next run");
   host.event({ type: "agent_start" }, "s", 3);
-  held.resolve(false);
+  held.resolve(info("s", 2, false));
   await stopping;
   assert.equal(controller.getSnapshot().chat.running, true);
   assert.equal(controller.getSnapshot().operation, "idle");

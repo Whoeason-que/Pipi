@@ -113,7 +113,7 @@ export default function AgentWorkbench({
     let active = true;
     setTestSession(null);
     setTestLoadError(null);
-    void invoke("ensure_test_session", { agentName: agent.name })
+    void invoke("open_workbench_session", { agentName: agent.name })
       .then((info) => {
         if (!active) return;
         setTestSession(info);
@@ -155,7 +155,7 @@ export default function AgentWorkbench({
   };
 
   const resetTestSession = async () => {
-    const info = await invoke("reset_test_session", { agentName: agent.name });
+    const info = await invoke("open_workbench_session", { agentName: agent.name, reset: true });
     setTestSession(info);
   };
   // agent 切换时重置编辑状态（否则上一个 Agent 的草稿会串台）

@@ -9,16 +9,14 @@ use tauri::{AppHandle, Emitter, State};
 
 use pipi_agent::stats::SessionStats;
 use pipi_core::commands::{
-    ArchiveAgentArgs, ArchiveSessionArgs, CompactNowArgs, DeleteAgentArgs, DeleteArchivedAgentArgs,
-    DeleteArchivedSessionArgs, DeleteSessionArgs, EnsureTestSessionArgs, ForkSessionArgs,
-    ImportSessionsArgs, ListArchivedSessionsArgs, ListSessionsArgs, ManageBackgroundTaskArgs,
-    NewSessionArgs, OpenSessionArgs, QueryBackgroundTasksArgs, ResetTestSessionArgs,
+    ArchiveAgentArgs, ArchiveSessionArgs, CompactNowArgs, DeleteAgentArgs, DeleteSessionArgs,
+    ForkSessionArgs, ImportSessionsArgs, ListSessionsArgs, ManageBackgroundTaskArgs,
+    NewSessionArgs, OpenSessionArgs, OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs,
     ResolveApprovalArgs, RestoreAgentArgs, RestoreSessionArgs, SendPromptArgs, SessionInfoArgs,
-    SessionMessagesArgs, SessionRunningArgs, SessionStatsArgs, SetSessionModelArgs, SteerArgs,
-    StopRunArgs,
+    SessionMessagesArgs, SessionStatsArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
 };
 use pipi_core::events::{EventEmitter, RuntimeEvent};
-use pipi_core::runtime::{RuntimeState, SessionInfo};
+use pipi_core::runtime::{RuntimeState, SessionInfo, SessionSnapshot};
 use pipi_protocol::session::SessionSummary;
 use pipi_protocol::{BackgroundTaskSnapshot, Message};
 
@@ -39,15 +37,18 @@ fn tauri_emitter(app: AppHandle) -> EventEmitter {
 }
 
 #[tauri::command]
-pub fn list_sessions(args: InvokeArgs<ListSessionsArgs>) -> Result<Vec<SessionSummary>, String> {
-    pipi_core::commands::list_sessions(args.0)
+pub fn list_sessions(
+    state: State<RuntimeState>,
+    args: InvokeArgs<ListSessionsArgs>,
+) -> Result<Vec<SessionSummary>, String> {
+    pipi_core::commands::list_sessions(&state, args.0)
 }
 
 #[tauri::command]
 pub fn open_session(
     state: State<RuntimeState>,
     args: InvokeArgs<OpenSessionArgs>,
-) -> Result<(), String> {
+) -> Result<SessionSnapshot, String> {
     pipi_core::commands::open_session(&state, args.0)
 }
 
@@ -65,27 +66,13 @@ pub fn session_infos(state: State<RuntimeState>) -> Result<Vec<SessionInfo>, Str
     pipi_core::commands::session_infos(&state)
 }
 
-/// 设置工作台的内存测试会话：每个 Agent 在应用运行期最多一条。
+/// 打开或重置工作台测试会话。
 #[tauri::command]
-pub fn ensure_test_session(
+pub fn open_workbench_session(
     state: State<RuntimeState>,
-    args: InvokeArgs<EnsureTestSessionArgs>,
+    args: InvokeArgs<OpenWorkbenchSessionArgs>,
 ) -> Result<SessionInfo, String> {
-    pipi_core::commands::ensure_test_session(&state, args.0)
-}
-
-/// 清空临时测试上下文，并用磁盘上最新保存的 Agent 定义重建。
-#[tauri::command]
-pub fn reset_test_session(
-    state: State<RuntimeState>,
-    args: InvokeArgs<ResetTestSessionArgs>,
-) -> Result<SessionInfo, String> {
-    pipi_core::commands::reset_test_session(&state, args.0)
-}
-
-#[tauri::command]
-pub fn session_running(state: State<RuntimeState>, args: InvokeArgs<SessionRunningArgs>) -> bool {
-    pipi_core::commands::session_running(&state, args.0)
+    pipi_core::commands::open_workbench_session(&state, args.0)
 }
 
 #[tauri::command]
@@ -212,21 +199,6 @@ pub fn delete_agent(
     pipi_core::commands::delete_agent(&state, args.0)
 }
 
-#[tauri::command]
-pub fn delete_archived_agent(
-    state: State<RuntimeState>,
-    args: InvokeArgs<DeleteArchivedAgentArgs>,
-) -> Result<(), String> {
-    pipi_core::commands::delete_archived_agent(&state, args.0)
-}
-
-#[tauri::command]
-pub fn list_archived_sessions(
-    state: State<RuntimeState>,
-    args: InvokeArgs<ListArchivedSessionsArgs>,
-) -> Result<Vec<SessionSummary>, String> {
-    pipi_core::commands::list_archived_sessions(&state, args.0)
-}
 
 /// 把旧 JSONL 会话导入 git（逐条校验、幂等、原文件改名保留）。
 #[tauri::command]
@@ -261,10 +233,3 @@ pub fn delete_session(
     pipi_core::commands::delete_session(&state, args.0)
 }
 
-#[tauri::command]
-pub fn delete_archived_session(
-    state: State<RuntimeState>,
-    args: InvokeArgs<DeleteArchivedSessionArgs>,
-) -> Result<(), String> {
-    pipi_core::commands::delete_archived_session(&state, args.0)
-}

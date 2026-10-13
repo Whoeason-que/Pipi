@@ -232,6 +232,14 @@ impl AgentSession {
         async move { messages.lock().expect("session history poisoned").clone() }
     }
 
+    pub fn message_history(&self) -> Result<Vec<Message>, String> {
+        self.state
+            .messages
+            .lock()
+            .map(|msgs| msgs.clone())
+            .map_err(|e| e.to_string())
+    }
+
     pub fn stats(&self) -> Result<SessionStats, String> {
         self.state
             .stats

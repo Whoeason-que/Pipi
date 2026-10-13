@@ -660,7 +660,13 @@ export function installDevMock(): void {
           return Promise.resolve(null);
         case "list_agents":
           // 尊重归档/删除状态：归档后活跃列表为空，删除后彻底消失
-          // 尊重归档/删除状态：归档后活跃列表为空，删除后彻底消失
+          if (args?.archived) {
+            return Promise.resolve(
+              [demoAgent, demoPeer].filter(
+                (agent) => demoAgentArchived.has(agent.name) && !demoAgentDeleted.has(agent.name),
+              ),
+            );
+          }
           return Promise.resolve(
             [demoAgent, demoPeer].filter(
               (agent) => !demoAgentArchived.has(agent.name) && !demoAgentDeleted.has(agent.name),
@@ -683,12 +689,6 @@ export function installDevMock(): void {
         case "model_catalog":
           // 与 pipi-core 的 wire 结构一致（providers/models 按 camelCase）
           return Promise.resolve(structuredClone(demoCatalog));
-        case "load_agent": {
-          const name = String(args.name ?? "");
-          return Promise.resolve(
-            [demoAgent, demoPeer].find((agent) => agent.name === name) ?? demoAgent,
-          );
-        }
         case "list_agent_files":
           return Promise.resolve({
             instructions: ["harness/AGENTS.md"],
@@ -710,12 +710,49 @@ export function installDevMock(): void {
           if (current) demoConversations.delete(conversationKey(agentName, current.sessionId));
           return Promise.resolve(null);
         }
-        case "list_sessions":
-          return Promise.resolve(listDemoSessions(String(args.agentName ?? demoAgent.name)));
+        case "list_sessions": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          if (args.archived) {
+            const state = stateFor(agentName);
+            return Promise.resolve(
+              [...state.archivedSessions.entries()].map(([id, messages]) => ({
+                id,
+                title: state.titles.get(id) ?? "已归档会话",
+                messageCount: messages.length,
+                startedAt: Number(id.split("-")[0]) || 0,
+                lastActive: Number(id.split("-")[0]) || 0,
+              })),
+            );
+          }
+          return Promise.resolve(listDemoSessions(agentName));
+        }
         case "open_session": {
           const agentName = String(args.agentName ?? demoAgent.name);
-          openConversation(agentName, String(args.sessionId ?? ""));
-          return Promise.resolve(null);
+          const sessionId = String(args.sessionId ?? "");
+          const conversation = openConversation(agentName, sessionId);
+          return Promise.resolve({
+            info: {
+              agentName,
+              sessionId: conversation.sessionId,
+              temporary: conversation.temporary,
+              running: conversation.running,
+              runId: conversation.runId,
+            },
+            messages: conversation.messages ?? [],
+            stats: {
+              input: 70,
+              output: 144,
+              cacheRead: 660,
+              cacheWrite: 0,
+              calls: 2,
+              avgTps: 53.8,
+              avgLatencyS: 2.25,
+              cacheHitPct: 92.7,
+              contextUsed: 410,
+              contextMax: 200000,
+              contextPercent: 0,
+            },
+          });
         }
         case "session_info": {
           const agentName = String(args.agentName ?? demoAgent.name);
@@ -743,8 +780,23 @@ export function installDevMock(): void {
               runId: conversation.runId,
             })),
           );
-        case "ensure_test_session": {
+        case "open_workbench_session": {
           const agentName = String(args.agentName ?? demoAgent.name);
+          if (args.reset) {
+            const current = testConversationOf(agentName);
+            if (current?.running) {
+              return Promise.reject(new Error("临时测试仍在运行，请先停止再清空或保存设置"));
+            }
+            if (current) demoConversations.delete(conversationKey(agentName, current.sessionId));
+            const conversation = createTestConversation(agentName);
+            return Promise.resolve({
+              agentName,
+              sessionId: conversation.sessionId,
+              temporary: true,
+              running: false,
+              runId: 0,
+            });
+          }
           const conversation = testConversationOf(agentName) ?? createTestConversation(agentName);
           return Promise.resolve({
             agentName,
@@ -752,22 +804,6 @@ export function installDevMock(): void {
             temporary: true,
             running: conversation.running,
             runId: conversation.runId,
-          });
-        }
-        case "reset_test_session": {
-          const agentName = String(args.agentName ?? demoAgent.name);
-          const current = testConversationOf(agentName);
-          if (current?.running) {
-            return Promise.reject(new Error("临时测试仍在运行，请先停止再清空或保存设置"));
-          }
-          if (current) demoConversations.delete(conversationKey(agentName, current.sessionId));
-          const conversation = createTestConversation(agentName);
-          return Promise.resolve({
-            agentName,
-            sessionId: conversation.sessionId,
-            temporary: true,
-            running: false,
-            runId: 0,
           });
         }
         case "session_messages": {
@@ -791,13 +827,6 @@ export function installDevMock(): void {
             contextMax: 200000,
             contextPercent: 0,
           });
-        case "session_running": {
-          const conversation = conversationOf(
-            String(args.agentName ?? demoAgent.name),
-            String(args.sessionId ?? ""),
-          );
-          return Promise.resolve(Boolean(conversation?.running));
-        }
         case "send_prompt": {
           const agentName = String(args.agentName ?? demoAgent.name);
           // 会话 id 为空 = 新会话（核心会创建文件，这里创建一条演示会话）
@@ -874,12 +903,6 @@ export function installDevMock(): void {
           return Promise.resolve(null);
         }
         // —— 归档 / 恢复 / 删除（演示桩：内存里挪动 demo 数据）——
-        case "list_archived_agents":
-          return Promise.resolve(
-            [demoAgent, demoPeer].filter(
-              (agent) => demoAgentArchived.has(agent.name) && !demoAgentDeleted.has(agent.name),
-            ),
-          );
         case "archive_agent": {
           const name = String(args.name ?? "");
           const current = testConversationOf(name);
@@ -897,6 +920,11 @@ export function installDevMock(): void {
         }
         case "delete_agent": {
           const name = String(args.name ?? "");
+          if (args.archived) {
+            demoAgentDeleted.add(name);
+            demoAgentArchived.delete(name);
+            return Promise.resolve(null);
+          }
           const current = testConversationOf(name);
           if (current?.running) {
             return Promise.reject(new Error(`Agent「${name}」的临时测试仍在运行，请先停止再删除`));
@@ -911,24 +939,6 @@ export function installDevMock(): void {
             state.archivedSessions.clear();
           }
           return Promise.resolve(null);
-        }
-        case "delete_archived_agent": {
-          const name = String(args.name ?? "");
-          demoAgentDeleted.add(name);
-          demoAgentArchived.delete(name);
-          return Promise.resolve(null);
-        }
-        case "list_archived_sessions": {
-          const state = stateFor(String(args.agentName ?? demoAgent.name));
-          return Promise.resolve(
-            [...state.archivedSessions.entries()].map(([id, messages]) => ({
-              id,
-              title: state.titles.get(id) ?? "已归档会话",
-              messageCount: messages.length,
-              startedAt: Number(id.split("-")[0]) || 0,
-              lastActive: Number(id.split("-")[0]) || 0,
-            })),
-          );
         }
         case "archive_session": {
           const agentName = String(args.agentName ?? demoAgent.name);
@@ -959,19 +969,19 @@ export function installDevMock(): void {
         }
         case "delete_session": {
           const agentName = String(args.agentName ?? demoAgent.name);
-          const state = stateFor(agentName);
           const sid = String(args.sessionId ?? "");
+          if (args.archived) {
+            const state = stateFor(agentName);
+            state.archivedSessions.delete(sid);
+            return Promise.resolve(null);
+          }
+          const state = stateFor(agentName);
           const current = conversationOf(agentName, sid);
           if (current?.running) {
             return Promise.reject(new Error(`会话「${sid}」正在运行，请先停止再删除`));
           }
           demoConversations.delete(conversationKey(agentName, sid));
           state.histories.delete(sid);
-          return Promise.resolve(null);
-        }
-        case "delete_archived_session": {
-          const state = stateFor(String(args.agentName ?? demoAgent.name));
-          state.archivedSessions.delete(String(args.sessionId ?? ""));
           return Promise.resolve(null);
         }
         // —— 技能（av store：演示桩，与真实 DTO 同形）——

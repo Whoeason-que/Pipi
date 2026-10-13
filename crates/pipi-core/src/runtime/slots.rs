@@ -1,6 +1,15 @@
 //! 会话初始化、查询和控制的宿主入口。
 use super::*;
 
+/// 一次性取回完整的会话状态（info、消息列表与用量统计）。
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSnapshot {
+    pub info: SessionInfo,
+    pub messages: Vec<Message>,
+    pub stats: pipi_agent::stats::SessionStats,
+}
+
 /// 列出指定 Agent 的会话摘要。
 pub fn list_sessions(agent_name: &str) -> Result<Vec<SessionSummary>, String> {
     let def = agents::load_agent(agent_name)?;
@@ -114,22 +123,35 @@ impl RuntimeState {
 
     /// 打开（续写）一个已有会话。已经打开时是幂等的空操作 —— 同一个 Agent 的
     /// 多条会话可以同时打开，打开其中一条不影响别的。
-    pub fn open_session(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
+    /// 一步返回会话快照（包含 info、消息历史与统计信息）。
+    pub fn open_session(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+    ) -> Result<SessionSnapshot, String> {
         validate_session_id(session_id)?;
-        let def = agents::load_agent(agent_name)?;
-        let repo = session_repo(&def)?;
-        if !repo.exists(session_id)? {
-            return Err("会话不存在".into());
-        }
-
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         let key = SessionKey::new(agent_name, session_id);
-        if sessions.contains_key(&key) {
-            return Ok(());
+        if !sessions.contains_key(&key) {
+            let def = agents::load_agent(agent_name)?;
+            let repo = session_repo(&def)?;
+            if !repo.exists(session_id)? {
+                return Err("会话不存在".into());
+            }
+            let session = Self::load_session_object(&def, repo, session_id)?;
+            sessions.insert(key.clone(), session);
         }
-        let session = Self::load_session_object(&def, repo.clone(), session_id)?;
-        sessions.insert(key, session);
-        Ok(())
+        let session = sessions
+            .get(&key)
+            .ok_or_else(|| "会话不存在".to_string())?;
+        let info = self.session_info_of(session)?;
+        let messages = session.engine.message_history()?;
+        let stats = session.engine.stats()?;
+        Ok(SessionSnapshot {
+            info,
+            messages,
+            stats,
+        })
     }
 
     /// 分叉一个会话（可指定截断至某个 entry_id，留空则分叉到当前 tip）。
