@@ -57,8 +57,8 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
   useEffect(() => {
     void (async () => {
       const list = await refreshFiles();
-      // 默认打开 AGENTS.md（存在时）
-      if (list.includes("AGENTS.md")) void openFile("AGENTS.md");
+      // 默认打开 harness/AGENTS.md（存在时）
+      if (list.includes("harness/AGENTS.md")) void openFile("harness/AGENTS.md");
     })();
     // agentName 变化时重置
     setActiveFile(null);
@@ -89,7 +89,7 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
     if (disabled) return;
     const name = newFileName.trim().replace(/\.md$/, "");
     if (!name || name.includes("/")) return;
-    const relPath = `memory/${name}.md`;
+    const relPath = `harness/memory/${name}.md`;
     if (files.includes(relPath)) {
       void openFile(relPath);
       setNewFileName("");
@@ -110,7 +110,7 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
 
   return (
     <div className="drow file-editor-row">
-      <span className="k">AGENTS.md · memory/</span>
+      <span className="k">harness/</span>
       <div className="v">
         <div className="file-tabs">
           {files.map((file) => (
@@ -160,11 +160,12 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
         <div className="hint">
           {activeFile ? (
             <>
-              {activeFile} —— AGENTS.md 每次对话开始时注入为系统指令；memory
-              索引常驻上下文、正文由模型按需读取。改动需手动保存。
+              {activeFile} —— harness/AGENTS.md 在每次运行注入为系统指令（策略为
+              「仅工作区」或「无系统提示词」时不注入）；memory 索引常驻上下文、
+              正文由模型按需读取。改动需手动保存。
             </>
           ) : (
-            "AGENTS.md 是系统级指令，memory/ 是 Agent 的持久记忆"
+            "harness/AGENTS.md 是系统级指令，harness/memory/ 是 Agent 的持久记忆"
           )}
         </div>
         <button

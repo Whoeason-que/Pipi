@@ -21,12 +21,13 @@ import type { SessionRuntime } from "../session-runtime";
 import {
   type AgentDefinition,
   type BashMode,
+  type PromptScope,
   type ProviderConfig,
   type SandboxMode,
   type SessionInfoView
 } from "../types";
 import { permissionsFromFields } from "./agent-fields";
-import { BashChoices, SandboxChoices, ToolChoices } from "./PermissionChoices";
+import { BashChoices, PromptScopeChoices, SandboxChoices, ToolChoices } from "./PermissionChoices";
 
 import AgentFileEditor from "./AgentFileEditor";
 import { AgentSkillsTab } from "../skills/AgentSkillsTab";
@@ -90,6 +91,7 @@ export default function AgentWorkbench({
   // 自动压缩阈值（窗口占用的百分比，1–100）
   const [compactThreshold, setCompactThreshold] = useState(agent.compactThresholdPercent);
   const [compactTarget, setCompactTarget] = useState(agent.compactTargetPercent?.toString() ?? "");
+  const [promptScope, setPromptScope] = useState<PromptScope>(agent.systemPrompt);
   useEffect(() => {
     let active = true;
     setTestSession(null);
@@ -149,6 +151,7 @@ export default function AgentWorkbench({
     setTools(agent.permissions.tools);
     setCompactThreshold(agent.compactThresholdPercent);
     setCompactTarget(agent.compactTargetPercent?.toString() ?? "");
+    setPromptScope(agent.systemPrompt);
     setBashMode(bash.mode);
     setCommands(bash.commands.join("\n"));
     setSandbox(agent.permissions.sandbox);
@@ -201,6 +204,7 @@ export default function AgentWorkbench({
         // 越界值在核心侧也会兜底，但先在这里夹一次，免得写进文件的是脏值
         compactThresholdPercent: Math.min(100, Math.max(1, Math.round(compactThreshold))),
         compactTargetPercent: targetPercent,
+        systemPrompt: promptScope,
       };
       await invoke("save_agent", { def: next });
       setSavedLimits({
@@ -225,7 +229,8 @@ export default function AgentWorkbench({
     (bashMode === "allowAll" ? "" : commands) !== bash.commands.join("\n") ||
     sandbox !== agent.permissions.sandbox ||
     Math.min(100, Math.max(1, Math.round(compactThreshold))) !== agent.compactThresholdPercent ||
-    (compactTarget.trim() === "" ? null : Number(compactTarget)) !== (agent.compactTargetPercent ?? null);
+    (compactTarget.trim() === "" ? null : Number(compactTarget)) !== (agent.compactTargetPercent ?? null) ||
+    promptScope !== agent.systemPrompt;
   const configurationDirty = providerDirty || metaDirty;
 
   if (!testSession) {
@@ -372,6 +377,14 @@ export default function AgentWorkbench({
                     onChange={(event) => setWorkspace(event.target.value)}
                     placeholder={`~/.pipi/agents/${agent.name}/workspace（默认）`}
                   />
+                </div>
+                <div className="settings-field">
+                  <span className="field-label">systemPrompt</span>
+                  <PromptScopeChoices value={promptScope} onChange={setPromptScope} name="agent-prompt-scope" />
+                  <span className="hint">
+                    Pipi 侧 = harness/（AGENTS.md、记忆索引、技能索引）；工作区侧 = 项目 AGENTS.md
+                    链、.pi/skills 与项目 agent.toml 的资源声明。「无系统提示词」只发对话与工具定义。
+                  </span>
                 </div>
                 <div className="settings-field compact-threshold-field">
                   <label htmlFor="agent-compact-threshold">compact_threshold</label>

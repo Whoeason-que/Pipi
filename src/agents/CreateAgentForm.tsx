@@ -121,9 +121,9 @@ export default function CreateAgentForm({
             <div className="sub">
               一切皆文件：将在 <span className="mono">~/.pipi/agents/&lt;name&gt;/</span>{" "}
               下生成 <span className="mono">agent.json</span>、
-              <span className="mono">AGENTS.md</span>、
-              <span className="mono">skills/</span>、<span className="mono">memory/</span>
-              、<span className="mono">sessions/</span>
+              <span className="mono">harness/</span>（<span className="mono">AGENTS.md</span>、
+              <span className="mono">skills/</span>、<span className="mono">memory/</span>）、
+              <span className="mono">sessions/</span>
             </div>
           </div>
 

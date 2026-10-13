@@ -17,6 +17,7 @@ const demoAgent: AgentDefinition = {
   mcpServers: [],
   subagent: false,
   compactThresholdPercent: 75,
+  systemPrompt: "both",
 };
 
 const initialDemoMessages: Array<Record<string, unknown>> = [
@@ -82,6 +83,7 @@ const demoPeer: AgentDefinition = {
   mcpServers: [],
   subagent: true,
   compactThresholdPercent: 75,
+  systemPrompt: "both",
 };
 
 const peerDemoMessages: Array<Record<string, unknown>> = [
@@ -688,10 +690,10 @@ export function installDevMock(): void {
           );
         }
         case "list_agent_files":
-          return Promise.resolve(["AGENTS.md", "memory/user-prefs.md"]);
+          return Promise.resolve(["harness/AGENTS.md", "harness/memory/user-prefs.md"]);
         case "read_agent_file":
           return Promise.resolve(
-            String(args.relPath) === "AGENTS.md"
+            String(args.relPath) === "harness/AGENTS.md"
               ? "# demo-assistant\n\n演示模式的系统指令。\n"
               : "",
           );

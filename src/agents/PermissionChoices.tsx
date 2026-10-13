@@ -1,4 +1,4 @@
-import { SANDBOX_LABELS, type BashMode, type SandboxMode } from "../types";
+import { PROMPT_SCOPE_LABELS, SANDBOX_LABELS, type BashMode, type PromptScope, type SandboxMode } from "../types";
 import { BASH_MODE_LABELS, KNOWN_TOOLS } from "./agent-fields";
 
 export function ToolChoices({ value, onToggle, className = "tool-row" }: {
@@ -30,6 +30,17 @@ export function SandboxChoices({ value, onChange, name, className = "tool-row" }
     <label key={mode} className="tool-check">
       <input type="radio" name={name} checked={value === mode} onChange={() => onChange(mode)} />
       <span>{SANDBOX_LABELS[mode]}</span>
+    </label>
+  ))}</div>;
+}
+
+export function PromptScopeChoices({ value, onChange, name, className = "tool-row vertical-choices" }: {
+  value: PromptScope; onChange: (scope: PromptScope) => void; name: string; className?: string;
+}) {
+  return <div className={className}>{(Object.keys(PROMPT_SCOPE_LABELS) as PromptScope[]).map(scope => (
+    <label key={scope} className="tool-check">
+      <input type="radio" name={name} checked={value === scope} onChange={() => onChange(scope)} />
+      <span>{PROMPT_SCOPE_LABELS[scope]}</span>
     </label>
   ))}</div>;
 }

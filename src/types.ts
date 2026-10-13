@@ -74,7 +74,23 @@ export interface AgentDefinition {
   compactThresholdPercent: number;
   /** 可选：压缩后上下文目标占本次压缩前估算 token 的百分比。 */
   compactTargetPercent?: number | null;
+  /** 系统提示词的取材范围（缺字段 = both）。 */
+  systemPrompt: PromptScope;
 }
+
+/**
+ * 系统提示词策略（Rust 侧 agents::PromptScope）：决定 Agent 侧 `harness/`
+ * 与工作区侧的项目上下文各自是否参与组装。只影响提示词 —— 权限、沙箱与
+ * 工具可用性不受影响。
+ */
+export type PromptScope = "both" | "agent" | "workspace" | "none";
+
+export const PROMPT_SCOPE_LABELS: Record<PromptScope, string> = {
+  both: "Pipi + 工作区",
+  agent: "仅 Pipi",
+  workspace: "仅工作区",
+  none: "无系统提示词",
+};
 
 export interface ProviderConfig {
   id: string;
