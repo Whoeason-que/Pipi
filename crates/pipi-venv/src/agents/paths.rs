@@ -1,13 +1,7 @@
-use std::fs;
 use std::path::PathBuf;
 
 use pipi_protocol::fs::ensure_real_directory;
 use pipi_protocol::session::ARCHIVE_DIR;
-
-/// 所有 Agent 数据的根：`~/.pipi/agents`（路径布局由 av 统一定义）。
-pub fn agents_dir() -> Option<PathBuf> {
-    crate::av::paths::agents_root()
-}
 
 /// 校验 Agent 名称必须是单一、稳定的目录名，禁止路径分隔符与 `..` 穿越。
 pub fn validate_agent_name(name: &str) -> Result<(), String> {
@@ -28,7 +22,7 @@ pub(super) fn manifest_name_matches_directory(directory_name: &str, manifest_nam
 }
 
 pub(super) fn checked_agents_root() -> Result<PathBuf, String> {
-    let agents = agents_dir().ok_or_else(|| "无法定位用户主目录".to_string())?;
+    let agents = crate::av::paths::agents_root().ok_or_else(|| "无法定位用户主目录".to_string())?;
     let pipi = agents
         .parent()
         .ok_or_else(|| "无法定位 .pipi 目录".to_string())?;
@@ -63,13 +57,6 @@ pub(super) fn checked_archived_agent_dir(name: &str) -> Result<PathBuf, String> 
     validate_agent_name(name)?;
     let dir = checked_archive_dir()?.join(name);
     ensure_real_directory(&dir, "归档 Agent 目录")?;
-    Ok(dir)
-}
-
-/// 确保路径里的 agent 目录存在（从文件系统恢复定义时用）。
-pub fn ensure_agent_dir(name: &str) -> Result<PathBuf, String> {
-    let dir = checked_agent_dir(name)?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
 
@@ -140,7 +127,7 @@ mod tests {
         assert!(agent_dir("linked-agent").is_none());
         assert!(load_agent("linked-agent").is_err());
         assert!(save_agent(&def).is_err());
-        assert!(ensure_agent_dir("linked-agent").is_err());
+        assert!(checked_agent_dir("linked-agent").is_err());
         assert!(list_agents().unwrap().is_empty());
 
         pipi_test_support::set_env_var("HOME", previous_home);
@@ -169,7 +156,7 @@ mod tests {
         let previous_home = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);
         assert!(list_agents().is_err());
-        assert!(ensure_agent_dir("root-link-agent").is_err());
+        assert!(checked_agent_dir("root-link-agent").is_err());
         pipi_test_support::set_env_var("HOME", previous_home);
 
         std::fs::remove_dir_all(&home).unwrap();

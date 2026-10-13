@@ -3,7 +3,8 @@
 //! - [`install_source`]：`av skill install/add` 的引擎（解析 → 发现 → 发布）；
 //! - [`materialize_entry`]：`av skill sync` 的引擎 —— 按锁记录复现精确内容，
 //!   内容哈希不一致即拒绝（fail-closed）；
-//! - [`refresh_entry`]：`av skill update` 的引擎 —— 重解析来源到新修订。
+//! - [`resolve_refresh`] + [`apply_refresh`]：`av skill update` 的引擎 ——
+//!   重解析来源到新修订，再把新内容发布进 store。
 //!
 //! 所有写操作只发生在显式的 CLI 命令里；会话启动只读（见 `store` 模块）。
 
@@ -151,7 +152,7 @@ fn install_from_root(
 }
 
 /// 按选择过滤发现的技能；显式选择缺失即 fail-closed（并列出可选项）。
-pub fn select_skills<'a>(
+fn select_skills<'a>(
     discovered: &'a [SourceSkill],
     selection: &Selection,
 ) -> Result<Vec<&'a SourceSkill>, String> {
@@ -386,20 +387,6 @@ pub fn apply_refresh(
     Ok(dir)
 }
 
-/// 解析 + 落盘（便捷路径，等价于 [`resolve_refresh`] + [`apply_refresh`]）。
-pub fn refresh_entry(
-    entry: &SkillLockEntry,
-    log: &mut dyn FnMut(String),
-) -> Result<Option<SkillLockEntry>, String> {
-    match resolve_refresh(entry, log)? {
-        Some(refreshed) => {
-            apply_refresh(&refreshed, log)?;
-            Ok(Some(refreshed.entry))
-        }
-        None => Ok(None),
-    }
-}
-
 /// `sync --repair`：删除漂移的内容目录（索引记录保留，随后重建）。
 pub fn remove_drifted(entry: &SkillLockEntry) -> Result<(), String> {
     let outcome = store::verify_entry(entry)?;
@@ -585,7 +572,9 @@ mod tests {
         );
 
         // update：解析到新修订与新内容
-        let updated = refresh_entry(&entry, &mut noop_log()).unwrap().unwrap();
+        let refreshed = resolve_refresh(&entry, &mut noop_log()).unwrap().unwrap();
+        apply_refresh(&refreshed, &mut noop_log()).unwrap();
+        let updated = refreshed.entry.clone();
         assert_ne!(updated.revision, entry.revision);
         assert_ne!(updated.content_hash, entry.content_hash);
         assert!(updated.updated_at.is_some());
@@ -597,7 +586,7 @@ mod tests {
         );
 
         // 再 refresh：已是最新
-        assert!(refresh_entry(&updated, &mut noop_log()).unwrap().is_none());
+        assert!(resolve_refresh(&updated, &mut noop_log()).unwrap().is_none());
 
         // 篡改锁哈希 → materialize 拒绝（fail-closed）
         let mut tampered = updated.clone();
@@ -624,7 +613,7 @@ mod tests {
         // 新提交不影响 tag 解析：update 判定为「已是最新」
         write_skill(&repo.join("skills"), "pdf", "v2");
         repo_commit(&repo, "v2");
-        assert!(refresh_entry(&entry, &mut noop_log()).unwrap().is_none());
+        assert!(resolve_refresh(&entry, &mut noop_log()).unwrap().is_none());
 
         let _ = fs::remove_dir_all(home);
         let _ = fs::remove_dir_all(repo);

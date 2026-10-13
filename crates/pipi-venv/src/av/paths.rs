@@ -61,12 +61,6 @@ pub fn agents_root() -> Option<PathBuf> {
     pipi_home().map(|home| home.join("agents"))
 }
 
-/// 单个 Agent 目录：`<pipi_home>/agents/<name>`。
-/// 名称合法性与 symlink 边界由调用方（pipi-core 的 `ensure_real_directory`）把关。
-pub fn agent_dir(name: &str) -> Option<PathBuf> {
-    agents_root().map(|root| root.join(name))
-}
-
 /// 模型目录缓存：`<pipi_home>/cache/models.json`。
 pub fn catalog_cache_path() -> Option<PathBuf> {
     pipi_home().map(|home| home.join("cache").join("models.json"))
@@ -116,7 +110,6 @@ mod tests {
         assert_eq!(staging_dir(), Some(home.join(".tmp")));
         let Some(pipi) = pipi_home() else { return };
         assert_eq!(agents_root(), Some(pipi.join("agents")));
-        assert_eq!(agent_dir("foo"), Some(pipi.join("agents").join("foo")));
         assert_eq!(
             catalog_cache_path(),
             Some(pipi.join("cache").join("models.json"))

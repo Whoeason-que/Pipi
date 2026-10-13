@@ -60,7 +60,7 @@ pub fn delete_archived_agent(name: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::{agents_dir, create_agent, list_agents};
+    use crate::agents::{create_agent, list_agents};
     use pipi_protocol::session::ARCHIVE_DIR;
     use pipi_test_support::HOME_LOCK;
 
@@ -86,7 +86,7 @@ mod tests {
                 .iter()
                 .any(|a| a.name == name)
         );
-        let dir = agents_dir().unwrap();
+        let dir = crate::av::paths::agents_root().unwrap();
         assert!(dir.join(ARCHIVE_DIR).join(name).is_dir());
         assert!(!dir.join(name).exists());
 
@@ -144,7 +144,10 @@ mod tests {
         create_agent(name, "点目录防漏", None, None, None, None).unwrap();
         archive_agent(name).unwrap();
         // 往归档区里塞一个「坏掉」的 agent.json（不该影响活跃列表）
-        let archive_agent_dir = agents_dir().unwrap().join(ARCHIVE_DIR).join(name);
+        let archive_agent_dir = crate::av::paths::agents_root()
+            .unwrap()
+            .join(ARCHIVE_DIR)
+            .join(name);
         std::fs::write(archive_agent_dir.join("agent.json"), "{ broken json").unwrap();
         assert!(!list_agents().unwrap().iter().any(|a| a.name == name));
 

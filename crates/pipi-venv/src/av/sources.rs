@@ -425,12 +425,6 @@ impl Drop for GitFetch {
     }
 }
 
-/// 解析 ref 并浅取对应 commit。
-pub fn fetch(url: &str, reference: Option<&str>) -> Result<GitFetch, String> {
-    let revision = resolve_revision(url, reference)?;
-    fetch_at(url, reference, &revision)
-}
-
 /// 浅取指定 commit（`sync` 复现锁定的修订时用；不重新解析 ref）。
 pub fn fetch_at(url: &str, reference: Option<&str>, revision: &str) -> Result<GitFetch, String> {
     if revision.len() != 40 || !revision.chars().all(|c| c.is_ascii_hexdigit()) {

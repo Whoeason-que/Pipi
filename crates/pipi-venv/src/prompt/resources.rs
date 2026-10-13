@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use super::ContextFile;
 
 /// Candidate context file names, in Pi's precedence order.
-pub const CONTEXT_FILE_CANDIDATES: [&str; 5] = [
+const CONTEXT_FILE_CANDIDATES: [&str; 5] = [
     "AGENTS.override.md",
     "AGENTS.md",
     "AGENTS.MD",
@@ -15,42 +15,11 @@ pub const CONTEXT_FILE_CANDIDATES: [&str; 5] = [
     "CLAUDE.MD",
 ];
 
-/// Load Agent-global context followed by project context at the default budget.
-pub fn load_project_context_files(agent_dir: Option<&Path>, cwd: &Path) -> Vec<ContextFile> {
-    load_project_context_files_with_budget(
-        agent_dir,
-        cwd,
-        crate::prompt::DEFAULT_PROJECT_DOC_MAX_BYTES,
-    )
-}
-
-/// Load Agent-global context followed by project context with an explicit project budget.
+/// Load the project scope (root → cwd chain) with an explicit byte budget.
 ///
-/// The byte budget applies only to project files. Agent-global context is loaded first and
-/// remains unbounded, matching the separation between the two resource scopes.
-pub fn load_project_context_files_with_budget(
-    agent_dir: Option<&Path>,
-    cwd: &Path,
-    project_max_bytes: usize,
-) -> Vec<ContextFile> {
-    let mut loaded = Vec::new();
-    let mut seen = HashSet::new();
-
-    if let Some(agent_dir) = agent_dir {
-        load_directory_context(agent_dir, None, &mut seen, &mut loaded);
-    }
-    loaded.extend(load_project_scope_files_with_budget(cwd, project_max_bytes));
-    loaded
-}
-
-/// Load only the project scope (root → cwd chain) with an explicit byte budget.
-///
-/// 供 av 契约的 instructions 三态使用：声明层替换项目发现时，缺省路径仍走这里。
+/// 供 av 契约的 instructions 三态使用：声明层替换项目发现时，缺省路径仍走这里；
+/// Agent 侧上下文由契约的 `instructions` 声明提供，不再按文件名兜底发现。
 pub fn load_project_scope_files(cwd: &Path, project_max_bytes: usize) -> Vec<ContextFile> {
-    load_project_scope_files_with_budget(cwd, project_max_bytes)
-}
-
-fn load_project_scope_files_with_budget(cwd: &Path, project_max_bytes: usize) -> Vec<ContextFile> {
     let mut loaded = Vec::new();
     let mut seen = HashSet::new();
 
@@ -69,21 +38,12 @@ fn load_project_scope_files_with_budget(cwd: &Path, project_max_bytes: usize) ->
         }
         load_directory_context(
             &directory,
-            Some((&canonical_project_root, &mut remaining)),
+            &canonical_project_root,
+            &mut remaining,
             &mut seen,
             &mut loaded,
         );
     }
-    loaded
-}
-
-/// Load only Agent-global context for agents that do not have a workspace.
-pub fn load_agent_context_files(agent_dir: Option<&Path>) -> Vec<ContextFile> {
-    let Some(agent_dir) = agent_dir else {
-        return Vec::new();
-    };
-    let mut loaded = Vec::new();
-    load_directory_context(agent_dir, None, &mut HashSet::new(), &mut loaded);
     loaded
 }
 
@@ -111,24 +71,17 @@ fn project_directories(cwd: &Path) -> (Option<PathBuf>, Vec<PathBuf>) {
 
 fn load_directory_context(
     directory: &Path,
-    project_scope: Option<(&Path, &mut usize)>,
+    canonical_allowed_root: &Path,
+    remaining: &mut usize,
     seen: &mut HashSet<PathBuf>,
     loaded: &mut Vec<ContextFile>,
 ) {
-    let canonical_allowed_root = match project_scope {
-        Some((root, _)) => root.to_path_buf(),
-        None => match fs::canonicalize(directory) {
-            Ok(root) => root,
-            Err(_) => return,
-        },
-    };
-
     for name in CONTEXT_FILE_CANDIDATES {
         let candidate = directory.join(name);
         let Ok(canonical_path) = fs::canonicalize(&candidate) else {
             continue;
         };
-        if !canonical_path.starts_with(&canonical_allowed_root) {
+        if !canonical_path.starts_with(canonical_allowed_root) {
             continue;
         }
         let Ok(metadata) = fs::metadata(&canonical_path) else {
@@ -153,31 +106,24 @@ fn load_directory_context(
             continue;
         }
 
-        if let Some((_, remaining)) = project_scope {
-            if *remaining == 0 {
-                return;
-            }
-            let content = truncate_to_char_boundary(&content, *remaining);
-            if content.is_empty() {
-                return;
-            }
-            *remaining = remaining.saturating_sub(content.len());
-            loaded.push(ContextFile {
-                path: candidate.display().to_string(),
-                content,
-            });
-        } else {
-            loaded.push(ContextFile {
-                path: candidate.display().to_string(),
-                content,
-            });
+        if *remaining == 0 {
+            return;
         }
+        let content = truncate_to_char_boundary(&content, *remaining);
+        if content.is_empty() {
+            return;
+        }
+        *remaining = remaining.saturating_sub(content.len());
+        loaded.push(ContextFile {
+            path: candidate.display().to_string(),
+            content,
+        });
         break;
     }
 }
 
 /// 在 UTF-8 字符边界上截断（声明式上下文文件与发现路径共用）。
-pub fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
+pub(crate) fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
     if max_bytes >= s.len() {
         return s.to_string();
     }
@@ -191,7 +137,7 @@ pub fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prompt::ContextFile;
+    use crate::prompt::{ContextFile, DEFAULT_PROJECT_DOC_MAX_BYTES};
     use std::fs;
     use std::path::Path;
 
@@ -216,7 +162,7 @@ mod tests {
         fs::write(project.join("CLAUDE.md"), "claude").unwrap();
         fs::write(project.join("CLAUDE.MD"), "claude-upper").unwrap();
 
-        let files = load_project_context_files(None, &project);
+        let files = load_project_scope_files(&project, DEFAULT_PROJECT_DOC_MAX_BYTES);
 
         assert_eq!(contents(&files), vec!["override"]);
         assert!(files[0].path.ends_with("AGENTS.override.md"));
@@ -232,30 +178,10 @@ mod tests {
         fs::write(project.join("AGENTS.md"), "agents").unwrap();
         fs::write(project.join("AGENTS.MD"), "agents-upper").unwrap();
 
-        let files = load_project_context_files(None, &project);
+        let files = load_project_scope_files(&project, DEFAULT_PROJECT_DOC_MAX_BYTES);
 
         assert_eq!(contents(&files), vec!["agents"]);
         assert!(files[0].path.ends_with("AGENTS.md"));
-        cleanup(&root);
-    }
-
-    #[test]
-    fn global_context_is_first_then_project_root_to_cwd() {
-        let root = pipi_test_support::temp_dir("pipi-context-ordering");
-        let agent = root.join("agent");
-        let project = root.join("project");
-        let cwd = project.join("crates/app");
-        fs::create_dir_all(&agent).unwrap();
-        fs::create_dir_all(project.join(".git")).unwrap();
-        fs::create_dir_all(&cwd).unwrap();
-
-        fs::write(agent.join("AGENTS.md"), "global").unwrap();
-        fs::write(project.join("AGENTS.md"), "project-root").unwrap();
-        fs::write(cwd.join("AGENTS.md"), "cwd").unwrap();
-
-        let files = load_project_context_files(Some(&agent), &cwd);
-
-        assert_eq!(contents(&files), vec!["global", "project-root", "cwd"]);
         cleanup(&root);
     }
 
@@ -274,7 +200,7 @@ mod tests {
         std::os::windows::fs::symlink_file(project.join("AGENTS.md"), cwd.join("AGENTS.md"))
             .unwrap();
 
-        let files = load_project_context_files(None, &cwd);
+        let files = load_project_scope_files(&cwd, DEFAULT_PROJECT_DOC_MAX_BYTES);
 
         assert_eq!(contents(&files), vec!["one"]);
         cleanup(&root);
@@ -301,7 +227,7 @@ mod tests {
         )
         .unwrap();
 
-        let files = load_project_context_files(None, &cwd);
+        let files = load_project_scope_files(&cwd, DEFAULT_PROJECT_DOC_MAX_BYTES);
 
         assert_eq!(contents(&files), vec!["ancestor", "cwd"]);
         cleanup(&root);
@@ -314,7 +240,7 @@ mod tests {
         fs::create_dir_all(project.join(".git")).unwrap();
         fs::write(project.join("AGENTS.md"), b"\xef\xbb\xbfproject rules").unwrap();
 
-        let files = load_project_context_files(None, &project);
+        let files = load_project_scope_files(&project, DEFAULT_PROJECT_DOC_MAX_BYTES);
 
         assert_eq!(contents(&files), vec!["project rules"]);
         cleanup(&root);
@@ -330,7 +256,7 @@ mod tests {
         fs::write(project.join("AGENTS.md"), "根规则").unwrap();
         fs::write(cwd.join("AGENTS.md"), "cwd rules").unwrap();
 
-        let files = load_project_context_files_with_budget(None, &cwd, 10);
+        let files = load_project_scope_files(&cwd, 10);
 
         assert_eq!(contents(&files), vec!["根规则", "c"]);
         assert!(files[1].content.is_char_boundary(files[1].content.len()));
@@ -348,7 +274,7 @@ mod tests {
         fs::write(project.join("AGENTS.md"), "根规则").unwrap();
         fs::write(cwd.join("AGENTS.md"), "c").unwrap();
 
-        let files = load_project_context_files_with_budget(None, &cwd, 1);
+        let files = load_project_scope_files(&cwd, 1);
 
         assert_eq!(contents(&files), vec!["c"]);
         assert!(files.iter().all(|file| !file.content.is_empty()));
@@ -379,7 +305,7 @@ mod tests {
         )
         .unwrap();
 
-        let files = load_project_context_files(None, &project);
+        let files = load_project_scope_files(&project, DEFAULT_PROJECT_DOC_MAX_BYTES);
 
         assert_eq!(contents(&files), vec!["safe fallback"]);
         cleanup(&root);

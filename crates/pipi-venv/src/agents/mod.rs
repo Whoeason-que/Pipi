@@ -30,8 +30,8 @@ pub use contract::{
 pub use files::{
     AgentEditableFiles, list_agent_editable_files, memory_index, read_agent_file, write_agent_file,
 };
-pub use paths::{agent_dir, agents_dir, ensure_agent_dir, expand_tilde, validate_agent_name};
-pub use prompt::{build_system_prompt, build_system_prompt_with_tools};
+pub use paths::{agent_dir, expand_tilde, validate_agent_name};
+pub use prompt::build_system_prompt_with_tools;
 pub use registry::{
     add_bash_allowlist_entries, create_agent, create_agent_with_instructions, ensure_default_agent,
     list_agents, list_agents_bootstrapped, load_agent, save_agent,

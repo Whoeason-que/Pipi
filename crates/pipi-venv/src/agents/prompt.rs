@@ -8,11 +8,6 @@ use super::contract::{
 use super::files::memory_index;
 use super::types::{AgentDefinition, PromptScope};
 
-/// 组装系统提示：收集宿主资源，再交给 Pi-compatible harness 渲染。
-pub fn build_system_prompt(def: &AgentDefinition) -> Result<String, String> {
-    build_system_prompt_with_tools(def, &[])
-}
-
 /// 跨层合并技能（agent 层在前，同名先发现者赢）。
 fn merge_skill_scopes(
     agent_skills: Vec<crate::av::skills::SkillMeta>,

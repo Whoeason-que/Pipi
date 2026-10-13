@@ -751,7 +751,7 @@ fn archive_and_delete_idle_open_sessions_without_leaving_view() {
             .is_none(),
         "归档 Agent 后不应留下悬空会话槽"
     );
-    let agents_root = agents::agents_dir().expect("Agent 根目录");
+    let agents_root = pipi_venv::av::paths::agents_root().expect("Agent 根目录");
     assert!(!agents_root.join("agent-archive-open").exists());
     assert!(agents_root.join(".archive/agent-archive-open").is_dir());
 
