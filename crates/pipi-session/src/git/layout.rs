@@ -7,6 +7,8 @@
 use pipi_protocol::session::{EntryKind, SessionEntry};
 use pipi_protocol::{ContentBlock, Message};
 
+use crate::truncate_chars;
+
 /// commit 摘要（`git log --oneline` 的第一行）的字符上限。
 const SUMMARY_CHARS: usize = 72;
 
@@ -110,14 +112,7 @@ pub fn summary_line(entry: &SessionEntry) -> String {
 pub fn commit_message(batch: &[SessionEntry], turn: Option<u64>) -> String {
     let head = batch
         .iter()
-        .find(|entry| {
-            matches!(
-                entry.kind,
-                EntryKind::Message {
-                    message: Message::User { .. }
-                }
-            )
-        })
+        .find(|entry| is_user_entry(entry))
         .or_else(|| batch.first())
         .map(summary_line)
         .unwrap_or_else(|| "(空提交)".to_string());
@@ -136,14 +131,6 @@ fn first_line(text: &str) -> String {
         .find(|line| !line.is_empty())
         .unwrap_or("");
     truncate_chars(line, SUMMARY_CHARS)
-}
-
-fn truncate_chars(text: &str, max: usize) -> String {
-    let mut cut = text.chars().take(max).collect::<String>();
-    if text.chars().count() > max {
-        cut.push('…');
-    }
-    cut
 }
 
 fn id_prefix(id: &str) -> String {

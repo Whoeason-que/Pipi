@@ -4,7 +4,6 @@
 //! 符号链接防护在这里（rename/remove 不能沿链接波及外部文件）。
 use std::path::{Path, PathBuf};
 
-use pipi_protocol::Message;
 use pipi_protocol::session::{
     ARCHIVE_DIR, EntryKind, SessionEntry, SessionLog, SessionRepo, SessionSummary,
     active_model_from_entries, active_path, validate_session_id,
@@ -249,14 +248,7 @@ pub fn list_session_summaries(sessions_dir: &Path) -> Vec<SessionSummary> {
         let last_active = file_entries.last().map(|e| e.timestamp).unwrap_or(0);
         let model = active_model_from_entries(&file_entries)
             .map(|m| m.display_name().to_string())
-            .or_else(|| {
-                file_entries.iter().rev().find_map(|e| match &e.kind {
-                    EntryKind::Message {
-                        message: Message::Assistant { model, .. },
-                    } if !model.is_empty() => Some(model.clone()),
-                    _ => None,
-                })
-            });
+            .or_else(|| crate::latest_assistant_model(file_entries.iter()));
         out.push(SessionSummary {
             id,
             title,
@@ -273,6 +265,7 @@ pub fn list_session_summaries(sessions_dir: &Path) -> Vec<SessionSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pipi_protocol::Message;
     use pipi_protocol::session::EnvDeclared;
 
     /// 断言被拒绝并取出错误消息。用 match 而非 `unwrap_err`：`Result<Box<dyn

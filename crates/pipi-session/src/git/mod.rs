@@ -27,7 +27,7 @@ pub use exec::GitExec;
 pub use layout::entry_path;
 pub use sink::GitSink;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use pipi_protocol::session::{
@@ -46,15 +46,6 @@ impl GitSessionRepo {
         Self {
             exec: Arc::new(GitExec::new(repo_dir)),
         }
-    }
-
-    pub fn repo_dir(&self) -> &Path {
-        self.exec.repo_dir()
-    }
-
-    /// 探测系统 git 可用（`git --version`）。
-    pub fn probe(&self) -> Result<(), String> {
-        self.exec.probe()
     }
 
     /// 从外部条目序列导入一条会话（`import_sessions` 用）。

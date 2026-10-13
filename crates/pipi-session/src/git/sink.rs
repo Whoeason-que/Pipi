@@ -9,23 +9,19 @@
 
 use std::sync::Arc;
 
-use pipi_protocol::session::{
-    CompactionRecord, EntryKind, EnvDeclared, SessionEntry, SessionLog, active_path, replay,
-};
+use pipi_protocol::session::{CompactionRecord, EntryKind, EnvDeclared, SessionEntry, SessionLog};
 use pipi_protocol::{Message, Model, new_id, now_millis};
 
 use super::exec::GitExec;
 use super::{layout, refs};
-use crate::track_message_ids;
+use crate::LedgerState;
 
 /// 一个 git 分支上的会话账本。
 pub struct GitSink {
     session_id: String,
     exec: Arc<GitExec>,
-    tip_id: Option<String>,
-    seq: u64,
-    env_recorded: bool,
-    message_ids: Vec<String>,
+    /// tip / seq / 环境记账 / 消息 id 映射（与 JSONL 载体同一套规则）。
+    ledger: LedgerState,
     /// 尚未提交的条目（提交点一次 fast-import 落盘）。
     buffer: Vec<SessionEntry>,
     /// 已提交的轮数（`Turn:` trailer 的计数，按提交点递增，不按 user 条目数）。
@@ -41,10 +37,7 @@ impl GitSink {
         GitSink {
             session_id: format!("{}-{}", now_millis(), new_id()),
             exec,
-            tip_id: None,
-            seq: 0,
-            env_recorded: false,
-            message_ids: Vec::new(),
+            ledger: LedgerState::empty(),
             buffer: Vec::new(),
             turn: 0,
             root_parent: None,
@@ -61,22 +54,10 @@ impl GitSink {
         entries: &[SessionEntry],
         turn: u64,
     ) -> GitSink {
-        let (tip_id, seq) = match entries.last() {
-            Some(last) => (Some(last.id.clone()), last.seq + 1),
-            None => (None, 0),
-        };
-        let env_recorded = entries
-            .iter()
-            .any(|entry| matches!(entry.kind, EntryKind::Env { .. }));
-        // 消息 ↔ 条目 id 映射：与 rebuild_messages 同一套回放规则
-        let message_ids = replay(&active_path(entries)).1;
         GitSink {
             session_id,
             exec,
-            tip_id,
-            seq,
-            env_recorded,
-            message_ids,
+            ledger: LedgerState::from_entries(entries),
             buffer: Vec::new(),
             turn,
             root_parent: None,
@@ -85,13 +66,7 @@ impl GitSink {
 
     /// 追加一条 entry：挂在当前 tip 上，只进缓冲（不做 IO）。
     fn append_entry(&mut self, kind: EntryKind, timestamp: u64) -> String {
-        let entry = SessionEntry {
-            id: new_id(),
-            parent_id: self.tip_id.clone(),
-            seq: self.seq,
-            timestamp,
-            kind,
-        };
+        let entry = self.ledger.begin(kind, timestamp);
         let id = entry.id.clone();
         self.push(entry);
         id
@@ -108,15 +83,8 @@ impl GitSink {
     }
 
     fn push(&mut self, entry: SessionEntry) {
-        self.tip_id = Some(entry.id.clone());
-        self.seq = entry.seq + 1;
-        track_message_ids(&mut self.message_ids, &entry);
+        self.ledger.advance(&entry);
         self.buffer.push(entry);
-    }
-
-    /// 会话身份（与 [`SessionLog::session_id`] 同源；固有方法便于导入等内部调用）。
-    pub fn session_id(&self) -> &str {
-        &self.session_id
     }
 
     /// 组装一次 `fast-import`：缓冲里的每条 entry 一个 blob，整批一个 commit。
@@ -161,15 +129,15 @@ impl SessionLog for GitSink {
     }
 
     fn tip_id(&self) -> Option<&str> {
-        self.tip_id.as_deref()
+        self.ledger.tip_id.as_deref()
     }
 
     fn message_ids(&self) -> &[String] {
-        &self.message_ids
+        &self.ledger.message_ids
     }
 
     fn mark_env_recorded(&mut self) {
-        self.env_recorded = true;
+        self.ledger.env_recorded = true;
     }
 
     fn append_message(&mut self, message: &Message) -> std::io::Result<String> {
@@ -214,11 +182,11 @@ impl SessionLog for GitSink {
     }
 
     fn append_env(&mut self, declared: Vec<EnvDeclared>) -> std::io::Result<Option<String>> {
-        if self.env_recorded {
+        if self.ledger.env_recorded {
             return Ok(None);
         }
         let id = self.append_entry(EntryKind::Env { declared }, now_millis());
-        self.env_recorded = true;
+        self.ledger.env_recorded = true;
         Ok(Some(id))
     }
 

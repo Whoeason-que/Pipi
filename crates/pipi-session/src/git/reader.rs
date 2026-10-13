@@ -6,7 +6,6 @@
 
 use std::collections::BTreeSet;
 
-use pipi_protocol::Message;
 use pipi_protocol::session::{EntryKind, SessionEntry, SessionSummary};
 
 use super::exec::GitExec;
@@ -146,15 +145,7 @@ pub fn read_summaries(exec: &GitExec, prefix: &str) -> Result<Vec<SessionSummary
             })
             .or_else(|| {
                 // 回退：最近一条带模型名的 assistant 消息（与 JSONL 列表口径一致）
-                message_pairs
-                    .iter()
-                    .rev()
-                    .find_map(|(_, entry)| match &entry.kind {
-                        EntryKind::Message {
-                            message: Message::Assistant { model, .. },
-                        } if !model.is_empty() => Some(model.clone()),
-                        _ => None,
-                    })
+                crate::latest_assistant_model(message_pairs.iter().map(|(_, entry)| *entry))
             });
 
         let last_active = pairs

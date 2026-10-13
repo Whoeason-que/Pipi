@@ -10,7 +10,7 @@
 //! `pipi-agent` 的 `session::commit`。
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -38,10 +38,6 @@ impl GitExec {
             lock: Mutex::new(()),
             last_gc: AtomicU64::new(0),
         }
-    }
-
-    pub fn repo_dir(&self) -> &Path {
-        &self.repo_dir
     }
 
     /// 探测系统 git 可用。缺 git 时返回可执行提示（fail-closed，不回落）。

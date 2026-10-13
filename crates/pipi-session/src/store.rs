@@ -22,7 +22,6 @@ use crate::{JsonlSessionRepo, load_session};
 pub struct AgentSessionRepo {
     git: GitSessionRepo,
     jsonl: JsonlSessionRepo,
-    agent_dir: PathBuf,
 }
 
 impl AgentSessionRepo {
@@ -32,22 +31,12 @@ impl AgentSessionRepo {
         Self {
             git: GitSessionRepo::new(agent_dir.join("sessions.git")),
             jsonl: JsonlSessionRepo::new(agent_dir.join("sessions")),
-            agent_dir,
         }
     }
 
     /// git 侧仓库（导入、探测与测试用）。
     pub fn git(&self) -> &GitSessionRepo {
         &self.git
-    }
-
-    /// 旧 JSONL 会话目录（`sessions/`）。
-    pub fn legacy_dir(&self) -> &Path {
-        self.jsonl.dir()
-    }
-
-    pub fn agent_dir(&self) -> &Path {
-        &self.agent_dir
     }
 
     /// 把该 Agent 的旧 JSONL 会话导入 git。
@@ -133,6 +122,18 @@ impl AgentSessionRepo {
             on_jsonl(&self.jsonl)
         }
     }
+
+    /// 该会话是否由 git 载体持有（活跃区或归档区都算）。
+    fn git_holds(&self, session_id: &str) -> Result<bool, String> {
+        if self.git.exists(session_id)? {
+            return Ok(true);
+        }
+        Ok(self
+            .git
+            .list_archived()?
+            .iter()
+            .any(|summary| summary.id == session_id))
+    }
 }
 
 impl SessionRepo for AgentSessionRepo {
@@ -197,10 +198,8 @@ impl SessionRepo for AgentSessionRepo {
     }
 
     fn restore(&self, session_id: &str) -> Result<(), String> {
-        // 归档区里的会话不在活跃区，按两区分别探测
-        if self.git.exists(session_id)?
-            || self.git.list_archived()?.iter().any(|s| s.id == session_id)
-        {
+        // 归档区里的会话不在活跃区，由 git_holds 一并探测
+        if self.git_holds(session_id)? {
             return self.git.restore(session_id);
         }
         self.jsonl.restore(session_id)
@@ -215,7 +214,7 @@ impl SessionRepo for AgentSessionRepo {
     }
 
     fn delete_archived(&self, session_id: &str) -> Result<(), String> {
-        if self.git.list_archived()?.iter().any(|s| s.id == session_id) {
+        if self.git_holds(session_id)? {
             return self.git.delete_archived(session_id);
         }
         self.jsonl.delete_archived(session_id)

@@ -4,8 +4,6 @@
 //!
 //! 改写 HOME 前持 `pipi_test_support::HOME_LOCK`（全仓唯一的一把锁）。
 
-use std::sync::Arc;
-
 use pipi_protocol::Message;
 use pipi_protocol::permissions::{BashPermissions, PermissionsConfig, SandboxMode};
 use pipi_protocol::session::SessionRepo;
@@ -246,15 +244,4 @@ fn the_host_imports_legacy_sessions_through_the_command() {
     let repo = repo(&agent_dir);
     assert_eq!(repo.entries(&legacy_id).unwrap().len(), 1);
     std::fs::remove_dir_all(agent_dir.parent().unwrap()).ok();
-}
-
-/// 编译期锚：装配点返回的仓库实现了端口（命令与运行时都只经端口用它）。
-#[allow(dead_code)]
-fn assert_repo_is_a_port(repo: &dyn SessionRepo) -> usize {
-    repo.list().len()
-}
-
-#[allow(dead_code)]
-fn assert_arc_is_a_port(repo: Arc<dyn SessionRepo>) -> usize {
-    repo.list().len()
 }

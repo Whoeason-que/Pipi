@@ -5,12 +5,10 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use pipi_protocol::session::{
-    CompactionRecord, EntryKind, EnvDeclared, SessionEntry, SessionLog, active_path, replay,
-};
+use pipi_protocol::session::{CompactionRecord, EntryKind, EnvDeclared, SessionEntry, SessionLog};
 use pipi_protocol::{Message, Model, new_id, now_millis};
 
-use super::{load_session, track_message_ids};
+use super::{LedgerState, load_session};
 
 /// 一个会话的追加账本。
 ///
@@ -22,14 +20,8 @@ pub struct SessionWriter {
     session_id: String,
     path: Option<PathBuf>,
     file: Option<std::fs::File>,
-    tip_id: Option<String>,
-    seq: u64,
-    /// 环境记账每会话至多一条；打开旧会话时从已有条目恢复。
-    env_recorded: bool,
-    /// 与内存消息序列一一对应的条目 id
-    /// （规则见 [`pipi_protocol::session::kept_start`]）。
-    /// runtime 落盘压缩条目时用它把「保留段下标」换算成 `keep_from_entry`。
-    message_ids: Vec<String>,
+    /// tip / seq / 环境记账 / 消息 id 映射（与 git 载体同一套规则）。
+    ledger: LedgerState,
 }
 
 impl SessionWriter {
@@ -50,10 +42,7 @@ impl SessionWriter {
             session_id,
             path: Some(path),
             file: Some(file),
-            tip_id: None,
-            seq: 0,
-            env_recorded: false,
-            message_ids: Vec::new(),
+            ledger: LedgerState::empty(),
         })
     }
 
@@ -64,26 +53,13 @@ impl SessionWriter {
             session_id: format!("test-{}", new_id()),
             path: None,
             file: None,
-            tip_id: None,
-            seq: 0,
-            env_recorded: false,
-            message_ids: Vec::new(),
+            ledger: LedgerState::empty(),
         }
     }
 
     /// 打开已有会话文件继续追加（seq/tip 从已有条目恢复）。
     pub fn open(path: &Path) -> std::io::Result<SessionWriter> {
         let entries = load_session(path).map_err(std::io::Error::other)?;
-        let (tip_id, seq) = match entries.last() {
-            Some(last) => (Some(last.id.clone()), last.seq + 1),
-            None => (None, 0),
-        };
-        let env_recorded = entries
-            .iter()
-            .any(|entry| matches!(entry.kind, EntryKind::Env { .. }));
-        // 消息 ↔ 条目 id 映射：与 rebuild_messages 同一套回放规则，
-        // 保证「内存第 i 条消息」的条目 id 可查。
-        let message_ids = replay(&active_path(&entries)).1;
         let file = std::fs::OpenOptions::new().append(true).open(path)?;
         let session_id = path
             .file_stem()
@@ -94,10 +70,7 @@ impl SessionWriter {
             session_id,
             path: Some(path.to_path_buf()),
             file: Some(file),
-            tip_id,
-            seq,
-            env_recorded,
-            message_ids,
+            ledger: LedgerState::from_entries(&entries),
         })
     }
 
@@ -105,10 +78,6 @@ impl SessionWriter {
     /// runtime 的通用路径应优先用 [`SessionWriter::session_id`] / `is_temporary`。
     pub fn path(&self) -> &Path {
         self.path.as_deref().expect("临时会话没有持久化路径")
-    }
-
-    pub fn persistent_path(&self) -> Option<&Path> {
-        self.path.as_deref()
     }
 
     pub fn session_id(&self) -> &str {
@@ -120,103 +89,80 @@ impl SessionWriter {
     }
 
     pub fn tip_id(&self) -> Option<&str> {
-        self.tip_id.as_deref()
+        self.ledger.tip_id.as_deref()
     }
 
     /// 当前逻辑消息序列的条目 id（与内存 `messages` 下标一一对应）。
     pub fn message_ids(&self) -> &[String] {
-        &self.message_ids
+        &self.ledger.message_ids
     }
 
     /// 标记环境记账已存在（分叉拷贝含 Env 条目时用，避免重复记账）。
     pub fn mark_env_recorded(&mut self) {
-        self.env_recorded = true;
+        self.ledger.env_recorded = true;
     }
 
     /// 追加一条消息（挂在当前 tip 上），返回新条目 id。
     pub fn append_message(&mut self, message: &Message) -> std::io::Result<String> {
-        let entry = SessionEntry {
-            id: new_id(),
-            parent_id: self.tip_id.clone(),
-            seq: self.seq,
-            timestamp: message.timestamp(),
-            kind: EntryKind::Message {
+        let entry = self.ledger.begin(
+            EntryKind::Message {
                 message: message.clone(),
             },
-        };
-        let id = entry.id.clone();
+            message.timestamp(),
+        );
         self.write_entry(&entry)?;
-        Ok(id)
+        Ok(entry.id)
     }
 
     pub fn append_custom(&mut self, custom_type: &str) -> std::io::Result<String> {
-        let entry = SessionEntry {
-            id: new_id(),
-            parent_id: self.tip_id.clone(),
-            seq: self.seq,
-            timestamp: now_millis(),
-            kind: EntryKind::Custom {
+        let entry = self.ledger.begin(
+            EntryKind::Custom {
                 custom_type: custom_type.to_string(),
             },
-        };
-        let id = entry.id.clone();
+            now_millis(),
+        );
         self.write_entry(&entry)?;
-        Ok(id)
+        Ok(entry.id)
     }
 
     /// 追加一条摘要压缩条目，返回新条目 id。`record.keep_from_entry` 为空
     /// 表示只保留摘要（旧行为）。
     pub fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
-        let entry = SessionEntry {
-            id: new_id(),
-            parent_id: self.tip_id.clone(),
-            seq: self.seq,
-            timestamp: now_millis(),
-            kind: EntryKind::Compaction {
+        let entry = self.ledger.begin(
+            EntryKind::Compaction {
                 summary: record.summary.to_string(),
                 keep_from_entry: record.keep_from_entry.to_string(),
                 source_tip: record.source_tip.to_string(),
                 strategy: record.strategy.to_string(),
                 usage: record.usage,
             },
-        };
-        let id = entry.id.clone();
+            now_millis(),
+        );
         self.write_entry(&entry)?;
-        Ok(id)
+        Ok(entry.id)
     }
 
     /// 追加模型变更条目，切换当前会话所用的模型配置。
     pub fn append_model_change(&mut self, model: &Model) -> std::io::Result<String> {
-        let entry = SessionEntry {
-            id: new_id(),
-            parent_id: self.tip_id.clone(),
-            seq: self.seq,
-            timestamp: now_millis(),
-            kind: EntryKind::ModelChange {
+        let entry = self.ledger.begin(
+            EntryKind::ModelChange {
                 provider: model.clone(),
             },
-        };
-        let id = entry.id.clone();
+            now_millis(),
+        );
         self.write_entry(&entry)?;
-        Ok(id)
+        Ok(entry.id)
     }
 
     /// 追加环境契约记账条目（每会话至多一条，重复调用幂等跳过），返回新条目 id。
     pub fn append_env(&mut self, declared: Vec<EnvDeclared>) -> std::io::Result<Option<String>> {
-        if self.env_recorded {
+        if self.ledger.env_recorded {
             return Ok(None);
         }
-        let entry = SessionEntry {
-            id: new_id(),
-            parent_id: self.tip_id.clone(),
-            seq: self.seq,
-            timestamp: now_millis(),
-            kind: EntryKind::Env { declared },
-        };
-        let id = entry.id.clone();
+        let entry = self.ledger.begin(EntryKind::Env { declared }, now_millis());
         self.write_entry(&entry)?;
-        self.env_recorded = true;
-        Ok(Some(id))
+        self.ledger.env_recorded = true;
+        Ok(Some(entry.id))
     }
 
     pub fn write_entry(&mut self, entry: &SessionEntry) -> std::io::Result<()> {
@@ -226,9 +172,7 @@ impl SessionWriter {
             file.write_all(line.as_bytes())?;
             file.flush()?; // 每条即刷，崩溃安全
         }
-        self.tip_id = Some(entry.id.clone());
-        self.seq += 1;
-        track_message_ids(&mut self.message_ids, entry);
+        self.ledger.advance(entry);
         Ok(())
     }
 }
@@ -288,7 +232,9 @@ mod tests {
     use super::*;
     use pipi_protocol::ContentBlock;
     use pipi_protocol::Usage;
-    use pipi_protocol::session::{active_model_from_entries, rebuild_messages, summary_text};
+    use pipi_protocol::session::{
+        active_model_from_entries, active_path, rebuild_messages, summary_text,
+    };
 
     use crate::{fork_session, list_session_summaries};
 
@@ -298,7 +244,6 @@ mod tests {
         let session_id = writer.session_id().to_string();
         assert!(session_id.starts_with("test-"));
         assert!(writer.is_temporary());
-        assert!(writer.persistent_path().is_none());
 
         let first = writer
             .append_message(&Message::user_text("只在内存里"))
@@ -309,7 +254,6 @@ mod tests {
 
         assert_eq!(writer.tip_id(), Some(second.as_str()));
         assert_eq!(writer.message_ids(), &[first, second]);
-        assert!(writer.persistent_path().is_none());
     }
 
     #[test]

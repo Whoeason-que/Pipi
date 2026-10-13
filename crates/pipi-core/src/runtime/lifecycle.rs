@@ -1,7 +1,6 @@
 //! 会话槽、文件生命周期与宿主查询。
 
 use super::*;
-use pipi_protocol::session::SessionImportReport;
 
 impl RuntimeState {
     /// 用宿主运行时句柄构造。句柄必须指向多线程、IO/time 驱动齐全的运行时。
@@ -90,10 +89,10 @@ impl RuntimeState {
         Self::session_repo_for(agent_name)?.list_archived()
     }
 
-    /// 导入前的占用检查与脱离槽位（供 [`RuntimeState::import_sessions`] 与宿主
-    /// 命令共用）：运行中或仍有托管后台任务的会话必须先停止；空闲会话在这里
-    /// 自动脱离槽位 —— 关掉它们的文件句柄，否则导入改名后打开的句柄会继续往
-    /// 旧文件追加。
+    /// 导入前的占用检查与脱离槽位（宿主命令 `commands::import_sessions` 在锁内
+    /// 同步调用，随后把读会话与 spawn git 的阻塞部分放上阻塞线程池）：运行中或
+    /// 仍有托管后台任务的会话必须先停止；空闲会话在这里自动脱离槽位 —— 关掉
+    /// 它们的文件句柄，否则导入改名后打开的句柄会继续往旧文件追加。
     pub fn prepare_session_import(&self, agent_name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         if sessions
@@ -106,16 +105,6 @@ impl RuntimeState {
         }
         sessions.retain(|key, _session| key.agent_name != agent_name);
         Ok(())
-    }
-
-    /// 把该 Agent 的旧 JSONL 会话导入 git（逐条校验、幂等、原文件改名保留）。
-    ///
-    /// 只做占用检查、脱离槽位与载体操作；读全部旧会话并 spawn git 是阻塞工作，
-    /// 宿主命令把它放在阻塞线程池上执行（`commands::import_sessions`）。
-    pub fn import_sessions(&self, agent_name: &str) -> Result<SessionImportReport, String> {
-        self.prepare_session_import(agent_name)?;
-        let repo = agent_repo(&agents::load_agent(agent_name)?)?;
-        Ok(repo.import_legacy_sessions())
     }
 
     // ============ Agent 归档 / 恢复 / 删除（运行时占用检查） ============

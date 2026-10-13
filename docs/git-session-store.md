@@ -334,6 +334,13 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
      迁移只走显式导入；
   3. **entry 级分叉**（`fork_session(upToEntryId)`，前端恒传 null）在 O2 轮粒度下
      实现为「从目标提交的父起按轮重写前缀」，内容精确且与原线共享 blob。
+- 载体去重（同日收尾）：两个 `SessionLog` 实现共用一份账本状态机
+  （`lib.rs::LedgerState`：tip / seq / 环境记账 / 消息 id 映射；`SessionWriter::open`
+  与 `GitSink::from_entries` 同一套恢复规则），标题截断与列表的模型回退各只留一份；
+  删掉无调用方的门面（`GitSessionRepo::{probe,repo_dir}`、`GitExec::repo_dir`、
+  `AgentSessionRepo::{legacy_dir,agent_dir}`、`SessionWriter::persistent_path`、
+  `GitSink::session_id`、`RuntimeState::import_sessions` —— 导入只走宿主命令的
+  两段式：锁内 `prepare_session_import` + 阻塞线程池上的载体操作）。
 - 验收：`cargo test -p pipi-session`（含 conformance 套件与 §9 的 1–5、7、8）、
   `-p pipi-agent`（内核补「AgentEnd 之前必须已提交」断言）、`-p pipi-core`
   （含新增 `tests/session_carrier.rs`）、`--features server`、`npm run test:frontend`、
