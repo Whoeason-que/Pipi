@@ -283,7 +283,10 @@ fn real_session_corpus_keeps_invariants() {
         };
         for file in files.flatten() {
             let path = file.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            // 会话迁到 git 载体后原文件改名 `.jsonl.imported` 保留，内容不变；
+            // 这里直接按扩展名扫盘，两个名字都要认（否则语料静默变空）。
+            let name = path.file_name().and_then(|e| e.to_str()).unwrap_or("");
+            if !name.ends_with(".jsonl") && !name.ends_with(".jsonl.imported") {
                 continue;
             }
             let Ok(entries) = load_session(&path) else {

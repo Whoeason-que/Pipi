@@ -327,6 +327,15 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 - 导入命令 `import_sessions`（Agent 工作台「文件」页）：逐条读 JSONL → 按轮
   切批写入 git → 读回校验（不一致即删分支报错）→ 原文件改名 `.jsonl.imported`
   保留；幂等。结果 DTO 在契约层（`SessionImportReport`）。
+- 无壳迁移工具 `cargo run -p pipi-session --example import_legacy_sessions`
+  （`--dry-run` 列清单、`--list` 经应用读路径列会话）：与导入命令同一实现
+  （`AgentSessionRepo::import_legacy_sessions`），用于不起桌面壳时迁移全部 Agent。
+  跑之前必须先停掉应用 —— 应用打开的 JSONL 句柄会跟着改名后的文件继续追加，
+  应用内的按钮会先脱离槽位，这个工具做不到。
+- 实迁记录（2026-10-13，本机真实数据）：9 个 Agent 21 条会话 → 218 个 commit
+  （一轮一个 + 每条会话一个创建提交）；`git archive <ref> | tar -xO | cmp -`
+  与迁移前原文逐字节比对 21/21 一致；原文件全部以 `.jsonl.imported` 保留。
+  同轮 `pipi-context` 的真实语料测试补认 `.jsonl.imported`（否则语料静默变空）。
 - 与设计的偏差（有意）：
   1. **不加 `agent.json.sessionStore` 开关** —— git 是唯一写入载体，JSONL 只作
      旧数据兼容（开关属于「默认 jsonl」时代的折中）；
