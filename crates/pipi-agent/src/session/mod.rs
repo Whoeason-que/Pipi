@@ -19,6 +19,7 @@ use pipi_protocol::session::{
 use pipi_protocol::tools::{ToolContext, ToolRegistry};
 use pipi_protocol::{AbortSignal, Message, Model, StopReason, StreamOptions};
 
+mod commit;
 mod compaction;
 mod events;
 mod ledger;

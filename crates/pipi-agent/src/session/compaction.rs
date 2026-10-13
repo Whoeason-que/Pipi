@@ -166,6 +166,10 @@ pub(super) fn persist_compaction(
     guard
         .append_compaction(record)
         .map_err(|error| format!("无法写入压缩条目: {error}"))?;
+    // 提交点（原地压缩）：自动路径之后没有别的提交机会
+    guard
+        .commit_point()
+        .map_err(|error| format!("无法提交压缩条目: {error}"))?;
     if let Some(error) = fork_error {
         eprintln!("pipi: 压缩分叉失败，已改为原地压缩: {error}");
     }
@@ -200,6 +204,13 @@ fn fork_and_write_compaction(
     }
     // 溯源标记：回答「这个会话从哪来」（回放中性，见 EntryKind::Custom）
     let _ = forked.append_custom(&format!("compaction-fork:{source_id}"));
+    // 提交点（压缩分叉）：新分支的第一个提交必须在换账本之前落定 —— 换掉之后
+    // 旧句柄被 drop，新载体只经会话可达。
+    if let Err(error) = forked.commit_point() {
+        drop(forked);
+        let _ = repo.delete(&new_id);
+        return Err(format!("无法提交新会话的压缩条目: {error}"));
+    }
 
     {
         let mut guard = writer

@@ -96,6 +96,10 @@ impl RunReservation {
                 .map_err(|e| e.to_string())?
                 .record(&failure);
         }
+        // 提交点（启动失败）：这两条今天即时落盘，git 载体下不提交就会随进程消失
+        if let Err(error) = commit::commit_log_blocking(&self.session) {
+            eprintln!("pipi: 启动失败的记录未能提交: {error}");
+        }
         Ok(RunOutcome {
             session_id: id,
             run_id: self.run_id(),
@@ -225,6 +229,10 @@ async fn drive_run(
                     .lock()
                     .expect("session history poisoned")
                     .extend(terminal);
+                // 提交点（超时收尾）：必须在运行守卫释放之前
+                if let Err(error) = commit::commit_log(&session).await {
+                    eprintln!("pipi: 会话提交失败（超时收尾，条目留在缓冲）: {error}");
+                }
                 return Ok(RunOutcome {
                     session_id: id,
                     run_id,
@@ -260,6 +268,15 @@ async fn drive_run(
             .expect("session history poisoned")
             .extend(terminal.clone());
         messages.extend(terminal);
+    }
+    // 提交点（O2，一轮一个 commit）：本轮全部条目在这里一次落盘。位置有三条
+    // 约束 —— 在压缩之前（压缩分叉从分支 tip 起，未提交会丢整轮）、在运行守卫
+    // 释放之前、在 AgentEnd 之前（否则「running 已释放」≠「历史已落盘」，前端
+    // 收到 AgentEnd 后立刻发的新一轮会与提交竞争同一分支）。提交失败不失败本轮：
+    // 条目留在缓冲里，随下一轮再提交（自愈）。
+    if let Err(error) = commit::commit_log(&session).await {
+        eprintln!("pipi: 会话提交失败（条目留在缓冲，随下一轮再提交）: {error}");
+        hooks.error(&id, run_id, format!("会话提交失败：{error}"));
     }
     if let (Some(budget), Some(policy)) = (request.budget, request.compaction) {
         let compact = CompactionRequest {

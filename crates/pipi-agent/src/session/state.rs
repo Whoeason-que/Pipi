@@ -118,6 +118,9 @@ impl AgentSession {
         {
             log.append_model_change(model).map_err(|e| e.to_string())?;
         }
+        // 提交点（会话创建）：空会话也要在列表里可见（与 JSONL 的空文件同义）
+        log.commit_point()
+            .map_err(|error| format!("无法提交新会话: {error}"))?;
         let context_max = selected_model
             .as_ref()
             .or(default_model.as_ref())
@@ -151,7 +154,16 @@ impl AgentSession {
             .filter(|w| *w > 0);
         let mut log = storage.log;
         match ledger::settle_unanswered_tail(&mut *log, &messages) {
-            Ok(appended) => messages.extend(appended),
+            Ok(appended) => {
+                if !appended.is_empty() {
+                    // 提交点（旧会话尾部修复）：只对旧 JSONL 会话有意义 —— git
+                    // 载体的每个 commit 边界都是完整轮，不会出现悬挂尾部
+                    if let Err(error) = log.commit_point() {
+                        eprintln!("pipi: 会话尾部修复未能提交: {error}");
+                    }
+                }
+                messages.extend(appended);
+            }
             Err(error) => eprintln!("pipi: 会话尾部修复失败（继续载入）: {error}"),
         }
         let mut stats = SessionStatsTracker::new(context_max);
@@ -232,12 +244,12 @@ impl AgentSession {
     }
 
     pub fn record_env(&self, declarations: Vec<EnvDeclared>) -> Result<(), String> {
-        self.state
-            .writer
-            .lock()
-            .map_err(|e| e.to_string())?
-            .append_env(declarations)
-            .map_err(|e| e.to_string())?;
+        let mut writer = self.state.writer.lock().map_err(|e| e.to_string())?;
+        writer.append_env(declarations).map_err(|e| e.to_string())?;
+        // 提交点（env 记账）：与创建同属轮外提交，让首轮之前的状态可见
+        writer
+            .commit_point()
+            .map_err(|error| format!("无法提交环境记账: {error}"))?;
         Ok(())
     }
 
@@ -249,12 +261,15 @@ impl AgentSession {
         let mut selected = self.state.model.lock().map_err(|e| e.to_string())?;
         if *selected != model {
             if let Some(target) = &effective {
-                self.state
-                    .writer
-                    .lock()
-                    .map_err(|e| e.to_string())?
+                let mut writer = self.state.writer.lock().map_err(|e| e.to_string())?;
+                writer
                     .append_model_change(target)
                     .map_err(|e| e.to_string())?;
+                // 提交点（手动切模型）：空闲时的模型变更入史
+                writer
+                    .commit_point()
+                    .map_err(|error| format!("无法提交模型变更: {error}"))?;
+                drop(writer);
                 if let Ok(mut tracker) = self.state.stats.lock() {
                     tracker.set_context_max(
                         (target.context_window > 0).then_some(target.context_window),

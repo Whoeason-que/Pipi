@@ -8,7 +8,7 @@ use pipi_protocol::session::*;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, ToolRegistry};
 use pipi_protocol::*;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
@@ -16,6 +16,8 @@ struct Ledger {
     entries: Mutex<Vec<SessionEntry>>,
     fail: AtomicBool,
     closed: AtomicBool,
+    /// 提交点被调用的次数（git 载体下这就是「一轮一个 commit」的落地次数）。
+    commits: AtomicUsize,
 }
 
 struct MemoryLog {
@@ -118,6 +120,7 @@ impl SessionLog for MemoryLog {
         })
     }
     fn commit_point(&mut self) -> std::io::Result<()> {
+        self.data.commits.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 }
@@ -870,4 +873,42 @@ async fn final_event_runs_after_task_releases_its_writer_references() {
     drop(session);
     prepared.run().await.unwrap();
     assert!(data.closed.load(Ordering::SeqCst));
+}
+
+/// 提交点必须落在 AgentEnd 之前（以及结构上必然在运行守卫释放之前）：git 载体
+/// 在轮末才落盘，「running 已释放」不等于「历史已落盘」—— 前端收到 AgentEnd 后
+/// 立刻发的新一轮会与未完成的提交竞争同一分支。
+#[tokio::test]
+async fn the_turn_is_committed_before_the_final_event() {
+    let data = Arc::new(Ledger::default());
+    let session = session(data.clone());
+    // 会话创建自己也会提交一次（空会话可见），这里只盯本轮
+    let baseline = data.commits.load(Ordering::SeqCst);
+    let observed = data.clone();
+    let prepared = session
+        .reserve_run(AbortPolicy::Reset)
+        .unwrap()
+        .prepare(
+            request(false, false),
+            SessionHooks {
+                emit: Arc::new(move |event| {
+                    if matches!(
+                        event.kind,
+                        SessionEventKind::Agent(
+                            pipi_agent::agent_loop::AgentEvent::AgentEnd { .. }
+                        )
+                    ) {
+                        assert!(
+                            observed.commits.load(Ordering::SeqCst) > baseline,
+                            "AgentEnd 之前必须已经提交本轮"
+                        );
+                    }
+                }),
+                rekey: None,
+            },
+        )
+        .unwrap();
+    drop(session);
+    prepared.run().await.unwrap();
+    assert!(data.commits.load(Ordering::SeqCst) > baseline);
 }
