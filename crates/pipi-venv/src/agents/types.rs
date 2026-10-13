@@ -238,10 +238,8 @@ mod tests {
         }
 
         assert!(
-            serde_json::from_str::<AgentDefinition>(
-                r#"{"name":"a","systemPrompt":"everything"}"#
-            )
-            .is_err()
+            serde_json::from_str::<AgentDefinition>(r#"{"name":"a","systemPrompt":"everything"}"#)
+                .is_err()
         );
     }
 

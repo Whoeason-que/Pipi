@@ -94,7 +94,11 @@ pub fn discover(cwd: &Path) -> Result<Discovered, String> {
     };
 
     let main_path = dir.join(AGENT_TOML_FILENAME);
-    let mut layers = vec![load_layer(&main_path, AGENT_TOML_FILENAME, LayerKind::Project)?];
+    let mut layers = vec![load_layer(
+        &main_path,
+        AGENT_TOML_FILENAME,
+        LayerKind::Project,
+    )?];
     let local_path = dir.join(AGENT_LOCAL_TOML_FILENAME);
     if local_path.is_file() {
         layers.push(load_layer(

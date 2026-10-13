@@ -439,10 +439,8 @@ mod tests {
     #[test]
     fn project_contract_skills_sources_point_into_the_repo() {
         let _guard = HOME_LOCK.lock().unwrap();
-        let home = std::env::temp_dir().join(format!(
-            "pipi-sources-home-{}",
-            pipi_protocol::new_id()
-        ));
+        let home =
+            std::env::temp_dir().join(format!("pipi-sources-home-{}", pipi_protocol::new_id()));
         fs::create_dir_all(&home).unwrap();
         let previous_home = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);
@@ -658,8 +656,16 @@ mod tests {
                 workspace_side,
                 "{scope:?}"
             );
-            assert_eq!(prompt.contains("<available_skills>"), agent_side, "{scope:?}");
-            assert_eq!(prompt.contains("<persistent_memory>"), agent_side, "{scope:?}");
+            assert_eq!(
+                prompt.contains("<available_skills>"),
+                agent_side,
+                "{scope:?}"
+            );
+            assert_eq!(
+                prompt.contains("<persistent_memory>"),
+                agent_side,
+                "{scope:?}"
+            );
             // 两侧各贡献一个上下文文件（渲染层用同一个 <project_instructions> 标签）
             assert_eq!(
                 prompt.matches("<project_instructions").count(),
@@ -672,7 +678,11 @@ mod tests {
 
         let mut none = def.clone();
         none.system_prompt = PromptScope::None;
-        assert!(build_system_prompt_with_tools(&none, &[]).unwrap().is_empty());
+        assert!(
+            build_system_prompt_with_tools(&none, &[])
+                .unwrap()
+                .is_empty()
+        );
 
         let _ = fs::remove_dir_all(&home);
         pipi_test_support::set_env_var("HOME", previous_home);

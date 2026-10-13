@@ -377,7 +377,11 @@ mod tests {
         )
         .unwrap();
         let material = material_now().unwrap();
-        assert!(material.memory_dir.ends_with("notes/mem"), "{:?}", material.memory_dir);
+        assert!(
+            material.memory_dir.ends_with("notes/mem"),
+            "{:?}",
+            material.memory_dir
+        );
         assert!(!material.memory_dir.exists());
         assert!(material.skill_sources.is_empty());
 

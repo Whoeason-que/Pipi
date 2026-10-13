@@ -105,9 +105,11 @@ fn install_enable_disable_and_purge_roundtrip() {
     assert!(view.available[0].present);
     // 安装只进 store：契约是 create_agent 写的默认模板，不含任何 use 声明
     assert!(view.agent_contract_exists);
-    assert!(!fs::read_to_string(home.agent_dir(&name).join("agent.toml"))
-        .unwrap()
-        .contains("use"));
+    assert!(
+        !fs::read_to_string(home.agent_dir(&name).join("agent.toml"))
+            .unwrap()
+            .contains("use")
+    );
     assert!(view.lock_error.is_none());
 
     // 启用：写 Agent 层 agent.toml + 同目录 agent.lock

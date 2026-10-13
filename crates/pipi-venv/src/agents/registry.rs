@@ -596,11 +596,7 @@ mod tests {
         );
 
         // 已存在 → 不再创建，且不覆盖用户改动
-        std::fs::write(
-            dir.join("harness/AGENTS.md"),
-            "# Pipi\n\n用户改过的说明\n",
-        )
-        .unwrap();
+        std::fs::write(dir.join("harness/AGENTS.md"), "# Pipi\n\n用户改过的说明\n").unwrap();
         assert!(ensure_default_agent().unwrap().is_none());
         let agents = list_agents_bootstrapped().unwrap();
         assert_eq!(agents.len(), 1);

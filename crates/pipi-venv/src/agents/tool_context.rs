@@ -164,7 +164,9 @@ mod tests {
         let memory_dir = ctx.memory_dir.clone().expect("memory 目录来自契约声明");
         assert!(memory_dir.ends_with("notes/mem"), "{memory_dir:?}");
         assert!(
-            ctx.read_roots.iter().any(|root| root.ends_with("notes/mem")),
+            ctx.read_roots
+                .iter()
+                .any(|root| root.ends_with("notes/mem")),
             "记忆目录应在 read_roots：{:?}",
             ctx.read_roots
         );
@@ -216,7 +218,11 @@ mod tests {
         let agent_dir = home.join(".pipi/agents/skills-link-agent");
         std::fs::create_dir_all(agent_dir.join(DEFAULT_HARNESS_DIR)).unwrap();
         std::fs::create_dir_all(&external).unwrap();
-        symlink(&external, agent_dir.join(DEFAULT_HARNESS_DIR).join("skills")).unwrap();
+        symlink(
+            &external,
+            agent_dir.join(DEFAULT_HARNESS_DIR).join("skills"),
+        )
+        .unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);

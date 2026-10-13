@@ -131,7 +131,10 @@ mod tests {
     /// 项目层文件可能来自克隆的仓库，声明即硬错误（不是静默忽略）。
     #[test]
     fn project_layers_must_not_declare_memory() {
-        let project = layer("proj/agent.toml", "schema = 1\n[resources]\nmemory = \"mem\"");
+        let project = layer(
+            "proj/agent.toml",
+            "schema = 1\n[resources]\nmemory = \"mem\"",
+        );
         let error = merge_layers(&[project]).expect_err("项目层声明 memory 应被拒绝");
         assert!(error.contains("memory"), "{error}");
         assert!(error.contains("项目层"), "{error}");

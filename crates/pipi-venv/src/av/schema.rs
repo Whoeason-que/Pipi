@@ -155,10 +155,7 @@ impl Resources {
             if memory.trim().is_empty() {
                 return Err("[resources].memory 不能为空（不要记忆目录请删掉这一行）".into());
             }
-            if memory
-                .split(['/', '\\'])
-                .any(|segment| segment == "..")
-            {
+            if memory.split(['/', '\\']).any(|segment| segment == "..") {
                 return Err(format!("[resources].memory 不能包含 .. ：{memory}"));
             }
         }
