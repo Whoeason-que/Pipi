@@ -26,9 +26,6 @@ impl RunReservation {
     pub fn session_id(&self) -> Result<String, String> {
         self.session.session_id()
     }
-    pub fn abort_signal(&self) -> AbortSignal {
-        self.session.abort.clone()
-    }
 
     pub fn prepare(
         self,
@@ -97,12 +94,11 @@ impl RunReservation {
                 .record(&failure);
         }
         // 提交点（启动失败）：这两条今天即时落盘，git 载体下不提交就会随进程消失
-        if let Err(error) = commit::commit_log_blocking(&self.session) {
+        if let Err(error) = commit::commit_shared(&self.session.writer) {
             eprintln!("pipi: 启动失败的记录未能提交: {error}");
         }
         Ok(RunOutcome {
             session_id: id,
-            run_id: self.run_id(),
             messages: vec![failure],
         })
     }
@@ -153,7 +149,6 @@ async fn drive_compaction(
     }
     Ok(RunOutcome {
         session_id: id,
-        run_id,
         messages: Vec::new(),
     })
 }
@@ -193,7 +188,6 @@ async fn drive_run(
         steering: session.steering.clone(),
         follow_up: MessageQueue::new(),
         before_tool_call: None,
-        after_tool_call: None,
         transform_context: request.budget.map(|budget| {
             Arc::new(move |messages| pipi_context::compaction::project(messages, budget))
                 as crate::agent_loop::TransformContextHook
@@ -235,7 +229,6 @@ async fn drive_run(
                 }
                 return Ok(RunOutcome {
                     session_id: id,
-                    run_id,
                     messages: result,
                 });
             }
@@ -295,7 +288,6 @@ async fn drive_run(
     }
     Ok(RunOutcome {
         session_id: id,
-        run_id,
         messages,
     })
 }

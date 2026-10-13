@@ -220,17 +220,6 @@ async fn run_tool(
     outcome
 }
 
-fn finalize_outcome(
-    call: &ContentBlock,
-    mut outcome: ExecutedOutcome,
-    config: &AgentLoopConfig,
-) -> ExecutedOutcome {
-    if let Some(hook) = &config.after_tool_call {
-        hook(call, &mut outcome.result, &mut outcome.is_error);
-    }
-    outcome
-}
-
 fn emit_finalized(call: &ContentBlock, outcome: &ExecutedOutcome, emit: &Emitter) -> Message {
     let Some((call_id, call_name, _)) = call_parts(call) else {
         unreachable!("tool call always has parts here");
@@ -272,11 +261,9 @@ async fn execute_sequential(
 
         let finalized = match prepare_call(call, config, abort) {
             Prepared::Immediate { result, is_error } => ExecutedOutcome { result, is_error },
-            Prepared::Ready { tool, call, args } => finalize_outcome(
-                &call,
-                run_tool(tool, &config.tool_context, &call, args, emit, abort).await,
-                config,
-            ),
+            Prepared::Ready { tool, call, args } => {
+                run_tool(tool, &config.tool_context, &call, args, emit, abort).await
+            }
         };
         terminates.push(finalized.result.terminate);
         messages.push(emit_finalized(call, &finalized, emit));
@@ -337,12 +324,7 @@ async fn execute_parallel(
                 result: result.clone(),
                 is_error: *is_error,
             },
-            Prepared::Ready {
-                call: ready_call, ..
-            } => {
-                let outcome = exec_iter.next().expect("future 数与 Ready 数一致");
-                finalize_outcome(ready_call, outcome, config)
-            }
+            Prepared::Ready { .. } => exec_iter.next().expect("future 数与 Ready 数一致"),
         };
         terminates.push(outcome.result.terminate);
         messages.push(emit_finalized(call, &outcome, emit));

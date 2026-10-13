@@ -290,15 +290,11 @@ async fn timeout_is_persisted_and_preserved_abort_is_not_reset() {
     assert_eq!(session.messages().await.len(), 2);
     session.stop().unwrap();
     let reservation = session.reserve_run(AbortPolicy::Preserve).unwrap();
-    assert!(reservation.abort_signal().is_aborted());
+    assert!(session.abort_signal().is_aborted());
     drop(reservation);
-    assert!(
-        !session
-            .reserve_run(AbortPolicy::Reset)
-            .unwrap()
-            .abort_signal()
-            .is_aborted()
-    );
+    let reservation = session.reserve_run(AbortPolicy::Reset).unwrap();
+    assert!(!session.abort_signal().is_aborted());
+    drop(reservation);
 }
 
 #[tokio::test]

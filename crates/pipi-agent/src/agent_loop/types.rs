@@ -101,15 +101,13 @@ pub enum ToolExecutionMode {
 pub struct BeforeToolCallOutcome {
     pub block: bool,
     pub reason: Option<String>,
-    pub terminate: bool,
 }
 
 pub type BeforeToolCallHook =
     Arc<dyn Fn(&ContentBlock, &Value) -> Option<BeforeToolCallOutcome> + Send + Sync>;
-pub type AfterToolCallHook = Arc<dyn Fn(&ContentBlock, &mut ToolOutput, &mut bool) + Send + Sync>;
 
 /// 上下文变换（pi 的 transformContext 钩子）：每次 LLM 调用前对消息历史
-/// 做变换（裁剪、注入等）。默认恒等；见 [`pipi_context::context::prune_transform`]。
+/// 做变换。运行期恒等（`None`）；历史裁剪由压缩管线的投影承担。
 pub type TransformContextHook = Arc<dyn Fn(Vec<Message>) -> Vec<Message> + Send + Sync>;
 
 /// Clone 用于「一次运行结束收割迟到 steering 后再起一轮」的续跑场景。
@@ -126,7 +124,6 @@ pub struct AgentLoopConfig {
     pub steering: MessageQueue,
     pub follow_up: MessageQueue,
     pub before_tool_call: Option<BeforeToolCallHook>,
-    pub after_tool_call: Option<AfterToolCallHook>,
     pub transform_context: Option<TransformContextHook>,
 }
 

@@ -32,8 +32,8 @@ pub use drive::run_agent_loop;
 use stream::stream_assistant_response;
 use tools::{execute_tool_calls, fail_truncated_tool_calls};
 pub use types::{
-    AfterToolCallHook, AgentContext, AgentEvent, AgentLoopConfig, BeforeToolCallHook,
-    BeforeToolCallOutcome, Emitter, MessageQueue, ToolExecutionMode, TransformContextHook,
+    AgentContext, AgentEvent, AgentLoopConfig, BeforeToolCallHook, BeforeToolCallOutcome, Emitter,
+    MessageQueue, ToolExecutionMode, TransformContextHook,
 };
 
 #[cfg(test)]
@@ -329,7 +329,6 @@ mod tests {
             steering: MessageQueue::new(),
             follow_up: MessageQueue::new(),
             before_tool_call: before,
-            after_tool_call: None,
             transform_context: None,
         }
     }
@@ -796,7 +795,6 @@ mod tests {
                 Some(BeforeToolCallOutcome {
                     block: true,
                     reason: Some("不允许".into()),
-                    terminate: false,
                 })
             })),
         );

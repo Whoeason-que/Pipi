@@ -5,7 +5,7 @@
 //! - **轮末**（`harvest` 返回后、压缩之前、运行守卫释放之前）—— 提交失败不
 //!   失败本轮：条目留在缓冲里，随下一轮一起提交；
 //! - **轮外**（会话创建、env 记账、切模型、旧会话尾部修复）—— 一次性路径，
-//!   同步提交（几毫秒，与同路径上的同步文件 IO 同量级）；
+//!   在 `state` / `run` 里直接提交（几毫秒，与同路径上的同步文件 IO 同量级）；
 //! - **压缩条目**（分叉的新载体、原地追加）—— 见 `compaction`，必须在换账本
 //!   之前完成。
 //!
@@ -22,12 +22,8 @@ pub(super) async fn commit_log(session: &SessionHandle) -> Result<(), String> {
         .map_err(|error| format!("提交会话失败: {error}"))?
 }
 
-/// 提交当前会话的账本（同步版；创建、记账、切模型、尾部修复用）。
-pub(super) fn commit_log_blocking(session: &SessionHandle) -> Result<(), String> {
-    commit_shared(&session.writer)
-}
-
-fn commit_shared(writer: &SharedLog) -> Result<(), String> {
+/// 提交一份账本（同步版；一次性路径直接调用）。
+pub(super) fn commit_shared(writer: &SharedLog) -> Result<(), String> {
     writer
         .lock()
         .map_err(|error| format!("无法锁定会话写入器: {error}"))?

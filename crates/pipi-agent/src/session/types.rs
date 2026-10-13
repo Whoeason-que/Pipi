@@ -118,6 +118,5 @@ pub struct CompactionRequest {
 #[derive(Debug)]
 pub struct RunOutcome {
     pub session_id: String,
-    pub run_id: usize,
     pub messages: Vec<Message>,
 }

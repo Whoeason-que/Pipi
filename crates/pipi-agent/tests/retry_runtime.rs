@@ -157,7 +157,6 @@ fn test_config(addr: std::net::SocketAddr, retry: RetryPolicy) -> AgentLoopConfi
         steering: pipi_agent::agent_loop::MessageQueue::new(),
         follow_up: pipi_agent::agent_loop::MessageQueue::new(),
         before_tool_call: None,
-        after_tool_call: None,
         transform_context: None,
     }
 }

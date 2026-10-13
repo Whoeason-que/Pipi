@@ -19,17 +19,12 @@ use pipi_protocol::{Message, Usage};
 /// 滚动窗口大小（hermes：Rolling over the last 10 calls）。
 pub const ROLLING_WINDOW: usize = 10;
 
-/// 单次 LLM 调用的观测记录。
+/// 最近一次 LLM 调用的窗口口径（面板只读这两项：窗口占用与缓存命中）。
 #[derive(Debug, Clone, Copy)]
-pub struct CallObservation {
-    /// 本次生成的输出 token 数。
-    pub output_tokens: u64,
-    /// 本次生成耗时（秒）。
-    pub latency_s: f64,
+struct LastCall {
     /// 最近一次请求的实际输入 token（当前窗口占用）。
-    pub prompt_tokens: u64,
-    pub cache_read: u64,
-    pub cache_write: u64,
+    prompt_tokens: u64,
+    cache_read: u64,
 }
 
 /// 会话级聚合统计，序列化后直接驱动前端状态栏。
@@ -73,7 +68,7 @@ pub struct SessionStatsTracker {
     calls: u32,
     latency_history: VecDeque<f64>,
     output_history: VecDeque<u64>,
-    last: Option<CallObservation>,
+    last: Option<LastCall>,
     context_max: Option<u64>,
 }
 
@@ -117,12 +112,9 @@ impl SessionStatsTracker {
 
         // 最近一次请求的实际窗口占用：input + cache_read + cache_write
         let prompt = usage.prompt_tokens();
-        self.last = Some(CallObservation {
-            output_tokens: usage.output,
-            latency_s: latency_s.unwrap_or(0.0),
+        self.last = Some(LastCall {
             prompt_tokens: prompt,
             cache_read: usage.cache_read,
-            cache_write: usage.cache_write,
         });
     }
 
@@ -180,27 +172,6 @@ impl SessionStatsTracker {
         }
         stats
     }
-}
-
-/// 单条消息的统计（聊天 UI 的消息脚注）。
-/// 返回 (tok/s, 缓存命中率%)。
-pub fn message_stats(message: &Message) -> (Option<f64>, Option<f64>) {
-    let Message::Assistant {
-        usage, duration_ms, ..
-    } = message
-    else {
-        return (None, None);
-    };
-    let tps = duration_ms
-        .filter(|ms| *ms > 0)
-        .map(|ms| usage.output as f64 / (ms as f64 / 1000.0));
-    let prompt_total = usage.prompt_tokens();
-    let cache_hit = if prompt_total > 0 && usage.cache_read > 0 {
-        Some((usage.cache_read as f64 / prompt_total as f64 * 100.0).min(100.0))
-    } else {
-        None
-    };
-    (tps, cache_hit)
 }
 
 #[cfg(test)]
@@ -326,17 +297,6 @@ mod tests {
         let hit = stats.cache_hit_pct.unwrap();
         assert!((hit - 99.98).abs() < 0.01, "hit={hit}");
         assert_eq!(stats.context_used, Some(610_566));
-        let (_, per_message) = message_stats(&assistant(
-            Usage {
-                input: 134,
-                output: 165,
-                cache_read: 610_432,
-                cache_write: 0,
-                total_tokens: 610_731,
-            },
-            1_000,
-        ));
-        assert!((per_message.unwrap() - 99.98).abs() < 0.01);
     }
 
     #[test]
@@ -368,24 +328,5 @@ mod tests {
         assert_eq!(after.context_used, before.context_used);
         assert_eq!(after.cache_hit_pct, before.cache_hit_pct);
         assert_eq!(after.avg_tps, before.avg_tps);
-    }
-
-    #[test]
-    fn per_message_stats() {
-        let (tps, hit) = message_stats(&assistant(
-            Usage {
-                input: 30,
-                output: 120,
-                cache_read: 90,
-                cache_write: 0,
-                total_tokens: 240,
-            },
-            2_000,
-        ));
-        assert_eq!(tps, Some(60.0));
-        // 命中率 = 90 / (30 + 90) = 75%
-        assert_eq!(hit, Some(75.0));
-        let (tps, hit) = message_stats(&Message::user_text("x"));
-        assert_eq!((tps, hit), (None, None));
     }
 }
