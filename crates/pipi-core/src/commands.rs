@@ -512,7 +512,8 @@ pub struct RestoreAgentArgs {
 }
 
 pub fn restore_agent(runtime: &RuntimeState, args: RestoreAgentArgs) -> Result<(), String> {
-    runtime.restore_agent(&args.name)
+    let _ = runtime;
+    agents::restore_agent(&args.name)
 }
 
 #[derive(Debug, Deserialize)]
@@ -535,7 +536,8 @@ pub fn delete_archived_agent(
     runtime: &RuntimeState,
     args: DeleteArchivedAgentArgs,
 ) -> Result<(), String> {
-    runtime.delete_archived_agent(&args.name)
+    let _ = runtime;
+    agents::delete_archived_agent(&args.name)
 }
 
 #[derive(Debug, Deserialize)]

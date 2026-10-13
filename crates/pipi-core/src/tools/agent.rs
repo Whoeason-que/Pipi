@@ -199,6 +199,7 @@ pub struct RunAgentTool {
 }
 
 impl RunAgentTool {
+    #[cfg(test)]
     pub fn new(caller_agent: String, runner: Arc<dyn AgentRunner>) -> Self {
         Self {
             caller_agent,
@@ -437,7 +438,7 @@ fn result_to_tool_output(result: &AgentRunResult) -> Result<ToolOutput, String> 
     })
 }
 
-pub fn result_from_messages(
+pub(crate) fn result_from_messages(
     agent_name: &str,
     session_id: &str,
     messages: &[Message],

@@ -6,7 +6,6 @@
 //! 密钥支持环境变量引用（envKey，推荐）或明文（apiKey，本机自担）。
 
 use std::fs;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -214,14 +213,9 @@ impl Default for Settings {
     }
 }
 
-/// `~/.pipi/settings.json`（路径布局由 av 统一定义）。
-pub fn settings_path() -> Option<PathBuf> {
-    pipi_venv::av::paths::settings_path()
-}
-
 /// 读取设置；文件缺失或损坏时返回默认值（坏文件不拖垮应用）。
 pub fn load_settings() -> Settings {
-    let Some(path) = settings_path() else {
+    let Some(path) = pipi_venv::av::paths::settings_path() else {
         return Settings::default();
     };
     match fs::read_to_string(&path) {
@@ -240,7 +234,8 @@ pub fn load_settings() -> Settings {
 /// 原子替换：桌面壳与 Web 服务可能并发保存，崩溃也不能留下截断的 settings.json
 /// （坏文件会被 `load_settings` 当成默认值，用户的配置就此静默丢失）。
 pub fn save_settings(settings: &Settings) -> Result<(), String> {
-    let path = settings_path().ok_or_else(|| "无法定位用户主目录".to_string())?;
+    let path =
+        pipi_venv::av::paths::settings_path().ok_or_else(|| "无法定位用户主目录".to_string())?;
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     pipi_protocol::fs::write_atomic(&path, text + "\n").map_err(|e| e.to_string())
 }

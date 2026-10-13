@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use tokio::process::Child;
+use tokio::process::{Child, ChildStderr, ChildStdout};
 use tokio::sync::{Notify, mpsc};
 
 use crate::tools::background::BackgroundTaskOwner;
@@ -13,8 +13,8 @@ use pipi_protocol::{
 };
 
 use super::persist::{PersistedRecord, append_log, append_record};
-use super::state::{JobCommand, JobState, OutputChunk};
-use super::{BackgroundTaskManager, READER_DRAIN_TIMEOUT, TERMINATE_GRACE};
+use super::state::{JobCommand, JobState};
+use super::{READER_DRAIN_TIMEOUT, TERMINATE_GRACE};
 
 pub(super) struct JobEntry {
     pub(super) owner: Mutex<BackgroundTaskOwner>,
@@ -136,17 +136,13 @@ impl Drop for JobEntry {
     }
 }
 
-pub(super) async fn run_job<R1, R2>(
-    _manager: BackgroundTaskManager,
+pub(super) async fn run_job(
     entry: Arc<JobEntry>,
     mut child: Child,
-    stdout: R1,
-    stderr: R2,
+    stdout: ChildStdout,
+    stderr: ChildStderr,
     mut control_rx: mpsc::UnboundedReceiver<JobCommand>,
-) where
-    R1: AsyncRead + Unpin + Send + 'static,
-    R2: AsyncRead + Unpin + Send + 'static,
-{
+) {
     // 有界输出队列：日志写盘变慢时让读取任务反压到子进程 pipe，不能让一个
     // 失控的后台进程把 Pipi 内存吃光。
     let (output_tx, mut output_rx) = mpsc::channel(128);
@@ -181,9 +177,9 @@ pub(super) async fn run_job<R1, R2>(
                 None => break child.wait().await,
             },
             chunk = output_rx.recv() => match chunk {
-                Some(chunk) => {
-                    let _ = append_log(&entry.log_path, &chunk.text).await;
-                    if let Ok(Some(output)) = entry.append_output(chunk.stream, chunk.text) {
+                Some((stream, text)) => {
+                    let _ = append_log(&entry.log_path, &text).await;
+                    if let Ok(Some(output)) = entry.append_output(stream, text) {
                         let _ = append_record(
                             &entry.metadata_path,
                             &PersistedRecord {
@@ -204,9 +200,9 @@ pub(super) async fn run_job<R1, R2>(
         let _ = tokio::join!(stdout_task, stderr_task);
     })
     .await;
-    while let Ok(chunk) = output_rx.try_recv() {
-        let _ = append_log(&entry.log_path, &chunk.text).await;
-        if let Ok(Some(output)) = entry.append_output(chunk.stream, chunk.text) {
+    while let Ok((stream, text)) = output_rx.try_recv() {
+        let _ = append_log(&entry.log_path, &text).await;
+        if let Ok(Some(output)) = entry.append_output(stream, text) {
             let _ = append_record(
                 &entry.metadata_path,
                 &PersistedRecord {
@@ -247,8 +243,11 @@ pub(super) async fn run_job<R1, R2>(
     }
 }
 
-async fn read_output<R>(mut reader: R, stream: &'static str, sender: mpsc::Sender<OutputChunk>)
-where
+async fn read_output<R>(
+    mut reader: R,
+    stream: &'static str,
+    sender: mpsc::Sender<(&'static str, String)>,
+) where
     R: AsyncRead + Unpin,
 {
     let mut buffer = [0_u8; 8192];
@@ -257,10 +256,7 @@ where
             Ok(0) | Err(_) => break,
             Ok(size) => {
                 if sender
-                    .send(OutputChunk {
-                        stream,
-                        text: String::from_utf8_lossy(&buffer[..size]).into_owned(),
-                    })
+                    .send((stream, String::from_utf8_lossy(&buffer[..size]).into_owned()))
                     .await
                     .is_err()
                 {

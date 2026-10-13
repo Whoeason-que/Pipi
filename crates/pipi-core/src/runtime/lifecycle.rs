@@ -10,7 +10,7 @@ impl RuntimeState {
         Self {
             runtime,
             sessions: Arc::new(Mutex::new(HashMap::new())),
-            approval: Arc::new(ApprovalGate::new()),
+            approval: Arc::new(ApprovalGate::default()),
             background,
         }
     }
@@ -131,11 +131,6 @@ impl RuntimeState {
         agents::archive_agent(name)
     }
 
-    /// 恢复归档 Agent（归档时已保证无会话打开，这里只做文件移动）。
-    pub fn restore_agent(&self, name: &str) -> Result<(), String> {
-        agents::restore_agent(name)
-    }
-
     /// 彻底删除 Agent。空闲会话会随操作自动释放；运行中或仍有托管后台任务的
     /// 会话必须先停止/终止；不可恢复。
     pub fn delete_agent(&self, name: &str) -> Result<(), String> {
@@ -194,10 +189,5 @@ impl RuntimeState {
         agents::write_agent_file(agent_name, rel_path, content)?;
         sessions.retain(|key, session| !(key.agent_name == agent_name && session.temporary));
         Ok(())
-    }
-
-    /// 彻底删除已归档 Agent。不可恢复。
-    pub fn delete_archived_agent(&self, name: &str) -> Result<(), String> {
-        agents::delete_archived_agent(name)
     }
 }

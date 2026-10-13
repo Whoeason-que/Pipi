@@ -143,10 +143,9 @@ impl BackgroundTaskService for BackgroundTaskManager {
         })
         .ok();
 
-        let manager = self.clone();
         self.inner
             .runtime
-            .spawn(run_job(manager, entry, child, stdout, stderr, control_rx));
+            .spawn(run_job(entry, child, stdout, stderr, control_rx));
         Ok(info)
     }
 

@@ -53,10 +53,6 @@ pub struct ApprovalGate {
 }
 
 impl ApprovalGate {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// 登记一个请求；返回回传端与请求 ID。
     fn register(&self) -> (String, oneshot::Receiver<ApprovalDecision>) {
         let (tx, rx) = oneshot::channel();
@@ -98,7 +94,7 @@ impl ApprovalGate {
 }
 
 /// 审批等待上限。用户在界面上有 10 分钟响应窗口；超时按拒绝处理（fail-closed）。
-pub const APPROVAL_TIMEOUT_SECS: u64 = 600;
+const APPROVAL_TIMEOUT_SECS: u64 = 600;
 
 /// 面向交互宿主的 [`CommandApprover`] 实现：每次运行构造一个，携带本次运行的
 /// 身份与中止信号。`session_allowed` 记住本运行内已批准的完整命令（跨运行的
@@ -265,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn allow_resolves_and_remembered_for_session() {
-        let gate = Arc::new(ApprovalGate::new());
+        let gate = Arc::new(ApprovalGate::default());
         let sink = Arc::new(Mutex::new(Vec::new()));
         let approver = make_approver(gate.clone(), sink.clone(), Duration::from_secs(5));
 
@@ -292,7 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn deny_fails_closed_and_expired_request_cannot_resolve() {
-        let gate = Arc::new(ApprovalGate::new());
+        let gate = Arc::new(ApprovalGate::default());
         let sink = Arc::new(Mutex::new(Vec::new()));
         let approver = make_approver(gate.clone(), sink.clone(), Duration::from_secs(5));
 
@@ -326,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_fails_closed() {
-        let gate = Arc::new(ApprovalGate::new());
+        let gate = Arc::new(ApprovalGate::default());
         let sink = Arc::new(Mutex::new(Vec::new()));
         let approver = make_approver(gate.clone(), sink.clone(), Duration::from_millis(30));
 
@@ -341,7 +337,7 @@ mod tests {
 
     #[tokio::test]
     async fn abort_fails_closed() {
-        let gate = Arc::new(ApprovalGate::new());
+        let gate = Arc::new(ApprovalGate::default());
         let sink = Arc::new(Mutex::new(Vec::new()));
         let abort = AbortSignal::new();
         let approver = Arc::new(

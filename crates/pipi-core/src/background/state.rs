@@ -70,11 +70,6 @@ pub(super) enum JobCommand {
     },
 }
 
-pub(super) struct OutputChunk {
-    pub(super) stream: &'static str,
-    pub(super) text: String,
-}
-
 pub(super) async fn wait_for_state(state: &Mutex<JobState>, notify: &Notify, wait_ms: u64) {
     let deadline = Instant::now() + Duration::from_millis(wait_ms);
     loop {

@@ -19,7 +19,7 @@ use pipi_agent::session::{
     AbortPolicy, AgentSession, CompactionPolicy, CompactionRequest, RunRequest, RunTimeout,
     SessionEvent, SessionEventKind, SessionHooks, SessionStorage,
 };
-use pipi_protocol::session::{SessionRepo, SessionSummary};
+use pipi_protocol::session::{SessionRepo, SessionSummary, validate_session_id};
 use pipi_protocol::{AbortSignal, Message, Model, StreamOptions};
 use pipi_provider::provider_for;
 use pipi_session::SessionWriter;
@@ -86,15 +86,12 @@ mod slots;
 mod store;
 use child::RuntimeAgentRunner;
 pub(crate) use child::RuntimeChildRunner;
-pub use child::{CHILD_RUN_TIMEOUT_SECS, run_agent_once};
+pub use child::run_agent_once;
 use events::{make_rekey, make_session_change_sink, make_session_hooks};
 use model::{ResolvedModel, append_declared_env, resolve_model, run_stream_options};
 pub use slots::list_sessions;
 pub(crate) use store::agent_repo;
 use store::session_repo;
-pub fn validate_session_id(session_id: &str) -> Result<(), String> {
-    pipi_protocol::session::validate_session_id(session_id)
-}
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {

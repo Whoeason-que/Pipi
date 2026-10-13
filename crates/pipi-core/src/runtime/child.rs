@@ -14,7 +14,7 @@ impl AgentRunner for RuntimeAgentRunner {
         abort: AbortSignal,
         progress: Option<ChildProgressTx>,
     ) -> Result<AgentRunResult, String> {
-        run_agent_once_inner_with_sink(
+        run_agent_once_with_sink(
             agent_name,
             prompt,
             abort,
@@ -40,7 +40,7 @@ impl crate::background::ChildAgentRunner for RuntimeChildRunner {
         progress: Option<ChildProgressTx>,
         session_sink: Option<BackgroundAgentSessionSink>,
     ) -> Result<AgentRunResult, String> {
-        run_agent_once_inner_with_sink(
+        run_agent_once_with_sink(
             target_agent,
             prompt,
             abort,
@@ -57,32 +57,23 @@ pub async fn run_agent_once(
     prompt: &str,
     abort: AbortSignal,
 ) -> Result<AgentRunResult, String> {
-    run_agent_once_inner(
+    run_agent_once_with_sink(
         agent_name,
         prompt,
         abort,
         std::time::Duration::from_secs(CHILD_RUN_TIMEOUT_SECS),
+        None,
         None,
     )
     .await
 }
 
 /// 子 Agent 单次运行的时间上限。到时终止并落盘终态，避免父会话无限阻塞。
-pub const CHILD_RUN_TIMEOUT_SECS: u64 = 600;
+const CHILD_RUN_TIMEOUT_SECS: u64 = 600;
 
 /// `run_agent_once` 的可注入版本：`timeout` 供测试收紧，`progress` 把子运行
 /// 里程碑（工具调用、轮次完成）转发给父 Agent 的工具更新流。
-pub(crate) async fn run_agent_once_inner(
-    agent_name: &str,
-    prompt: &str,
-    abort: AbortSignal,
-    timeout: std::time::Duration,
-    progress: Option<ChildProgressTx>,
-) -> Result<AgentRunResult, String> {
-    run_agent_once_inner_with_sink(agent_name, prompt, abort, timeout, progress, None).await
-}
-
-pub(crate) async fn run_agent_once_inner_with_sink(
+pub(crate) async fn run_agent_once_with_sink(
     agent_name: &str,
     prompt: &str,
     abort: AbortSignal,
@@ -278,11 +269,12 @@ mod tests {
         )
         .unwrap();
 
-        let result = run_agent_once_inner(
+        let result = run_agent_once_with_sink(
             "timeout-worker",
             "hang",
             AbortSignal::new(),
             std::time::Duration::from_millis(300),
+            None,
             None,
         )
         .await
