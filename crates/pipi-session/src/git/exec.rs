@@ -40,26 +40,6 @@ impl GitExec {
         }
     }
 
-    /// 探测系统 git 可用。缺 git 时返回可执行提示（fail-closed，不回落）。
-    pub fn probe(&self) -> Result<(), String> {
-        let output = Command::new("git")
-            .arg("--version")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|error| format!("无法执行 git（需要系统 git）: {error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "git --version 失败: {}",
-                tail(&String::from_utf8_lossy(&output.stderr))
-            ));
-        }
-        if String::from_utf8_lossy(&output.stdout).trim().is_empty() {
-            return Err("git --version 没有输出（git 不可用）".into());
-        }
-        Ok(())
-    }
-
     /// 带 `--git-dir` 的基础命令：与 cwd、`GIT_DIR` 等环境变量解耦。
     fn command(&self) -> Command {
         let mut command = Command::new("git");
@@ -291,11 +271,9 @@ mod tests {
     }
 
     #[test]
-    fn ensure_initialized_is_idempotent_and_probe_reports_git() {
+    fn ensure_initialized_is_idempotent() {
         let dir = pipi_test_support::temp_dir("pipi-git-exec");
         let exec = GitExec::new(dir.join("sessions.git"));
-        // 系统 git 是测试环境的既定依赖（av 的端到端测试同口径）
-        exec.probe().expect("git 应当可用");
         // 任何操作都会顺带初始化（幂等），锚提交让裸仓库的 git log 可用
         let anchor = exec.resolve_ref("refs/heads/main").unwrap();
         assert!(anchor.is_some());

@@ -204,8 +204,4 @@ impl ToolRegistry {
     pub fn get(&self, name: &str) -> Option<Arc<dyn AgentTool>> {
         self.tools.iter().find(|t| t.name() == name).cloned()
     }
-
-    pub fn names(&self) -> Vec<&'static str> {
-        self.tools.iter().map(|t| t.name()).collect()
-    }
 }

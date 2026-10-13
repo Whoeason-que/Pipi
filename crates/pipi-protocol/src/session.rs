@@ -245,8 +245,8 @@ pub fn active_path(entries: &[SessionEntry]) -> Vec<&SessionEntry> {
 }
 
 /// 摘要消息的包裹标签（会话文件与请求里都是这一种形状）。
-pub const SUMMARY_OPEN_TAG: &str = "<compaction summary>";
-pub const SUMMARY_CLOSE_TAG: &str = "</compaction summary>";
+const SUMMARY_OPEN_TAG: &str = "<compaction summary>";
+const SUMMARY_CLOSE_TAG: &str = "</compaction summary>";
 
 /// 把摘要正文包装成注入历史的那条 User 消息（pi 同款形状）。
 pub fn summary_message(summary: &str) -> Message {

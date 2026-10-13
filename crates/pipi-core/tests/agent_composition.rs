@@ -178,8 +178,13 @@ async fn create_run_and_read_agent_output() {
 
     // 基础 registry 有意忽略目标配置中的 Agent 组合工具；child 深度固定为 1.
     let child_registry = pipi_tools::builtin_registry(&context);
-    assert!(child_registry.names().contains(&"read"));
-    assert!(!child_registry.names().contains(&"run_agent"));
+    let child_tools: Vec<String> = child_registry
+        .wire_tools()
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect();
+    assert!(child_tools.iter().any(|name| name == "read"));
+    assert!(!child_tools.iter().any(|name| name == "run_agent"));
 
     let run = pipi_core::runtime::run_agent_once(
         "composition-worker",

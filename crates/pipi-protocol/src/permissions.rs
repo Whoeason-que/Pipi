@@ -33,14 +33,6 @@ impl SandboxMode {
             SandboxMode::DangerFullAccess => "danger-full-access",
         }
     }
-
-    pub fn label(&self) -> &'static str {
-        match self {
-            SandboxMode::ReadOnly => "只读",
-            SandboxMode::WorkspaceWrite => "工作目录内可写",
-            SandboxMode::DangerFullAccess => "完全访问",
-        }
-    }
 }
 
 /// 一个已切分的命令段：argv（供危险检测）与重组文本（供白名单匹配）。
@@ -216,41 +208,9 @@ fn canonicalize_existing_ancestor(path: &Path) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
-/// 词法路径包含检查：解析 `.` / `..` 后判断前缀（不访问文件系统，
-/// 目标文件可能还不存在）。
-pub fn is_within(base: &Path, path: &Path) -> bool {
-    fn components_vec(p: &Path) -> Vec<std::path::Component<'_>> {
-        let mut stack: Vec<std::path::Component<'_>> = Vec::new();
-        for c in p.components() {
-            match c {
-                std::path::Component::CurDir => {}
-                std::path::Component::ParentDir => {
-                    stack.pop();
-                }
-                other => stack.push(other),
-            }
-        }
-        stack
-    }
-
-    let base = components_vec(base);
-    let path = components_vec(path);
-    path.starts_with(&base)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn path_containment() {
-        let base = Path::new("/home/u/project");
-        assert!(is_within(base, Path::new("/home/u/project/a/b.txt")));
-        assert!(is_within(base, Path::new("/home/u/project/../project/x")));
-        assert!(!is_within(base, Path::new("/home/u/other")));
-        assert!(!is_within(base, Path::new("/home/u/project/../..")));
-        assert!(!is_within(base, Path::new("/etc/passwd")));
-    }
 
     #[test]
     fn default_permissions_enable_the_baseline_tools() {
