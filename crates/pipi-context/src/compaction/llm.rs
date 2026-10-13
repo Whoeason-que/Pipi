@@ -239,7 +239,7 @@ enum SummarizeFailure {
     Fatal(String),
     Retryable {
         message: String,
-        hint: Option<pipi_error::RetryHint>,
+        hint: Option<pipi_protocol::RetryHint>,
     },
 }
 
@@ -321,7 +321,7 @@ async fn summarize_once(
     if !saw_done {
         return Err(SummarizeFailure::Retryable {
             message: "流提前结束：未收到结束帧".into(),
-            hint: Some(pipi_error::RetryHint::plain()),
+            hint: Some(pipi_protocol::RetryHint::plain()),
         });
     }
     if stop_reason == Some(StopReason::Length) {

@@ -88,7 +88,7 @@ pub(super) async fn stream_assistant_response(
             }
         };
 
-        let failure: (String, Option<pipi_error::RetryHint>, bool) = loop {
+        let failure: (String, Option<pipi_protocol::RetryHint>, bool) = loop {
             match rx.recv().await {
                 None => {
                     if abort.is_aborted() {
@@ -98,7 +98,7 @@ pub(super) async fn stream_assistant_response(
                     // `流提前结束` 会走上面的 Error 分支，这里是兜底）
                     break (
                         STREAM_TRUNCATED.into(),
-                        Some(pipi_error::RetryHint::plain()),
+                        Some(pipi_protocol::RetryHint::plain()),
                         false,
                     );
                 }

@@ -13,18 +13,14 @@
 [crates.xtask]
 may-depend-on = []
 
-# 叶子：跨层稳定错误语义。除 serde 外不依赖任何东西。
-[crates.pipi-error]
-may-depend-on = []
-
 # 叶子：测试脚手架，不依赖任何东西。
 [crates.pipi-test-support]
 may-depend-on = []
 
 # 契约层：DTO 与 wire 形状、会话条目格式与存储端口、工具/权限/provider 端口，
-# 以及跨层共用的零依赖助手（fs 守卫、文本转义、id）。不放任何实现 crate。
+# 以及跨层共用的零依赖助手（fs 守卫、文本转义、id、重试提示）。不放任何实现 crate。
 [crates.pipi-protocol]
-may-depend-on = ["pipi-error"]
+may-depend-on = []
 dev-may-depend-on = ["pipi-test-support"]
 # tokio 只允许 sync（Provider 端口的事件流通道）；rt / net / time 不得出现。
 forbid = ["pipi-tools", "pipi-core", "pipi-agent", "reqwest", "rig"]
@@ -32,7 +28,7 @@ forbid = ["pipi-tools", "pipi-core", "pipi-agent", "reqwest", "rig"]
 # 上下文与运行策略：token 预算 / 裁剪与配对修复 / 压缩流水线 / 重试退避。
 # 只依赖契约层：不碰载体、不直连网络、不落盘。
 [crates.pipi-context]
-may-depend-on = ["pipi-error", "pipi-protocol"]
+may-depend-on = ["pipi-protocol"]
 dev-may-depend-on = ["pipi-session"]
 
 # 会话载体：git 分支（一轮一个 commit，唯一持久载体，见 docs/git-session-store.md）、
@@ -52,12 +48,12 @@ dev-may-depend-on = ["pipi-test-support"]
 
 # 模型面：rig 的 HTTP/SSE 适配与错误分类（不做重发）+ models.dev 模型目录。
 [crates.pipi-provider]
-may-depend-on = ["pipi-error", "pipi-protocol"]
+may-depend-on = ["pipi-protocol"]
 
 # L5 单会话内核：运行守卫、abort / steering、账本恢复与统计、主循环和压缩编排。
 # 算法在 pipi-context，载体在 pipi-session；不碰 agent.toml、具体能力或网络。
 [crates.pipi-agent]
-may-depend-on = ["pipi-context", "pipi-error", "pipi-protocol"]
+may-depend-on = ["pipi-context", "pipi-protocol"]
 dev-may-depend-on = ["pipi-provider"]
 forbid = ["reqwest", "rig", "tauri"]
 

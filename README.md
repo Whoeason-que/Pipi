@@ -222,7 +222,6 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 │  pipi-session   会话载体             │  git 分支（一轮一 commit）+ 旧会话导入
 │  pipi-tools     工具实现             │  内置工具 + bash 权限策略
 │  pipi-provider  模型面               │  rig 适配 + models.dev 目录（唯一 HTTP）
-│  pipi-error     错误语义             │  错误码与 RetryHint
 └──────────────────────────────────────┘
 ```
 

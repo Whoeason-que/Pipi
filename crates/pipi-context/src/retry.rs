@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use pipi_error::RetryHint;
+use pipi_protocol::RetryHint;
 
 /// 重试策略（全局设置 `retry` 段）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

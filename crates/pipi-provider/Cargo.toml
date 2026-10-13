@@ -9,7 +9,6 @@ description = "Pipi 的 LLM provider 适配层（基于 rig）"
 async-trait = { workspace = true }
 futures-util = { workspace = true }
 http = { workspace = true }
-pipi-error = { workspace = true }
 pipi-protocol = { workspace = true }
 rig = { workspace = true }
 # 覆盖工作区条目的 default-features = false，取 reqwest 默认特性

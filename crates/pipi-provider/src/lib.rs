@@ -51,7 +51,7 @@ pub mod catalog;
 mod classify;
 
 use classify::{RetryVerdict, classify_rig_error};
-use pipi_error::RetryHint;
+use pipi_protocol::RetryHint;
 use pipi_protocol::provider::{EventStream, Provider};
 use pipi_protocol::{
     AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,

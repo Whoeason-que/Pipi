@@ -7,7 +7,6 @@ description = "Pipi 的持久化与传输协议类型"
 
 [dependencies]
 async-trait = { workspace = true }
-pipi-error = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

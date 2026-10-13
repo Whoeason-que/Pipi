@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/pipi-error",
     "crates/pipi-context",
     "crates/pipi-protocol",
     "crates/pipi-session",
@@ -34,7 +33,6 @@ rust-version = "1.95"
 pipi-agent = { path = "crates/pipi-agent" }
 pipi-context = { path = "crates/pipi-context" }
 pipi-core = { path = "crates/pipi-core" }
-pipi-error = { path = "crates/pipi-error" }
 pipi-protocol = { path = "crates/pipi-protocol" }
 pipi-session = { path = "crates/pipi-session" }
 pipi-provider = { path = "crates/pipi-provider" }

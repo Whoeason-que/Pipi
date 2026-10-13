@@ -164,7 +164,7 @@ mod tests {
     fn error_turn(message: &str, retryable: bool) -> Vec<StreamEvent> {
         vec![StreamEvent::Error {
             message: message.into(),
-            retry: retryable.then(pipi_error::RetryHint::plain),
+            retry: retryable.then(pipi_protocol::RetryHint::plain),
             protocol_mismatch: false,
         }]
     }
@@ -187,7 +187,7 @@ mod tests {
             },
             StreamEvent::Error {
                 message: message.into(),
-                retry: Some(pipi_error::RetryHint::plain()),
+                retry: Some(pipi_protocol::RetryHint::plain()),
                 protocol_mismatch: false,
             },
         ]
@@ -222,7 +222,7 @@ mod tests {
             },
             StreamEvent::Error {
                 message: message.into(),
-                retry: Some(pipi_error::RetryHint::plain()),
+                retry: Some(pipi_protocol::RetryHint::plain()),
                 protocol_mismatch: false,
             },
         ]

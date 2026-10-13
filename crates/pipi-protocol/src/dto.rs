@@ -1,10 +1,9 @@
-//! 跨宿主的协议 DTO：消息、模型、流事件与错误信封。
+//! 跨宿主的协议 DTO：消息、模型与流事件。
 //!
 //! 这里的类型同时服务于 session JSONL、Tauri IPC、Web transport 和前端镜像；
 //! serde 标签与 pi 保持兼容，改动即破坏 wire 契约。
 
-use pipi_error::{ErrorCode, PipiError, RetryHint};
-
+use crate::RetryHint;
 use crate::now_millis;
 use serde::{Deserialize, Serialize};
 
@@ -397,26 +396,6 @@ impl Default for StreamOptions {
     }
 }
 
-/// 可由 Web/IPC 暴露的安全错误结构。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ErrorEnvelope {
-    pub code: ErrorCode,
-    pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retry_after_ms: Option<u64>,
-}
-
-impl From<&PipiError> for ErrorEnvelope {
-    fn from(error: &PipiError) -> Self {
-        Self {
-            code: error.code(),
-            message: error.user_message().to_string(),
-            retry_after_ms: error.retry_hint().and_then(|hint| hint.after_ms),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,17 +414,5 @@ mod tests {
         assert_eq!(json["role"], "toolResult");
         assert_eq!(json["toolCallId"], "call-1");
         assert_eq!(json["content"][0]["type"], "text");
-    }
-
-    #[test]
-    fn error_envelope_exposes_only_safe_error_fields() {
-        let error = PipiError::retryable(
-            ErrorCode::RateLimited,
-            "请求过于频繁，请稍后重试",
-            RetryHint::after(1_000),
-        );
-        let envelope = ErrorEnvelope::from(&error);
-        assert_eq!(envelope.code, ErrorCode::RateLimited);
-        assert_eq!(envelope.retry_after_ms, Some(1_000));
     }
 }

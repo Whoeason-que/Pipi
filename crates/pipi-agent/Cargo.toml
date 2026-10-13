@@ -7,7 +7,6 @@ description = "Pipi L5 单会话内核：生命周期、主循环、账本与压
 
 [dependencies]
 pipi-context = { workspace = true }
-pipi-error = { workspace = true }
 pipi-protocol = { workspace = true }
 futures-util = { workspace = true }
 serde = { workspace = true }

@@ -3,7 +3,7 @@
 //! 这里只把底层失败归一为「可重试 / 终态」和服务端等待提示；重发次数、退避和
 //! 用户中止语义留给 agent loop 的重试策略层，防止双层重试。
 
-use pipi_error::RetryHint;
+use pipi_protocol::RetryHint;
 use rig::ProviderError;
 use rig::http_client;
 

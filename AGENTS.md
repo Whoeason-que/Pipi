@@ -17,10 +17,9 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 ## 代码结构
 
 ```
-crates/pipi-error/    跨层稳定错误语义（错误码、RetryHint）
 crates/pipi-protocol/ 契约层：DTO 与 wire 形状、会话条目格式与存储端口
                       （SessionLog / SessionRepo）、工具/权限/provider 端口，
-                      以及跨层共用的零依赖助手（fs 守卫、文本转义、id）
+                      以及跨层共用的零依赖助手（fs 守卫、文本转义、id、RetryHint）
 crates/pipi-tools/    内置工具实现（bash/read/write/edit/glob/grep/memory）与
                       bash 权限策略（切分 / 白黑名单 / 危险命令 / 沙箱重定向）
 crates/pipi-provider/ 模型面：rig 的 HTTP/SSE 适配与错误分类（不做重发）+
