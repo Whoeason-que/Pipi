@@ -102,6 +102,8 @@ export class SessionRuntime {
       const sessionKey = key(identity.agentName, identity.sessionId);
       let controller = this.sessions.get(sessionKey);
       if (!controller && frame.type === "agent-event" && frame.payload.event.type === "agent_start") {
+        // 事件先于 send_prompt 响应到达时的兜底：主路径是响应里的权威身份
+        // （见 session-controller.send），这里按 Agent 名接管第一条 agent_start。
         controller = [...this.drafts].find(draft => draft.agentName === identity.agentName && draft.awaitingIdentity);
       }
       if (controller) controller.receive(frame);

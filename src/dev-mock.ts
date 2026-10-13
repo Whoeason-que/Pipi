@@ -814,7 +814,14 @@ export function installDevMock(): void {
             );
           }
           startDemoRun(conversation, String(args.prompt ?? ""));
-          return Promise.resolve(null);
+          // 与核心同构：响应返回这条会话的权威身份
+          return Promise.resolve({
+            agentName,
+            sessionId: conversation.sessionId,
+            temporary: conversation.temporary,
+            running: conversation.running,
+            runId: conversation.runId,
+          });
         }
         case "compact_now":
           // 演示模式没有真实会话可压：返回拒绝的 Promise，让 UI 的错误通路走到

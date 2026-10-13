@@ -384,7 +384,7 @@ pub fn send_prompt(
     runtime: &RuntimeState,
     emitter: EventEmitter,
     args: SendPromptArgs,
-) -> Result<(), String> {
+) -> Result<SessionInfo, String> {
     runtime.send_prompt(
         &args.agent_name,
         args.session_id.as_deref(),

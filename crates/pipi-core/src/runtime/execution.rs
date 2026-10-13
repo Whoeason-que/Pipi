@@ -8,6 +8,10 @@ impl RuntimeState {
     /// - `Some(id)` —— 在这条会话上跑：已打开就复用，没打开就从文件载入；
     /// - `None` —— 新建一条会话（新文件）。
     ///
+    /// 返回这条会话的 [`SessionInfo`]：调用方（前端）据此直接拿到权威身份
+    /// （新会话的 id、run、模型都在里面），不必从事件里反推。事件与返回值走
+    /// 不同通道、先后无保证，认领必须容忍两种顺序。
+    ///
     /// 并发口径：守卫是**按会话**的 —— 同一条会话同时只能跑一轮（硬不变量）；
     /// 同一个 Agent 的不同会话、不同 Agent 的会话都各自独立，可以同时跑。
     pub fn send_prompt(
@@ -17,7 +21,7 @@ impl RuntimeState {
         prompt: &str,
         model: Option<Model>,
         event_sink: EventEmitter,
-    ) -> Result<(), String> {
+    ) -> Result<SessionInfo, String> {
         if let Some(id) = session_id {
             validate_session_id(id)?;
         }
@@ -103,6 +107,9 @@ impl RuntimeState {
 
         let reservation = session.engine.reserve_run(AbortPolicy::Reset)?;
         let run_id = reservation.run_id();
+        // 权威身份在起跑前就取好（纯内存快照）：此刻 session_id / run_id /
+        // running / model 都已确定，失败也发生在新消息落盘之前。
+        let info = self.session_info_of(session)?;
 
         let mut registry = pipi_tools::builtin_registry(&tool_context);
         let background_owner =
@@ -219,6 +226,6 @@ impl RuntimeState {
         if let Some((key, session)) = created {
             sessions.insert(key, session);
         }
-        Ok(())
+        Ok(info)
     }
 }

@@ -217,7 +217,7 @@ impl RuntimeState {
         Ok(infos)
     }
 
-    fn session_info_of(&self, session: &HostSession) -> Result<SessionInfo, String> {
+    pub(super) fn session_info_of(&self, session: &HostSession) -> Result<SessionInfo, String> {
         let snapshot = session.engine.snapshot()?;
         let owner = BackgroundTaskOwner::new(
             session.agent.name.clone(),

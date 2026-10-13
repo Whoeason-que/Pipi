@@ -8,7 +8,7 @@ import type { AgentDefinition, SessionInfoView, SessionStatsView } from "../src/
 const agent: AgentDefinition = {
   name: "fixture", description: "", model: "", provider: null, workspace: null,
   permissions: { tools: ["read"], bash: { mode: "allowlist", commands: [] }, sandbox: "workspace-write" },
-  mcpServers: [], subagent: false, compactThresholdPercent: 75,
+  mcpServers: [], subagent: false, compactThresholdPercent: 75, systemPrompt: "both",
 };
 const stats: SessionStatsView = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, calls: 1 };
 const message = (text: string): MessageView => ({ role: "assistant", content: text });
@@ -27,6 +27,10 @@ class Host implements RuntimeTransport {
   infos = new Map<string, SessionInfoView>([["s", info()]]);
   history: MessageView[] = [];
   held: Promise<MessageView[]> | null = null;
+  /** send_prompt 响应附加字段（模型元信息等）；默认不带 model，避免影响其他用例。 */
+  sendInfo: Partial<SessionInfoView> = {};
+  /** 非空时 send_prompt 的响应挂起，供「事件先于响应」的用例控制顺序。 */
+  sendGate: Promise<void> | null = null;
   async invoke<K extends CommandName>(command: K, ...parameters: CommandArgs<K>): Promise<CommandResult<K>> {
     const args = parameters[0] as Record<string, unknown> | undefined;
     this.calls.push({ command, args });
@@ -38,6 +42,16 @@ class Host implements RuntimeTransport {
       case "session_info": value = this.infos.get(session) ?? null; break;
       case "session_running": value = this.infos.get(session)?.running ?? false; break;
       case "stop_run": this.infos.set(session, { ...this.infos.get(session)!, running: false }); break;
+      case "send_prompt": {
+        // 与核心同构：不带 sessionId = 新会话，响应返回它的权威身份。
+        const target = args?.sessionId === null || args?.sessionId === undefined
+          ? "created" : String(args.sessionId);
+        const snapshot = this.infos.get(target) ?? info(target, 3, true);
+        this.infos.set(target, snapshot);
+        if (this.sendGate) await this.sendGate;
+        value = { ...snapshot, ...this.sendInfo };
+        break;
+      }
     }
     return value as CommandResult<K>;
   }
@@ -115,13 +129,35 @@ test("view unsubscribe keeps background events and never calls stop_run", async 
   runtime.disconnect();
 });
 
-test("a draft claims the server identity even when agent_start follows the IPC response", async () => {
+test("send_prompt's SessionInfo establishes a new draft's identity and model", async () => {
   const { host, runtime } = await fixture();
+  host.sendInfo = { model: { id: "m1", name: "M1", api: "openai-completions", baseUrl: "", maxTokens: 8192, contextWindow: 200000 }, isCustomModel: true };
   const draft = runtime.get(agent, null);
   await draft.hydrate();
   await draft.send("create");
+  assert.equal(draft.getSnapshot().sessionId, "created");
+  assert.equal(runtime.get(agent, "created"), draft);
+  assert.equal(draft.getSnapshot().model?.id, "m1");
+  assert.equal(draft.getSnapshot().isCustomModel, true);
+  runtime.disconnect();
+});
+
+test("an agent_start that beats the IPC response is claimed by the draft, and the response only fills metadata", async () => {
+  const { host, runtime } = await fixture();
+  const gate = deferred<void>();
+  host.sendGate = gate.promise;
+  host.sendInfo = { model: { id: "m1", name: "M1", api: "openai-completions", baseUrl: "", maxTokens: 8192, contextWindow: 200000 }, isCustomModel: true };
+  const draft = runtime.get(agent, null);
+  await draft.hydrate();
+  const sending = draft.send("create");
+  // 事件先到：按 Agent 名认领（响应还挂着）
   host.event({ type: "agent_start" }, "created", 3);
   assert.equal(draft.getSnapshot().sessionId, "created");
+  // 响应后到：身份不变，补上模型元信息
+  gate.resolve();
+  assert.equal(await sending, true);
+  assert.equal(draft.getSnapshot().sessionId, "created");
+  assert.equal(draft.getSnapshot().model?.id, "m1");
   assert.equal(runtime.get(agent, "created"), draft);
   runtime.disconnect();
 });

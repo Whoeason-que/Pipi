@@ -122,7 +122,7 @@ pub fn send_prompt(
     app: AppHandle,
     state: State<'_, RuntimeState>,
     args: InvokeArgs<SendPromptArgs>,
-) -> Result<(), String> {
+) -> Result<SessionInfo, String> {
     pipi_core::commands::send_prompt(&state, tauri_emitter(app), args.0)
 }
 

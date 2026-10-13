@@ -73,27 +73,34 @@ fn send_prompt_runs_without_an_ambient_reactor() {
         .expect("构建注入运行时");
     let state = RuntimeState::new(runtime.handle().clone());
 
-    let events: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+    // 事件名 + 第一个带身份的载荷里的 sessionId（核对返回值与事件指向同一条会话）
+    type SeenEvent = (&'static str, Option<String>);
+    let events: Arc<Mutex<Vec<SeenEvent>>> = Arc::new(Mutex::new(Vec::new()));
     let sink: EventEmitter = {
         let events = events.clone();
         Arc::new(move |event: RuntimeEvent| {
-            let name = match event {
-                RuntimeEvent::AgentEvent(_) => "agent-event",
-                RuntimeEvent::SessionStats(_) => "session-stats",
-                RuntimeEvent::SessionError(_) => "session-error",
-                RuntimeEvent::ApprovalRequest(_) => "approval-request",
-                RuntimeEvent::SessionSwitched(_) => "session-switched",
-                RuntimeEvent::SessionChanged(_) => "session-changed",
+            let (name, session_id) = match event {
+                RuntimeEvent::AgentEvent(payload) => {
+                    ("agent-event", Some(payload.session_id.clone()))
+                }
+                RuntimeEvent::SessionStats(_) => ("session-stats", None),
+                RuntimeEvent::SessionError(_) => ("session-error", None),
+                RuntimeEvent::ApprovalRequest(_) => ("approval-request", None),
+                RuntimeEvent::SessionSwitched(_) => ("session-switched", None),
+                RuntimeEvent::SessionChanged(_) => ("session-changed", None),
             };
-            events.lock().unwrap().push(name);
+            events.lock().unwrap().push((name, session_id));
         })
     };
 
     // 关键断言点：在测试线程（没有 reactor）上调用，等价于桌面壳的 Tauri command。
     // 修复前这一行会 panic（there is no reactor running）并中止整个测试进程。
-    state
+    let info = state
         .send_prompt("spawn-regression", None, "hello", None, sink)
         .expect("send_prompt 应把这一轮交给注入的运行时，而不是要求调用线程自带 reactor");
+    // 返回值是权威身份：新会话的 id 与 running 在起跑前就已确定
+    assert!(info.running, "返回的会话信息应反映这一轮已经起跑");
+    assert!(!info.session_id.is_empty(), "新会话必须有 id");
 
     // 再证明这一轮真的被注入的运行时调度执行了（而不是静默丢失）
     let deadline = Instant::now() + Duration::from_secs(15);
@@ -102,8 +109,14 @@ fn send_prompt_runs_without_an_ambient_reactor() {
     }
     let seen = events.lock().unwrap().clone();
     assert!(
-        seen.contains(&"agent-event"),
+        seen.iter().any(|(name, _)| *name == "agent-event"),
         "这一轮没有在注入的运行时上真正启动：{seen:?}"
+    );
+    let first_event_session = seen.iter().find_map(|(_, session_id)| session_id.clone());
+    assert_eq!(
+        Some(info.session_id.clone()),
+        first_event_session,
+        "返回值与第一个带身份的宿主事件必须指向同一条会话"
     );
 
     let _ = std::fs::remove_dir_all(&home);

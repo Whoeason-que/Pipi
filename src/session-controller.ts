@@ -244,8 +244,15 @@ export class SessionController {
     this.ignoreEvents = false;
     this.dispatch({ type: "submit_user", key, text });
     try {
-      await this.transport.invoke("send_prompt", { agentName: this.agent.name,
+      const info = await this.transport.invoke("send_prompt", { agentName: this.agent.name,
         sessionId: this.value.sessionId, prompt: text, model: this.value.isCustomModel ? this.value.model : null });
+      // 主路径：返回值就是权威身份（新会话的 id/run/模型一次到位）。事件与
+      // 响应先后无保证：事件先到时 draft 认领已接管（见 session-runtime），
+      // 这里只把返回值里的模型元信息补齐，不重复 announce。
+      if (!this.identity) this.adopt(info, true);
+      else if (info.model !== undefined) {
+        this.patch({ model: info.model ?? this.agent.provider ?? null, isCustomModel: Boolean(info.isCustomModel) });
+      }
       return true;
     } catch (error) {
       this.dispatch({ type: "reject_user", key });
