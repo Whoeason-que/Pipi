@@ -5,6 +5,9 @@ import {
 import {
   invoke
 } from "../platform";
+import type { AgentEditableFiles } from "../types";
+
+const EMPTY_FILES: AgentEditableFiles = { instructions: [], memory: [], memoryPrefix: "" };
 
 
 // ============ Agent 文件编辑器（AGENTS.md / memory/*.md） ============
@@ -17,7 +20,7 @@ interface AgentFileEditorProps {
 }
 
 export default function AgentFileEditor({ agentName, onError, disabled = false, onSaved }: AgentFileEditorProps) {
-  const [files, setFiles] = useState<string[]>([]);
+  const [files, setFiles] = useState<AgentEditableFiles>(EMPTY_FILES);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [savedContent, setSavedContent] = useState("");
@@ -50,15 +53,16 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
       return list;
     } catch (errorValue) {
       onError(formatRuntimeError(errorValue));
-      return [];
+      return EMPTY_FILES;
     }
   }, [agentName, onError]);
 
   useEffect(() => {
     void (async () => {
       const list = await refreshFiles();
-      // 默认打开 harness/AGENTS.md（存在时）
-      if (list.includes("harness/AGENTS.md")) void openFile("harness/AGENTS.md");
+      // 默认打开契约声明的第一个指令文件（位置由 agent.toml 决定）
+      const firstInstruction = list.instructions[0];
+      if (firstInstruction) void openFile(firstInstruction);
     })();
     // agentName 变化时重置
     setActiveFile(null);
@@ -89,8 +93,8 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
     if (disabled) return;
     const name = newFileName.trim().replace(/\.md$/, "");
     if (!name || name.includes("/")) return;
-    const relPath = `harness/memory/${name}.md`;
-    if (files.includes(relPath)) {
+    const relPath = `${files.memoryPrefix}/${name}.md`;
+    if (files.memory.includes(relPath)) {
       void openFile(relPath);
       setNewFileName("");
       return;
@@ -110,10 +114,10 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
 
   return (
     <div className="drow file-editor-row">
-      <span className="k">harness/</span>
+      <span className="k">指令 · 记忆</span>
       <div className="v">
         <div className="file-tabs">
-          {files.map((file) => (
+          {[...files.instructions, ...files.memory].map((file) => (
             <button
               key={file}
               type="button"

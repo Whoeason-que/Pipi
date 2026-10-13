@@ -23,6 +23,7 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
     let wire: Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/ipc-wire.json")).unwrap();
     roundtrip::<AgentDefinition>(&wire["agent"]);
+    roundtrip::<pipi_venv::agents::AgentEditableFiles>(&wire["agentFiles"]);
     roundtrip::<Model>(&wire["model"]);
     roundtrip::<Settings>(&wire["settings"]);
     roundtrip::<Vec<Message>>(&wire["messages"]);

@@ -53,9 +53,11 @@ pub fn list_archived_agents() -> Result<Vec<AgentDefinition>, String> {
     pipi_core::commands::list_archived_agents()
 }
 
-/// 列出 Agent 目录内可编辑的 Markdown（harness/AGENTS.md / harness/memory/*.md）。
+/// 列出 Agent 目录内可编辑的 Markdown（契约声明的指令文件 + 记忆文件）。
 #[tauri::command]
-pub fn list_agent_files(args: InvokeArgs<ListAgentFilesArgs>) -> Result<Vec<String>, String> {
+pub fn list_agent_files(
+    args: InvokeArgs<ListAgentFilesArgs>,
+) -> Result<pipi_venv::agents::AgentEditableFiles, String> {
     pipi_core::commands::list_agent_files(args.0)
 }
 

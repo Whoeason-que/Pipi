@@ -18,7 +18,7 @@ use pipi_protocol::permissions::PermissionsConfig;
 use pipi_protocol::session::{SessionImportReport, SessionSummary};
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
 use pipi_provider::catalog::ModelCatalog;
-use pipi_venv::agents::{self, AgentDefinition};
+use pipi_venv::agents::{self, AgentDefinition, AgentEditableFiles};
 use pipi_venv::skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
 };
@@ -161,9 +161,10 @@ pub struct ListAgentFilesArgs {
     pub agent_name: String,
 }
 
-/// 列出 Agent 目录内可编辑的 Markdown（harness/AGENTS.md / harness/memory/*.md）。
-pub fn list_agent_files(args: ListAgentFilesArgs) -> Result<Vec<String>, String> {
-    agents::list_agent_md_files(&args.agent_name)
+/// 列出 Agent 目录内可编辑的 Markdown：契约声明的指令文件 + 记忆目录下的 `.md`
+/// （位置来自 agent.toml 的 `[resources]`，不是硬编码目录）。
+pub fn list_agent_files(args: ListAgentFilesArgs) -> Result<AgentEditableFiles, String> {
+    agents::list_agent_editable_files(&args.agent_name)
 }
 
 #[derive(Debug, Deserialize)]

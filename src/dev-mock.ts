@@ -690,7 +690,11 @@ export function installDevMock(): void {
           );
         }
         case "list_agent_files":
-          return Promise.resolve(["harness/AGENTS.md", "harness/memory/user-prefs.md"]);
+          return Promise.resolve({
+            instructions: ["harness/AGENTS.md"],
+            memory: ["harness/memory/user-prefs.md"],
+            memoryPrefix: "harness/memory",
+          });
         case "read_agent_file":
           return Promise.resolve(
             String(args.relPath) === "harness/AGENTS.md"

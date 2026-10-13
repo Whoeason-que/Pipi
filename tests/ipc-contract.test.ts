@@ -14,7 +14,7 @@ function rustType(input: string): string {
   if (value.startsWith("Option<")) return rustType(value.slice(7, -1)) + "|null";
   if (value.startsWith("Vec<")) return rustType(value.slice(4, -1)) + "[]";
   if (value.startsWith("Result<")) return rustType(value.slice(7, -1).replace(/,\s*String$/, ""));
-  const aliases: Record<string, string> = { String: "string", bool: "boolean", u64: "number", usize: "number", "()": "void", AgentDefinition: "AgentDefinition", Settings: "Settings", Model: "ModelConfig", PermissionsConfig: "PermissionsConfig", SessionInfo: "SessionInfoView", Message: "MessageView", SessionSummary: "SessionSummaryView", SessionImportReport: "SessionImportReportView", SessionStats: "SessionStatsView", BackgroundTaskSnapshot: "BackgroundTaskSnapshot", ModelCatalog: "ModelCatalog", SkillLibrary: "SkillLibrary", AgentSkills: "AgentSkills", SkillVerify: "SkillVerify", SkillInstallReport: "SkillInstallReport", SkillSyncReport: "SkillSyncReport", SkillUsage: "SkillUsage" };
+  const aliases: Record<string, string> = { String: "string", bool: "boolean", u64: "number", usize: "number", "()": "void", AgentDefinition: "AgentDefinition", Settings: "Settings", Model: "ModelConfig", PermissionsConfig: "PermissionsConfig", SessionInfo: "SessionInfoView", Message: "MessageView", SessionSummary: "SessionSummaryView", SessionImportReport: "SessionImportReportView", SessionStats: "SessionStatsView", BackgroundTaskSnapshot: "BackgroundTaskSnapshot", ModelCatalog: "ModelCatalog", SkillLibrary: "SkillLibrary", AgentSkills: "AgentSkills", AgentEditableFiles: "AgentEditableFiles", SkillVerify: "SkillVerify", SkillInstallReport: "SkillInstallReport", SkillSyncReport: "SkillSyncReport", SkillUsage: "SkillUsage" };
   assert.ok(aliases[value], `unsupported command wire type: ${value}`);
   return aliases[value];
 }
@@ -163,17 +163,18 @@ test("Rust wire fixtures fit frontend DTOs and typed invoke rejects misspelled c
   const fixture = read("tests/fixtures/ipc-wire.json");
   const filename = path.join(root, "tests/fixtures/wire-check.ts");
   const code = `
-import type { AgentDefinition, AgentSkills, ModelConfig, Settings, SessionStatsView, SessionInfoView, SkillLibrary } from "../../src/types";
+import type { AgentDefinition, AgentEditableFiles, AgentSkills, ModelConfig, Settings, SessionStatsView, SessionInfoView, SkillLibrary } from "../../src/types";
 import type { MessageView } from "../../src/chat-runtime";
 import type { BackgroundTaskSnapshot, EventMap, Invoke } from "../../src/ipc";
 type Frame = { [K in keyof EventMap]: { type: K; payload: EventMap[K] } }[keyof EventMap];
-const wire: { agent: AgentDefinition; model: ModelConfig; settings: Settings; messages: MessageView[]; stats: SessionStatsView; session: SessionInfoView; background: BackgroundTaskSnapshot; skillLibrary: SkillLibrary; agentSkills: AgentSkills; events: Frame[] } = ${fixture};
+const wire: { agent: AgentDefinition; agentFiles: AgentEditableFiles; model: ModelConfig; settings: Settings; messages: MessageView[]; stats: SessionStatsView; session: SessionInfoView; background: BackgroundTaskSnapshot; skillLibrary: SkillLibrary; agentSkills: AgentSkills; events: Frame[] } = ${fixture};
 declare const invoke: Invoke;
 invoke("session_info", {agentName:"fixture",sessionId:"session-1"});
 invoke("list_agents");
 invoke("set_skill_enabled", {agentName:"fixture",name:"pdf",enabled:true});
 invoke("install_skill", {source:"example/skills",all:false,dryRun:true});
 invoke("agent_skills", {agentName:"fixture"});
+invoke("list_agent_files", {agentName:"fixture"});
 // @ts-expect-error missing session identity
 invoke("session_info", {agentName:"fixture"});
 // @ts-expect-error misspelled command

@@ -79,6 +79,19 @@ export interface AgentDefinition {
 }
 
 /**
+ * Agent 可编辑素材视图（Rust 侧 agents::AgentEditableFiles）：路径来自
+ * `agent.toml` 的 `[resources]` 声明，不是硬编码目录。
+ */
+export interface AgentEditableFiles {
+  /** 指令文件的相对路径（按契约声明顺序，界面默认打开第一个）。 */
+  instructions: string[];
+  /** 记忆文件的相对路径。 */
+  memory: string[];
+  /** 记忆目录的相对前缀（无尾斜杠），新建记忆文件时拼路径用。 */
+  memoryPrefix: string;
+}
+
+/**
  * 系统提示词策略（Rust 侧 agents::PromptScope）：决定 Agent 侧 `harness/`
  * 与工作区侧的项目上下文各自是否参与组装。只影响提示词 —— 权限、沙箱与
  * 工具可用性不受影响。
