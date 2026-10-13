@@ -81,9 +81,13 @@ impl RuntimeState {
         let abort = session.engine.abort_signal();
         let session_id = session.engine.snapshot()?.session_id;
 
+        // Agent 契约（agent.toml + 项目层、`[resources]` 素材、声明的 store
+        // 技能）每轮只解析一次：工具上下文与系统提示共用同一份，避免两次
+        // 解析之间文件变化导致口径矛盾。
+        let prepared = agents::prepare_agent(&def)?;
         // av 环境契约：会话启动时解析一次（requires fail-closed + AV_* 注入）
         let (mut tool_context, resolved_env) =
-            agents::build_tool_context(&def, Some(session_id.clone()), abort.clone())?;
+            agents::build_tool_context(&def, &prepared, Some(session_id.clone()), abort.clone())?;
         // 环境记账：每会话至多一条（writer 幂等去重）；只记声明键（非 process 来源）
         append_declared_env(&session.engine, &resolved_env)?;
         // provider key 与工具子进程消费同一份 resolved env
@@ -162,7 +166,7 @@ impl RuntimeState {
         let runtime_settings = load_settings();
         let compaction_settings = runtime_settings.compaction;
         let retry_policy = runtime_settings.retry.policy();
-        let system_prompt = agents::build_system_prompt_with_tools(&def, &wire_tools)?;
+        let system_prompt = agents::build_system_prompt_with_tools(&def, &prepared, &wire_tools)?;
 
         // 交互审批通道：桌面 / Web 的交互运行才接入；子 Agent 运行不注入，
         // 白名单未命中一律拒绝（fail-closed）。

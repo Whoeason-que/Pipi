@@ -7,14 +7,17 @@
 //! 模块划分：`types` 清单结构与校验，`paths` 目录定位与名称安全，`registry`
 //! 扫描/创建/读写，`archive` 归档与删除，`files` 可编辑 Markdown 与 memory
 //! 索引，`contract` agent.toml 契约层、Agent 侧素材解析与默认模板，
+//! `preparation` 会话启动的一次性准备（契约层 + 素材 + store 技能），
 //! `tool_context` 工具执行上下文，`prompt` 系统提示组装；单元测试在各实现
 //! 文件底部。Agent 侧素材（指令 / 记忆 / 技能来源）的路径**权威在 agent.toml**，
-//! 见 `contract::agent_material`。
+//! 见 `contract::agent_material`；运行期的解析入口只有 `preparation::prepare_agent`
+//! 一处，工具上下文与提示词共用它的产物。
 
 mod archive;
 mod contract;
 mod files;
 mod paths;
+mod preparation;
 mod prompt;
 mod registry;
 mod tool_context;
@@ -31,6 +34,7 @@ pub use files::{
     AgentEditableFiles, list_agent_editable_files, memory_index, read_agent_file, write_agent_file,
 };
 pub use paths::{agent_dir, expand_tilde, validate_agent_name};
+pub use preparation::{PreparedAgent, prepare_agent};
 pub use prompt::build_system_prompt_with_tools;
 pub use registry::{
     add_bash_allowlist_entries, create_agent, create_agent_with_instructions, ensure_default_agent,

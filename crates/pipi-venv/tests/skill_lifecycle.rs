@@ -127,7 +127,8 @@ fn install_enable_disable_and_purge_roundtrip() {
     assert!(home.agent_dir(&name).join("agent.lock").is_file());
 
     // 启用后的声明能通过会话启动路径（提示词里出现技能描述）
-    let prompt = agents::build_system_prompt_with_tools(&def, &[]).unwrap();
+    let prepared = agents::prepare_agent(&def).unwrap();
+    let prompt = agents::build_system_prompt_with_tools(&def, &prepared, &[]).unwrap();
     assert!(prompt.contains("PDF-DESC"), "{prompt}");
 
     // 重复启用幂等

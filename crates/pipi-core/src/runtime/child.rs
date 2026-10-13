@@ -103,13 +103,16 @@ pub(crate) async fn run_agent_once_with_sink(
         sink(definition.name.clone(), session_id.clone(), run_id);
     }
     let inputs = (|| {
+        // 子运行同样一轮只准备一次：契约解析失败（含素材与 store 技能）与
+        // 工具上下文、提示词组装共用同一份结果、同一套 fail-closed 口径。
+        let prepared = agents::prepare_agent(&definition)?;
         let (tool_context, resolved_env) =
-            agents::build_tool_context(&definition, Some(session_id.clone()), abort)?;
+            agents::build_tool_context(&definition, &prepared, Some(session_id.clone()), abort)?;
         append_declared_env(&engine, &resolved_env)?;
         let resolved = resolve_model(&definition, None, Some(&resolved_env.vars))?;
         let tools = Arc::new(pipi_tools::builtin_registry(&tool_context));
         let system_prompt =
-            agents::build_system_prompt_with_tools(&definition, &tools.wire_tools())?;
+            agents::build_system_prompt_with_tools(&definition, &prepared, &tools.wire_tools())?;
         Ok::<_, String>((tool_context, tools, system_prompt, resolved))
     })();
     let (

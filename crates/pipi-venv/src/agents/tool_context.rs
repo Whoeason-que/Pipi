@@ -1,7 +1,6 @@
 use std::fs;
 
-use super::contract::{agent_material, collect_contract_layers};
-use super::prompt::load_declared_store_skills;
+use super::preparation::PreparedAgent;
 use super::types::AgentDefinition;
 
 /// 组装工具执行上下文（loop 与工具共用）。
@@ -9,11 +8,13 @@ use super::types::AgentDefinition;
 /// `session_id` 注入 `AV_SESSION`（嵌套感知），无会话上下文时缺省。
 /// 返回 `(ToolContext, ResolvedEnv)`：后者供环境记账与 provider key 解析复用。
 ///
-/// Agent 侧的技能目录与记忆目录都取契约声明（`[resources.skills].sources` /
-/// `[resources].memory`，见 [`agent_material`]）：缺契约或漏声明即 fail-closed，
-/// 两处都进受信任读取根。
+/// 契约层、Agent 侧素材与声明的 store 技能都不在这里解析 —— 它们由调用方
+/// 先经 [`super::preparation::prepare_agent`] 备好（`prepared`），本函数只做
+/// 消费与组装。Agent 侧的技能目录与记忆目录取契约声明（见 `agent_material`）：
+/// 缺契约或漏声明在准备阶段即 fail-closed，两处都进受信任读取根。
 pub fn build_tool_context(
     def: &AgentDefinition,
+    prepared: &PreparedAgent,
     session_id: Option<String>,
     abort: pipi_protocol::AbortSignal,
 ) -> Result<(pipi_protocol::tools::ToolContext, crate::av::ResolvedEnv), String> {
@@ -24,7 +25,7 @@ pub fn build_tool_context(
 
     // av 环境契约：会话启动时解析一次，本会话所有工具子进程共用同一份
     // （inherit/ignore/set/path-prepend/secrets + AV_* 运行时注入）。
-    // Agent 定义目录的 agent.toml 作为最低声明层参与合并。
+    // 契约层来自 prepared（agent 定义目录的 agent.toml 已作为最低声明层参与）。
     let mut runtime_vars = std::collections::BTreeMap::new();
     runtime_vars.insert("AV".to_string(), "1".to_string());
     runtime_vars.insert("AV_AGENT".to_string(), def.name.clone());
@@ -36,40 +37,34 @@ pub fn build_tool_context(
     if let Some(session_id) = &session_id {
         runtime_vars.insert("AV_SESSION".to_string(), session_id.clone());
     }
-    let (agent_layer, project_layers) = collect_contract_layers(def, Some(&workspace))?;
-    let mut layers = Vec::new();
-    if let Some(layer) = &agent_layer {
-        layers.push(layer.clone());
-    }
-    layers.extend(project_layers);
-    let merged = crate::av::merge_layers(&layers)?;
+    let layers = prepared.layers();
+    let merged = crate::av::merge_layers(layers)?;
     let resolved =
-        crate::av::resolve_env(&layers, &crate::av::collect_process_env(), &runtime_vars)?;
+        crate::av::resolve_env(layers, &crate::av::collect_process_env(), &runtime_vars)?;
     crate::av::check_requires(&merged.requires, &resolved.vars)?;
 
-    // Agent 侧素材路径由契约编排（缺契约/漏声明即报错）；两处都已在
-    // agent_material 里校验过包含根（符号链接逃逸会被拒）。
-    let agent_dir = def.dir().ok_or("无法定位 Agent 目录")?;
-    let material = agent_material(agent_layer.as_ref(), &agent_dir)?;
-    let mut read_roots = material.skill_sources;
+    // Agent 侧素材路径已由契约编排并在准备阶段校验过包含根（符号链接逃逸
+    // 会被拒）；这里只取用，不再重读。
+    let material = prepared.material();
+    let mut read_roots = material.skill_sources.clone();
     // memory 渐进召回：正文由模型用 read 按需加载，memory 目录须在受信任
     // 读取根内（memory 工具本身仍走自己的 memory_dir 约束）。
     if material.memory_dir.is_dir() {
         read_roots.push(material.memory_dir.clone());
     }
 
-    // 声明启用的 store 技能：只读解析（不联网；缺失即 fail-closed），
+    // 声明启用的 store 技能（准备阶段已只读解析、不联网；缺失即 fail-closed），
     // 内容目录进受信任读取根 —— 模型用 read 工具按需加载 SKILL.md 与随附文件。
-    for skill in load_declared_store_skills(&layers)? {
+    for skill in prepared.store_skills() {
         if !read_roots.contains(&skill.dir) {
-            read_roots.push(skill.dir);
+            read_roots.push(skill.dir.clone());
         }
     }
 
     Ok((
         pipi_protocol::tools::ToolContext {
             workspace,
-            memory_dir: Some(material.memory_dir),
+            memory_dir: Some(material.memory_dir.clone()),
             read_roots,
             permissions: std::sync::Arc::new(def.permissions.clone()),
             sandbox: def.permissions.sandbox,
@@ -84,7 +79,9 @@ pub fn build_tool_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::{AgentDefinition, DEFAULT_HARNESS_DIR, agent_dir, create_agent};
+    use crate::agents::{
+        AgentDefinition, DEFAULT_HARNESS_DIR, agent_dir, create_agent, prepare_agent,
+    };
 
     /// 默认模板声明的素材目录（`<Agent 目录>/harness`）。
     fn default_harness(agent_dir: &std::path::Path) -> std::path::PathBuf {
@@ -101,7 +98,9 @@ mod tests {
         let memory_dir = default_harness(&agent_dir(&name).unwrap()).join("memory");
         fs::write(memory_dir.join("note.md"), "hello").unwrap();
 
-        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
+        let prepared = prepare_agent(&def).unwrap();
+        let (ctx, _) =
+            build_tool_context(&def, &prepared, None, pipi_protocol::AbortSignal::new()).unwrap();
         let read_root = ctx
             .read_roots
             .iter()
@@ -130,7 +129,9 @@ mod tests {
         let skills = default_harness(&agent_dir(&name).unwrap()).join("skills");
         fs::write(skills.join("SKILL.md"), "body").unwrap();
 
-        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
+        let prepared = prepare_agent(&def).unwrap();
+        let (ctx, _) =
+            build_tool_context(&def, &prepared, None, pipi_protocol::AbortSignal::new()).unwrap();
         assert!(
             ctx.read_roots
                 .iter()
@@ -160,7 +161,9 @@ mod tests {
         )
         .unwrap();
 
-        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
+        let prepared = prepare_agent(&def).unwrap();
+        let (ctx, _) =
+            build_tool_context(&def, &prepared, None, pipi_protocol::AbortSignal::new()).unwrap();
         let memory_dir = ctx.memory_dir.clone().expect("memory 目录来自契约声明");
         assert!(memory_dir.ends_with("notes/mem"), "{memory_dir:?}");
         assert!(
@@ -178,7 +181,7 @@ mod tests {
             ctx.read_roots
         );
 
-        let prompt = crate::agents::build_system_prompt_with_tools(&def, &[]).unwrap();
+        let prompt = crate::agents::build_system_prompt_with_tools(&def, &prepared, &[]).unwrap();
         assert!(prompt.contains("custom instructions"), "{prompt}");
         assert!(
             !prompt.contains(&format!("# {name}")),
@@ -204,8 +207,9 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[cfg(unix)]
     #[test]
-    fn build_tool_context_rejects_skills_symlink_outside_agent_dir() {
+    fn prepare_agent_rejects_skills_symlink_outside_agent_dir() {
         use std::os::unix::fs::symlink;
 
         let _guard = HOME_LOCK.lock().unwrap();
@@ -221,6 +225,11 @@ mod tests {
         symlink(
             &external,
             agent_dir.join(DEFAULT_HARNESS_DIR).join("skills"),
+        )
+        .unwrap();
+        std::fs::write(
+            agent_dir.join("agent.toml"),
+            "schema = 1\n[resources]\ninstructions = []\nmemory = \"harness/memory\"\n[resources.skills]\nsources = [\"harness/skills\"]\n",
         )
         .unwrap();
 
@@ -240,7 +249,7 @@ mod tests {
             system_prompt: Default::default(),
         };
 
-        let result = build_tool_context(&def, None, pipi_protocol::AbortSignal::new());
+        let result = prepare_agent(&def);
         pipi_test_support::set_env_var("HOME", previous_home);
         std::fs::remove_dir_all(&home).unwrap();
         std::fs::remove_dir_all(&external).unwrap();

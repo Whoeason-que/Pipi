@@ -2,10 +2,9 @@ use std::fs;
 
 use pipi_protocol::Tool;
 
-use super::contract::{
-    collect_contract_layers, layer_path_dir, load_declared_context_files, resolve_declared_sources,
-};
+use super::contract::{layer_path_dir, load_declared_context_files, resolve_declared_sources};
 use super::files::memory_index;
+use super::preparation::PreparedAgent;
 use super::types::{AgentDefinition, PromptScope};
 
 /// 跨层合并技能（agent 层在前，同名先发现者赢）。
@@ -21,23 +20,11 @@ fn merge_skill_scopes(
         .collect()
 }
 
-/// 解析声明启用的 store 技能（av `[resources.skills].use` + 同层 `agent.lock`）。
-///
-/// 会话启动只读、不联网；缺锁/缺条目/缺内容一律 fail-closed，错误里带
-/// `av skill sync` 提示（与 `av check`/`av doctor` 同一口径）。
-pub(super) fn load_declared_store_skills(
-    layers: &[crate::av::Layer],
-) -> Result<Vec<crate::av::store::ResolvedSkill>, String> {
-    match crate::av::store::winning_use(layers) {
-        Some(declared) => {
-            crate::av::store::resolve_declared_skills(declared.names, &declared.lock_path)
-                .map_err(|e| format!("声明技能不可用（{}）：{e}", declared.layer.label))
-        }
-        None => Ok(Vec::new()),
-    }
-}
-
 /// 把声明的 store 技能追加在约定目录之后（同名先发现者赢）。
+///
+/// 声明技能的解析（`use` + `agent.lock`，只读、不联网、缺失即 fail-closed）
+/// 已收敛到 `preparation::prepare_agent` 一处（工具上下文与提示词共用），
+/// 这里只保留提示词侧的合并与过滤。
 fn merge_store_skills(
     mut skills: Vec<crate::av::skills::SkillMeta>,
     store_skills: Vec<crate::av::skills::SkillMeta>,
@@ -64,6 +51,10 @@ fn harness_skill_metadata(skill: crate::av::skills::SkillMeta) -> crate::prompt:
 
 /// 组装带 wire tool 描述的系统提示。
 ///
+/// 契约层、Agent 侧素材与声明的 store 技能由调用方先经
+/// [`super::preparation::prepare_agent`] 备好（`prepared`，每轮 run 只解析
+/// 一次，与工具上下文共用）；本函数只按策略消费，不再碰盘上的契约文件。
+///
 /// 取材范围由 `agent.json` 的 `systemPrompt` 策略决定（[`PromptScope`]）：
 /// `both` 取 Agent 侧 + 工作区侧，`agent` 只取 `harness/`，`workspace` 只取
 /// 项目层，`none` 直接返回空串（调用方不发 system 消息）。策略**只影响提示词**：
@@ -71,7 +62,7 @@ fn harness_skill_metadata(skill: crate::av::skills::SkillMeta) -> crate::prompt:
 /// 所以 `workspace` 策略的 Agent 照样能用 memory 工具读写 `harness/memory`。
 ///
 /// `harness/` 缺席不报错（约定发现没有文件就是没有上下文）；只有 av 契约里
-/// **显式声明**的路径缺失才 fail-closed。
+/// **显式声明**的路径缺失才 fail-closed（在准备阶段报错，见 `prepare_agent`）。
 ///
 /// 资源三态（av 契约 `[resources]`，缺席 = 约定发现）：
 /// - instructions：Some(list) 完全替换该范围的发现并按声明顺序拼接，
@@ -81,6 +72,7 @@ fn harness_skill_metadata(skill: crate::av::skills::SkillMeta) -> crate::prompt:
 ///   仍是调用方式的唯一权威。
 pub fn build_system_prompt_with_tools(
     def: &AgentDefinition,
+    prepared: &PreparedAgent,
     tools: &[Tool],
 ) -> Result<String, String> {
     let scope = def.system_prompt;
@@ -89,22 +81,13 @@ pub fn build_system_prompt_with_tools(
     }
     let dir = def.dir();
     let workspace = def.resolve_workspace();
-    let (agent_layer, project_layers) = collect_contract_layers(def, workspace.as_deref())?;
-    let mut layers = Vec::new();
-    if let Some(layer) = &agent_layer {
-        layers.push(layer.clone());
-    }
-    layers.extend(project_layers.iter().cloned());
-    let merged = crate::av::merge_layers(&layers)?;
+    // 契约层、Agent 侧素材与声明的 store 技能都来自 prepare_agent 的同一份
+    // 准备结果（错/缺在准备阶段已 fail-closed，这里只按策略取用）。
+    let merged = crate::av::merge_layers(prepared.layers())?;
 
-    // Agent 侧的素材位置由 agent.toml 编排（三项必须显式声明，见 agent_material）：
-    // 只有策略含 agent 侧时才解析 —— 缺契约/漏声明由它 fail-closed。
+    // Agent 侧素材只有策略含 agent 侧时才消费；准备阶段不区分策略。
     let material = if scope.uses_agent_side() {
-        let agent_dir = dir.as_deref().ok_or("无法定位 Agent 目录")?;
-        Some(super::contract::agent_material(
-            agent_layer.as_ref(),
-            agent_dir,
-        )?)
+        Some(prepared.material())
     } else {
         None
     };
@@ -128,7 +111,7 @@ pub fn build_system_prompt_with_tools(
             .and_then(|resources| resources.max_bytes)
             .unwrap_or(crate::prompt::DEFAULT_PROJECT_DOC_MAX_BYTES);
         if scope.uses_workspace_side() {
-            match project_layers.iter().rev().find_map(|layer| {
+            match prepared.project_layers().iter().rev().find_map(|layer| {
                 layer
                     .config
                     .resources
@@ -170,7 +153,7 @@ pub fn build_system_prompt_with_tools(
         let project_skills = if !scope.uses_workspace_side() {
             Vec::new()
         } else {
-            match project_layers.iter().rev().find_map(|layer| {
+            match prepared.project_layers().iter().rev().find_map(|layer| {
                 layer
                     .config
                     .resources
@@ -206,14 +189,17 @@ pub fn build_system_prompt_with_tools(
             .map(|skills| (skills.only.as_deref(), skills.exclude.as_deref()));
         // 声明的 store 技能（`use`）追加在约定目录之后，同名先发现者赢
         let declared_store = if scope.uses_agent_side() {
-            load_declared_store_skills(&layers)?
+            prepared.store_skills()
         } else {
-            Vec::new()
+            &[]
         };
         let filtered = crate::av::skills::filter_skills_by_name(
             merge_store_skills(
                 merge_skill_scopes(agent_skills, project_skills),
-                declared_store.into_iter().map(|skill| skill.meta).collect(),
+                declared_store
+                    .iter()
+                    .map(|skill| skill.meta.clone())
+                    .collect(),
             ),
             skills_filter.as_ref().and_then(|(only, _)| *only),
             skills_filter.as_ref().and_then(|(_, exclude)| *exclude),
@@ -231,13 +217,13 @@ pub fn build_system_prompt_with_tools(
         )
     } else {
         // 无 workspace：只有 agent 侧成立（项目层不存在）。指令已在上面按契约
-        // 注入，这里只剩声明的 store 技能索引。
+        // 注入，这里只剩声明的 store 技能索引（准备阶段按同一份层集合解析）。
         let mut skills = Vec::new();
         if scope.uses_agent_side() {
-            let agent_only_layers: Vec<crate::av::Layer> = agent_layer.iter().cloned().collect();
-            skills = load_declared_store_skills(&agent_only_layers)?
-                .into_iter()
-                .map(|skill| harness_skill_metadata(skill.meta))
+            skills = prepared
+                .store_skills()
+                .iter()
+                .map(|skill| harness_skill_metadata(skill.meta.clone()))
                 .collect();
         }
         (String::new(), None, skills)
@@ -269,6 +255,7 @@ mod tests {
     use super::*;
     use crate::agents::{
         AgentDefinition, DEFAULT_HARNESS_DIR, agent_dir, build_tool_context, create_agent,
+        prepare_agent,
     };
 
     /// 默认模板声明的素材目录（`<Agent 目录>/harness`）。
@@ -307,7 +294,8 @@ mod tests {
             parameters: serde_json::json!({}),
         }];
 
-        let prompt = build_system_prompt_with_tools(&def, &tools).unwrap();
+        let prepared = prepare_agent(&def).unwrap();
+        let prompt = build_system_prompt_with_tools(&def, &prepared, &tools).unwrap();
 
         assert!(prompt.contains("- read: Read files"));
 
@@ -377,7 +365,8 @@ mod tests {
         .unwrap();
 
         // 声明替换约定发现；skills 按名过滤
-        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        let prepared = prepare_agent(&def).unwrap();
+        let prompt = build_system_prompt_with_tools(&def, &prepared, &[]).unwrap();
         assert!(prompt.contains("DECLARED-PROMPT-BODY"));
         assert!(!prompt.contains("CONVENTION-AGENTS-ROOT-RULES"));
         assert!(prompt.contains("<name>wanted</name>"));
@@ -386,6 +375,7 @@ mod tests {
         // env：声明 set + AV_* 注入 + 默认继承 all
         let (ctx, _) = build_tool_context(
             &def,
+            &prepared,
             Some("sess-1".into()),
             pipi_protocol::AbortSignal::new(),
         )
@@ -406,7 +396,8 @@ mod tests {
         );
         assert!(ctx.resolved_env.contains_key("PATH"));
 
-        // 逃逸包含根 fail-closed
+        // 逃逸包含根 fail-closed（项目层声明的指令文件在组装提示词时加载，
+        // 与 Agent 侧素材一样 fail-closed）
         let outside = std::env::temp_dir().join(format!(
             "pipi-contract-e2e-outside-{}.md",
             pipi_protocol::new_id()
@@ -420,7 +411,8 @@ mod tests {
             ),
         )
         .unwrap();
-        let err = build_system_prompt_with_tools(&def, &[]).unwrap_err();
+        let prepared = prepare_agent(&def).unwrap();
+        let err = build_system_prompt_with_tools(&def, &prepared, &[]).unwrap_err();
         assert!(err.contains("fail-closed"), "{err}");
 
         let _ = fs::remove_dir_all(root);
@@ -470,7 +462,8 @@ mod tests {
         )
         .unwrap();
 
-        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        let prepared = prepare_agent(&def).unwrap();
+        let prompt = build_system_prompt_with_tools(&def, &prepared, &[]).unwrap();
         assert!(prompt.contains("<name>workspace-guide</name>"), "{prompt}");
         assert!(prompt.contains("repo skill pack"), "{prompt}");
 
@@ -542,11 +535,13 @@ mod tests {
         )
         .unwrap();
 
-        // 3) 提示词注入 + 内容目录进受信任读取根
-        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        // 3) 提示词注入 + 内容目录进受信任读取根（同一次准备喂两个消费方）
+        let prepared = prepare_agent(&def).unwrap();
+        let prompt = build_system_prompt_with_tools(&def, &prepared, &[]).unwrap();
         assert!(prompt.contains("<name>pdf</name>"), "{prompt}");
         assert!(prompt.contains("STORE-DECLARED-PDF"), "{prompt}");
-        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
+        let (ctx, _) =
+            build_tool_context(&def, &prepared, None, pipi_protocol::AbortSignal::new()).unwrap();
         let content_dir_name = crate::av::store::content_dir_name(&entry.content_hash).unwrap();
         assert!(
             ctx.read_roots.iter().any(|path| {
@@ -556,18 +551,15 @@ mod tests {
             ctx.read_roots
         );
 
-        // 4) store 内容缺失：两处路径都应 fail-closed 且带 av skill sync 提示
+        // 4) store 内容缺失：准备阶段即 fail-closed（工具上下文与提示词共用
+        //    这一处解析，任一消费方都拿不到缺失的内容），带 av skill sync 提示
         crate::av::store::remove_version("pdf", &entry.content_hash).unwrap();
-        let error = build_system_prompt_with_tools(&def, &[]).unwrap_err();
-        assert!(error.contains("av skill sync"), "{error}");
-        let error = build_tool_context(&def, None, pipi_protocol::AbortSignal::new())
-            .err()
-            .expect("内容缺失应 fail-closed");
+        let error = prepare_agent(&def).unwrap_err();
         assert!(error.contains("av skill sync"), "{error}");
 
         // 5) 缺锁文件：fail-closed
         fs::remove_file(&lock_path).unwrap();
-        let error = build_system_prompt_with_tools(&def, &[]).unwrap_err();
+        let error = prepare_agent(&def).unwrap_err();
         assert!(error.contains("agent.lock"), "{error}");
 
         pipi_test_support::set_env_var("HOME", previous_home);
@@ -590,7 +582,8 @@ mod tests {
         )
         .unwrap();
 
-        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        let prepared = prepare_agent(&def).unwrap();
+        let prompt = build_system_prompt_with_tools(&def, &prepared, &[]).unwrap();
         assert!(prompt.contains("<persistent_memory>"));
         assert!(prompt.contains("<path>"));
         assert!(prompt.contains(&memory_dir.join("user-prefs.md").display().to_string()));
@@ -600,7 +593,8 @@ mod tests {
 
         // 空 memory 时零打扰
         fs::remove_file(memory_dir.join("user-prefs.md")).unwrap();
-        let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
+        let prepared = prepare_agent(&def).unwrap();
+        let prompt = build_system_prompt_with_tools(&def, &prepared, &[]).unwrap();
         assert!(!prompt.contains("<persistent_memory>"));
 
         let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
@@ -640,7 +634,8 @@ mod tests {
         ] {
             let mut scoped = def.clone();
             scoped.system_prompt = scope;
-            let prompt = build_system_prompt_with_tools(&scoped, &[]).unwrap();
+            let prepared = prepare_agent(&scoped).unwrap();
+            let prompt = build_system_prompt_with_tools(&scoped, &prepared, &[]).unwrap();
             assert_eq!(
                 prompt.contains("HARNESS-INSTRUCTIONS"),
                 agent_side,
@@ -673,8 +668,9 @@ mod tests {
 
         let mut none = def.clone();
         none.system_prompt = PromptScope::None;
+        let prepared = prepare_agent(&none).unwrap();
         assert!(
-            build_system_prompt_with_tools(&none, &[])
+            build_system_prompt_with_tools(&none, &prepared, &[])
                 .unwrap()
                 .is_empty()
         );
@@ -683,27 +679,27 @@ mod tests {
         pipi_test_support::set_env_var("HOME", previous_home);
     }
 
-    /// 声明的素材文件缺失即 fail-closed（声明是权威，不再是「约定发现没有
-    /// 文件就没有上下文」）；不含 agent 侧的策略不受影响。
+    /// 声明的素材文件缺失即 fail-closed，且不因 `systemPrompt` 策略放行：
+    /// 解析口径与工具上下文一致（env、权限、沙箱与读取根本来就不受策略影响），
+    /// 策略只决定提示词消费哪些已备好的素材。
     #[test]
-    fn missing_declared_material_fails_closed_on_agent_side_only() {
+    fn missing_declared_material_fails_closed_for_every_scope() {
         let _guard = HOME_LOCK.lock().unwrap();
         let name = format!("no-harness-{}", pipi_protocol::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         let dir = agent_dir(&name).unwrap();
         fs::remove_file(default_harness(&dir).join("AGENTS.md")).unwrap();
 
-        for scope in [PromptScope::Both, PromptScope::Agent] {
+        for scope in [
+            PromptScope::Both,
+            PromptScope::Agent,
+            PromptScope::Workspace,
+            PromptScope::None,
+        ] {
             let mut scoped = def.clone();
             scoped.system_prompt = scope;
-            let error = build_system_prompt_with_tools(&scoped, &[])
-                .expect_err("声明的指令文件缺失应 fail-closed");
-            assert!(error.contains("上下文文件不可用"), "{error}");
-        }
-        for scope in [PromptScope::Workspace, PromptScope::None] {
-            let mut scoped = def.clone();
-            scoped.system_prompt = scope;
-            build_system_prompt_with_tools(&scoped, &[]).expect("不含 agent 侧时不受影响");
+            let error = prepare_agent(&scoped).expect_err("声明的指令文件缺失应 fail-closed");
+            assert!(error.contains("上下文文件不可用"), "{scope:?}: {error}");
         }
 
         let _ = fs::remove_dir_all(dir);
