@@ -4,7 +4,9 @@
 //! - [`materialize_entry`]：`av skill sync` 的引擎 —— 按锁记录复现精确内容，
 //!   内容哈希不一致即拒绝（fail-closed）；
 //! - [`resolve_refresh`] + [`apply_refresh`]：`av skill update` 的引擎 ——
-//!   重解析来源到新修订，再把新内容发布进 store。
+//!   重解析来源到新修订，再把新内容发布进 store；
+//! - [`classify_sync_entry`] + [`SyncPlan`]：`av skill sync` 与技能面板共用的
+//!   verify → classify → apply 内核（先删漂移、再复现的固定顺序）。
 //!
 //! 所有写操作只发生在显式的 CLI 命令里；会话启动只读（见 `store` 模块）。
 
@@ -396,6 +398,79 @@ pub fn remove_drifted(entry: &SkillLockEntry) -> Result<(), String> {
     Ok(())
 }
 
+// ============ sync 计划（verify → classify → apply） ============
+
+/// 同步前对一条锁记录的判定（[`classify_sync_entry`] 的结果；只读、不落盘）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum SyncAction {
+    /// store 内容与锁记录一致。
+    Ready,
+    /// store 内容缺失：按锁复现（[`materialize_entry`]）。
+    Materialize,
+    /// store 内容漂移且允许修复：先删漂移目录（[`remove_drifted`]）再复现。
+    Repair { actual: String },
+    /// store 内容漂移但未允许修复：如何提示由调用方决定（CLI 提示 `--repair`，
+    /// 技能面板提示勾选「修复漂移」），这里只给出实测哈希。**不写盘。**
+    Drift { actual: String },
+}
+
+/// verify → classify：重算一条锁记录的 store 内容哈希，判定同步动作。
+///
+/// 两处同步入口（`av skill sync` 与技能面板）共用这条判据；锁的严格程度
+/// （缺锁 / 缺条目如何处置）与提示语留在调用点。
+pub fn classify_sync_entry(entry: &SkillLockEntry, repair: bool) -> Result<SyncAction, String> {
+    Ok(match store::verify_entry(entry)? {
+        VerifyOutcome::Ok => SyncAction::Ready,
+        VerifyOutcome::Missing => SyncAction::Materialize,
+        VerifyOutcome::Mismatch { actual } => {
+            if repair {
+                SyncAction::Repair { actual }
+            } else {
+                SyncAction::Drift { actual }
+            }
+        }
+    })
+}
+
+/// 一次同步的变更计划：分类阶段只读（[`SyncPlan::record`]），到
+/// [`SyncPlan::apply`] 才写 store。
+#[derive(Debug, Default)]
+pub struct SyncPlan {
+    /// 内容缺失、将按锁复现的条目。
+    pub to_install: Vec<SkillLockEntry>,
+    /// 内容漂移、将先删后装的条目。
+    pub to_repair: Vec<SkillLockEntry>,
+}
+
+impl SyncPlan {
+    /// 记入一条判定（`Ready` 与 `Drift` 不产生变更）。
+    pub fn record(&mut self, entry: SkillLockEntry, action: SyncAction) {
+        match action {
+            SyncAction::Materialize => self.to_install.push(entry),
+            SyncAction::Repair { .. } => self.to_repair.push(entry),
+            SyncAction::Ready | SyncAction::Drift { .. } => {}
+        }
+    }
+
+    /// 待执行的变更总数。
+    pub fn total(&self) -> usize {
+        self.to_install.len() + self.to_repair.len()
+    }
+
+    /// 执行计划：**先**清除全部漂移内容，**再**复现缺失与漂移 —— 顺序固定，
+    /// 两处调用点语义一致。任一失败即中止（fail-closed；复现内容哈希不符由
+    /// [`materialize_entry`] 拒绝）。
+    pub fn apply(&self, log: &mut dyn FnMut(String)) -> Result<(), String> {
+        for entry in &self.to_repair {
+            remove_drifted(entry)?;
+        }
+        for entry in self.to_install.iter().chain(self.to_repair.iter()) {
+            materialize_entry(entry, log)?;
+        }
+        Ok(())
+    }
+}
+
 fn short_revision(revision: &str) -> &str {
     &revision[..revision.len().min(12)]
 }
@@ -408,46 +483,8 @@ fn short_hash(content_hash: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::av::test_support::{make_repo, noop_log, write_skill};
+    use crate::av::test_support::{make_repo, noop_log, setup_av_home, write_skill};
     use std::fs;
-
-    /// 安装类测试会改 `AV_HOME`（进程级环境变量）。锁必须用
-    /// [`pipi_test_support::HOME_LOCK`] —— 同一个测试二进制里还有 Agent 注册表等
-    /// 用例在改 `HOME`，各自持锁就会互相踩踏（合并成 pipi-venv 后曾因此偶发失败）。
-    struct AvHomeGuard {
-        previous: Option<String>,
-        _lock: std::sync::MutexGuard<'static, ()>,
-    }
-
-    impl AvHomeGuard {
-        fn set(dir: &Path) -> Self {
-            let lock = pipi_test_support::HOME_LOCK
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let previous = std::env::var("AV_HOME").ok();
-            pipi_test_support::set_env_var("AV_HOME", dir);
-            Self {
-                previous,
-                _lock: lock,
-            }
-        }
-    }
-
-    impl Drop for AvHomeGuard {
-        fn drop(&mut self) {
-            // SAFETY: `_lock` 在 drop 体之后才释放，此处仍持 HOME_LOCK
-            match &self.previous {
-                Some(value) => pipi_test_support::set_env_var("AV_HOME", value),
-                None => pipi_test_support::remove_env_var("AV_HOME"),
-            }
-        }
-    }
-
-    fn setup_av_home(label: &str) -> (PathBuf, AvHomeGuard) {
-        let home = pipi_test_support::temp_dir(&format!("av-install-{label}"));
-        let guard = AvHomeGuard::set(&home);
-        (home, guard)
-    }
 
     #[test]
     fn install_local_source_selects_and_records() {
@@ -586,7 +623,11 @@ mod tests {
         );
 
         // 再 refresh：已是最新
-        assert!(resolve_refresh(&updated, &mut noop_log()).unwrap().is_none());
+        assert!(
+            resolve_refresh(&updated, &mut noop_log())
+                .unwrap()
+                .is_none()
+        );
 
         // 篡改锁哈希 → materialize 拒绝（fail-closed）
         let mut tampered = updated.clone();

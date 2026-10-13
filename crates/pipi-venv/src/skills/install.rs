@@ -1,6 +1,7 @@
 //! 技能安装 / 移除与声明同步：只写 store 与解析锁，不隐式启用。
 
-use crate::av::store::{self, SkillLockEntry, VerifyOutcome};
+use crate::av::install::{SyncAction, SyncPlan, classify_sync_entry};
+use crate::av::store::{self, SkillLockEntry};
 
 use crate::agents;
 
@@ -134,58 +135,49 @@ pub fn sync_agent_skills(agent_name: &str, repair: bool) -> Result<SkillSyncRepo
     }
     let index = store::read_index()?;
 
-    let mut to_install: Vec<SkillLockEntry> = Vec::new();
-    let mut to_repair: Vec<SkillLockEntry> = Vec::new();
+    // 面板路径的锁策略比 CLI 宽松：锁里没有的名字从 store 索引补解析；
+    // 锁里有的走与 `av skill sync` 共用的 verify → classify（只读）。
+    let mut plan = SyncPlan::default();
     let mut to_lock: Vec<SkillLockEntry> = Vec::new();
     for name in &context.names {
-        match lock.get(name) {
-            Some(entry) => {
-                let entry = entry.clone();
-                match store::verify_entry(&entry)? {
-                    VerifyOutcome::Ok => report.ready.push(name.clone()),
-                    VerifyOutcome::Missing => {
-                        report
-                            .log
-                            .push(format!("↓ {name}：store 内容缺失，将按锁复现"));
-                        to_install.push(entry);
-                    }
-                    VerifyOutcome::Mismatch { actual } => {
-                        if repair {
-                            report.log.push(format!(
-                                "! {name}：store 内容漂移（{} ≠ {}），将重装",
-                                short_hash(&actual),
-                                short_hash(&entry.content_hash)
-                            ));
-                            to_repair.push(entry);
-                        } else {
-                            return Err(format!(
-                                "技能 {name:?} 的 store 内容与锁不一致（{} ≠ {}）；\
-                                 确认来源可信后勾选「修复漂移」重装",
-                                short_hash(&actual),
-                                short_hash(&entry.content_hash)
-                            ));
-                        }
-                    }
-                }
-            }
-            None => {
-                // 锁里没有：从 store 索引补（离线，等同于 av skill add 的锁定步）
-                let entry = store::latest_index_entry(&index, name)
-                    .ok_or_else(|| {
-                        format!("技能 {name:?} 未在锁中解析，也不在 store 中；先安装再同步")
-                    })?
-                    .clone();
-                report.log.push(format!(
-                    "＋ {name}：补解析锁 → {}",
+        if let Some(entry) = lock.get(name) {
+            let entry = entry.clone();
+            let action = classify_sync_entry(&entry, repair)?;
+            match &action {
+                SyncAction::Ready => report.ready.push(name.clone()),
+                SyncAction::Materialize => report
+                    .log
+                    .push(format!("↓ {name}：store 内容缺失，将按锁复现")),
+                SyncAction::Repair { actual } => report.log.push(format!(
+                    "! {name}：store 内容漂移（{} ≠ {}），将重装",
+                    short_hash(actual),
                     short_hash(&entry.content_hash)
-                ));
-                if content_dir(name, &entry.content_hash).is_none() {
-                    to_install.push(entry.clone());
+                )),
+                SyncAction::Drift { actual } => {
+                    return Err(format!(
+                        "技能 {name:?} 的 store 内容与锁不一致（{} ≠ {}）；\
+                         确认来源可信后勾选「修复漂移」重装",
+                        short_hash(actual),
+                        short_hash(&entry.content_hash)
+                    ));
                 }
-                report.resolved.push(name.clone());
-                to_lock.push(entry);
             }
+            plan.record(entry, action);
+            continue;
         }
+        // 锁里没有：从 store 索引补（离线，等同于 av skill add 的锁定步）
+        let entry = store::latest_index_entry(&index, name)
+            .ok_or_else(|| format!("技能 {name:?} 未在锁中解析，也不在 store 中；先安装再同步"))?
+            .clone();
+        report.log.push(format!(
+            "＋ {name}：补解析锁 → {}",
+            short_hash(&entry.content_hash)
+        ));
+        if content_dir(name, &entry.content_hash).is_none() {
+            plan.to_install.push(entry.clone());
+        }
+        report.resolved.push(name.clone());
+        to_lock.push(entry);
     }
     if report.ready.len() == context.names.len() {
         return Ok(report);
@@ -194,19 +186,14 @@ pub fn sync_agent_skills(agent_name: &str, repair: bool) -> Result<SkillSyncRepo
     {
         let log = &mut report.log;
         let mut sink = |line: String| log.push(line);
-        for entry in &to_repair {
-            crate::av::install::remove_drifted(entry)?;
-        }
-        for entry in to_install.iter().chain(to_repair.iter()) {
-            crate::av::install::materialize_entry(entry, &mut sink)?;
-        }
+        plan.apply(&mut sink)?;
     }
-    for entry in &to_install {
+    for entry in &plan.to_install {
         if !report.resolved.contains(&entry.name) {
             report.installed.push(entry.name.clone());
         }
     }
-    for entry in &to_repair {
+    for entry in &plan.to_repair {
         report.repaired.push(entry.name.clone());
     }
     if !to_lock.is_empty() {

@@ -6,9 +6,51 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::MutexGuard;
 
 use crate::av::discovery::{Layer, LayerKind};
 use crate::av::schema::AgentToml;
+
+/// 隔离的 `AV_HOME` 守卫：安装 / 同步类测试会改 `AV_HOME`（进程级环境变量）。
+///
+/// 锁必须用 [`pipi_test_support::HOME_LOCK`] —— 同一个测试二进制里还有 Agent
+/// 注册表等用例在改 `HOME`，各自持锁就会互相踩踏（合并成 pipi-venv 后曾因此
+/// 偶发失败）。
+pub(crate) struct AvHomeGuard {
+    previous: Option<String>,
+    _lock: MutexGuard<'static, ()>,
+}
+
+impl AvHomeGuard {
+    pub(crate) fn set(dir: &Path) -> Self {
+        let lock = pipi_test_support::HOME_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = std::env::var("AV_HOME").ok();
+        pipi_test_support::set_env_var("AV_HOME", dir);
+        Self {
+            previous,
+            _lock: lock,
+        }
+    }
+}
+
+impl Drop for AvHomeGuard {
+    fn drop(&mut self) {
+        // SAFETY: `_lock` 在 drop 体之后才释放，此处仍持 HOME_LOCK
+        match &self.previous {
+            Some(value) => pipi_test_support::set_env_var("AV_HOME", value),
+            None => pipi_test_support::remove_env_var("AV_HOME"),
+        }
+    }
+}
+
+/// 隔离的 `AV_HOME` 临时目录 + 守卫（调用方自行清理目录）。
+pub(crate) fn setup_av_home(label: &str) -> (PathBuf, AvHomeGuard) {
+    let home = pipi_test_support::temp_dir(&format!("av-install-{label}"));
+    let guard = AvHomeGuard::set(&home);
+    (home, guard)
+}
 
 /// 构造一个通过校验的契约层（label 同时作为 path）。
 ///

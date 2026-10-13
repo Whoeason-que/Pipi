@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::av::install::{self, InstallReport, Selection};
+use crate::av::install::{self, InstallReport, Selection, SyncAction};
 use crate::av::sources::{self, SourceSpec};
 use crate::av::store::{self, SkillLock, SkillLockEntry, SourceType, VerifyOutcome};
 
@@ -229,36 +229,38 @@ fn cmd_sync(args: &[String]) -> Result<(), String> {
     let lock = SkillLock::read(&declared.lock_path)?;
     lock.validate_unique_names()?;
 
-    let mut to_install: Vec<&SkillLockEntry> = Vec::new();
-    let mut to_repair: Vec<&SkillLockEntry> = Vec::new();
+    // 锁的严格契约（CLI 专属）：use 里每个名字都必须在锁里有解析记录；
+    // 技能面板路径则从 store 索引补锁（见 skills::install::sync_agent_skills）
+    let repair = parsed.flag("repair");
+    let mut plan = install::SyncPlan::default();
     for name in declared.names {
-        let entry = lock.get(name).ok_or_else(|| {
-            format!(
-                "技能 {name:?} 未在 {} 中解析；用 `av skill add` 补上",
-                declared.lock_path.display()
-            )
-        })?;
-        match store::verify_entry(entry)? {
-            VerifyOutcome::Ok => println!("✓ {}（已就绪）", name),
-            VerifyOutcome::Missing => {
+        let entry = lock
+            .get(name)
+            .ok_or_else(|| {
+                format!(
+                    "技能 {name:?} 未在 {} 中解析；用 `av skill add` 补上",
+                    declared.lock_path.display()
+                )
+            })?
+            .clone();
+        let action = install::classify_sync_entry(&entry, repair)?;
+        match &action {
+            SyncAction::Ready => println!("✓ {}（已就绪）", name),
+            SyncAction::Materialize => {
                 println!("↓ {}（将安装 {}）", name, short_hash(&entry.content_hash));
-                to_install.push(entry);
             }
-            VerifyOutcome::Mismatch { actual } => {
-                if parsed.flag("repair") {
-                    println!("! {}（store 内容漂移，将重装）", name);
-                    to_repair.push(entry);
-                } else {
-                    return Err(format!(
-                        "技能 {name:?} 的 store 内容与锁不一致（{} ≠ {}）；\
-                         确认来源可信后加 --repair 重装",
-                        actual, entry.content_hash
-                    ));
-                }
+            SyncAction::Repair { .. } => println!("! {}（store 内容漂移，将重装）", name),
+            SyncAction::Drift { actual } => {
+                return Err(format!(
+                    "技能 {name:?} 的 store 内容与锁不一致（{} ≠ {}）；\
+                     确认来源可信后加 --repair 重装",
+                    actual, entry.content_hash
+                ));
             }
         }
+        plan.record(entry, action);
     }
-    let total = to_install.len() + to_repair.len();
+    let total = plan.total();
     if total == 0 {
         println!("全部就绪");
         return Ok(());
@@ -273,12 +275,7 @@ fn cmd_sync(args: &[String]) -> Result<(), String> {
     )?;
 
     let mut log = |line: String| println!("{line}");
-    for entry in &to_repair {
-        install::remove_drifted(entry)?;
-    }
-    for entry in to_install.iter().chain(to_repair.iter()) {
-        install::materialize_entry(entry, &mut log)?;
-    }
+    plan.apply(&mut log)?;
     println!("同步完成（{total} 个）");
     Ok(())
 }
@@ -607,4 +604,122 @@ fn store_label() -> String {
     crate::av::paths::skills_store()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "~/.av/skills".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::av::install::{self, Selection};
+    use crate::av::sources::SourceSpec;
+    use crate::av::test_support::{noop_log, setup_av_home, write_skill};
+    use std::collections::BTreeMap;
+
+    /// 走 `av skill sync` 的真实分发路径（`cli::run` 把 Err 映射为退出码 1）。
+    fn dispatch_sync(project: &Path, extra: &[&str]) -> Result<(), String> {
+        let mut argv: Vec<String> = vec!["skill".into(), "sync".into()];
+        argv.push(project.to_string_lossy().into_owned());
+        argv.extend(extra.iter().map(|flag| (*flag).to_string()));
+        super::super::dispatch(&argv)
+    }
+
+    /// 递归快照目录树（相对路径 → 文件内容），用于断言「一字未动」。
+    fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        fn walk(dir: &Path, root: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, root, out);
+                } else {
+                    out.insert(
+                        path.strip_prefix(root).unwrap().to_path_buf(),
+                        fs::read(&path).unwrap(),
+                    );
+                }
+            }
+        }
+        let mut out = BTreeMap::new();
+        walk(root, root, &mut out);
+        out
+    }
+
+    /// 写一个声明项目：`.git`（项目根标记）+ agent.toml（use）+ 同层 agent.lock。
+    fn write_project(home: &Path, names: &[&str], lock_entries: &[SkillLockEntry]) -> PathBuf {
+        let project = home.join("project");
+        fs::create_dir_all(project.join(".git")).unwrap();
+        let use_list = names
+            .iter()
+            .map(|name| format!("\"{name}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        fs::write(
+            project.join("agent.toml"),
+            format!("schema = 1\n\n[resources.skills]\nuse = [{use_list}]\n"),
+        )
+        .unwrap();
+        let mut lock = SkillLock::empty();
+        for entry in lock_entries {
+            lock.set_entry(entry.clone());
+        }
+        lock.write(&project.join(store::SKILL_LOCK_FILENAME))
+            .unwrap();
+        project
+    }
+
+    #[test]
+    fn sync_clean_rematerialize_repair_and_strict_lock() {
+        let (home, _guard) = setup_av_home("cli-sync");
+
+        // 先装进 store（装 ≠ 启用），再用索引记录写 agent.lock
+        let source = home.join("source");
+        write_skill(&source, "pdf", "body");
+        let spec = SourceSpec::Local {
+            path: fs::canonicalize(&source).unwrap(),
+        };
+        let report =
+            install::install_source(&spec, &Selection::All, false, &mut noop_log()).unwrap();
+        let entry = report.installed[0].entry.clone();
+        let content_dir = report.installed[0].dir.clone();
+        let project = write_project(&home, &["pdf"], std::slice::from_ref(&entry));
+
+        // (a) 干净同步：全部就绪 = no-op，退出成功且 store / 锁一字未动
+        let before = snapshot(&home);
+        assert!(dispatch_sync(&project, &[]).is_ok());
+        assert_eq!(snapshot(&home), before, "干净同步不得写任何文件");
+
+        // (b) 内容缺失 → 按锁复现（退出成功，内容哈希回到一致）
+        assert!(store::remove_version("pdf", &entry.content_hash).unwrap());
+        assert!(dispatch_sync(&project, &["--yes"]).is_ok());
+        assert_eq!(store::verify_entry(&entry).unwrap(), VerifyOutcome::Ok);
+        assert!(content_dir.join("SKILL.md").is_file());
+
+        // (c) 内容漂移：默认拒绝（非零退出）且不动 store
+        fs::write(content_dir.join("SKILL.md"), "tampered").unwrap();
+        let before = snapshot(&home);
+        let error = dispatch_sync(&project, &[]).unwrap_err();
+        assert!(error.contains("--repair"), "{error}");
+        assert_eq!(snapshot(&home), before, "拒绝漂移时不得写 store");
+        // --dry-run --repair 只预告、不落盘
+        assert!(dispatch_sync(&project, &["--dry-run", "--repair"]).is_ok());
+        assert_eq!(snapshot(&home), before, "dry-run 不得写 store");
+        // --repair --yes：先删漂移目录再复现
+        assert!(dispatch_sync(&project, &["--repair", "--yes"]).is_ok());
+        assert_eq!(store::verify_entry(&entry).unwrap(), VerifyOutcome::Ok);
+
+        // (d) use 里的名字不在锁里：非零退出，store 不动（CLI 的严格锁契约）
+        let project = write_project(&home, &["pdf", "writer"], std::slice::from_ref(&entry));
+        let before = snapshot(&home);
+        let error = dispatch_sync(&project, &[]).unwrap_err();
+        assert!(
+            error.contains("writer") && error.contains("未在"),
+            "{error}"
+        );
+        assert_eq!(snapshot(&home), before, "锁不齐时不得动 store");
+
+        // (e) 锁文件缺失：CLI 硬错误（面板路径才允许从索引补锁）
+        fs::remove_file(project.join(store::SKILL_LOCK_FILENAME)).unwrap();
+        let error = dispatch_sync(&project, &[]).unwrap_err();
+        assert!(error.contains("缺少解析锁"), "{error}");
+
+        let _ = fs::remove_dir_all(home);
+    }
 }
