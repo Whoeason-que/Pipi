@@ -15,9 +15,6 @@ import { useResizableWidth } from "./resizable";
 import type { SessionRuntime } from "./session-runtime";
 import type { AgentDefinition, ModelConfig, ProviderConfig, SessionInfoView } from "./types";
 
-export type { MessageView } from "./chat-runtime";
-
-
 interface ChatViewProps {
   agent: AgentDefinition;
   providers: ProviderConfig[];
@@ -28,7 +25,7 @@ interface ChatViewProps {
   onBack: () => void;
   onError: (msg: string) => void;
   onNewSession: (previousSessionId?: string) => Promise<boolean>;
-  onRunningChange: (agentName: string, sessionId: string | null, running: boolean) => void;
+  onRunningChange: () => void;
   /** 新会话：传 null 表示无会话；分叉/重建后传新的会话信息以同步侧栏高亮。 */
   onSessionReset: (info?: SessionInfoView | null) => void;
   /** 设置工作台复用同一套对话状态机，但不暴露正式会话专属操作。 */
@@ -175,8 +172,8 @@ export default function ChatView({
   }, [input]);
 
   useEffect(() => {
-    onRunningChange(agent.name, sessionId, running);
-  }, [agent.name, onRunningChange, sessionId, running]);
+    onRunningChange();
+  }, [onRunningChange, running]);
 
   const handleScroll = () => {
     const list = listRef.current;
@@ -196,7 +193,6 @@ export default function ChatView({
   const resolveApproval = (decision: ApprovalDecisionValue) => {
     void controller.resolveApproval(decision).catch(error => onError(formatRuntimeError(error)));
   };
-  const previewDetail = (id: string) => setPreviewChip(id);
   const clearPreviewDetail = () => setPreviewChip(null);
   const togglePinnedDetail = (id: string) => {
     setPinnedChip(current => current === id ? null : id);
@@ -353,7 +349,7 @@ export default function ChatView({
             </div>
           )}
           <ChatTimeline blocks={blocks} activeChipId={activeChipId} pinnedChip={pinnedChip}
-            previewDetail={previewDetail} clearPreviewDetail={clearPreviewDetail} togglePinnedDetail={togglePinnedDetail} />
+            previewDetail={setPreviewChip} clearPreviewDetail={clearPreviewDetail} togglePinnedDetail={togglePinnedDetail} />
         </div>
 
         <div className="composer">
@@ -462,20 +458,7 @@ export default function ChatView({
           {renderInspector(inspectorContext)}
         </aside>
       ) : (
-        <Inspector
-          agent={agent}
-          sessionId={sessionId}
-          entries={entries}
-          stats={stats}
-          running={running}
-          sessionModel={sessionModel}
-          isCustomModel={isCustomModel}
-          blockedCount={blockedSessionIds.length}
-          chipDetail={activeChip}
-          chipDetailMode={previewChip ? "preview" : "pinned"}
-          onUnpinChip={() => setPinnedChip(null)}
-          onCompact={compactNow}
-        />
+        <Inspector context={inspectorContext} onCompact={compactNow} />
       )}
 
       {narrow && inspectorOpen && (

@@ -1,12 +1,8 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  formatTokens,
-  type ChatEntry,
-  type Chip
-} from "../chat-runtime";
-import type { AgentDefinition, ModelConfig, SessionStatsView } from "../types";
+import { formatTokens } from "../chat-runtime";
 
+import { BASH_MODE_LABELS } from "../agents/agent-fields";
 import type { ChatInspectorContext } from "./inspector-context";
 import { ChipDetailPane } from "./ToolDetails";
 const WRITE_TOOLS = new Set(["write", "edit"]);
@@ -15,18 +11,8 @@ const WRITE_TOOLS = new Set(["write", "edit"]);
 type InspectorTab = "detail" | "stats" | "state" | "files";
 
 interface InspectorProps {
-  agent: AgentDefinition;
-  sessionId: string | null;
-  entries: ChatEntry[];
-  stats: SessionStatsView | null;
-  running: boolean;
-  sessionModel: ModelConfig | null;
-  isCustomModel: boolean;
-  blockedCount: number;
-  /** 被选中的标签组（悬浮预览或固定）；null 表示没有选中项。 */
-  chipDetail: Chip | null;
-  chipDetailMode: "preview" | "pinned";
-  onUnpinChip: () => void;
+  /** 会话投影快照（见 `inspector-context`）：正式会话与设置工作台的测试页共用。 */
+  context: ChatInspectorContext;
   /** 手动压缩当前会话（「状态」tab 的「立即压缩」按钮）。 */
   onCompact: () => void;
   embedded?: boolean;
@@ -41,29 +27,26 @@ const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "files", label: "文件变更" },
 ];
 
-const BASH_MODE_TEXT: Record<string, string> = {
-  allowAll: "全部允许",
-  allowlist: "白名单",
-  denylist: "黑名单",
-};
-
 export default function Inspector({
-  agent,
-  sessionId,
-  entries,
-  stats,
-  running,
-  sessionModel,
-  isCustomModel,
-  blockedCount,
-  chipDetail,
-  chipDetailMode,
-  onUnpinChip,
+  context,
   onCompact,
   embedded = false,
   allowCompact = true,
   temporary = false,
 }: InspectorProps) {
+  const {
+    agent,
+    sessionId,
+    entries,
+    stats,
+    running,
+    sessionModel,
+    isCustomModel,
+    blockedCount,
+    chipDetail,
+    chipDetailMode,
+    onUnpinChip,
+  } = context;
   const [tab, setTab] = useState<InspectorTab>("stats");
   // 正在压缩：压缩条目在收尾前是 transient（见 chat-runtime 的 compaction_start）
   const compacting = entries.some((entry) => entry.kind === "compaction" && entry.transient);
@@ -419,7 +402,7 @@ export default function Inspector({
               <div className="kv-row">
                 <span className="k">bash</span>
                 <span className="v mono">
-                  {BASH_MODE_TEXT[agent.permissions.bash.mode] ?? agent.permissions.bash.mode}
+                  {BASH_MODE_LABELS[agent.permissions.bash.mode] ?? agent.permissions.bash.mode}
                   <span className="dim">
                     {agent.permissions.bash.mode !== "allowAll"
                       ? ` · ${agent.permissions.bash.commands.length} 条`
@@ -487,25 +470,3 @@ export default function Inspector({
   );
 }
 
-/** 设置工作台「测试」页复用正式会话检查器的数据解释与展示。 */
-export function SessionDiagnostics({ context }: { context: ChatInspectorContext }) {
-  return (
-    <Inspector
-      agent={context.agent}
-      sessionId={context.sessionId}
-      entries={context.entries}
-      stats={context.stats}
-      running={context.running}
-      sessionModel={context.sessionModel}
-      isCustomModel={context.isCustomModel}
-      blockedCount={context.blockedCount}
-      chipDetail={context.chipDetail}
-      chipDetailMode={context.chipDetailMode}
-      onUnpinChip={context.onUnpinChip}
-      onCompact={() => {}}
-      embedded
-      allowCompact={false}
-      temporary
-    />
-  );
-}

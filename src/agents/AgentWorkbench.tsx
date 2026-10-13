@@ -8,7 +8,7 @@ import ChatView from "../Chat";
 import {
   formatRuntimeError
 } from "../chat-runtime";
-import { SessionDiagnostics } from "../chat/Inspector";
+import Inspector from "../chat/Inspector";
 import {
   IconBack
 } from "../icons";
@@ -41,7 +41,7 @@ interface AgentWorkbenchProps {
   onError: (msg: string) => void;
   blockedSessionIds: string[];
   sessions: SessionRuntime;
-  onRunningChange: (agentName: string, sessionId: string | null, running: boolean) => void;
+  onRunningChange: () => void;
 }
 
 type AgentSettingsTab = "basic" | "permissions" | "skills" | "files" | "test";
@@ -511,7 +511,9 @@ export default function AgentWorkbench({
               </section>
             )}
 
-            {settingsTab === "test" && <SessionDiagnostics context={context} />}
+            {settingsTab === "test" && (
+              <Inspector context={context} onCompact={() => {}} embedded allowCompact={false} temporary />
+            )}
           </div>
 
           {(settingsTab === "basic" || settingsTab === "permissions") && (

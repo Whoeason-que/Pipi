@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatRuntimeError } from "../chat-runtime";
+import { formatRuntimeError, isAuthSilentError } from "../chat-runtime";
 import { invoke } from "../platform";
 import type { AgentDefinition, SessionSummaryView } from "../types";
 
@@ -77,15 +77,8 @@ export function useSessionList(
       setError(null);
     } catch (errorValue) {
       if (requestId === agentRequestRef.current) {
-        if (
-          errorValue
-          && typeof errorValue === "object"
-          && (errorValue as { isAuthError?: boolean }).isAuthError
-        ) {
-          return;
-        }
-        const formatted = formatRuntimeError(errorValue);
-        if (formatted !== "需要 PIPI_AUTH_TOKEN") setError(formatted);
+        if (isAuthSilentError(errorValue)) return;
+        setError(formatRuntimeError(errorValue));
       }
     }
   }, [setError]);
@@ -95,8 +88,8 @@ export function useSessionList(
       const next = await invoke("list_archived_agents");
       setArchivedAgents(next);
     } catch (errorValue) {
-      const formatted = formatRuntimeError(errorValue);
-      if (formatted !== "需要 PIPI_AUTH_TOKEN") setError(formatted);
+      if (isAuthSilentError(errorValue)) return;
+      setError(formatRuntimeError(errorValue));
     }
   }, [setError]);
 

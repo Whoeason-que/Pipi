@@ -130,12 +130,8 @@ function webApiBase(): string {
   return (configured || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/+$/, "");
 }
 
-function webToken(): string | null {
-  return getStoredToken();
-}
-
 function webHeaders(): HeadersInit {
-  const token = webToken();
+  const token = getStoredToken();
   return token
     ? { "Content-Type": "application/json", "X-Pipi-Token": token }
     : { "Content-Type": "application/json" };
@@ -231,7 +227,7 @@ async function webInvoke<T>(
 function webEventUrl(): string {
   const url = new URL(webApiBase() + "/api/events");
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  const token = webToken();
+  const token = getStoredToken();
   if (token) url.searchParams.set("token", token);
   return url.toString();
 }

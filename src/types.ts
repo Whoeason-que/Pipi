@@ -31,6 +31,15 @@ export const API_LABELS: Record<ApiKind, string> = {
   "openai-completions": "OpenAI 兼容",
 };
 
+/**
+ * 「固定模式不会自动改写」的统一提示文案：目录标注的协议与钉死的协议冲突时，
+ * 模型选择器（ModelPicker）与聊天里的换模型弹窗共用同一句。
+ */
+export function pinnedProtocolHint(conflict: ApiKind, providerApi: ApiKind): string {
+  return `目录标注该模型走 ${API_LABELS[conflict]} 协议，但此提供商的协议已固定为 `
+    + `${API_LABELS[providerApi]}：固定模式不会自动改写，改为「自动」即可按模型选择。`;
+}
+
 export interface BashPermissions {
   mode: BashMode;
   commands: string[];

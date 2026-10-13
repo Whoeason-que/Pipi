@@ -25,7 +25,6 @@ interface ChoiceProps {
   id?: string;
   placeholder?: string;
   disabled?: boolean;
-  isClearable?: boolean;
   /** 挂在 body 上，避免被弹窗容器裁掉。 */
   menuInPortal?: boolean;
   autoFocus?: boolean;
@@ -58,7 +57,7 @@ export function ChoiceSelect({
   menuInPortal,
   autoFocus,
   ariaLabel,
-}: ChoiceProps) {
+}: ChoiceProps & { isClearable?: boolean }) {
   const all = flatten(choices, groups);
   return (
     <Select<Choice, false>
@@ -89,7 +88,6 @@ export function ChoiceCreatable({
   id,
   placeholder,
   disabled,
-  isClearable,
   menuInPortal,
   ariaLabel,
   createLabel,
@@ -100,7 +98,6 @@ export function ChoiceCreatable({
       classNamePrefix="pipi-select"
       unstyled
       isSearchable
-      isClearable={isClearable}
       isDisabled={disabled}
       placeholder={placeholder}
       aria-label={ariaLabel}

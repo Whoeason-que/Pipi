@@ -12,7 +12,7 @@ import {
 } from "./catalog";
 import { loadCatalog, peekCatalog } from "./catalog-client";
 import { ChoiceCreatable } from "./Select";
-import { API_LABELS, type ProviderConfig } from "./types";
+import { API_LABELS, pinnedProtocolHint, type ProviderConfig } from "./types";
 
 interface ModelPickerProps {
   /** 已配置的供应商（settings.providers） */
@@ -108,10 +108,7 @@ export function ModelPicker({
         </span>
       )}
       {pinnedConflict && (
-        <span className="hint">
-          目录标注该模型走 {API_LABELS[pinnedConflict]} 协议，但此提供商的协议已固定为{" "}
-          {API_LABELS[providerApi]}：固定模式不会自动改写，改为「自动」即可按模型选择。
-        </span>
+        <span className="hint">{pinnedProtocolHint(pinnedConflict, providerApi)}</span>
       )}
     </div>
   );

@@ -89,16 +89,14 @@ export interface SessionEventMeta {
   runId: number;
 }
 
-export interface AgentEventEnvelope extends SessionEventMeta {
-  event: AgentEvent;
-}
-
 /**
  * 宿主事件载荷。**所有**事件都带身份 envelope（agentName / sessionId / runId）——
  * 曾经容忍过「裸事件」的旧宿主形状，2026-10-05 随兼容层一起删除；两个宿主
  * （Tauri / Web）与演示模式都只发 envelope。
  */
-export type AgentEventPayload = AgentEventEnvelope;
+export interface AgentEventPayload extends SessionEventMeta {
+  event: AgentEvent;
+}
 
 export type SessionStatsPayload = SessionEventMeta & { stats: SessionStatsView };
 
@@ -271,7 +269,7 @@ function firstToolCallId(message: MessageView): string | undefined {
 /** 历史里的「压缩摘要」消息：回放出的首条 User 消息就是它（见 Rust 侧
  * `session::summary_message`）。重开会话时把它还原成折叠条目，而不是一条
  * 裸露的用户气泡。 */
-export function extractCompactionSummary(message: MessageView): string | null {
+function extractCompactionSummary(message: MessageView): string | null {
   if (message.role !== "user" || typeof message.content !== "string") return null;
   const match = /^<compaction summary>\n([\s\S]*?)\n<\/compaction summary>\s*$/.exec(
     message.content,
@@ -335,7 +333,7 @@ export function formatTokens(value: number | undefined): string {
  *
  * `usage.input` 只计未命中部分 —— provider 适配层已按 pi 口径归一化
  * （见 Rust 侧 types::Usage 与 provider::from_rig_usage），这里不要再自行相加。 */
-export function promptTokens(usage: UsageView): number {
+function promptTokens(usage: UsageView): number {
   return usage.input + usage.cacheRead + usage.cacheWrite;
 }
 
@@ -362,6 +360,18 @@ export function formatRuntimeError(error: unknown): string {
     if (typeof message === "string" && message.trim()) return message;
   }
   return "未知错误";
+}
+
+/**
+ * 认证类错误的统一静默口径：登录态由 `authStatus` 呈现（Web 宿主会引导登录），
+ * 不在错误条里重复。宿主缺 token 时既带 `isAuthError` 标记、消息也是这一句
+ * （见 `platform.ts`），两种形状都要认。
+ */
+export function isAuthSilentError(error: unknown): boolean {
+  if (error && typeof error === "object" && (error as { isAuthError?: boolean }).isAuthError) {
+    return true;
+  }
+  return formatRuntimeError(error) === "需要 PIPI_AUTH_TOKEN";
 }
 
 function sameMessage(left: ChatEntry, message: MessageView): boolean {

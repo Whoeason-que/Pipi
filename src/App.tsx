@@ -10,7 +10,7 @@ import { useSessionList } from "./app/use-session-list";
 import { useSessionNavigation } from "./app/use-session-navigation";
 import { useSettings } from "./app/use-settings";
 import ChatView from "./Chat";
-import { formatRuntimeError } from "./chat-runtime";
+import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
 import EmptyState from "./components/EmptyState";
 import { IconClose, IconMenu } from "./icons";
@@ -229,15 +229,8 @@ export default function App() {
       })
       .catch((errorValue) => {
         if (!active) return;
-        if (
-          errorValue
-          && typeof errorValue === "object"
-          && (errorValue as { isAuthError?: boolean }).isAuthError
-        ) {
-          return;
-        }
-        const formatted = formatRuntimeError(errorValue);
-        if (formatted !== "需要 PIPI_AUTH_TOKEN") safeSetError(formatted);
+        if (isAuthSilentError(errorValue)) return;
+        safeSetError(formatRuntimeError(errorValue));
       });
     return () => {
       active = false;

@@ -15,7 +15,7 @@ import {
 } from "../chat-runtime";
 import { ModelPicker } from "../ModelPicker";
 import { ChoiceSelect } from "../Select";
-import { API_LABELS, type ModelConfig, type ProviderConfig } from "../types";
+import { API_LABELS, pinnedProtocolHint, type ModelConfig, type ProviderConfig } from "../types";
 
 
 // ============ 会话模型选择 ============
@@ -236,10 +236,7 @@ export default function ModelSelectModal({
                   </div>
                 )}
                 {pinnedConflict && (
-                  <div className="hint">
-                    目录标注该模型走 {API_LABELS[pinnedConflict]} 协议，但此提供商的协议已固定为{" "}
-                    {API_LABELS[providerApi]}：固定模式不会自动改写，改为「自动」即可按模型选择。
-                  </div>
+                  <div className="hint">{pinnedProtocolHint(pinnedConflict, providerApi)}</div>
                 )}
               </div>
             ) : (
