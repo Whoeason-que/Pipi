@@ -39,9 +39,9 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 ├── settings.json       # 全局设置：主题、模型提供商（密钥支持环境变量引用）
 └── agents/my-agent/
     ├── agent.json          # Agent 清单：模型、工作目录、权限、沙箱、压缩阈值、提示词策略、MCP 服务器等
-    ├── agent.toml          # 环境契约（av 标准）：env 声明、工具链断言、资源覆盖（可选）
+    ├── agent.toml          # 环境契约（av 标准，必需）：env / 工具链断言 / Agent 侧素材路径声明
     ├── agent.lock          # 技能解析锁：use 声明过的技能 → 精确修订 + 内容哈希（可选）
-    ├── harness/            # 系统提示词素材（由 agent.json 的 systemPrompt 策略决定是否取材）
+    ├── harness/            # 契约声明的素材目录（默认位置；由 systemPrompt 策略决定是否取材）
     │   ├── AGENTS.md       #   系统级指令，每次运行注入上下文
     │   ├── skills/         #   技能包（SKILL.md + 随附文件）
     │   │   └── git-safety/
@@ -91,10 +91,10 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | --- | --- | --- |
 | 工作目录 | `agent.json` → `workspace` | Agent 可操作的文件系统范围，可指向任意本地项目（如 `~/projects/my-app`），缺省为 Agent 目录内的 `workspace/` |
 | 模型 | `agent.json` → `provider` | OpenAI / Anthropic 兼容 API（流式）；`model` 字段仅作展示标签 |
-| 系统指令 | `harness/AGENTS.md` | 人直接读写的 Markdown，每次运行注入为系统提示（是否取材由 `systemPrompt` 策略决定） |
-| 技能 | `harness/skills/<name>/SKILL.md`；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
-| 记忆 | `harness/memory/*.md` | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
-| 系统提示词策略 | `agent.json` → `systemPrompt` | `both`（默认：Pipi 侧 + 工作区侧）/ `agent`（只取 `harness/`）/ `workspace`（只取项目上下文）/ `none`（完全不发 system 消息，只发对话与工具定义）。策略只影响提示词：权限、沙箱、env 与受信任读取根不受影响，`workspace` 策略的 Agent 照样能用 memory 工具读写 `harness/memory/` |
+| 系统指令 | `agent.toml` → `[resources].instructions` 声明的文件（默认 `harness/AGENTS.md`） | 人直接读写的 Markdown，每次运行注入为系统提示（是否取材由 `systemPrompt` 策略决定） |
+| 技能 | `agent.toml` → `[resources.skills].sources` 声明的目录（默认 `harness/skills/`）；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
+| 记忆 | `agent.toml` → `[resources].memory` 声明的目录（默认 `harness/memory/`） | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
+| 系统提示词策略 | `agent.json` → `systemPrompt` | `both`（默认：Pipi 侧 + 工作区侧）/ `agent`（只取 Agent 侧素材）/ `workspace`（只取项目上下文）/ `none`（完全不发 system 消息，只发对话与工具定义）。策略只影响提示词：权限、沙箱、env 与受信任读取根不受影响，`workspace` 策略的 Agent 照样能用 memory 工具读写契约声明的记忆目录 |
 | 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查；Allowlist 模式下白名单外的非危险命令可交互审批救回（拒绝 / 允许一次 / 总是允许——按段写回白名单），黑名单命中、危险命令与沙箱约束不可审批 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、写入文件系统的重定向（`>` `>>` `2>文件`）与从文件读入的重定向（`<文件` `<(cmd)`）在非完全访问下被拒绝。`rm -f` 家族只放行「工作区内、非仓库根 / 工作区根」的绝对路径字面量；`2>/dev/null`、`2>&1`、管道与 heredoc 不受限 |
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |
@@ -103,7 +103,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 压缩后目标 | `agent.json` → `compactTargetPercent` | 可选的压缩后上下文目标，占本次压缩前估算 token 的百分比（1–99）；未设置时仍保留最多 2 万 token 近期原文，避免改变旧 Agent 行为 |
 | 请求重试 | `settings.json` → `retry` | 可重试错误的重发策略：`maxAttempts`（含首次，1 = 不重试）/ `baseDelayMs` / `maxDelayMs`；默认 3 次尝试、1s 起指数退避、30s 封顶、25% 抖动，尊重 `Retry-After` |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
-| 环境契约 | `agent.toml`（项目根 / Agent 定义目录）+ `agent.local.toml` + `agent.lock` | av 标准：env 声明、工具链断言、资源覆盖与技能包管理（`av skill`）；会话启动解析一次，秘密值永不内联 |
+| 环境契约 | `agent.toml`（Agent 定义目录，**必需**；项目根可选）+ `agent.local.toml` + `agent.lock` | av 标准：env 声明、工具链断言、资源覆盖与技能包管理（`av skill`）；**Agent 层契约还负责编排 Agent 侧素材的路径**（`instructions` / `memory` / `skills.sources` 三项必须显式声明，`[]` = 不要），项目层不得声明 `memory`；会话启动解析一次，秘密值永不内联 |
 | 会话 | `sessions.git/`（git 分支） | 一轮一个 commit，一条 entry 一个文件（内容就是那一行 JSON）；压缩＝新建分支、`git log` 即对话。旧 `sessions/*.jsonl` 会话照旧可读可续写，导入后迁到 git（Agent 工作台「文件」页） |
 | 后台任务 | `jobs/<job-id>.jsonl` + `.log` | shell 进程与 child Agent 的生命周期、状态和输出；任务按 Agent/session 所有，重启只显示 orphaned，不按旧 PID 或 future 自动接管 |
 
@@ -119,8 +119,9 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 ### Agent 设置工作台与临时测试
 
 点击 Agent 名称或齿轮会进入设置工作台：中间是复用正式会话交互链路的测试对话，
-右侧收纳模型、工作目录、权限、技能、Agent 文件和运行诊断。测试只读取**已经保存**的
-`agent.json`、`harness/AGENTS.md`、`harness/memory/*.md` 与技能声明（`agent.toml` + `agent.lock`）；
+右侧收纳模型、工作目录、提示词策略、权限、技能、Agent 文件和运行诊断。测试只读取
+**已经保存**的 `agent.json`、`agent.toml`、契约声明的指令与记忆文件、以及技能声明
+（`agent.lock`）；
 保存配置或文件后会换成一个新的空测试上下文。
 
 右栏的**技能**页管理这个 Agent 声明启用的 store 技能：启用 / 禁用、解析状态
@@ -177,8 +178,8 @@ Agent 可以通过三项显式工具组合已有 Agent：
 
 - `create_agent`：用结构化参数创建一个持久的 Agent，并将 `agent.json` 的
   `subagent` 设为 `true`；模型、工作目录、沙箱和基础工具从调用者继承，
-  `instructions` 写入新 Agent 的 `harness/AGENTS.md`，并建好 `harness/` 骨架。
-  设置界面可将它改回普通 Agent。
+  `instructions` 写入新 Agent 的 `harness/AGENTS.md`，并写好 `agent.toml`
+  （默认契约：三项素材位置）与 `harness/` 骨架。设置界面可将它改回普通 Agent。
   新 Agent 不继承三项 Agent 组合工具。
 - `run_agent`：在目标 Agent 下创建一个全新 session。若当前 Agent 同时启用了
   `query_background_tasks` 与 `manage_background_task`，默认提交为托管后台任务并
@@ -495,15 +496,29 @@ GITHUB_TOKEN = { file = "~/.pipi/secrets/gh.token" }
 command = "node"
 version = ">=20"
 
-[resources]                           # 资源覆盖：只允许路径，绝不内联正文
-instructions = ["harness/AGENTS.md"]  # 三态：缺席=约定发现 | 列表=完全替换 | []=禁用
+[resources]                           # 素材路径：只允许路径，绝不内联正文
+instructions = ["harness/AGENTS.md"]  # 指令文件列表；[]=不要
+memory = "harness/memory"             # 记忆目录（只有 Agent 层能声明）
 max-bytes = 16384                     # 项目层字节预算（缺省 16KiB）
 [resources.skills]
-sources = [".pi/skills"]              # 按层替换约定目录
+sources = [".pi/skills"]              # 技能来源目录；[]=不要
 use = ["pdf", "commit-helper"]        # 启用全局 store（~/.av/skills）里已安装的技能
 only = ["git-safety", "review-*"]     # 按技能名 glob 白名单
 exclude = ["experimental-*"]          # 黑名单（优先于 only）
 ```
+
+**Agent 层是必需的，且由它编排 Agent 侧素材**：`~/.pipi/agents/<name>/agent.toml`
+必须存在，`[resources].instructions`、`[resources].memory` 与
+`[resources.skills].sources` 三项都要显式写（`[]` 表示这一项不要）；缺文件、缺段、
+缺任一项，或声明的路径 canonicalize 后落在 Agent 目录之外，一律 fail-closed 并给出
+补法。路径相对**声明它的契约文件**所在目录解析（`~` 可展开），所以换布局 = 改契约，
+不用改代码 —— 未来再迁素材位置时，改默认模板与存量契约即可。
+
+**项目层保持三态**（别人的仓库不该被强制带契约）：`instructions` / `sources`
+缺席 = 按约定发现（项目根到 cwd 的 `AGENTS.md` 链、`<workspace>/.pi/skills`），
+列表 = 完全替换，`[]` = 禁用。但**项目层不得声明 `memory`**：记忆目录是 Agent
+的写入位置，克隆来的仓库不能把它指到仓库里（与「项目层不得声明身份与权限段」
+同一取向，声明即硬错误）。
 
 ### 技能包管理（av skill）
 
@@ -534,7 +549,8 @@ exclude = ["experimental-*"]          # 黑名单（优先于 only）
 
 与 pi / codex 的既有约定对齐：项目层文件与 AGENTS.md 同属"随仓库走的
 指令"，但**项目层文件不得声明身份与权限段**（`[model]`、`[permissions]`、
-`[tools]`、`[mcp.*]` 出现即硬错误）——克隆来的仓库不能放宽沙箱或更换模型；
+`[tools]`、`[mcp.*]` 出现即硬错误）**也不得声明记忆目录**（`[resources].memory`）——
+克隆来的仓库不能放宽沙箱、更换模型，也不能改 Agent 的记忆写入位置；
 改动只发生在用户自己的 Agent 定义文件里。
 
 应用内的**技能库**（图标栏「技能」）与 Agent 工作台的「技能」页是这套机制的

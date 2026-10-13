@@ -133,16 +133,20 @@ src/                 React + TypeScript 前端
   偶发失败）。**读取方同样要持锁**：断言 `~/.pipi/agents/...` 这类派生路径的
   用例若在别人改 HOME 的中途读取，会看到跨状态的结果。
 - Agent 数据根目录是 `~/.pipi/agents/<name>/`，结构见 README；不要把 Agent 状态存到别处。
-  **系统提示词素材固定落在 `<Agent 目录>/harness/`**（`AGENTS.md` / `memory/` / `skills/`，
-  路径常量与 helper 在 `pipi-venv/src/agents/paths.rs`，不要在别处手写 `join("memory")`），
-  Agent 根只放清单（`agent.json` / `agent.toml` / `agent.lock`）与运行态（`workspace/`、
-  `sessions*`、`jobs/`）。`.pi/skills` 是**工作区侧**的约定目录，与 `harness/skills` 不是一回事；
-  `.agents/` 不是任何默认约定（只有契约 `[resources.skills] sources` 显式声明才读）。
+  **Agent 侧素材（指令 / 记忆 / 技能来源）的路径权威在 `agent.toml`**：agent 层契约必需，
+  `[resources].instructions`、`[resources].memory`、`[resources].skills.sources` 三项必须显式
+  声明（`[]` = 这一项不要），缺契约 / 缺段 / 缺项 / 路径 canonicalize 后逃出 Agent 目录，
+  一律 fail-closed。解析只有一处 —— `pipi-venv/src/agents/contract.rs` 的 `agent_material`；
+  提示词、工具上下文（记忆目录与技能读取根）、文件编辑器都走它，**不要在别处拼 `harness/`
+  或手写 `join("memory")`**。`harness/` 只是 `DEFAULT_AGENT_CONTRACT` 里的默认值：
+  换布局 = 改模板 + 改存量契约，不动组装逻辑（`create_agent` 与 `skills::enable` 共用同一份模板）。
+  **项目层不得声明 `[resources].memory`**（`merge_layers` 按 `LayerKind` 判，克隆来的仓库
+  不能改 Agent 的记忆写入位置）；`.pi/skills` 是**工作区侧**的约定目录，与 Agent 侧不是一回事；
+  `.agents/` 不是任何默认约定（只有契约 `sources` 显式声明才读）。文件编辑器允许的相对路径、
+  `list_agent_files` 的 wire 形状（`instructions` / `memory` / `memoryPrefix`）也都从契约派生。
   `agent.json` 的 `systemPrompt` 策略（`both` / `agent` / `workspace` / `none`）**只决定哪一侧
   的素材进系统提示**：env、权限、沙箱与受信任读取根一律与它无关，别把策略判断塞进
-  `build_tool_context`；`none` 走「组装返回空串、`stream.rs` 的 `!is_empty()` 不发 system」
-  这条路。`harness/` 缺席不报错（约定发现没有文件就是没有上下文），只有契约里显式声明的
-  路径缺失才 fail-closed。
+  `build_tool_context`；`none` 走「组装返回空串、`stream.rs` 的 `!is_empty()` 不发 system」。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息用用户可读的中文。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
   - react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，
