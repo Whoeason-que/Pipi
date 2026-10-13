@@ -32,8 +32,8 @@ pub use drive::run_agent_loop;
 use stream::stream_assistant_response;
 use tools::{execute_tool_calls, fail_truncated_tool_calls};
 pub use types::{
-    AgentContext, AgentEvent, AgentLoopConfig, BeforeToolCallHook, BeforeToolCallOutcome, Emitter,
-    MessageQueue, ToolExecutionMode, TransformContextHook,
+    AgentContext, AgentEvent, AgentLoopConfig, Emitter, MessageQueue, ToolExecutionMode,
+    TransformContextHook,
 };
 
 #[cfg(test)]
@@ -135,7 +135,6 @@ mod tests {
         vec![
             StreamEvent::Start,
             StreamEvent::ToolCallEnd {
-                content_index: 0,
                 call: call.clone(),
             },
             StreamEvent::Done {
@@ -182,7 +181,6 @@ mod tests {
     fn prose_then_error_turn(text: &str, message: &str) -> Vec<StreamEvent> {
         vec![
             StreamEvent::TextDelta {
-                content_index: 0,
                 delta: text.into(),
             },
             StreamEvent::Error {
@@ -197,7 +195,6 @@ mod tests {
     fn prose_then_protocol_mismatch_turn(text: &str, message: &str) -> Vec<StreamEvent> {
         vec![
             StreamEvent::TextDelta {
-                content_index: 0,
                 delta: text.into(),
             },
             StreamEvent::Error {
@@ -212,12 +209,10 @@ mod tests {
     fn truncated_tool_turn(message: &str) -> Vec<StreamEvent> {
         vec![
             StreamEvent::ToolCallStart {
-                content_index: 0,
                 id: "t1".into(),
                 name: "count".into(),
             },
             StreamEvent::ToolCallDelta {
-                content_index: 0,
                 delta: "{\"n\": 1".into(),
             },
             StreamEvent::Error {
@@ -301,7 +296,6 @@ mod tests {
     fn test_config(
         provider: Arc<dyn Provider>,
         tools: Arc<ToolRegistry>,
-        before: Option<BeforeToolCallHook>,
     ) -> AgentLoopConfig {
         AgentLoopConfig {
             model: test_model(),
@@ -327,8 +321,6 @@ mod tests {
             // 协议协商默认关（等价于用户把提供商协议钉死）：需要协商的用例自己开
             tool_execution: ToolExecutionMode::Sequential,
             steering: MessageQueue::new(),
-            follow_up: MessageQueue::new(),
-            before_tool_call: before,
             transform_context: None,
         }
     }
@@ -351,7 +343,7 @@ mod tests {
             sink2.lock().unwrap().push(event);
         });
 
-        let config = test_config(provider, registry, None);
+        let config = test_config(provider, registry);
         let new_messages = run_agent_loop(
             vec![Message::user_text("please count")],
             AgentContext::default(),
@@ -410,7 +402,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -457,7 +449,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -491,7 +483,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (_sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -523,7 +515,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -559,7 +551,7 @@ mod tests {
             stop_turn("换协议后的回复"),
         ]));
         let (sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         config.options.auto_protocol = true;
 
         let messages = run_agent_loop(
@@ -594,7 +586,7 @@ mod tests {
             "流错误: Model does not support this protocol.",
         )]));
         let (sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         config.options.auto_protocol = false;
 
         let messages = run_agent_loop(
@@ -629,7 +621,7 @@ mod tests {
             stop_turn("重放会产生重复文本"),
         ]));
         let (sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         config.options.auto_protocol = true;
 
         let messages = run_agent_loop(
@@ -664,7 +656,7 @@ mod tests {
             protocol_mismatch_turn("流错误: Model does not support this protocol."),
         ]));
         let (sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         config.options.auto_protocol = true;
 
         let messages = run_agent_loop(
@@ -701,7 +693,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         config.retry = fast_retry(3);
 
         let messages = run_agent_loop(
@@ -740,7 +732,7 @@ mod tests {
             call: AtomicUsize::new(0),
         });
         let (sink, emit) = event_sink();
-        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])), None);
+        let mut config = test_config(provider.clone(), Arc::new(ToolRegistry::new(vec![])));
         // 退避 5 秒：若不与 abort 竞速，这个用例会一直等下去
         config.retry = pipi_context::retry::RetryPolicy {
             max_attempts: 5,
@@ -780,49 +772,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn before_hook_can_block_tool() {
-        let registry = Arc::new(ToolRegistry::new(vec![Arc::new(CountTool {
-            calls: Arc::new(Mutex::new(Vec::new())),
-        })]));
-        let provider = Arc::new(ScriptedProvider {
-            turns: vec![tool_use_turn("t1", 1), stop_turn("ok")],
-            call: AtomicUsize::new(0),
-        });
-        let config = test_config(
-            provider,
-            registry,
-            Some(Arc::new(|_call, _args| {
-                Some(BeforeToolCallOutcome {
-                    block: true,
-                    reason: Some("不允许".into()),
-                })
-            })),
-        );
-        let emit: Emitter = Arc::new(|_| {});
-
-        let new_messages = run_agent_loop(
-            vec![Message::user_text("go")],
-            AgentContext::default(),
-            config,
-            emit,
-            AbortSignal::new(),
-        )
-        .await;
-
-        match &new_messages[2] {
-            Message::ToolResult {
-                is_error, content, ..
-            } => {
-                assert!(is_error);
-                assert!(
-                    matches!(&content[0], ToolResultContent::Text { text } if text == "不允许")
-                );
-            }
-            other => panic!("expected blocked toolResult, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
     async fn length_stop_rejects_tool_calls() {
         let registry = Arc::new(ToolRegistry::new(vec![Arc::new(CountTool {
             calls: Arc::new(Mutex::new(Vec::new())),
@@ -843,7 +792,7 @@ mod tests {
             turns: vec![length_turn, stop_turn("retry done")],
             call: AtomicUsize::new(0),
         });
-        let config = test_config(provider, registry, None);
+        let config = test_config(provider, registry);
         let emit: Emitter = Arc::new(|_| {});
 
         let new_messages = run_agent_loop(
@@ -872,12 +821,12 @@ mod tests {
     async fn transform_context_prunes_before_llm_call() {
         use std::sync::atomic::AtomicUsize;
 
-        // 记录 provider 每次看到的请求长度；第一轮结束后推 follow-up
+        // 记录 provider 每次看到的请求长度；第一轮结束后推 steering
         // 强制出现第二次 LLM 调用
         struct RecordingProvider {
             inner: ScriptedProvider,
             seen: Arc<Mutex<Vec<usize>>>,
-            follow_up: MessageQueue,
+            steering: MessageQueue,
         }
         #[async_trait::async_trait]
         impl Provider for RecordingProvider {
@@ -889,7 +838,7 @@ mod tests {
                 abort: AbortSignal,
             ) -> pipi_protocol::provider::EventStream {
                 if self.inner.call.load(Ordering::SeqCst) == 0 {
-                    self.follow_up.push(Message::user_text("follow-up"));
+                    self.steering.push(Message::user_text("steering"));
                 }
                 self.seen.lock().unwrap().push(context.messages.len());
                 self.inner.stream(model, context, options, abort).await
@@ -898,18 +847,18 @@ mod tests {
 
         let registry = Arc::new(ToolRegistry::new(vec![]));
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let follow_up = MessageQueue::new();
+        let steering = MessageQueue::new();
         let provider = Arc::new(RecordingProvider {
             inner: ScriptedProvider {
                 turns: vec![stop_turn("first"), stop_turn("second")],
                 call: AtomicUsize::new(0),
             },
             seen: seen.clone(),
-            follow_up: follow_up.clone(),
+            steering: steering.clone(),
         });
 
-        let mut config = test_config(provider, registry, None);
-        config.follow_up = follow_up;
+        let mut config = test_config(provider, registry);
+        config.steering = steering;
         // 预算很小：第二次调用时历史超限，transform 应裁掉旧轮次
         config.transform_context =
             Some(Arc::new(
@@ -971,7 +920,7 @@ mod tests {
             },
         });
 
-        let mut config = test_config(provider, registry, None);
+        let mut config = test_config(provider, registry);
         config.steering = steering;
         let emit: Emitter = Arc::new(|_| {});
 
@@ -1009,11 +958,9 @@ mod tests {
         vec![
             StreamEvent::Start,
             StreamEvent::ToolCallEnd {
-                content_index: 0,
                 call: call1.clone(),
             },
             StreamEvent::ToolCallEnd {
-                content_index: 1,
                 call: call2.clone(),
             },
             StreamEvent::Done {
@@ -1057,7 +1004,7 @@ mod tests {
             },
             abort: abort.clone(),
         });
-        let mut config = test_config(provider, registry, None);
+        let mut config = test_config(provider, registry);
         config.tool_execution = mode;
         let emit: Emitter = Arc::new(|_| {});
 
@@ -1148,7 +1095,7 @@ mod tests {
             },
             seen: seen.clone(),
         });
-        let config = test_config(provider, registry, None);
+        let config = test_config(provider, registry);
         let emit: Emitter = Arc::new(|_| {});
 
         // 历史里的破损（进程中断留下的中段悬挂）：assistant 带 tool_calls

@@ -107,7 +107,7 @@ pub(super) async fn stream_assistant_response(
                         message: partial(&blocks),
                     });
                 }
-                Some(StreamEvent::TextDelta { delta, .. }) => {
+                Some(StreamEvent::TextDelta { delta }) => {
                     match blocks.last_mut() {
                         Some(ContentBlock::Text { text }) => text.push_str(&delta),
                         _ => blocks.push(ContentBlock::Text { text: delta }),
@@ -117,7 +117,7 @@ pub(super) async fn stream_assistant_response(
                         message: partial(&blocks),
                     });
                 }
-                Some(StreamEvent::ThinkingDelta { delta, .. }) => {
+                Some(StreamEvent::ThinkingDelta { delta }) => {
                     match blocks.last_mut() {
                         Some(ContentBlock::Thinking { thinking, .. }) => thinking.push_str(&delta),
                         _ => blocks.push(ContentBlock::Thinking {
@@ -130,7 +130,7 @@ pub(super) async fn stream_assistant_response(
                         message: partial(&blocks),
                     });
                 }
-                Some(StreamEvent::ToolCallStart { id, name, .. }) => {
+                Some(StreamEvent::ToolCallStart { id, name }) => {
                     blocks.push(ContentBlock::ToolCall {
                         id,
                         name,
@@ -140,13 +140,13 @@ pub(super) async fn stream_assistant_response(
                         message: partial(&blocks),
                     });
                 }
-                Some(StreamEvent::ToolCallDelta { delta, .. }) => {
+                Some(StreamEvent::ToolCallDelta { delta }) => {
                     if let Some(ContentBlock::ToolCall { arguments, .. }) = blocks.last_mut() {
                         let raw = arguments.as_str().map(str::to_string).unwrap_or_default();
                         *arguments = Value::String(format!("{raw}{delta}"));
                     }
                 }
-                Some(StreamEvent::ToolCallEnd { call, .. }) => {
+                Some(StreamEvent::ToolCallEnd { call }) => {
                     if let Some(pos) = blocks
                         .iter()
                         .rposition(|b| matches!(b, ContentBlock::ToolCall { .. }))

@@ -147,19 +147,6 @@ fn prepare_call(call: &ContentBlock, config: &AgentLoopConfig, abort: &AbortSign
             };
         }
     };
-    if let Some(hook) = &config.before_tool_call
-        && let Some(outcome) = hook(call, &args)
-        && outcome.block
-    {
-        return Prepared::Immediate {
-            result: error_output(
-                outcome
-                    .reason
-                    .unwrap_or_else(|| "Tool execution was blocked".into()),
-            ),
-            is_error: true,
-        };
-    }
     if abort.is_aborted() {
         return Prepared::Immediate {
             result: error_output("Operation aborted"),

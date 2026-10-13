@@ -141,13 +141,11 @@ fn track_message_ids(ids: &mut Vec<String>, entry: &SessionEntry) {
 }
 
 mod git;
-mod history;
 mod legacy;
 mod memory;
 
 pub use git::{GitExec, GitSessionRepo, GitSink, entry_path};
-pub use history::load_session;
-pub use legacy::import_legacy_sessions;
+pub use legacy::{import_legacy_sessions, load_session};
 pub use memory::MemoryLog;
 
 #[cfg(test)]

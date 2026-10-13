@@ -186,8 +186,6 @@ async fn drive_run(
         retry: request.retry,
         tool_execution: request.tool_execution,
         steering: session.steering.clone(),
-        follow_up: MessageQueue::new(),
-        before_tool_call: None,
         transform_context: request.budget.map(|budget| {
             Arc::new(move |messages| pipi_context::compaction::project(messages, budget))
                 as crate::agent_loop::TransformContextHook

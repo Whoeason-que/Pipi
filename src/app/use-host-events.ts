@@ -93,15 +93,8 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
     };
     syncRunningRef.current = sync;
     sync();
-    if (runningSessions.size === 0) {
-      return () => {
-        active = false;
-      };
-    }
-    const timer = window.setInterval(sync, 2000);
     return () => {
       active = false;
-      window.clearInterval(timer);
     };
   }, [runningSessions.size]);
 

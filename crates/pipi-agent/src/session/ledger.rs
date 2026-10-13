@@ -64,15 +64,11 @@ pub(super) fn append_terminal(
     reason: StopReason,
 ) -> Result<Vec<Message>, String> {
     let terminal = Message::assistant_error(text, model.display_name(), reason);
-    let history = if let Some(repo) = &session.repo {
-        rebuild_messages(&active_path(&repo.entries(&session.session_id()?)?))
-    } else {
-        session
-            .messages
-            .lock()
-            .expect("session history poisoned")
-            .clone()
-    };
+    let history = session
+        .messages
+        .lock()
+        .expect("session history poisoned")
+        .clone();
     let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
     let mut appended = settle_unanswered_tail(&mut **writer, &history)
         .map_err(|e| format!("无法修复终态前的工具调用: {e}"))?;

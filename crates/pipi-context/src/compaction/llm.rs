@@ -339,8 +339,8 @@ async fn summarize_once(
 
 #[cfg(test)]
 mod tests {
-    use crate::compaction::llm::{LlmSummarize, build_summary_prompt, find_keep_start, summarize};
-    use crate::compaction::{Preparation, StrategyEnv};
+    use crate::compaction::llm::{build_summary_prompt, find_keep_start, summarize};
+    use crate::compaction::{LlmSummarize, Preparation, StrategyEnv};
     use crate::test_support::{assistant_text, tool_result};
     use pipi_protocol::provider::{EventStream, Provider};
     use pipi_protocol::{

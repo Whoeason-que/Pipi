@@ -335,24 +335,19 @@ pub struct Context {
 pub enum StreamEvent {
     Start,
     TextDelta {
-        content_index: usize,
         delta: String,
     },
     ThinkingDelta {
-        content_index: usize,
         delta: String,
     },
     ToolCallStart {
-        content_index: usize,
         id: String,
         name: String,
     },
     ToolCallDelta {
-        content_index: usize,
         delta: String,
     },
     ToolCallEnd {
-        content_index: usize,
         call: ContentBlock,
     },
     Done {

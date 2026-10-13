@@ -96,16 +96,6 @@ pub enum ToolExecutionMode {
     Parallel,
 }
 
-/// `beforeToolCall` 钩子的返回值。block 为 true 时拒绝执行该工具调用。
-#[derive(Debug, Clone)]
-pub struct BeforeToolCallOutcome {
-    pub block: bool,
-    pub reason: Option<String>,
-}
-
-pub type BeforeToolCallHook =
-    Arc<dyn Fn(&ContentBlock, &Value) -> Option<BeforeToolCallOutcome> + Send + Sync>;
-
 /// 上下文变换（pi 的 transformContext 钩子）：每次 LLM 调用前对消息历史
 /// 做变换。运行期恒等（`None`）；历史裁剪由压缩管线的投影承担。
 pub type TransformContextHook = Arc<dyn Fn(Vec<Message>) -> Vec<Message> + Send + Sync>;
@@ -122,8 +112,6 @@ pub struct AgentLoopConfig {
     pub retry: pipi_context::retry::RetryPolicy,
     pub tool_execution: ToolExecutionMode,
     pub steering: MessageQueue,
-    pub follow_up: MessageQueue,
-    pub before_tool_call: Option<BeforeToolCallHook>,
     pub transform_context: Option<TransformContextHook>,
 }
 

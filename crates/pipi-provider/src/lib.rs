@@ -630,7 +630,6 @@ macro_rules! run_with_model {
                     acc.text_delta(part.index(), &text);
                     let _ = tx
                         .send(StreamEvent::TextDelta {
-                            content_index: 0,
                             delta: text,
                         })
                         .await;
@@ -639,7 +638,6 @@ macro_rules! run_with_model {
                     acc.thinking_delta(part.index(), &text);
                     let _ = tx
                         .send(StreamEvent::ThinkingDelta {
-                            content_index: 0,
                             delta: text,
                         })
                         .await;
@@ -649,7 +647,6 @@ macro_rules! run_with_model {
                         acc.tool_call_delta(part.index(), &json);
                         let _ = tx
                             .send(StreamEvent::ToolCallDelta {
-                                content_index: 0,
                                 delta: json,
                             })
                             .await;
@@ -665,7 +662,6 @@ macro_rules! run_with_model {
                     acc.tool_call_end(part.index(), &id, &name, arguments.clone());
                     let _ = tx
                         .send(StreamEvent::ToolCallEnd {
-                            content_index: 0,
                             call: ContentBlock::ToolCall { id, name, arguments },
                         })
                         .await;
