@@ -145,10 +145,22 @@ impl AgentToml {
 }
 
 impl Resources {
-    /// 资源段校验：当前覆盖 `skills.use` 的技能名形状与去重（fail-closed）。
+    /// 资源段校验：`skills.use` 的技能名形状与去重，以及 `memory` 路径的形状
+    /// （fail-closed；路径是否越界由解析时按包含根判定）。
     pub fn validate(&self) -> Result<(), String> {
         if let Some(skills) = &self.skills {
             skills.validate()?;
+        }
+        if let Some(memory) = &self.memory {
+            if memory.trim().is_empty() {
+                return Err("[resources].memory 不能为空（不要记忆目录请删掉这一行）".into());
+            }
+            if memory
+                .split(['/', '\\'])
+                .any(|segment| segment == "..")
+            {
+                return Err(format!("[resources].memory 不能包含 .. ：{memory}"));
+            }
         }
         Ok(())
     }

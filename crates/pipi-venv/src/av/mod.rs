@@ -34,7 +34,7 @@ pub mod sources;
 pub mod store;
 
 pub use discovery::{
-    Discovered, Layer, discover, find_project_root, load_contract_file, resolve_path,
+    Discovered, Layer, LayerKind, discover, find_project_root, load_contract_file, resolve_path,
 };
 pub use merge::{Merged, MergedEnv, merge_layers};
 pub use requires::{check_requires, lookup_command, probe_version, version_satisfies};

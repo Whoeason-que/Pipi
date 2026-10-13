@@ -103,7 +103,11 @@ fn install_enable_disable_and_purge_roundtrip() {
     assert_eq!(view.available.len(), 1);
     assert_eq!(view.available[0].name, "pdf");
     assert!(view.available[0].present);
-    assert!(!view.agent_contract_exists);
+    // 安装只进 store：契约是 create_agent 写的默认模板，不含任何 use 声明
+    assert!(view.agent_contract_exists);
+    assert!(!fs::read_to_string(home.agent_dir(&name).join("agent.toml"))
+        .unwrap()
+        .contains("use"));
     assert!(view.lock_error.is_none());
 
     // 启用：写 Agent 层 agent.toml + 同目录 agent.lock
@@ -113,7 +117,7 @@ fn install_enable_disable_and_purge_roundtrip() {
     assert_eq!(view.declared[0].description.as_deref(), Some("PDF-DESC"));
     assert_eq!(view.declared_by.as_deref(), Some("agent"));
     assert!(!view.declares_in_project);
-    assert!(view.agent_contract_exists, "启用会新建 agent.toml");
+    assert!(view.agent_contract_exists);
     assert_eq!(view.available.len(), 0, "已声明的技能不再出现在可用列表");
     let contract = fs::read_to_string(home.agent_dir(&name).join("agent.toml")).unwrap();
     assert!(contract.contains("[resources.skills]"), "{contract}");
@@ -146,7 +150,10 @@ fn install_enable_disable_and_purge_roundtrip() {
     assert!(!home.agent_dir(&name).join("agent.lock").exists());
     let contract = fs::read_to_string(home.agent_dir(&name).join("agent.toml")).unwrap();
     assert!(!contract.contains("use"), "{contract}");
-    assert!(!contract.contains("[resources"), "空表应被清理：{contract}");
+    assert!(
+        contract.contains("[resources]"),
+        "默认声明的素材位置仍在（只清 use）：{contract}"
+    );
     assert!(
         agent_skills(&name).unwrap().lock_error.is_none(),
         "没有声明时缺锁不算错误态"
@@ -209,13 +216,14 @@ fn project_layer_declaration_wins_and_filter_is_reported() {
         view.declared[0].filter
     );
 
-    // 禁用写的是项目层文件（声明所在层），不新建 Agent 层契约
+    // 禁用写的是项目层文件（声明所在层），Agent 层契约保持默认模板不动
     let view = set_skill_enabled(&name, "pdf", false).unwrap();
     assert!(view.declared.is_empty());
-    assert!(!view.agent_contract_exists);
     let project_text = fs::read_to_string(project.join("agent.toml")).unwrap();
     assert!(!project_text.contains("use"), "{project_text}");
-    assert!(!home.agent_dir(&name).join("agent.toml").exists());
+    let agent_text = fs::read_to_string(home.agent_dir(&name).join("agent.toml")).unwrap();
+    assert!(!agent_text.contains("use"), "{agent_text}");
+    assert!(agent_text.contains("[resources]"), "{agent_text}");
 
     // 声明清空后再启用：退回 Agent 层；项目层的 only 过滤仍生效（数组按层整体替换）
     let view = set_skill_enabled(&name, "pdf", true).unwrap();

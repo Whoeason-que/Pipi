@@ -31,16 +31,6 @@ impl AgentDefinition {
         }
     }
 
-    /// memory 目录（`harness/memory`，与提示词策略无关：工具写入位置固定）。
-    pub fn memory_dir(&self) -> Option<PathBuf> {
-        self.dir().map(|dir| super::paths::memory_dir(&dir))
-    }
-
-    /// Agent 自带的技能目录（`harness/skills`）。
-    pub fn skills_dir(&self) -> Option<PathBuf> {
-        self.dir().map(|dir| super::paths::skills_dir(&dir))
-    }
-
     pub fn sessions_dir(&self) -> Option<PathBuf> {
         self.dir().map(|dir| dir.join("sessions"))
     }
@@ -231,9 +221,10 @@ pub fn create_agent_with_instructions(
         return Err(format!("Agent「{name}」已存在"));
     }
 
-    // 目录骨架（与 README「Agent 的组成」一一对应）：提示词素材进 harness/，
-    // 运行态（sessions/jobs）留在 Agent 根。
-    let harness = super::paths::harness_dir(&dir);
+    // 目录骨架（与 README「Agent 的组成」一一对应）：提示词素材进
+    // `contract::DEFAULT_HARNESS_DIR`（默认模板声明的位置），运行态
+    // （sessions/jobs）留在 Agent 根。
+    let harness = dir.join(super::contract::DEFAULT_HARNESS_DIR);
     for sub in ["skills", "memory"] {
         fs::create_dir_all(harness.join(sub)).map_err(|e| e.to_string())?;
     }
@@ -246,6 +237,12 @@ pub fn create_agent_with_instructions(
 
     let manifest = serde_json::to_string_pretty(&def).map_err(|e| e.to_string())?;
     fs::write(dir.join("agent.json"), manifest + "\n").map_err(|e| e.to_string())?;
+    // Agent 侧提示词素材的路径权威在 agent.toml：新建即写好默认声明
+    crate::av::store::write_text_atomic(
+        &dir.join("agent.toml"),
+        super::contract::DEFAULT_AGENT_CONTRACT,
+    )
+    .map_err(|e| format!("无法写入 agent.toml: {e}"))?;
     let intro = if def.description.is_empty() {
         "（一句话介绍这个 Agent）"
     } else {

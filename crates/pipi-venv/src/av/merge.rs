@@ -4,10 +4,14 @@
 //! - 标量（inherit 等）：高层显式声明覆盖低层，缺席保留低层；
 //! - 映射（set/secrets/skills 过滤器）：按键合并，同键高层覆盖低层；
 //! - 数组（ignore / path-prepend / requires）：高层整体替换低层，不拼接。
+//!
+//! 层专属规则也在这里判：记忆目录（`[resources].memory`）只有 Agent 定义目录的
+//! 契约能声明 —— 合并是全部调用点（提示词、工具上下文、`av check`、技能中心）
+//! 的共同入口，规则放这里无法被绕过。
 
 use std::collections::BTreeMap;
 
-use crate::av::discovery::Layer;
+use crate::av::discovery::{Layer, LayerKind};
 use crate::av::schema::{Inherit, RequiresEntry, Resources, SecretRef, SkillsFilter};
 
 /// 合并后的有效配置。
@@ -35,6 +39,20 @@ pub fn merge_layers(layers: &[Layer]) -> Result<Merged, String> {
             .config
             .validate()
             .map_err(|e| format!("{} 校验失败：{e}", layer.label))?;
+        // 记忆目录是 Agent 的写入位置：项目层文件可能来自克隆的仓库，
+        // 声明它等于让仓库决定 Agent 的记忆写到哪里。
+        if layer.kind != LayerKind::Agent
+            && layer
+                .config
+                .resources
+                .as_ref()
+                .is_some_and(|resources| resources.memory.is_some())
+        {
+            return Err(format!(
+                "{} 不得声明 [resources].memory：记忆目录属于 Agent 定义（项目层不得声明）",
+                layer.label
+            ));
+        }
     }
 
     let mut env = MergedEnv {
@@ -107,7 +125,34 @@ pub fn merge_layers(layers: &[Layer]) -> Result<Merged, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::av::test_support::layer;
+    use crate::av::test_support::{agent_layer, layer};
+
+    /// 记忆目录是 Agent 的写入位置：只有 Agent 定义目录的契约能声明它 ——
+    /// 项目层文件可能来自克隆的仓库，声明即硬错误（不是静默忽略）。
+    #[test]
+    fn project_layers_must_not_declare_memory() {
+        let project = layer("proj/agent.toml", "schema = 1\n[resources]\nmemory = \"mem\"");
+        let error = merge_layers(&[project]).expect_err("项目层声明 memory 应被拒绝");
+        assert!(error.contains("memory"), "{error}");
+        assert!(error.contains("项目层"), "{error}");
+
+        let local = layer(
+            "proj/agent.local.toml",
+            "schema = 1\n[resources]\nmemory = \"mem\"",
+        );
+        assert!(merge_layers(&[local]).is_err());
+
+        // Agent 层声明合法，且按标量语义高层覆盖
+        let agent = agent_layer(
+            "agent/agent.toml",
+            "schema = 1\n[resources]\nmemory = \"harness/memory\"",
+        );
+        let merged = merge_layers(&[agent]).unwrap();
+        assert_eq!(
+            merged.resources.and_then(|resources| resources.memory),
+            Some("harness/memory".to_string())
+        );
+    }
 
     #[test]
     fn scalar_overrides_and_absence_preserves() {

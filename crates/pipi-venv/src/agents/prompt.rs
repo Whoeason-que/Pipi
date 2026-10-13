@@ -93,49 +93,38 @@ pub fn build_system_prompt_with_tools(
         return Ok(String::new());
     }
     let dir = def.dir();
-    let harness = dir.as_deref().map(super::paths::harness_dir);
     let workspace = def.resolve_workspace();
+    let (agent_layer, project_layers) = collect_contract_layers(def, workspace.as_deref())?;
+    let mut layers = Vec::new();
+    if let Some(layer) = &agent_layer {
+        layers.push(layer.clone());
+    }
+    layers.extend(project_layers.iter().cloned());
+    let merged = crate::av::merge_layers(&layers)?;
+
+    // Agent 侧的素材位置由 agent.toml 编排（三项必须显式声明，见 agent_material）：
+    // 只有策略含 agent 侧时才解析 —— 缺契约/漏声明由它 fail-closed。
+    let material = if scope.uses_agent_side() {
+        let agent_dir = dir.as_deref().ok_or("无法定位 Agent 目录")?;
+        Some(super::contract::agent_material(
+            agent_layer.as_ref(),
+            agent_dir,
+        )?)
+    } else {
+        None
+    };
     let mut context_files = Vec::new();
+    if let Some(material) = &material {
+        context_files.extend(material.instructions.iter().map(|instruction| {
+            crate::prompt::ContextFile {
+                path: instruction.path.display().to_string(),
+                content: instruction.content.clone(),
+            }
+        }));
+    }
 
     let (cwd, append_system_prompt, skills) = if let Some(workspace) = &workspace {
-        let (agent_layer, project_layers) = collect_contract_layers(def, Some(workspace))?;
-        let mut layers = Vec::new();
-        if let Some(layer) = &agent_layer {
-            layers.push(layer.clone());
-        }
-        layers.extend(project_layers.iter().cloned());
-        let merged = crate::av::merge_layers(&layers)?;
-
-        // —— instructions：agent 层三态（harness/，仅 agent 侧参与时）——
-        if scope.uses_agent_side()
-            && let Some(harness) = &harness
-        {
-            let agent_instructions = agent_layer.as_ref().and_then(|layer| {
-                layer
-                    .config
-                    .resources
-                    .as_ref()
-                    .and_then(|resources| resources.instructions.clone())
-            });
-            match &agent_instructions {
-                Some(list) => {
-                    let layer = agent_layer.as_ref().expect("instructions 存在");
-                    let base = layer_path_dir(layer);
-                    let containment =
-                        fs::canonicalize(layer.path.parent().expect("契约文件必有父目录"))
-                            .map_err(|e| format!("无法规范化 Agent 目录：{e}"))?;
-                    context_files.extend(load_declared_context_files(
-                        list,
-                        &base,
-                        &containment,
-                        None,
-                    )?);
-                }
-                None => context_files.extend(
-                    crate::prompt::resources::load_agent_context_files(Some(harness)),
-                ),
-            }
-        }
+        // —— instructions：项目层三态（最高声明层，仅工作区侧参与时）——
 
         // —— instructions：项目层三态（最高声明层，仅工作区侧参与时）——
         let project_budget = merged
@@ -173,34 +162,15 @@ pub fn build_system_prompt_with_tools(
             }
         }
 
-        // —— skills：sources 三态 + only/exclude 过滤 ——
-        // 约定目录与契约声明无关：契约缺席时同样发现 harness/skills（与项目侧
-        // `.pi/skills` 一致），否则新建 Agent 自带的技能目录没有机会被读。
-        let agent_skills = match (&dir, scope.uses_agent_side()) {
-            (Some(agent_dir), true) if agent_dir.is_dir() => {
+        // —— skills：来源由契约声明 + only/exclude 过滤 ——
+        let agent_skills = match &material {
+            Some(material) => {
+                let agent_dir = dir.as_deref().ok_or("无法定位 Agent 目录")?;
                 let containment = fs::canonicalize(agent_dir)
                     .map_err(|e| format!("无法规范化 Agent 目录：{e}"))?;
-                let declared_sources = agent_layer.as_ref().and_then(|layer| {
-                    layer
-                        .config
-                        .resources
-                        .as_ref()
-                        .and_then(|resources| resources.skills.as_ref())
-                        .and_then(|skills| skills.sources.clone())
-                });
-                match declared_sources {
-                    Some(sources) => {
-                        let layer = agent_layer.as_ref().expect("sources 来自 agent 层");
-                        let resolved = resolve_declared_sources(&sources, &layer_path_dir(layer));
-                        crate::av::skills::load_skill_sources(&resolved, &containment)
-                    }
-                    None => crate::av::skills::load_skill_sources(
-                        &[super::paths::skills_dir(agent_dir)],
-                        &containment,
-                    ),
-                }
+                crate::av::skills::load_skill_sources(&material.skill_sources, &containment)
             }
-            _ => Vec::new(),
+            None => Vec::new(),
         };
         let project_skills = if !scope.uses_workspace_side() {
             Vec::new()
@@ -265,38 +235,10 @@ pub fn build_system_prompt_with_tools(
             skills,
         )
     } else {
-        // 无 workspace：只有 agent 侧成立（项目层不存在）。agent 层 instructions
-        // 三态与声明的 store 技能仍按策略生效。
-        let (agent_layer, _) = collect_contract_layers(def, None)?;
+        // 无 workspace：只有 agent 侧成立（项目层不存在）。指令已在上面按契约
+        // 注入，这里只剩声明的 store 技能索引。
         let mut skills = Vec::new();
         if scope.uses_agent_side() {
-            if let Some(harness) = &harness {
-                match agent_layer.as_ref().and_then(|layer| {
-                    layer
-                        .config
-                        .resources
-                        .as_ref()
-                        .and_then(|resources| resources.instructions.clone())
-                }) {
-                    Some(list) => {
-                        let layer = agent_layer.as_ref().expect("instructions 存在");
-                        let base = layer_path_dir(layer);
-                        let containment =
-                            fs::canonicalize(layer.path.parent().expect("契约文件必有父目录"))
-                                .map_err(|e| format!("无法规范化 Agent 目录：{e}"))?;
-                        context_files.extend(load_declared_context_files(
-                            &list,
-                            &base,
-                            &containment,
-                            None,
-                        )?);
-                    }
-                    None => context_files.extend(
-                        crate::prompt::resources::load_agent_context_files(Some(harness)),
-                    ),
-                }
-            }
-            // 无 workspace：仍可声明 agent 层契约里的 store 技能
             let agent_only_layers: Vec<crate::av::Layer> = agent_layer.iter().cloned().collect();
             skills = load_declared_store_skills(&agent_only_layers)?
                 .into_iter()
@@ -317,10 +259,9 @@ pub fn build_system_prompt_with_tools(
             context_files,
             skills,
             // 记忆索引属于 Agent 侧素材：策略不含 agent 侧时不注入
-            memory_files: if scope.uses_agent_side() {
-                memory_index(def)
-            } else {
-                Vec::new()
+            memory_files: match &material {
+                Some(material) => memory_index(&material.memory_dir),
+                None => Vec::new(),
             },
             append_system_prompt,
             ..Default::default()
@@ -331,33 +272,40 @@ pub fn build_system_prompt_with_tools(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::{AgentDefinition, agent_dir, build_tool_context, create_agent};
+    use crate::agents::{
+        AgentDefinition, DEFAULT_HARNESS_DIR, agent_dir, build_tool_context, create_agent,
+    };
+
+    /// 默认模板声明的素材目录（`<Agent 目录>/harness`）。
+    fn default_harness(agent_dir: &std::path::Path) -> std::path::PathBuf {
+        agent_dir.join(DEFAULT_HARNESS_DIR)
+    }
+
+    /// 建一个真实 Agent（`create_agent` 会写默认契约与 harness 骨架）。
+    /// 调用方必须先持有 HOME_LOCK 并把 HOME 指到临时目录。
+    fn make_agent(workspace: Option<&str>) -> AgentDefinition {
+        create_agent(
+            &format!("prompt-{}", pipi_protocol::new_id()),
+            "",
+            workspace,
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    }
     use pipi_protocol::permissions::PermissionsConfig;
     use pipi_test_support::HOME_LOCK;
 
     #[test]
     fn system_prompt_includes_wire_tool_descriptions() {
-        let def = AgentDefinition {
-            name: "__pipi_venv_wire_test__".into(),
-            description: String::new(),
-            model: String::new(),
-            provider: None,
-            workspace: Some(
-                std::env::temp_dir()
-                    .join("pipi-venv-wire-test-does-not-write")
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            permissions: PermissionsConfig {
-                tools: vec!["read".into()],
-                ..Default::default()
-            },
-            mcp_servers: Vec::new(),
-            subagent: false,
-            compact_threshold_percent: 75,
-            compact_target_percent: None,
-            system_prompt: Default::default(),
-        };
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!("pipi-wire-{}", pipi_protocol::new_id()));
+        fs::create_dir_all(&home).unwrap();
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+
+        let def = make_agent(None);
         let tools = [pipi_protocol::Tool {
             name: "read".into(),
             description: "Read files".into(),
@@ -367,12 +315,21 @@ mod tests {
         let prompt = build_system_prompt_with_tools(&def, &tools).unwrap();
 
         assert!(prompt.contains("- read: Read files"));
+
+        pipi_test_support::set_env_var("HOME", previous_home);
+        let _ = fs::remove_dir_all(&home);
     }
 
     /// av 契约端到端：项目层 agent.toml 的声明替换约定发现（instructions）、
     /// skills 按名过滤、env 解析注入 AV_*，以及包含约束 fail-closed。
     #[test]
     fn agent_contract_drives_instructions_skills_and_env() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!("pipi-e2e-home-{}", pipi_protocol::new_id()));
+        fs::create_dir_all(&home).unwrap();
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+
         let root =
             std::env::temp_dir().join(format!("pipi-contract-e2e-{}", pipi_protocol::new_id()));
         fs::create_dir_all(root.join(".git")).unwrap();
@@ -410,22 +367,19 @@ mod tests {
         )
         .unwrap();
 
-        let def = AgentDefinition {
-            name: "__pipi_contract_e2e__".into(),
-            description: String::new(),
-            model: String::new(),
-            provider: None,
-            workspace: Some(root.to_string_lossy().into_owned()),
-            permissions: PermissionsConfig {
+        let name = format!("contract-e2e-{}", pipi_protocol::new_id());
+        let def = create_agent(
+            &name,
+            "",
+            Some(root.to_str().unwrap()),
+            Some(PermissionsConfig {
                 tools: vec!["read".into(), "bash".into()],
                 ..Default::default()
-            },
-            mcp_servers: Vec::new(),
-            subagent: false,
-            compact_threshold_percent: 75,
-            compact_target_percent: None,
-            system_prompt: Default::default(),
-        };
+            }),
+            None,
+            None,
+        )
+        .unwrap();
 
         // 声明替换约定发现；skills 按名过滤
         let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
@@ -449,7 +403,7 @@ mod tests {
         );
         assert_eq!(
             ctx.resolved_env.get("AV_AGENT").map(String::as_str),
-            Some("__pipi_contract_e2e__")
+            Some(name.as_str())
         );
         assert_eq!(
             ctx.resolved_env.get("AV_SESSION").map(String::as_str),
@@ -476,12 +430,23 @@ mod tests {
 
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_file(outside);
+        pipi_test_support::set_env_var("HOME", previous_home);
+        let _ = fs::remove_dir_all(&home);
     }
 
     /// 项目层契约可以用 `[resources.skills] sources` 指向仓库内的技能包目录
     /// （多仓库工作区用 `.agents/skills` 这种既有约定），不必改造成 `.pi/skills`。
     #[test]
     fn project_contract_skills_sources_point_into_the_repo() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "pipi-sources-home-{}",
+            pipi_protocol::new_id()
+        ));
+        fs::create_dir_all(&home).unwrap();
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+
         let root =
             std::env::temp_dir().join(format!("pipi-venv-sources-{}", pipi_protocol::new_id()));
         fs::create_dir_all(root.join(".git")).unwrap();
@@ -498,28 +463,27 @@ mod tests {
         )
         .unwrap();
 
-        let def = AgentDefinition {
-            name: "__pipi_venv_skill_sources__".into(),
-            description: String::new(),
-            model: String::new(),
-            provider: None,
-            workspace: Some(root.to_string_lossy().into_owned()),
-            permissions: PermissionsConfig {
+        let name = format!("skill-sources-{}", pipi_protocol::new_id());
+        let def = create_agent(
+            &name,
+            "",
+            Some(root.to_str().unwrap()),
+            Some(PermissionsConfig {
                 tools: vec!["read".into(), "bash".into()],
                 ..Default::default()
-            },
-            mcp_servers: Vec::new(),
-            subagent: false,
-            compact_threshold_percent: 75,
-            compact_target_percent: None,
-            system_prompt: Default::default(),
-        };
+            }),
+            None,
+            None,
+        )
+        .unwrap();
 
         let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
         assert!(prompt.contains("<name>workspace-guide</name>"), "{prompt}");
         assert!(prompt.contains("repo skill pack"), "{prompt}");
 
         let _ = fs::remove_dir_all(root);
+        pipi_test_support::set_env_var("HOME", previous_home);
+        let _ = fs::remove_dir_all(&home);
     }
 
     /// 声明启用的 store 技能（av `[resources.skills].use` + `agent.lock`）：
@@ -571,22 +535,19 @@ mod tests {
         let lock_path = root.join("agent.lock");
         lock.write(&lock_path).unwrap();
 
-        let def = AgentDefinition {
-            name: "__pipi_store_skills__".into(),
-            description: String::new(),
-            model: String::new(),
-            provider: None,
-            workspace: Some(root.to_string_lossy().into_owned()),
-            permissions: PermissionsConfig {
+        let name = format!("store-skills-{}", pipi_protocol::new_id());
+        let def = create_agent(
+            &name,
+            "",
+            Some(root.to_str().unwrap()),
+            Some(PermissionsConfig {
                 tools: vec!["read".into(), "bash".into()],
                 ..Default::default()
-            },
-            mcp_servers: Vec::new(),
-            subagent: false,
-            compact_threshold_percent: 75,
-            compact_target_percent: None,
-            system_prompt: Default::default(),
-        };
+            }),
+            None,
+            None,
+        )
+        .unwrap();
 
         // 3) 提示词注入 + 内容目录进受信任读取根
         let prompt = build_system_prompt_with_tools(&def, &[]).unwrap();
@@ -629,7 +590,7 @@ mod tests {
         let _guard = HOME_LOCK.lock().unwrap();
         let name = format!("memory-index-{}", pipi_protocol::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
-        let memory_dir = def.memory_dir().unwrap();
+        let memory_dir = default_harness(&agent_dir(&name).unwrap()).join("memory");
         fs::write(
             memory_dir.join("user-prefs.md"),
             "# 用户偏好\n\n简洁回答，中文优先。\n",
@@ -669,7 +630,7 @@ mod tests {
         let name = format!("scope-{}", pipi_protocol::new_id());
         let def =
             create_agent(&name, "", Some(project.to_str().unwrap()), None, None, None).unwrap();
-        let harness = super::super::paths::harness_dir(&agent_dir(&name).unwrap());
+        let harness = default_harness(&agent_dir(&name).unwrap());
         fs::write(harness.join("AGENTS.md"), "HARNESS-INSTRUCTIONS").unwrap();
         fs::create_dir_all(harness.join("skills/demo")).unwrap();
         fs::write(
@@ -717,25 +678,27 @@ mod tests {
         pipi_test_support::set_env_var("HOME", previous_home);
     }
 
-    /// `harness/` 缺席不报错（约定发现没有文件就是没有上下文）；
-    /// 只有契约里显式声明的路径缺失才 fail-closed。
+    /// 声明的素材文件缺失即 fail-closed（声明是权威，不再是「约定发现没有
+    /// 文件就没有上下文」）；不含 agent 侧的策略不受影响。
     #[test]
-    fn missing_harness_is_lenient_for_every_scope() {
+    fn missing_declared_material_fails_closed_on_agent_side_only() {
         let _guard = HOME_LOCK.lock().unwrap();
         let name = format!("no-harness-{}", pipi_protocol::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
         let dir = agent_dir(&name).unwrap();
-        fs::remove_dir_all(super::super::paths::harness_dir(&dir)).unwrap();
+        fs::remove_file(default_harness(&dir).join("AGENTS.md")).unwrap();
 
-        for scope in [
-            PromptScope::Both,
-            PromptScope::Agent,
-            PromptScope::Workspace,
-            PromptScope::None,
-        ] {
+        for scope in [PromptScope::Both, PromptScope::Agent] {
             let mut scoped = def.clone();
             scoped.system_prompt = scope;
-            build_system_prompt_with_tools(&scoped, &[]).expect("缺 harness 不该报错");
+            let error = build_system_prompt_with_tools(&scoped, &[])
+                .expect_err("声明的指令文件缺失应 fail-closed");
+            assert!(error.contains("上下文文件不可用"), "{error}");
+        }
+        for scope in [PromptScope::Workspace, PromptScope::None] {
+            let mut scoped = def.clone();
+            scoped.system_prompt = scope;
+            build_system_prompt_with_tools(&scoped, &[]).expect("不含 agent 侧时不受影响");
         }
 
         let _ = fs::remove_dir_all(dir);

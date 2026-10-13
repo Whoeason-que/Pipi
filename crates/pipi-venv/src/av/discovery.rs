@@ -15,9 +15,26 @@ use crate::av::schema::AgentToml;
 pub const AGENT_TOML_FILENAME: &str = "agent.toml";
 pub const AGENT_LOCAL_TOML_FILENAME: &str = "agent.local.toml";
 
+/// 契约层的种类：决定哪些段允许出现。
+///
+/// 项目层（含 `agent.local.toml`）是**别人的仓库**带来的文件：它不能声明
+/// Agent 的记忆目录（`[resources].memory`），否则克隆来的仓库就能把 Agent
+/// 的写入位置指到仓库里 —— 与「项目层不得声明身份与权限段」同一取向。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayerKind {
+    /// Agent 定义目录的 `agent.toml`（`~/.pipi/agents/<name>/`）。
+    Agent,
+    /// 项目根的 `agent.toml`（通常随仓库提交）。
+    Project,
+    /// 同目录的 `agent.local.toml`（本地覆盖层）。
+    ProjectLocal,
+}
+
 /// 一个契约层：来源文件 + 解析结果。
 #[derive(Debug, Clone)]
 pub struct Layer {
+    /// 来源种类（决定层专属规则）。
+    pub kind: LayerKind,
     /// 来源记账标签（"agent.toml" / "agent.local.toml"）。
     pub label: String,
     pub path: PathBuf,
@@ -77,10 +94,14 @@ pub fn discover(cwd: &Path) -> Result<Discovered, String> {
     };
 
     let main_path = dir.join(AGENT_TOML_FILENAME);
-    let mut layers = vec![load_layer(&main_path, AGENT_TOML_FILENAME)?];
+    let mut layers = vec![load_layer(&main_path, AGENT_TOML_FILENAME, LayerKind::Project)?];
     let local_path = dir.join(AGENT_LOCAL_TOML_FILENAME);
     if local_path.is_file() {
-        layers.push(load_layer(&local_path, AGENT_LOCAL_TOML_FILENAME)?);
+        layers.push(load_layer(
+            &local_path,
+            AGENT_LOCAL_TOML_FILENAME,
+            LayerKind::ProjectLocal,
+        )?);
     }
     let root = std::fs::canonicalize(&dir)
         .map_err(|e| format!("无法规范化契约目录 {}: {e}", dir.display()))?;
@@ -90,7 +111,8 @@ pub fn discover(cwd: &Path) -> Result<Discovered, String> {
 /// 显式加载单个契约文件（解析 + schema 校验；不含 symlink 包含检查）。
 ///
 /// 供宿主直接读取已知路径的契约 —— 例如 Agent 定义目录里的 `agent.toml`
-/// （该目录不属于 cwd 发现范围）。
+/// （该目录不属于 cwd 发现范围）。层专属规则（如项目层不得声明 memory）
+/// 在合并时按 [`LayerKind`] 判定，[`merge_layers`](crate::av::merge_layers) 一次覆盖全部调用点。
 pub fn load_contract_file(path: &Path) -> Result<AgentToml, String> {
     let text =
         std::fs::read_to_string(path).map_err(|e| format!("无法读取 {}: {e}", path.display()))?;
@@ -102,7 +124,7 @@ pub fn load_contract_file(path: &Path) -> Result<AgentToml, String> {
     Ok(config)
 }
 
-fn load_layer(path: &Path, label: &str) -> Result<Layer, String> {
+fn load_layer(path: &Path, label: &str, kind: LayerKind) -> Result<Layer, String> {
     // symlink 逃逸 fail-closed：契约文件必须真实存在于所在目录内
     let canonical =
         std::fs::canonicalize(path).map_err(|e| format!("无法读取 {}: {e}", path.display()))?;
@@ -117,6 +139,7 @@ fn load_layer(path: &Path, label: &str) -> Result<Layer, String> {
     }
     let config = load_contract_file(&canonical)?;
     Ok(Layer {
+        kind,
         label: label.to_string(),
         path: canonical,
         config,

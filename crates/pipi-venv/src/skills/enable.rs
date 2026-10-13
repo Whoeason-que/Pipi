@@ -9,8 +9,9 @@ use crate::agents;
 use crate::skills::agent_skills::{DeclaredContext, agent_skills_for, declared_context};
 use crate::skills::model::AgentSkills;
 
-/// 新建 agent.toml 时的最小骨架（编辑前先落一个合法契约）。
-const NEW_CONTRACT_SKELETON: &str = "schema = 1\n";
+/// 新建 agent.toml 时的骨架：与 `create_agent` 共用默认模板 ——
+/// Agent 侧素材的路径必须显式声明，只写 `schema = 1` 拿不到可用的契约。
+const NEW_CONTRACT_SKELETON: &str = crate::agents::DEFAULT_AGENT_CONTRACT;
 
 /// 启用（写入 `use` + 解析锁）或禁用（移除声明与锁记录）一个 store 技能。
 ///

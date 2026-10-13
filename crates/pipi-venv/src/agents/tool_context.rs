@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::contract::collect_contract_layers;
+use super::contract::{agent_material, collect_contract_layers};
 use super::prompt::load_declared_store_skills;
 use super::types::AgentDefinition;
 
@@ -8,6 +8,10 @@ use super::types::AgentDefinition;
 ///
 /// `session_id` 注入 `AV_SESSION`（嵌套感知），无会话上下文时缺省。
 /// 返回 `(ToolContext, ResolvedEnv)`：后者供环境记账与 provider key 解析复用。
+///
+/// Agent 侧的技能目录与记忆目录都取契约声明（`[resources.skills].sources` /
+/// `[resources].memory`，见 [`agent_material`]）：缺契约或漏声明即 fail-closed，
+/// 两处都进受信任读取根。
 pub fn build_tool_context(
     def: &AgentDefinition,
     session_id: Option<String>,
@@ -17,32 +21,6 @@ pub fn build_tool_context(
     fs::create_dir_all(&workspace).map_err(|e| format!("工作目录不可用: {e}"))?;
     let workspace =
         fs::canonicalize(&workspace).map_err(|e| format!("工作目录不可用：无法规范化路径: {e}"))?;
-    let mut read_roots = match def.skills_dir().filter(|skills| skills.is_dir()) {
-        Some(skills) => {
-            let agent_dir = def.dir().ok_or("Agent 目录不可用：无法确定 skills 所属目录")?;
-            let canonical_agent_dir = fs::canonicalize(&agent_dir)
-                .map_err(|e| format!("Agent 目录不可用：无法规范化路径: {e}"))?;
-            let canonical_skills = fs::canonicalize(&skills)
-                .map_err(|e| format!("skills 目录不可用：无法规范化路径: {e}"))?;
-            if !canonical_skills.starts_with(&canonical_agent_dir) {
-                return Err(format!(
-                    "skills 目录不可用：{} 不在 Agent 目录 {} 内",
-                    canonical_skills.display(),
-                    canonical_agent_dir.display()
-                ));
-            }
-            vec![canonical_skills]
-        }
-        None => Vec::new(),
-    };
-    // memory 渐进召回：正文由模型用 read 按需加载，memory 目录须在受信任
-    // 读取根内（memory 工具本身仍走自己的 memory_dir 约束）。
-    if let Some(memory_dir) = def.memory_dir()
-        && memory_dir.is_dir()
-        && let Ok(canonical_memory) = fs::canonicalize(&memory_dir)
-    {
-        read_roots.push(canonical_memory);
-    }
 
     // av 环境契约：会话启动时解析一次，本会话所有工具子进程共用同一份
     // （inherit/ignore/set/path-prepend/secrets + AV_* 运行时注入）。
@@ -69,6 +47,17 @@ pub fn build_tool_context(
         crate::av::resolve_env(&layers, &crate::av::collect_process_env(), &runtime_vars)?;
     crate::av::check_requires(&merged.requires, &resolved.vars)?;
 
+    // Agent 侧素材路径由契约编排（缺契约/漏声明即报错）；两处都已在
+    // agent_material 里校验过包含根（符号链接逃逸会被拒）。
+    let agent_dir = def.dir().ok_or("无法定位 Agent 目录")?;
+    let material = agent_material(agent_layer.as_ref(), &agent_dir)?;
+    let mut read_roots = material.skill_sources;
+    // memory 渐进召回：正文由模型用 read 按需加载，memory 目录须在受信任
+    // 读取根内（memory 工具本身仍走自己的 memory_dir 约束）。
+    if material.memory_dir.is_dir() {
+        read_roots.push(material.memory_dir.clone());
+    }
+
     // 声明启用的 store 技能：只读解析（不联网；缺失即 fail-closed），
     // 内容目录进受信任读取根 —— 模型用 read 工具按需加载 SKILL.md 与随附文件。
     for skill in load_declared_store_skills(&layers)? {
@@ -80,7 +69,7 @@ pub fn build_tool_context(
     Ok((
         pipi_protocol::tools::ToolContext {
             workspace,
-            memory_dir: def.memory_dir(),
+            memory_dir: Some(material.memory_dir),
             read_roots,
             permissions: std::sync::Arc::new(def.permissions.clone()),
             sandbox: def.permissions.sandbox,
@@ -95,7 +84,12 @@ pub fn build_tool_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::{AgentDefinition, agent_dir, create_agent};
+    use crate::agents::{AgentDefinition, DEFAULT_HARNESS_DIR, agent_dir, create_agent};
+
+    /// 默认模板声明的素材目录（`<Agent 目录>/harness`）。
+    fn default_harness(agent_dir: &std::path::Path) -> std::path::PathBuf {
+        agent_dir.join(DEFAULT_HARNESS_DIR)
+    }
     use pipi_protocol::permissions::PermissionsConfig;
     use pipi_test_support::HOME_LOCK;
 
@@ -104,7 +98,7 @@ mod tests {
         let _guard = HOME_LOCK.lock().unwrap();
         let name = format!("memory-read-{}", pipi_protocol::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
-        let memory_dir = def.memory_dir().unwrap();
+        let memory_dir = default_harness(&agent_dir(&name).unwrap()).join("memory");
         fs::write(memory_dir.join("note.md"), "hello").unwrap();
 
         let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
@@ -126,14 +120,15 @@ mod tests {
         let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
     }
 
-    /// Agent 自带的技能目录搬进 harness/ 后仍是受信任读取根（与提示词策略无关：
-    /// 即便策略只取工作区侧，模型也能用 read 加载技能正文）。
+    /// 契约声明的技能来源目录进受信任读取根（与提示词策略无关：即便策略只取
+    /// 工作区侧，模型也能用 read 加载技能正文）。
     #[test]
-    fn tool_context_grants_read_access_to_harness_skills() {
+    fn tool_context_grants_read_access_to_declared_skills() {
         let _guard = HOME_LOCK.lock().unwrap();
         let name = format!("skills-read-{}", pipi_protocol::new_id());
         let def = create_agent(&name, "", None, None, None, None).unwrap();
-        fs::write(def.skills_dir().unwrap().join("SKILL.md"), "body").unwrap();
+        let skills = default_harness(&agent_dir(&name).unwrap()).join("skills");
+        fs::write(skills.join("SKILL.md"), "body").unwrap();
 
         let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
         assert!(
@@ -145,6 +140,65 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
+    /// 改契约声明即改位置：提示词、记忆工具根、读取根与编辑器视图一起跟着走，
+    /// 未声明的旧目录（harness/）不再参与。
+    #[test]
+    fn declared_locations_drive_prompt_read_roots_and_editor() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let name = format!("declared-{}", pipi_protocol::new_id());
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
+        let dir = agent_dir(&name).unwrap();
+
+        fs::create_dir_all(dir.join("notes").join("mem")).unwrap();
+        fs::write(dir.join("notes").join("PROMPT.md"), "custom instructions").unwrap();
+        fs::write(dir.join("notes").join("mem").join("a.md"), "# A\n\nbody\n").unwrap();
+        fs::write(
+            dir.join("agent.toml"),
+            "schema = 1\n[resources]\ninstructions = [\"notes/PROMPT.md\"]\nmemory = \"notes/mem\"\n[resources.skills]\nsources = []\n",
+        )
+        .unwrap();
+
+        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
+        let memory_dir = ctx.memory_dir.clone().expect("memory 目录来自契约声明");
+        assert!(memory_dir.ends_with("notes/mem"), "{memory_dir:?}");
+        assert!(
+            ctx.read_roots.iter().any(|root| root.ends_with("notes/mem")),
+            "记忆目录应在 read_roots：{:?}",
+            ctx.read_roots
+        );
+        assert!(
+            !ctx.read_roots
+                .iter()
+                .any(|root| root.ends_with("harness/skills")),
+            "未声明的目录不该进读取根：{:?}",
+            ctx.read_roots
+        );
+
+        let prompt = crate::agents::build_system_prompt_with_tools(&def, &[]).unwrap();
+        assert!(prompt.contains("custom instructions"), "{prompt}");
+        assert!(
+            !prompt.contains(&format!("# {name}")),
+            "create_agent 写的 harness/AGENTS.md 未被声明，不该注入"
+        );
+        assert!(prompt.contains("<persistent_memory>"));
+
+        let view = crate::agents::list_agent_editable_files(&name).unwrap();
+        assert_eq!(view.instructions, vec!["notes/PROMPT.md".to_string()]);
+        assert_eq!(view.memory, vec!["notes/mem/a.md".to_string()]);
+        assert_eq!(view.memory_prefix, "notes/mem");
+
+        // 未声明的路径不再是可编辑位置
+        assert!(crate::agents::write_agent_file(&name, "harness/AGENTS.md", "x").is_err());
+        // 声明过的记忆文件可以写
+        crate::agents::write_agent_file(&name, "notes/mem/b.md", "hello").unwrap();
+        assert!(
+            dir.join("notes").join("mem").join("b.md").is_file(),
+            "新记忆文件应落在契约声明的目录里"
+        );
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]
@@ -160,9 +214,9 @@ mod tests {
             pipi_protocol::new_id()
         ));
         let agent_dir = home.join(".pipi/agents/skills-link-agent");
-        std::fs::create_dir_all(agent_dir.join("harness")).unwrap();
+        std::fs::create_dir_all(agent_dir.join(DEFAULT_HARNESS_DIR)).unwrap();
         std::fs::create_dir_all(&external).unwrap();
-        symlink(&external, agent_dir.join("harness/skills")).unwrap();
+        symlink(&external, agent_dir.join(DEFAULT_HARNESS_DIR).join("skills")).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);

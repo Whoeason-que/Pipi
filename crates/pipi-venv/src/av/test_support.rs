@@ -7,14 +7,27 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::av::discovery::Layer;
+use crate::av::discovery::{Layer, LayerKind};
 use crate::av::schema::AgentToml;
 
 /// 构造一个通过校验的契约层（label 同时作为 path）。
+///
+/// 默认按**项目层**构造（测试里的 label 多为 `agent.toml` / `agent.local.toml`
+/// 这类项目层文件）；需要 Agent 层的层专属语义时用 [`agent_layer`]。
 pub(crate) fn layer(label: &str, text: &str) -> Layer {
+    layer_of_kind(label, text, LayerKind::Project)
+}
+
+/// 构造一个 Agent 定义目录的契约层（`~/.pipi/agents/<name>/agent.toml`）。
+pub(crate) fn agent_layer(label: &str, text: &str) -> Layer {
+    layer_of_kind(label, text, LayerKind::Agent)
+}
+
+pub(crate) fn layer_of_kind(label: &str, text: &str, kind: LayerKind) -> Layer {
     let config: AgentToml = toml::from_str(text).unwrap();
     config.validate().unwrap();
     Layer {
+        kind,
         label: label.to_string(),
         path: PathBuf::from(label),
         config,

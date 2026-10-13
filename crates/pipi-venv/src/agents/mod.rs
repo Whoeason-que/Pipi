@@ -6,8 +6,10 @@
 //!
 //! 模块划分：`types` 清单结构与校验，`paths` 目录定位与名称安全，`registry`
 //! 扫描/创建/读写，`archive` 归档与删除，`files` 可编辑 Markdown 与 memory
-//! 索引，`contract` agent.toml 契约层与上下文文件，`tool_context` 工具执行
-//! 上下文，`prompt` 系统提示组装；单元测试在各实现文件底部。
+//! 索引，`contract` agent.toml 契约层、Agent 侧素材解析与默认模板，
+//! `tool_context` 工具执行上下文，`prompt` 系统提示组装；单元测试在各实现
+//! 文件底部。Agent 侧素材（指令 / 记忆 / 技能来源）的路径**权威在 agent.toml**，
+//! 见 `contract::agent_material`。
 
 mod archive;
 mod contract;
@@ -21,8 +23,13 @@ mod types;
 pub use archive::{
     archive_agent, delete_agent, delete_archived_agent, list_archived_agents, restore_agent,
 };
-pub use contract::collect_contract_layers;
-pub use files::{list_agent_md_files, memory_index, read_agent_file, write_agent_file};
+pub use contract::{
+    AgentInstruction, AgentMaterial, DEFAULT_AGENT_CONTRACT, DEFAULT_HARNESS_DIR, agent_material,
+    collect_contract_layers,
+};
+pub use files::{
+    AgentEditableFiles, list_agent_editable_files, memory_index, read_agent_file, write_agent_file,
+};
 pub use paths::{agent_dir, agents_dir, ensure_agent_dir, expand_tilde, validate_agent_name};
 pub use prompt::{build_system_prompt, build_system_prompt_with_tools};
 pub use registry::{
