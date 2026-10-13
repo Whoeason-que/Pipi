@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use super::parse::split_segments;
+use super::safety::{RmArg, decode_rm_args, executable_name};
 use pipi_protocol::permissions::resolve_write_path;
 
 /// `rm` 的 force 变体是否只作用于工作区内的字面量路径（清理构建 / 缓存产物的
@@ -12,7 +13,8 @@ use pipi_protocol::permissions::resolve_write_path;
 ///
 /// 放行需同时满足：
 /// - 直接调用 `rm`：`sudo` / `env` / `trap` / `bash -c` 包装一律不放行；
-/// - 旗标只含 `-r` / `-R` / `-f` 的组合或 `--recursive` / `--force`；
+/// - 旗标只含 `-r` / `-R` / `-f` 的组合或 `--recursive` / `--force`
+///   （解码见 [`super::safety::decode_rm_args`]，与危险命令识别共用）；
 /// - 至少一个目标，且每个目标都是字面量路径（不含 `~` `$` 反引号反斜杠与
 ///   通配符）—— 变量和 glob 无法静态判定删除范围；
 /// - 每个目标经 canonical containment 解析后落在工作区内，且既不是工作区根、
@@ -22,10 +24,8 @@ use pipi_protocol::permissions::resolve_write_path;
 ///
 /// 任一条件不满足返回 `false`，由调用方按「强制删除」拒绝（不可审批）。
 pub(super) fn forced_rm_inside_workspace(argv: &[String], workspace: &Path, command: &str) -> bool {
-    let Some(program) = argv.first().and_then(|arg| arg.rsplit('/').next()) else {
-        return false;
-    };
-    if program != "rm" {
+    // 直接调用 `rm` 才可能放行（`/bin/rm` 这类路径写法归一后同样接受）
+    if argv.first().and_then(|arg| executable_name(arg)) != Some("rm") {
         return false;
     }
     let Ok(canonical_workspace) = fs::canonicalize(workspace) else {
@@ -33,20 +33,16 @@ pub(super) fn forced_rm_inside_workspace(argv: &[String], workspace: &Path, comm
     };
     let relative_allowed = !command_changes_directory(command);
 
-    let mut after_separator = false;
     let mut targets: Vec<&str> = Vec::new();
-    for arg in &argv[1..] {
-        if !after_separator && arg == "--" {
-            after_separator = true;
-            continue;
+    for arg in decode_rm_args(&argv[1..]) {
+        match arg {
+            // 白名单旗标：不影响「删什么」的语义
+            RmArg::Flag(flags) if !flags.unknown => {}
+            // 其余旗标一律拒绝（变量、glob 之外的写法无法静态判定删除范围）
+            RmArg::Flag(_) => return false,
+            RmArg::Separator => {}
+            RmArg::Operand(target) => targets.push(target),
         }
-        if !after_separator && arg.starts_with('-') {
-            if !rm_flag_is_supported(arg) {
-                return false;
-            }
-            continue;
-        }
-        targets.push(arg);
     }
 
     !targets.is_empty()
@@ -77,18 +73,6 @@ fn command_changes_directory(command: &str) -> bool {
             )
         }),
         Err(_) => true,
-    }
-}
-
-/// `rm` 旗标白名单：只接受不改变「删什么」语义的旗标。
-fn rm_flag_is_supported(flag: &str) -> bool {
-    match flag {
-        "--recursive" | "--force" => true,
-        other => other.strip_prefix('-').is_some_and(|chars| {
-            !chars.is_empty()
-                && !chars.starts_with('-')
-                && chars.chars().all(|c| matches!(c, 'r' | 'R' | 'f'))
-        }),
     }
 }
 

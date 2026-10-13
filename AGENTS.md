@@ -220,16 +220,19 @@ src/                 React + TypeScript 前端
   包装调用（sudo/env/bash -c）、变量与通配符目标必须拒绝 —— 见
   `permissions/rm.rs` 的 `forced_rm_inside_workspace`。这两条改判据都要更新
   `crates/pipi-tools/tests/permissions_policy.rs` 的表驱动测试（白盒解析回归
-  内联在 `permissions/{parse,redirect,paths}.rs` 各自文件底部）。
+  内联在 `permissions/{parse,redirect,safety,rm}.rs` 各自文件底部），
+  工作区包含判定本身在 `pipi-protocol/src/permissions.rs`（`resolve_write_path`）。
 - 请求重试分两层，别把重试加到 provider 层：**provider 只分类**（rig 的结构化错误
-  → 可重试 / 终态 + `Retry-After`，见 `pipi_provider::classify::classify_rig_error`），**重发只在
+  → 可重试 / 终态 + `Retry-After`，见 `pipi-provider/src/classify.rs` 的
+  `classify_rig_error`，`mod classify` 是私有的、不对外导出），**重发只在
   agent_loop 一处做**（`stream_assistant_response` 的尝试循环；摘要调用在
   `compaction::llm` 自己那层共用同一策略）—— 双层重试会放大成 N×M 次请求。
   三条不变量：**用户中止永远不可重试**；**已经输出过正文的那一轮不重放**（例外是
   只有工具调用块，半截参数绝不交给工具执行）；**无进展超时最多额外重试 1 次**。
   改分类表或判定规则必须更新 `retry.rs` 的表驱动测试与 `tests/retry_runtime.rs`。
   **协议协商是这条规则唯一的例外**：端点回报「模型不支持这个协议」时（400 +
-  `ModelProtocolUnsupported`，识别见 `classify::protocol_mismatch`），agent_loop 换另一种
+  `ModelProtocolUnsupported`，识别见 `pipi-provider/src/classify.rs` 的
+  `protocol_mismatch`），agent_loop 换另一种
   协议再试一次 —— 它不是故障重试（不占重试预算、不发 RetryStart、最多一次），同样受
   「已中止 / 已输出正文不重放」约束，且只在 `auto` 协议模式下发生；成功的那套协议由
   provider 记进进程内记忆（`learned_protocol`），后续请求（含压缩摘要）直接命中，

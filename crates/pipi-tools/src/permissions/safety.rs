@@ -47,7 +47,9 @@ fn dangerous_command_match_with_depth(
     None
 }
 
-fn executable_name(raw: &str) -> Option<&str> {
+/// 可执行名：取路径最后一段（空段视作无）。`rm` 的判据（[`rm_args_include_force_option`]
+/// 与 `super::rm::forced_rm_inside_workspace`）共用，保证 `/bin/rm`、`./rm` 与 `rm` 一致。
+pub(super) fn executable_name(raw: &str) -> Option<&str> {
     raw.rsplit('/').next().filter(|name| !name.is_empty())
 }
 
@@ -165,15 +167,95 @@ fn script_has_grammar(script: &str) -> bool {
         .unwrap_or(true) // 分词失败同样无法分析
 }
 
+/// `rm` 旗标参数的共享解码（危险命令识别与工作区放行判据共用，见 `super::rm`）。
+///
+/// 把 `argv[1..]` 变成有序事件：`--` 之前 `-` / `--` 开头的参数按旗标解码，
+/// `--` 之后的参数（即使以 `-` 开头）一律是操作数。两处判据只解读各自关心的位：
+/// - [`rm_args_include_force_option`] 只要 `force` —— **任何**短簇里出现 `f`
+///   即命中（含白名单外的 `-xfoo`），长旗标不逐字符扫描（`--foo` 不算）；
+/// - `forced_rm_inside_workspace` 要求旗标全在白名单内（`unknown == false`）。
+pub(super) fn decode_rm_args(args: &[String]) -> impl Iterator<Item = RmArg<'_>> {
+    let mut after_separator = false;
+    args.iter().map(move |arg| {
+        if after_separator {
+            return RmArg::Operand(arg);
+        }
+        match arg.as_str() {
+            "--" => {
+                after_separator = true;
+                RmArg::Separator
+            }
+            raw if raw.starts_with("--") => RmArg::Flag(decode_long_flag(raw)),
+            raw if raw.starts_with('-') => RmArg::Flag(decode_short_flags(&raw[1..])),
+            _ => RmArg::Operand(arg),
+        }
+    })
+}
+
+/// 长旗标：只有 `--recursive` / `--force` 在白名单内；其余整体判为白名单外，
+/// 不逐字符扫描（`--foo` 里的 `f` 不算 force —— 既有判据如此，保持不放宽）。
+fn decode_long_flag(raw: &str) -> RmFlags {
+    match raw {
+        "--recursive" => RmFlags {
+            force: false,
+            unknown: false,
+        },
+        "--force" => RmFlags {
+            force: true,
+            unknown: false,
+        },
+        _ => RmFlags {
+            force: false,
+            unknown: true,
+        },
+    }
+}
+
+/// 短旗标簇：逐字符解码。`r` / `R` 是白名单内，`f` 同时是白名单内与 force，
+/// 其余字符标记 `unknown`（`-xfoo` 因此 force 与 unknown 同时为真）。
+fn decode_short_flags(chars: &str) -> RmFlags {
+    let mut flags = RmFlags::default();
+    if chars.is_empty() {
+        // 孤立的 `-`：不是白名单旗标
+        flags.unknown = true;
+        return flags;
+    }
+    for c in chars.chars() {
+        match c {
+            'f' => flags.force = true,
+            'r' | 'R' => {}
+            _ => flags.unknown = true,
+        }
+    }
+    flags
+}
+
+/// 一个旗标参数的解码结果（两处判据需要的全部信息）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct RmFlags {
+    /// 出现 `f`：短簇任意位置，或 `--force`。
+    pub force: bool,
+    /// 含白名单（`-r` / `-R` / `-f` 的组合、`--recursive` / `--force`）之外的内容。
+    pub unknown: bool,
+}
+
+/// `rm` 参数解码后的事件。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RmArg<'a> {
+    /// 旗标参数（`-` / `--` 开头），携带逐字符解码结果。
+    Flag(RmFlags),
+    /// `--` 分隔符：之后参数一律是操作数。
+    Separator,
+    /// 操作数（`--` 之后即使以 `-` 开头也在此）。
+    Operand(&'a str),
+}
+
+/// `rm` 参数里是否出现 force 选项：`--force` 或任意短旗标簇中的 `f`（`--` 之后不算）。
+///
+/// 这是**危险命令识别**的宽判据：白名单外的簇含 `f`（如 `-xfoo`）同样命中；
+/// 工作区放行例外另按 `unknown` 标记整体拒绝，两处语义保持各自原样。
 fn rm_args_include_force_option(args: &[String]) -> bool {
-    args.iter()
-        .take_while(|arg| arg.as_str() != "--")
-        .any(|arg| {
-            arg == "--force"
-                || arg
-                    .strip_prefix('-')
-                    .is_some_and(|flags| !flags.starts_with('-') && flags.contains('f'))
-        })
+    decode_rm_args(args).any(|arg| matches!(arg, RmArg::Flag(flags) if flags.force))
 }
 
 #[cfg(test)]
@@ -279,5 +361,70 @@ mod tests {
         ] {
             assert_eq!(dangerous_command_match(&command), None, "{command:?}");
         }
+    }
+
+    /// 解码事件的测试摘要：`Force` 表示 `force == true` 的旗标。
+    #[derive(Debug, PartialEq, Eq)]
+    enum Event {
+        Force { unknown: bool },
+        Flag { unknown: bool },
+        Separator,
+        Operand(String),
+    }
+
+    fn events(args: &[&str]) -> Vec<Event> {
+        // 借用不跨语句：Vec 在函数内被完整消费成拥有所有权的摘要
+        let args = vec_str(args);
+        decode_rm_args(&args)
+            .map(|arg| match arg {
+                RmArg::Flag(flags) if flags.force => Event::Force {
+                    unknown: flags.unknown,
+                },
+                RmArg::Flag(flags) => Event::Flag {
+                    unknown: flags.unknown,
+                },
+                RmArg::Separator => Event::Separator,
+                RmArg::Operand(operand) => Event::Operand(operand.to_string()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn shared_flag_decoder_handles_clusters_and_separator() {
+        use Event::{Flag, Force, Operand, Separator};
+        assert_eq!(events(&["-rf"]), vec![Force { unknown: false }]);
+        assert_eq!(events(&["-fr"]), vec![Force { unknown: false }]);
+        assert_eq!(events(&["-r"]), vec![Flag { unknown: false }]);
+        assert_eq!(events(&["-f"]), vec![Force { unknown: false }]);
+        assert_eq!(events(&["--force"]), vec![Force { unknown: false }]);
+        assert_eq!(events(&["--recursive"]), vec![Flag { unknown: false }]);
+        assert_eq!(events(&["--"]), vec![Separator]);
+        // 只含 `f` 的非白名单簇：force 与 unknown 同时为真
+        assert_eq!(events(&["-xfoo"]), vec![Force { unknown: true }]);
+        // 白名单外的长旗标不逐字符扫描：`--foo` 里的 `f` 不算 force
+        assert_eq!(events(&["--foo"]), vec![Flag { unknown: true }]);
+        // 孤立的 `-` 不是白名单旗标
+        assert_eq!(events(&["-"]), vec![Flag { unknown: true }]);
+        // `--` 之后以 `-` 开头的是操作数，不参与旗标解码
+        assert_eq!(
+            events(&["--", "-f"]),
+            vec![Separator, Operand("-f".to_string())]
+        );
+        assert_eq!(
+            events(&["--", "--force"]),
+            vec![Separator, Operand("--force".to_string())]
+        );
+    }
+
+    #[test]
+    fn shared_decoder_preserves_force_predicate_edges() {
+        assert!(rm_args_include_force_option(&vec_str(&["-rf", "/tmp/x"])));
+        assert!(rm_args_include_force_option(&vec_str(&["/tmp/x", "-f"])));
+        // 白名单外的簇含 f 仍命中（危险识别的宽判据，历史语义）
+        assert!(rm_args_include_force_option(&vec_str(&["-xfoo"])));
+        // `--` 之后的 `-f` 不算
+        assert!(!rm_args_include_force_option(&vec_str(&["--", "-f"])));
+        assert!(!rm_args_include_force_option(&vec_str(&["--foo"])));
+        assert!(!rm_args_include_force_option(&vec_str(&["-r"])));
     }
 }

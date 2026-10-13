@@ -1,19 +1,19 @@
 //! `pipi-tools` 的 glob 工具：按模式匹配文件路径。Pipi 新增（pi 无此工具）。
 //!
 //! 只读：遍历范围受 `resolve_read_path` 的根集合约束（工作目录 +
-//! 受信任读取根），防 `..` 与符号链接逃逸；输出复用 truncate 头部截断。
+//! 受信任读取根），防 `..` 与符号链接逃逸；遍历骨架与输出截断整形在
+//! [`crate::walk`]（与 grep 共用）。
 
-use std::path::PathBuf;
+use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use async_trait::async_trait;
 use glob::Pattern;
 use serde_json::{Value, json};
-use walkdir::WalkDir;
 
-use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_head};
-use pipi_protocol::ToolResultContent;
-use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
+use crate::walk::{resolve_search_root, run_walk, truncate_matches, walk_visible_files};
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 
 /// 单次列出的路径上限（截断前的硬上限，对齐 opencode 的 limit=100：
 /// 结果太多会刷爆上下文，模型应改用更精确的 pattern）。
@@ -29,41 +29,26 @@ const MATCH_OPTIONS: glob::MatchOptions = glob::MatchOptions {
 pub struct GlobTool;
 
 /// 在 `root` 下遍历并收集匹配 `pattern` 的文件路径（相对 root 返回）。
-/// pattern 匹配的是相对路径；`**` 可跨目录。跳过点目录与符号链接。
-fn collect_matches(root: &PathBuf, pattern: &Pattern) -> Vec<(PathBuf, SystemTime)> {
+/// pattern 匹配的是相对路径；`**` 可跨目录。跳过点目录与符号链接
+/// （过滤在 [`walk_visible_files`]）。
+fn collect_matches(root: &Path, pattern: &Pattern) -> Vec<(PathBuf, SystemTime)> {
     let mut matches: Vec<(PathBuf, SystemTime)> = Vec::new();
-    for entry in WalkDir::new(root)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if !entry.file_type().is_file() {
-            continue;
+    walk_visible_files(root, |entry, relative| {
+        if !pattern.matches_with(relative, MATCH_OPTIONS) {
+            return ControlFlow::Continue(());
         }
-        // 点目录/点文件默认跳过（对齐 collect_markdown 的约定）
-        let relative = match entry.path().strip_prefix(root) {
-            Ok(rel) => rel,
-            Err(_) => continue,
-        };
-        if relative
-            .components()
-            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
-        {
-            continue;
+        let modified = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        matches.push((entry.path().to_path_buf(), modified));
+        // 达到上限立即停走
+        if matches.len() >= MAX_MATCHES {
+            return ControlFlow::Break(());
         }
-        let rel_str = relative.to_string_lossy().replace('\\', "/");
-        if pattern.matches_with(&rel_str, MATCH_OPTIONS) {
-            let modified = entry
-                .metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .unwrap_or(SystemTime::UNIX_EPOCH);
-            matches.push((entry.path().to_path_buf(), modified));
-            if matches.len() >= MAX_MATCHES {
-                break;
-            }
-        }
-    }
+        ControlFlow::Continue(())
+    });
     // 最近修改的排前面，方便模型优先看活跃文件
     matches.sort_by_key(|&(_, modified)| std::cmp::Reverse(modified));
     matches
@@ -110,21 +95,12 @@ impl AgentTool for GlobTool {
             Pattern::new(&pattern).map_err(|e| format!("非法 glob 模式 {pattern:?}：{e}"))?;
 
         // 搜索根：显式 path 或 workspace，两者都必须在受信任根集合内
-        let root = match args["path"].as_str() {
-            Some(p) if !p.is_empty() => resolve_read_path(&ctx.workspace, &ctx.read_roots, p)?,
-            _ => std::fs::canonicalize(&ctx.workspace)
-                .map_err(|e| format!("无法解析工作目录 {}：{e}", ctx.workspace.display()))?,
-        };
-        if !root.is_dir() {
-            return Err(format!("搜索根 {} 不是目录", root.display()));
-        }
+        let root = resolve_search_root(ctx, args["path"].as_str())?;
 
-        let matches = tokio::task::spawn_blocking(move || collect_matches(&root, &compiled))
-            .await
-            .map_err(|e| format!("glob 遍历失败：{e}"))?;
+        let matches = run_walk("glob 遍历", move || collect_matches(&root, &compiled)).await?;
 
         let total = matches.len();
-        let mut text = if total == 0 {
+        let text = if total == 0 {
             format!("No files found matching pattern \"{pattern}\".")
         } else {
             let lines: Vec<String> = matches
@@ -139,21 +115,11 @@ impl AgentTool for GlobTool {
             format!("Found {} file(s):\n{}", lines.len(), lines.join("\n"))
         };
 
-        let truncation = truncate_head(&text, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
-        let mut details: Option<Value> = None;
-        if truncation.truncated {
-            text = format!(
-                "{}\n\n[Showing first {} of {total} matches. Use a more specific pattern.]",
-                truncation.content, truncation.output_lines
-            );
-            details = Some(json!({ "truncation": { "truncated": true } }));
-        }
-
-        Ok(ToolOutput {
-            content: vec![ToolResultContent::Text { text }],
-            details,
-            terminate: false,
-        })
+        Ok(truncate_matches(
+            text,
+            total,
+            "Use a more specific pattern.",
+        ))
     }
 }
 
@@ -161,6 +127,7 @@ impl AgentTool for GlobTool {
 mod tests {
     use super::*;
     use pipi_protocol::AbortSignal;
+    use pipi_protocol::ToolResultContent;
     use pipi_protocol::permissions::PermissionsConfig;
     use std::sync::Arc;
 

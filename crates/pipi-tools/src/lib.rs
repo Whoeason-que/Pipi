@@ -17,6 +17,7 @@ pub mod permissions;
 pub mod process;
 mod read;
 mod truncate;
+mod walk;
 mod write;
 
 use std::sync::Arc;

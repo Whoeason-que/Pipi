@@ -1,18 +1,19 @@
 //! `pipi-tools` 的 grep 工具：正则搜索文件内容。Pipi 新增（pi 无此工具）。
 //!
 //! 只读：搜索范围受 `resolve_read_path` 的根集合约束（工作目录 +
-//! 受信任读取根），防 `..` 与符号链接逃逸；输出复用 truncate 头部截断。
+//! 受信任读取根），防 `..` 与符号链接逃逸；遍历骨架与输出截断整形在
+//! [`crate::walk`]（与 glob 共用）。
 
+use std::ops::ControlFlow;
 use std::path::Path;
 
 use async_trait::async_trait;
 use regex::{Regex, RegexBuilder};
 use serde_json::{Value, json};
-use walkdir::WalkDir;
 
-use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_head};
-use pipi_protocol::ToolResultContent;
-use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
+use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES};
+use crate::walk::{resolve_search_root, run_walk, truncate_matches, walk_visible_files};
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 
 /// 单次搜索的文件数上限（截断前的硬上限）。
 const MAX_FILES: usize = 2000;
@@ -97,6 +98,7 @@ fn search_file(abs: &Path, display: &str, regex: &Regex) -> Result<(Vec<String>,
 }
 
 /// 在 root 下遍历搜索。返回 (匹配行, 搜索的文件数)。
+/// 遍历骨架（点文件过滤、符号链接策略）在 [`walk_visible_files`]。
 fn search_tree(
     root: &Path,
     workspace: &Path,
@@ -105,37 +107,21 @@ fn search_tree(
 ) -> (Vec<String>, usize) {
     let mut output: Vec<String> = Vec::new();
     let mut searched = 0usize;
-    for entry in WalkDir::new(root)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if !entry.file_type().is_file() {
-            continue;
-        }
+    walk_visible_files(root, |entry, _relative| {
+        // 文件数上限（截断前的硬上限）：搜满即停
         if searched >= MAX_FILES {
-            break;
-        }
-        let relative = match entry.path().strip_prefix(root) {
-            Ok(rel) => rel,
-            Err(_) => continue,
-        };
-        if relative
-            .components()
-            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
-        {
-            continue;
+            return ControlFlow::Break(());
         }
         let file_name = entry.file_name().to_string_lossy();
         if !matches_include(&file_name, include) {
-            continue;
+            return ControlFlow::Continue(());
         }
         let meta = match entry.metadata() {
             Ok(m) => m,
-            Err(_) => continue,
+            Err(_) => return ControlFlow::Continue(()),
         };
         if meta.len() > MAX_FILE_BYTES {
-            continue;
+            return ControlFlow::Continue(());
         }
         let display = entry
             .path()
@@ -147,7 +133,8 @@ fn search_tree(
         if let Ok((lines, _)) = search_file(entry.path(), &display, regex) {
             output.extend(lines);
         }
-    }
+        ControlFlow::Continue(())
+    });
     (output, searched)
 }
 
@@ -189,44 +176,26 @@ impl AgentTool for GrepTool {
         let regex = compile_pattern(pattern, case_insensitive)?;
         let include = args["include"].as_str().map(|s| s.to_string());
 
-        let root = match args["path"].as_str() {
-            Some(p) if !p.is_empty() => resolve_read_path(&ctx.workspace, &ctx.read_roots, p)?,
-            _ => std::fs::canonicalize(&ctx.workspace)
-                .map_err(|e| format!("无法解析工作目录 {}：{e}", ctx.workspace.display()))?,
-        };
-        if !root.is_dir() {
-            return Err(format!("搜索根 {} 不是目录", root.display()));
-        }
+        let root = resolve_search_root(ctx, args["path"].as_str())?;
 
         let workspace = ctx.workspace.clone();
-        let (output, searched) = tokio::task::spawn_blocking(move || {
+        let (output, searched) = run_walk("grep 搜索", move || {
             search_tree(&root, &workspace, &regex, include.as_deref())
         })
-        .await
-        .map_err(|e| format!("grep 搜索失败：{e}"))?;
+        .await?;
 
         let total_matches = output.len();
-        let mut text = if total_matches == 0 {
+        let text = if total_matches == 0 {
             format!("No matches found for \"{pattern}\" (searched {searched} file(s)).")
         } else {
             output.join("\n")
         };
 
-        let truncation = truncate_head(&text, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
-        let mut details: Option<Value> = None;
-        if truncation.truncated {
-            text = format!(
-                "{}\n\n[Showing first {} of {total_matches} matches. Narrow the pattern or add an include filter.]",
-                truncation.content, truncation.output_lines
-            );
-            details = Some(json!({ "truncation": { "truncated": true } }));
-        }
-
-        Ok(ToolOutput {
-            content: vec![ToolResultContent::Text { text }],
-            details,
-            terminate: false,
-        })
+        Ok(truncate_matches(
+            text,
+            total_matches,
+            "Narrow the pattern or add an include filter.",
+        ))
     }
 }
 
@@ -234,6 +203,7 @@ impl AgentTool for GrepTool {
 mod tests {
     use super::*;
     use pipi_protocol::AbortSignal;
+    use pipi_protocol::ToolResultContent;
     use pipi_protocol::permissions::PermissionsConfig;
     use std::path::PathBuf;
     use std::sync::Arc;
