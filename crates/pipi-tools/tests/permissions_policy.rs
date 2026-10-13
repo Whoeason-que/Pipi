@@ -39,6 +39,12 @@ fn workspace_write_config() -> PermissionsConfig {
     }
 }
 
+/// 「命令能否进执行」的便捷口径：只有 `Allowed` 才算通过
+/// （`NeedsApproval` 与 `HardDenied` 都到不了执行）。
+fn allowed(config: &PermissionsConfig, command: &str, workspace: &Path) -> bool {
+    config.assess_bash_classified(command, workspace) == BashAssessment::Allowed
+}
+
 #[test]
 fn allowlist_matches_word_prefix() {
     let p = PermissionsConfig {
@@ -77,18 +83,9 @@ fn allowlist_checks_compound_segments() {
         },
         sandbox: SandboxMode::DangerFullAccess,
     };
-    assert!(
-        p.assess_bash("git add . && git commit", Path::new("/tmp"))
-            .is_ok()
-    );
-    assert!(
-        p.assess_bash("git add . && rm -rf /tmp/x", Path::new("/tmp"))
-            .is_err()
-    );
-    assert!(
-        p.assess_bash("echo hi; git status", Path::new("/tmp"))
-            .is_err()
-    );
+    assert!(allowed(&p, "git add . && git commit", Path::new("/tmp")));
+    assert!(!allowed(&p, "git add . && rm -rf /tmp/x", Path::new("/tmp")));
+    assert!(!allowed(&p, "echo hi; git status", Path::new("/tmp")));
 }
 
 #[test]
@@ -101,18 +98,9 @@ fn denylist_blocks_matching_segment() {
         },
         sandbox: SandboxMode::DangerFullAccess,
     };
-    assert!(
-        p.assess_bash("ls -la && rm -rf /tmp/x", Path::new("/tmp"))
-            .is_err()
-    );
-    assert!(
-        p.assess_bash("sudo apt install x", Path::new("/tmp"))
-            .is_err()
-    );
-    assert!(
-        p.assess_bash("ls -la && git status", Path::new("/tmp"))
-            .is_ok()
-    );
+    assert!(!allowed(&p, "ls -la && rm -rf /tmp/x", Path::new("/tmp")));
+    assert!(!allowed(&p, "sudo apt install x", Path::new("/tmp")));
+    assert!(allowed(&p, "ls -la && git status", Path::new("/tmp")));
 }
 
 #[test]
@@ -126,11 +114,8 @@ fn quotes_defeat_naive_denylist_but_not_ours() {
         sandbox: SandboxMode::DangerFullAccess,
     };
     // 引号里的 "分号" 不拆段：整段是一条 echo，不命中 rm
-    assert!(
-        p.assess_bash(r#"echo "a; rm -rf /""#, Path::new("/tmp"))
-            .is_ok()
-    );
-    assert!(p.assess_bash("rm x", Path::new("/tmp")).is_err());
+    assert!(allowed(&p, r#"echo "a; rm -rf /""#, Path::new("/tmp")));
+    assert!(!allowed(&p, "rm x", Path::new("/tmp")));
 }
 
 #[test]
@@ -140,20 +125,18 @@ fn sandbox_blocks_forced_rm_unless_full_access() {
         sandbox: SandboxMode::WorkspaceWrite,
         ..Default::default()
     };
-    assert!(
-        p.assess_bash("rm -rf /var/tmp/pipi-outside", Path::new("/tmp"))
-            .is_err()
-    );
-    assert!(p.assess_bash("rm -r build/", Path::new("/tmp")).is_ok());
+    assert!(!allowed(
+        &p,
+        "rm -rf /var/tmp/pipi-outside",
+        Path::new("/tmp")
+    ));
+    assert!(allowed(&p, "rm -r build/", Path::new("/tmp")));
     // 工作区内的字面量强制删除放行 —— 边界与反例见
     // forced_rm_is_allowed_only_for_workspace_literals
-    assert!(p.assess_bash("rm -rf build/", Path::new("/tmp")).is_ok());
+    assert!(allowed(&p, "rm -rf build/", Path::new("/tmp")));
     // danger-full-access：放行
     p.sandbox = SandboxMode::DangerFullAccess;
-    assert!(
-        p.assess_bash("rm -rf /var/tmp/pipi-outside", Path::new("/tmp"))
-            .is_ok()
-    );
+    assert!(allowed(&p, "rm -rf /var/tmp/pipi-outside", Path::new("/tmp")));
 }
 
 #[test]
@@ -163,7 +146,7 @@ fn read_only_blocks_bash_entirely() {
         bash: BashPermissions::default(),
         sandbox: SandboxMode::ReadOnly,
     };
-    assert!(p.assess_bash("ls", Path::new("/tmp")).is_err());
+    assert!(!allowed(&p, "ls", Path::new("/tmp")));
 }
 
 #[test]
@@ -189,13 +172,13 @@ fn workspace_write_rejects_shell_redirects_before_execution() {
         "ln -s /outside link && printf x > link",
     ] {
         assert!(
-            p.assess_bash(command, &ws).is_err(),
+            !allowed(&p, command, &ws),
             "redirect must be rejected: {command}"
         );
     }
-    assert!(p.assess_bash("printf '>'", &ws).is_ok());
-    assert!(p.assess_bash(r#"printf ">""#, &ws).is_ok());
-    assert!(p.assess_bash(r"printf \>", &ws).is_ok());
+    assert!(allowed(&p, "printf '>'", &ws));
+    assert!(allowed(&p, r#"printf ">""#, &ws));
+    assert!(allowed(&p, r"printf \>", &ws));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -291,15 +274,6 @@ fn classification_dangerous_and_denied_are_never_askable() {
         ro.assess_bash_classified("git status", Path::new("/tmp")),
         BashAssessment::HardDenied(_)
     ));
-}
-
-#[test]
-fn classification_assess_bash_maps_miss_to_error() {
-    let cfg = allowlist_config(&["git"], SandboxMode::WorkspaceWrite);
-    let error = cfg
-        .assess_bash("npm install", Path::new("/tmp"))
-        .unwrap_err();
-    assert!(error.contains("不在白名单中"));
 }
 
 #[test]

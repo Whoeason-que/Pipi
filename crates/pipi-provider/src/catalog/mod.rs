@@ -30,8 +30,7 @@ use pipi_protocol::Api;
 
 mod curation;
 
-pub use curation::GROUPS;
-use curation::{CURATION, Curated, MANUAL, ManualEntry, protocol_of};
+use curation::{CURATION, Curated, GROUPS, MANUAL, ManualEntry, protocol_of};
 #[cfg(test)]
 use curation::{curated, opt};
 
@@ -150,16 +149,11 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-fn read_cache(cache_path: Option<&Path>) -> Option<ModelCatalog> {
-    let text = std::fs::read_to_string(cache_path?).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
 fn write_cache(cache_path: Option<&Path>, catalog: &ModelCatalog) -> Result<(), String> {
     let path = cache_path.ok_or("无法定位 ~/.pipi")?;
     let text = serde_json::to_string(catalog).map_err(|e| format!("序列化目录失败: {e}"))?;
     // 原子替换：进程中途崩溃也不会留下截断的缓存
-    // （截断的 models.json 会被 read_cache 当作「没有缓存」，下次冷启动又要拉 4.6MB）。
+    // （截断的 models.json 会被 cached_catalog 当作「没有缓存」，下次冷启动又要拉 4.6MB）。
     // tempfile 的唯一命名也避免了并发刷新时互相覆盖同一个 .tmp。
     pipi_protocol::fs::write_atomic(path, text).map_err(|e| format!("写入目录缓存失败: {e}"))
 }
@@ -438,7 +432,7 @@ fn build_with(
 }
 
 /// 把上游 JSON 与 CURATION 合成我们的目录。纯函数（不联网），便于测试。
-pub fn build_catalog(
+pub(crate) fn build_catalog(
     upstream: &serde_json::Value,
     fetched_at: i64,
 ) -> Result<ModelCatalog, String> {
@@ -452,7 +446,8 @@ pub fn build_catalog(
 /// 只读本地缓存（**不联网、不判保鲜期**）：宿主在 run 前解析模型级协议用。
 /// 需要刷新走 [`load_catalog`]；没有缓存返回 `None`（调用方按原协议继续）。
 pub fn cached_catalog(cache_path: Option<&Path>) -> Option<ModelCatalog> {
-    read_cache(cache_path)
+    let text = std::fs::read_to_string(cache_path?).ok()?;
+    serde_json::from_str(&text).ok()
 }
 
 /// 端点归一化键：去尾斜杠 + 忽略大小写（上游与用户手填的写法可能不同）。
@@ -484,7 +479,7 @@ fn providers_at<'a>(
 /// 只看**最贴近的那条端点条目**（同端点多条时按声明协议选）：跨条目拼答案会把
 /// 两家的话混在一起。目录里根本没收录这个模型时同样返回 `None` —— 调用方保持
 /// 绑定里的协议（覆盖用户手填的目录外模型与本地运行时）。
-pub fn model_api_override(
+pub(crate) fn model_api_override(
     catalog: &ModelCatalog,
     base_url: &str,
     model_id: &str,
@@ -501,7 +496,7 @@ pub fn model_api_override(
 }
 
 /// 端点在目录里的 provider 级协议（跟随上游 / CURATION 的更新）。
-pub fn catalog_provider_api(catalog: &ModelCatalog, base_url: &str, declared: Api) -> Option<Api> {
+pub(crate) fn catalog_provider_api(catalog: &ModelCatalog, base_url: &str, declared: Api) -> Option<Api> {
     providers_at(catalog, base_url, declared)
         .first()
         .map(|provider| provider.api)
@@ -570,7 +565,7 @@ pub async fn load_catalog(
     cache_path: Option<PathBuf>,
 ) -> Result<ModelCatalog, String> {
     let _single_flight = CATALOG_LOCK.lock().await;
-    let cached = read_cache(cache_path.as_deref());
+    let cached = cached_catalog(cache_path.as_deref());
     if !refresh
         && let Some(catalog) = &cached
         && catalog
@@ -967,22 +962,6 @@ mod tests {
         )];
         let err = build_with(curation, &[], &upstream_fixture(), 0, 1).unwrap_err();
         assert!(err.contains("不在 GROUPS"), "{err}");
-    }
-
-    #[test]
-    fn 不变量能挡住重复端点() {
-        // (协议, 端点) 重复：把 anthropic 也指到 deepseek 的 OpenAI 兼容端点
-        let dup = &[
-            curated!("deepseek", "国内", base_url = "https://api.deepseek.com/v1"),
-            curated!(
-                "anthropic",
-                "国内",
-                api = Api::OpenAICompletions,
-                base_url = "https://api.deepseek.com/v1"
-            ),
-        ];
-        let err = build_with(dup, &[], &upstream_fixture(), 0, 1).unwrap_err();
-        assert!(err.contains("重复"), "{err}");
     }
 
     #[test]

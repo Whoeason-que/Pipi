@@ -32,7 +32,7 @@
 //! 模式的 kebab-case 取值在 `pipi_protocol::permissions`（清单与引擎都要读）；
 //! 本模块只放策略实现。
 
-pub mod safety;
+mod safety;
 
 mod config;
 mod parse;
@@ -41,4 +41,3 @@ mod rm;
 
 pub use config::BashPolicy;
 pub use parse::{matches_entry, split_segments};
-pub use safety::{DangerousCommandMatch, dangerous_command_match};

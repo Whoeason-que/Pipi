@@ -18,7 +18,7 @@
 //! 领域与引擎在别处：Agent 清单 / 注册表 / 技能在 `pipi-venv`，上下文与压缩
 //! 策略在 `pipi-context`，会话载体在 `pipi-session`，模型面在 `pipi-provider`。
 //!
-//! 另有 codex 移植：`pipi_tools::permissions::safety`（危险命令）与
+//! 另有 codex 移植：危险命令判定（`pipi-tools/src/permissions/safety.rs`）与
 //! `SandboxMode`，见 README「与 codex 的关系」。
 //!
 //! 尚未移植（有意推迟，需要时再从上游搬运）：

@@ -8,16 +8,16 @@
 //! 装配时调用它，再按需 `ToolRegistry::push` 注入自己的工具（组合工具、
 //! 后台任务工具）。
 
-pub mod bash;
-pub mod edit;
-pub mod glob;
-pub mod grep;
+mod bash;
+mod edit;
+mod glob;
+mod grep;
 pub mod memory;
 pub mod permissions;
 pub mod process;
-pub mod read;
-pub mod truncate;
-pub mod write;
+mod read;
+mod truncate;
+mod write;
 
 use std::sync::Arc;
 

@@ -173,7 +173,7 @@ fn rig_transport(extra: Option<HeaderMap>) -> DynHttpClient {
 /// rig 适配器。协议**按每次请求的 `Model.api` 分派**（不缓存协议）：
 /// 同一个实例因此能跨协议服务 —— 运行期协商会在重试时换协议，实例换不动就断链。
 #[derive(Default)]
-pub struct RigProvider;
+pub(crate) struct RigProvider;
 
 /// 运行期实证学到的协议：某 (端点, 模型) 曾经成功用过哪种协议。
 ///
@@ -188,7 +188,7 @@ fn learned_map() -> &'static std::sync::Mutex<HashMap<(String, String), Api>> {
 }
 
 /// 该 (端点, 模型) 实证过的协议（`None` = 还没学过，用请求里的声明）。
-pub fn learned_protocol(base_url: &str, model_id: &str) -> Option<Api> {
+pub(crate) fn learned_protocol(base_url: &str, model_id: &str) -> Option<Api> {
     let key = (catalog::endpoint_key(base_url), model_id.to_string());
     learned_map()
         .lock()
@@ -274,7 +274,7 @@ fn tool_name(name: &str) -> ToolName {
 
 /// 把会话历史映射为 rig 消息。system prompt 不进 messages（走请求的
 /// preamble）。我们的 ToolResult 对应 rig 的 user 角色 ToolResult 块。
-pub fn to_rig_messages(context: &Context, api: Api) -> Vec<RigMessage> {
+pub(crate) fn to_rig_messages(context: &Context, api: Api) -> Vec<RigMessage> {
     let issuer = thinking_issuer(api);
     let mut out = Vec::new();
     for msg in &context.messages {
@@ -369,7 +369,7 @@ pub fn to_rig_messages(context: &Context, api: Api) -> Vec<RigMessage> {
 }
 
 /// 工具定义同构映射。
-pub fn to_rig_tools(context: &Context) -> Vec<ToolDefinition> {
+pub(crate) fn to_rig_tools(context: &Context) -> Vec<ToolDefinition> {
     context
         .tools
         .iter()

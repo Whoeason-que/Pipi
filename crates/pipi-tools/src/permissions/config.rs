@@ -14,9 +14,6 @@ use super::safety::{DangerousCommandMatch, dangerous_command_match};
 
 /// bash 命令评估入口。调用点 `use pipi_tools::permissions::BashPolicy;` 即可。
 pub trait BashPolicy {
-    /// bash 命令总闸：切分 → 白/黑名单 → 危险命令 → 沙箱策略。
-    fn assess_bash(&self, command: &str, workspace: &Path) -> Result<(), String>;
-
     /// bash 命令分类评估。只有「Allowlist 模式下白名单未命中、且不命中危险
     /// 规则」的段落可以交给交互审批救回；黑名单命中、危险命令、沙箱约束
     /// 一律硬拒 —— 宁可拒绝不可放行。
@@ -24,18 +21,6 @@ pub trait BashPolicy {
 }
 
 impl BashPolicy for PermissionsConfig {
-    fn assess_bash(&self, command: &str, workspace: &Path) -> Result<(), String> {
-        match self.assess_bash_classified(command, workspace) {
-            BashAssessment::Allowed => Ok(()),
-            BashAssessment::HardDenied(message) => Err(message),
-            BashAssessment::NeedsApproval { missing } => Err(format!(
-                "命令「{}」不在白名单中（允许：{}）",
-                missing.join(" && "),
-                self.bash.commands.join(", ")
-            )),
-        }
-    }
-
     fn assess_bash_classified(&self, command: &str, workspace: &Path) -> BashAssessment {
         if self.sandbox == SandboxMode::ReadOnly {
             return BashAssessment::HardDenied(
