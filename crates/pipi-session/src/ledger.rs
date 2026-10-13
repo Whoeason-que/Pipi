@@ -366,7 +366,7 @@ mod tests {
 
         // 重新打开：tip/seq 恢复，新条目接在后面
         let mut resumed = SessionWriter::open(&path).unwrap();
-        assert_eq!(resumed.tip_id().is_some(), true);
+        assert!(resumed.tip_id().is_some());
         resumed
             .append_message(&Message::user_text("second"))
             .unwrap();

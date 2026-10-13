@@ -23,6 +23,11 @@ impl JsonlSessionRepo {
         Self { dir }
     }
 
+    /// 会话目录（组合载体枚举旧会话文件时用）。
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     /// 会话文件路径。目录与文件任何一环是符号链接都拒绝（fail-closed：
     /// 链接会让读写逃出数据树）；文件不存在按「没有会话」处理，由调用方决定
     /// 报错还是创建。这是全部目录级操作的唯一入口 —— 读、写、分叉、归档、
@@ -54,6 +59,9 @@ impl SessionRepo for JsonlSessionRepo {
 
     fn open(&self, session_id: &str) -> Result<Box<dyn SessionLog>, String> {
         let path = self.session_path(session_id)?;
+        if !path.is_file() {
+            return Err("会话不存在".into());
+        }
         Ok(Box::new(
             SessionWriter::open(&path).map_err(|error| error.to_string())?,
         ))
@@ -65,7 +73,12 @@ impl SessionRepo for JsonlSessionRepo {
     }
 
     fn entries(&self, session_id: &str) -> Result<Vec<SessionEntry>, String> {
-        load_session(&self.session_path(session_id)?)
+        let path = self.session_path(session_id)?;
+        // 与 git 载体同口径的错误文案（conformance 套件盯这条）
+        if !path.is_file() {
+            return Err("会话不存在".into());
+        }
+        load_session(&path)
     }
 
     fn list(&self) -> Vec<SessionSummary> {
@@ -228,27 +241,7 @@ pub fn list_session_summaries(sessions_dir: &Path) -> Vec<SessionSummary> {
         let Ok(file_entries) = load_session(&path) else {
             continue;
         };
-        let title = file_entries
-            .iter()
-            .find_map(|e| match &e.kind {
-                EntryKind::Message {
-                    message: Message::User { content, .. },
-                } => Some(content.clone()),
-                _ => None,
-            })
-            .map(|text| {
-                let first_line = text.lines().next().unwrap_or("").trim().to_string();
-                let mut cut = first_line.chars().take(48).collect::<String>();
-                if first_line.chars().count() > 48 {
-                    cut.push('…');
-                }
-                if cut.is_empty() {
-                    "(空会话)".to_string()
-                } else {
-                    cut
-                }
-            })
-            .unwrap_or_else(|| "(空会话)".to_string());
+        let title = crate::title_from_entries(file_entries.iter());
         let message_count = file_entries
             .iter()
             .filter(|e| matches!(e.kind, EntryKind::Message { .. }))
