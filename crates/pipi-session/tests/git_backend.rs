@@ -273,3 +273,99 @@ fn a_crash_loses_only_the_uncommitted_turn() {
     assert_eq!(reopened.tip_id(), Some(entries[0].id.as_str()));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// 真实会话语料（手动跑，抄 `pipi-context` 的 `compaction_corpus` 口径）：
+///
+/// ```text
+/// PIPI_DOGFOOD_SESSION=~/.pipi/agents/Q/sessions/<id>.jsonl \
+///   cargo test -p pipi-session --test git_backend -- --ignored --nocapture
+/// ```
+///
+/// 只读真实文件、只写临时仓库，不碰用户数据。
+#[test]
+#[ignore = "需要 PIPI_DOGFOOD_SESSION 指向一条真实会话 JSONL"]
+fn dogfood_a_real_session_roundtrips_through_git() {
+    let Some(path) = std::env::var_os("PIPI_DOGFOOD_SESSION") else {
+        panic!("请设置 PIPI_DOGFOOD_SESSION");
+    };
+    let source = std::path::PathBuf::from(path);
+    let entries = load_session(&source).expect("读取真实会话");
+    let id = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .expect("会话 id")
+        .to_string();
+    let bytes = std::fs::metadata(&source).unwrap().len();
+
+    let dir = pipi_test_support::temp_dir("pipi-dogfood");
+    let repo = GitSessionRepo::new(dir.join("sessions.git"));
+    let started = std::time::Instant::now();
+    assert!(repo.import(&id, &entries).unwrap(), "首次导入应当写入");
+    let imported_ms = started.elapsed().as_millis();
+
+    let read_back = repo.entries(&id).unwrap();
+    assert_eq!(read_back.len(), entries.len(), "条目数一致");
+    assert_eq!(
+        serde_json::to_string(&read_back).unwrap(),
+        serde_json::to_string(&entries).unwrap(),
+        "读回与原文逐条一致"
+    );
+
+    let exec = GitExec::new(dir.join("sessions.git"));
+    let log = String::from_utf8_lossy(&exec.run(&["log", "--oneline", &branch(&id)]).unwrap())
+        .lines()
+        .count();
+    let summary = repo
+        .list()
+        .into_iter()
+        .find(|summary| summary.id == id)
+        .expect("列表里有它");
+    let on_disk = dir_size(&dir.join("sessions.git"));
+    println!(
+        "真实会话 {}：{} 条 / {:.2} MB；导入 {} ms；git 里 {} 个 commit；读回 {} 条；\
+         标题「{}」；消息 {} 条；模型 {:?}；仓库占盘 {:.2} MB",
+        id,
+        entries.len(),
+        bytes as f64 / 1_048_576.0,
+        imported_ms,
+        log,
+        read_back.len(),
+        summary.title,
+        summary.message_count,
+        summary.model,
+        on_disk as f64 / 1_048_576.0,
+    );
+    // 标准 git 工具的观感（验收的一部分）：一行一轮、可 grep 轮号
+    let head = String::from_utf8_lossy(
+        &exec
+            .run(&["log", "--format=%s", "--max-count=5", &branch(&id)])
+            .unwrap(),
+    )
+    .to_string();
+    let turn12 = String::from_utf8_lossy(
+        &exec
+            .run(&["log", "--oneline", "--grep=Turn: 12", &branch(&id)])
+            .unwrap(),
+    )
+    .lines()
+    .count();
+    println!("最近 5 轮（git log --format=%s）：\n{head}第 12 轮命中 {turn12} 个 commit");
+    assert!(log >= 1);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn dir_size(path: &std::path::Path) -> u64 {
+    let mut total = 0;
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else { continue };
+        if metadata.is_dir() {
+            total += dir_size(&entry.path());
+        } else {
+            total += metadata.len();
+        }
+    }
+    total
+}

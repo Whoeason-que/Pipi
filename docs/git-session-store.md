@@ -1,6 +1,6 @@
 # 会话记录 git 化设计
 
-日期：2026-10-12。状态：**设计待确认，未实施**。
+日期：2026-10-12（设计）/ 2026-10-13（实施）。状态：**已实施**（P1–P3、P5 落地，见 §10）。
 
 目标（用户 2026-10-12 拍板）：**对话记录以 git 为载体，能用标准 git 工具浏览/分发；
 压缩对话时新建分支。** 不动工作区文件（那是另一个话题），不用户项目的 `.git`。
@@ -304,10 +304,40 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 | 阶段 | 内容 | 完成判据 | 状态 |
 | --- | --- | --- | --- |
 | P1 | 内核抽取 `SessionLog`/`SessionRepo`，JSONL 后端为现有实现 | 全部既有测试不改断言通过 | **已完成（2026-10-12）** |
-| P2 | `crates/pipi-session` 的 git 载体：sink/reader/refs/gc/probe + 内联单测 + tests/ 黑盒 | §9 的 1–5、7、8 通过 | 待做 |
-| P3 | 装配与配置（`agent.json` 的 `sessionStore`）+ 显式导入命令（逐条校验、原文件保留） | 导入后校验一致且幂等 | 待做 |
+| P2 | `crates/pipi-session` 的 git 载体：exec/layout/refs/sink/reader + 内联单测 + tests/ 黑盒 | §9 的 1–5、7、8 通过 | **已完成（2026-10-13）** |
+| P3 | 装配与导入命令（逐条校验、原文件改名保留、幂等） | 导入后校验一致且幂等 | **已完成（2026-10-13）**，见下方记录 |
 | P4 | 前端：仓库路径提示、导出/bundle 入口（可选） | 手动验证 | 待做 |
-| P5 | 规则与文档：`AGENTS.md` 会话格式条款加「容器可为 git 分支、行格式不变」，更新本文件状态 | `cargo xtask arch` 通过 | 待做 |
+| P5 | 规则与文档：`AGENTS.md` 会话格式条款加「容器可为 git 分支、行格式不变」，更新本文件状态 | `cargo xtask arch` 通过 | **已完成（2026-10-13）** |
+
+### P2/P3/P5 落地记录（2026-10-13，分支 `feat/git-session-store`）
+
+实现落在**已有的** `crates/pipi-session`（`git/{exec,layout,refs,sink,reader}.rs` +
+门面 `git/mod.rs` + 组合载体 `store.rs`），不新建 crate：
+
+- 写侧 `GitSink`：条目进内存缓冲，`commit_point` 组装一次 `fast-import`
+  （N 个 blob + 1 个 commit，父提交 = 分支当前 tip）；提交失败保留缓冲。
+- 读侧：`ls-tree -r` + 一次 `cat-file --batch`；列表只取少量 blob（标题/模型/
+  最后活跃），不整读会话。
+- 提交点由内核决定（`pipi-agent/src/session/commit.rs`）：轮末、超时收尾、
+  启动失败、会话创建、env 记账、空闲切模型、尾部修复、压缩（分叉与原地）。
+  轮末在阻塞线程池上跑。
+- 装配点 `pipi-core/src/runtime/store.rs` 返回组合载体 `AgentSessionRepo`：
+  **新建一律 git**；旧 `sessions/*.jsonl` 会话按 id 兼容（读、续写、归档、删除
+  都按会话当前所在载体分发，同一个会话只有一个载体）；列表合并两区按 id 去重。
+- 导入命令 `import_sessions`（Agent 工作台「文件」页）：逐条读 JSONL → 按轮
+  切批写入 git → 读回校验（不一致即删分支报错）→ 原文件改名 `.jsonl.imported`
+  保留；幂等。结果 DTO 在契约层（`SessionImportReport`）。
+- 与设计的偏差（有意）：
+  1. **不加 `agent.json.sessionStore` 开关** —— git 是唯一写入载体，JSONL 只作
+     旧数据兼容（开关属于「默认 jsonl」时代的折中）；
+  2. **分叉保持原载体** —— 旧 JSONL 会话分叉出新 JSONL 会话（同一对话不换载体），
+     迁移只走显式导入；
+  3. **entry 级分叉**（`fork_session(upToEntryId)`，前端恒传 null）在 O2 轮粒度下
+     实现为「从目标提交的父起按轮重写前缀」，内容精确且与原线共享 blob。
+- 验收：`cargo test -p pipi-session`（含 conformance 套件与 §9 的 1–5、7、8）、
+  `-p pipi-agent`（内核补「AgentEnd 之前必须已提交」断言）、`-p pipi-core`
+  （含新增 `tests/session_carrier.rs`）、`--features server`、`npm run test:frontend`、
+  `cargo xtask arch` 全绿。
 
 ### P1 落地记录（2026-10-12）
 

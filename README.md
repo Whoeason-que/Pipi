@@ -102,7 +102,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 请求重试 | `settings.json` → `retry` | 可重试错误的重发策略：`maxAttempts`（含首次，1 = 不重试）/ `baseDelayMs` / `maxDelayMs`；默认 3 次尝试、1s 起指数退避、30s 封顶、25% 抖动，尊重 `Retry-After` |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 环境契约 | `agent.toml`（项目根 / Agent 定义目录）+ `agent.local.toml` + `agent.lock` | av 标准：env 声明、工具链断言、资源覆盖与技能包管理（`av skill`）；会话启动解析一次，秘密值永不内联 |
-| 会话 | `sessions/*.jsonl` | Append-only 的运行记录，一文件一会话，树状条目（id/parentId）支持分叉 |
+| 会话 | `sessions.git/`（git 分支） | 一轮一个 commit，一条 entry 一个文件（内容就是那一行 JSON）；压缩＝新建分支、`git log` 即对话。旧 `sessions/*.jsonl` 会话照旧可读可续写，导入后迁到 git（Agent 工作台「文件」页） |
 | 后台任务 | `jobs/<job-id>.jsonl` + `.log` | shell 进程与 child Agent 的生命周期、状态和输出；任务按 Agent/session 所有，重启只显示 orphaned，不按旧 PID 或 future 自动接管 |
 
 ### 默认 Agent
@@ -214,7 +214,7 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 │                                      │  / 技能中心 / 纯提示词层
 ├──────────────────────────────────────┤
 │  pipi-protocol  契约层               │  DTO + 会话条目格式 + 端口（唯一被所有层依赖）
-│  pipi-session   会话载体             │  sessions/*.jsonl（append-only、崩溃安全）
+│  pipi-session   会话载体             │  git 分支（一轮一 commit）+ 旧 JSONL 兼容
 │  pipi-tools     工具实现             │  内置工具 + bash 权限策略
 │  pipi-provider  模型面               │  rig 适配 + models.dev 目录（唯一 HTTP）
 │  pipi-error     错误语义             │  错误码与 RetryHint
@@ -369,7 +369,7 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
 | `packages/agent` harness/tools | `pipi-tools` + `pipi-core::tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/glob/grep；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
 | `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness prompt/resources | `pipi-venv::prompt` | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
-| `packages/agent` harness/session | `pipi-protocol::session`（条目格式与回放）+ `pipi-session`（JSONL 载体） | 树状 JSONL Entry（id/parentId/seq）；Pipi 增量新增 `compaction` 条目类型 |
+| `packages/agent` harness/session | `pipi-protocol::session`（条目格式与回放）+ `pipi-session`（载体） | 树状 Entry（id/parentId/seq）；载体默认是 git 分支（一轮一 commit，压缩＝建分支），旧 JSONL 文件按 id 兼容；Pipi 增量新增 `compaction` 条目类型 |
 | `packages/agent` harness/runtime | `pipi-agent::session` | 单会话生命周期、运行守卫、历史恢复、累计用量和压缩持久化；通过协议端口注入能力 |
 | （Pipi 应用层） | `pipi-core::runtime` | 会话槽、后台 Agent 编排和宿主事件协议；Tauri 与 Web server 共用，IPC payload 不变 |
 | `packages/agent` compaction（启发式） | `pipi-context::context` | token 估算（chars/4）、`prune_cut_index` 切点决策、`transformContext` 钩子 |
@@ -599,6 +599,7 @@ Pipi 也可以把 React 前端和宿主运行时以浏览器服务方式启动�
 - [x] **M2 — Agent 管理**：UI 全字段编辑 `agent.json` / `AGENTS.md` 双向同步，memory 渐进召回（索引常驻 + 按需读取）
 - [ ] **M3 — Skills 与 MCP**：Skills 渐进注入已实现；技能库与 Agent 技能页已接线（安装 / 校验 / 启用 / 同步）；stdio MCP 服务器接入未动
 - [x] **M4（部分）— 会话树状分叉**：`fork_session` 已实现并接线 UI；LLM 摘要式 compaction 已实现（turn 边界触发，摘要落盘可回放）。模板市场、多语言未动
+- [x] **M5 — 会话进 git**：会话载体从 JSONL 换成 git 分支（一轮一个 commit，`git log` 即对话、压缩＝新建分支、`git bundle` 可分发）；旧会话照旧可读，Agent 工作台「文件」页可一键导入（逐条校验、幂等、原文件保留）
 
 ## 致谢
 
