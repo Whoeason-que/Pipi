@@ -160,16 +160,7 @@ impl SessionLog for GitSink {
     }
 
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
-        Ok(self.append_entry(
-            EntryKind::Compaction {
-                summary: record.summary.to_string(),
-                keep_from_entry: record.keep_from_entry.to_string(),
-                source_tip: record.source_tip.to_string(),
-                strategy: record.strategy.to_string(),
-                usage: record.usage,
-            },
-            now_millis(),
-        ))
+        Ok(self.append_entry(record.to_entry_kind(), now_millis()))
     }
 
     fn append_model_change(&mut self, model: &Model) -> std::io::Result<String> {

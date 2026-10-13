@@ -128,16 +128,7 @@ impl SessionWriter {
     /// 追加一条摘要压缩条目，返回新条目 id。`record.keep_from_entry` 为空
     /// 表示只保留摘要（旧行为）。
     pub fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
-        let entry = self.ledger.begin(
-            EntryKind::Compaction {
-                summary: record.summary.to_string(),
-                keep_from_entry: record.keep_from_entry.to_string(),
-                source_tip: record.source_tip.to_string(),
-                strategy: record.strategy.to_string(),
-                usage: record.usage,
-            },
-            now_millis(),
-        );
+        let entry = self.ledger.begin(record.to_entry_kind(), now_millis());
         self.write_entry(&entry)?;
         Ok(entry.id)
     }

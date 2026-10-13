@@ -98,6 +98,19 @@ pub struct CompactionRecord<'a> {
     pub usage: Option<Usage>,
 }
 
+impl CompactionRecord<'_> {
+    /// 落成条目 payload（各载体的 `append_compaction` 共用，字段搬运只有这一份）。
+    pub fn to_entry_kind(&self) -> EntryKind {
+        EntryKind::Compaction {
+            summary: self.summary.to_string(),
+            keep_from_entry: self.keep_from_entry.to_string(),
+            source_tip: self.source_tip.to_string(),
+            strategy: self.strategy.to_string(),
+            usage: self.usage,
+        }
+    }
+}
+
 /// 会话列表条目（侧栏展示用）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
