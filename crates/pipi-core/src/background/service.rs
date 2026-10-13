@@ -1,11 +1,10 @@
-use std::collections::VecDeque;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::process::Command;
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::tools::background::{
     BackgroundAgentTaskSpec, BackgroundTaskCommand, BackgroundTaskOwner, BackgroundTaskQuery,
@@ -20,8 +19,8 @@ use pipi_venv::agents;
 use super::agent::{AgentJobEntry, run_agent_job};
 use super::persist::{PersistedRecord, append_record, validate_job_id};
 use super::shell::{JobEntry, run_job};
-use super::state::{JobCommand, JobState, wait_for_state};
-use super::{BackgroundTaskManager, CONTROL_TIMEOUT};
+use super::state::{JobCommand, JobCore, wait_for_state};
+use super::{BackgroundTaskManager, CONTROL_TIMEOUT, JobHandle};
 
 #[async_trait]
 impl BackgroundTaskService for BackgroundTaskManager {
@@ -114,20 +113,17 @@ impl BackgroundTaskService for BackgroundTaskManager {
             ..queued
         };
         let entry = Arc::new(JobEntry {
-            owner: Mutex::new(spec.owner),
+            core: JobCore::new(
+                BackgroundTaskKind::Shell,
+                spec.owner,
+                info.clone(),
+                metadata_path.clone(),
+            ),
             pid: AtomicU32::new(pid),
-            state: Mutex::new(JobState {
-                info: info.clone(),
-                output: VecDeque::new(),
-                output_bytes: 0,
-                next_seq: 0,
-            }),
             control,
-            notify: Notify::new(),
-            metadata_path: metadata_path.clone(),
             log_path,
         });
-        self.insert_job(entry.clone())?;
+        self.insert_job(JobHandle::Shell(entry.clone()))?;
         append_record(
             &metadata_path,
             &PersistedRecord {
@@ -210,18 +206,15 @@ impl BackgroundTaskService for BackgroundTaskManager {
         };
         let session_sink = spec.session_sink.clone();
         let entry = Arc::new(AgentJobEntry {
-            owner: Mutex::new(spec.owner),
+            core: JobCore::new(
+                BackgroundTaskKind::Agent,
+                spec.owner,
+                info.clone(),
+                metadata_path.clone(),
+            ),
             abort: abort.clone(),
-            state: Mutex::new(JobState {
-                info: info.clone(),
-                output: VecDeque::new(),
-                output_bytes: 0,
-                next_seq: 0,
-            }),
-            notify: Notify::new(),
-            metadata_path: metadata_path.clone(),
         });
-        self.insert_agent_job(entry.clone())?;
+        self.insert_job(JobHandle::Agent(entry.clone()))?;
         append_record(
             &metadata_path,
             &PersistedRecord {
@@ -257,17 +250,11 @@ impl BackgroundTaskService for BackgroundTaskManager {
             return Err("后台任务查询 limit 必须在 1 到 100 之间".into());
         }
         if let Some(job_id) = &query.job_id {
-            if let Some(entry) = self.find_job(job_id)? {
-                if !entry.belongs_to(owner) {
+            if let Some(handle) = self.find_job(job_id)? {
+                if !handle.belongs_to(owner) {
                     return Err("后台任务不属于当前 Agent session".into());
                 }
-                return Ok(vec![self.query_live_job(entry, &query).await?]);
-            }
-            if let Some(entry) = self.find_agent_job(job_id)? {
-                if !entry.belongs_to(owner) {
-                    return Err("后台任务不属于当前 Agent session".into());
-                }
-                return Ok(vec![self.query_live_agent_job(entry, &query).await?]);
+                return Ok(vec![self.query_live_job(handle, &query).await?]);
             }
             return Ok(vec![
                 self.query_persisted_job(owner, job_id, query.after_seq)
@@ -277,40 +264,21 @@ impl BackgroundTaskService for BackgroundTaskManager {
 
         let mut snapshots = Vec::new();
         let mut live_ids = std::collections::HashSet::new();
-        let entries: Vec<Arc<JobEntry>> = self
+        let handles: Vec<JobHandle> = self
             .inner
             .jobs
             .lock()
             .map_err(|error| format!("后台任务表不可用: {error}"))?
             .values()
-            .filter(|entry| entry.belongs_to(owner))
+            .filter(|handle| handle.belongs_to(owner))
             .cloned()
             .collect();
-        let agent_entries: Vec<Arc<AgentJobEntry>> = self
-            .inner
-            .agent_jobs
-            .lock()
-            .map_err(|error| format!("后台 Agent 任务表不可用: {error}"))?
-            .values()
-            .filter(|entry| entry.belongs_to(owner))
-            .cloned()
-            .collect();
-        if query.wait_ms > 0
-            && entries.iter().all(|entry| !entry.is_active())
-            && agent_entries.iter().all(|entry| !entry.is_active())
-        {
+        if query.wait_ms > 0 && handles.iter().all(|handle| !handle.is_active()) {
             tokio::time::sleep(Duration::from_millis(query.wait_ms.min(250))).await;
         }
-        for entry in entries {
-            live_ids.insert(entry.job_id());
-            let snapshot = entry.snapshot(query.after_seq)?;
-            if query.include_completed || snapshot.task.status.is_active() {
-                snapshots.push(snapshot);
-            }
-        }
-        for entry in agent_entries {
-            live_ids.insert(entry.job_id());
-            let snapshot = entry.snapshot(query.after_seq)?;
+        for handle in handles {
+            live_ids.insert(handle.job_id());
+            let snapshot = handle.snapshot(query.after_seq)?;
             if query.include_completed || snapshot.task.status.is_active() {
                 snapshots.push(snapshot);
             }
@@ -340,88 +308,76 @@ impl BackgroundTaskService for BackgroundTaskManager {
         command: BackgroundTaskCommand,
     ) -> Result<BackgroundTaskSnapshot, String> {
         validate_job_id(job_id)?;
-        let Some(entry) = self.find_job(job_id)? else {
-            if let Some(entry) = self.find_agent_job(job_id)? {
-                if !entry.belongs_to(owner) {
-                    return Err("后台任务不属于当前 Agent session".into());
-                }
-                if !entry.is_active() {
-                    if matches!(command, BackgroundTaskCommand::WriteStdin(_)) {
-                        return Err("后台 Agent 任务已经结束，不能写入 stdin".into());
-                    }
-                    return entry.snapshot(0);
-                }
+        let Some(handle) = self.find_job(job_id)? else {
+            return self.query_persisted_job(owner, job_id, 0).await;
+        };
+        if !handle.belongs_to(owner) {
+            return Err("后台任务不属于当前 Agent session".into());
+        }
+        let label = handle.core().label();
+        if !handle.is_active() {
+            if matches!(command, BackgroundTaskCommand::WriteStdin(_)) {
+                return Err(format!("{label}已经结束，不能写入 stdin"));
+            }
+            return handle.snapshot(0);
+        }
+
+        match &handle {
+            // shell 任务：经控制通道写 stdin / 终止
+            JobHandle::Shell(entry) => {
+                let (response, receiver) = oneshot::channel();
+                let message = match command {
+                    BackgroundTaskCommand::Terminate => JobCommand::Terminate { response },
+                    BackgroundTaskCommand::WriteStdin(data) => JobCommand::WriteStdin {
+                        data: data.into_bytes(),
+                        response,
+                    },
+                };
+                entry
+                    .control
+                    .send(message)
+                    .map_err(|_| "后台任务控制通道已关闭".to_string())?;
+                tokio::time::timeout(CONTROL_TIMEOUT, receiver)
+                    .await
+                    .map_err(|_| "后台任务控制超时".to_string())?
+                    .map_err(|_| "后台任务控制通道已断开".to_string())??;
+                handle.snapshot(0)
+            }
+            // child Agent 任务：只支持终止（abort），没有 stdin
+            JobHandle::Agent(entry) => {
                 if let BackgroundTaskCommand::WriteStdin(_) = command {
                     return Err("后台 Agent 任务不支持写入 stdin".into());
                 }
                 entry.abort.abort();
+                let core = &entry.core;
                 wait_for_state(
-                    &entry.state,
-                    &entry.notify,
+                    &core.state,
+                    &core.notify,
                     CONTROL_TIMEOUT.as_millis() as u64,
                 )
                 .await;
-                return entry.snapshot(0);
+                handle.snapshot(0)
             }
-            return self.query_persisted_job(owner, job_id, 0).await;
-        };
-        if !entry.belongs_to(owner) {
-            return Err("后台任务不属于当前 Agent session".into());
         }
-        if !entry.is_active() {
-            if matches!(command, BackgroundTaskCommand::WriteStdin(_)) {
-                return Err("后台任务已经结束，不能写入 stdin".into());
-            }
-            return entry.snapshot(0);
-        }
-
-        let (response, receiver) = oneshot::channel();
-        let message = match command {
-            BackgroundTaskCommand::Terminate => JobCommand::Terminate { response },
-            BackgroundTaskCommand::WriteStdin(data) => JobCommand::WriteStdin {
-                data: data.into_bytes(),
-                response,
-            },
-        };
-        entry
-            .control
-            .send(message)
-            .map_err(|_| "后台任务控制通道已关闭".to_string())?;
-        tokio::time::timeout(CONTROL_TIMEOUT, receiver)
-            .await
-            .map_err(|_| "后台任务控制超时".to_string())?
-            .map_err(|_| "后台任务控制通道已断开".to_string())??;
-        entry.snapshot(0)
     }
 
     fn active_count(&self, owner: &BackgroundTaskOwner) -> usize {
-        let shell = self
-            .inner
+        self.inner
             .jobs
             .lock()
             .map(|jobs| {
                 jobs.values()
-                    .filter(|entry| entry.belongs_to(owner) && entry.is_active())
+                    .filter(|handle| handle.belongs_to(owner) && handle.is_active())
                     .count()
             })
-            .unwrap_or(0);
-        let agents = self
-            .inner
-            .agent_jobs
-            .lock()
-            .map(|jobs| {
-                jobs.values()
-                    .filter(|entry| entry.belongs_to(owner) && entry.is_active())
-                    .count()
-            })
-            .unwrap_or(0);
-        shell + agents
+            .unwrap_or(0)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_query_manage_and_restart_are_session_scoped() {

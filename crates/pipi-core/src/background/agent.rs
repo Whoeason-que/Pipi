@@ -1,124 +1,39 @@
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-
-use tokio::sync::Notify;
+use std::sync::Arc;
 
 use crate::tools::agent::{AgentRunResult, AgentRunStatus};
-use crate::tools::background::{BackgroundAgentSessionSink, BackgroundTaskOwner};
+use crate::tools::background::BackgroundAgentSessionSink;
 use pipi_protocol::tools::ToolOutput;
-use pipi_protocol::{
-    AbortSignal, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskOutput,
-    BackgroundTaskSnapshot, BackgroundTaskStatus, ToolResultContent, now_millis,
-};
+use pipi_protocol::{AbortSignal, BackgroundTaskStatus, ToolResultContent};
 
 use super::ChildAgentRunner;
 use super::persist::{PersistedRecord, append_record};
-use super::state::JobState;
+use super::state::JobCore;
 
 pub(super) struct AgentJobEntry {
-    pub(super) owner: Mutex<BackgroundTaskOwner>,
+    pub(super) core: JobCore,
     pub(super) abort: AbortSignal,
-    pub(super) state: Mutex<JobState>,
-    pub(super) notify: Notify,
-    pub(super) metadata_path: PathBuf,
 }
 
 impl AgentJobEntry {
-    pub(super) fn info(&self) -> BackgroundTaskInfo {
-        let owner = self
-            .owner
-            .lock()
-            .map(|owner| owner.clone())
-            .unwrap_or_else(|_| BackgroundTaskOwner::new("unknown", "unknown", 0));
-        self.state
-            .lock()
-            .map(|state| state.info.clone())
-            .unwrap_or_else(|_| BackgroundTaskInfo {
-                job_id: String::new(),
-                kind: BackgroundTaskKind::Agent,
-                agent_name: owner.agent_name,
-                session_id: owner.session_id,
-                run_id: owner.run_id,
-                command: String::new(),
-                cwd: String::new(),
-                target_agent: None,
-                child_session_id: None,
-                status: BackgroundTaskStatus::Failed,
-                started_at: 0,
-                completed_at: Some(now_millis()),
-                exit_code: None,
-                output_cursor: 0,
-                output_truncated: false,
-                error: Some("后台 Agent 任务状态锁损坏".into()),
-                result: None,
-            })
-    }
-
-    pub(super) fn job_id(&self) -> String {
-        self.info().job_id
-    }
-
-    pub(super) fn belongs_to(&self, owner: &BackgroundTaskOwner) -> bool {
-        self.owner
-            .lock()
-            .map(|current| {
-                current.agent_name == owner.agent_name && current.session_id == owner.session_id
-            })
-            .unwrap_or(false)
-    }
-
-    pub(super) fn is_active(&self) -> bool {
-        self.state
-            .lock()
-            .map(|state| state.info.status.is_active())
-            .unwrap_or(false)
-    }
-
-    pub(super) fn snapshot(&self, after_seq: u64) -> Result<BackgroundTaskSnapshot, String> {
-        let state = self
-            .state
-            .lock()
-            .map_err(|error| format!("后台 Agent 任务状态不可用: {error}"))?;
-        Ok(state.snapshot(after_seq))
-    }
-
-    pub(super) fn append_output(
-        &self,
-        stream: &'static str,
-        text: String,
-    ) -> Result<Option<BackgroundTaskOutput>, String> {
-        if text.is_empty() {
-            return Ok(None);
-        }
-        let chunk = self
-            .state
-            .lock()
-            .map_err(|error| format!("后台 Agent 任务状态不可用: {error}"))?
-            .append_output(stream, text);
-        self.notify.notify_waiters();
-        Ok(Some(chunk))
-    }
-
+    /// 终态：子会话 id 与回复正文补进 info，再统一落 status/error。
     pub(super) fn finish(
         &self,
         status: BackgroundTaskStatus,
         result: Option<&AgentRunResult>,
         error: Option<String>,
     ) {
-        if let Ok(mut state) = self.state.lock() {
+        self.core.finish_with(status, error, |info| {
             if let Some(result) = result {
-                state.info.child_session_id = Some(result.session_id.clone());
-                state.info.result = Some(result.response.clone());
+                info.child_session_id = Some(result.session_id.clone());
+                info.result = Some(result.response.clone());
             }
-            state.finish(status, error);
-        }
-        self.notify.notify_waiters();
+        });
     }
 }
 
 impl Drop for AgentJobEntry {
     fn drop(&mut self) {
-        if self.is_active() {
+        if self.core.is_active() {
             self.abort.abort();
         }
     }
@@ -159,9 +74,9 @@ pub(super) async fn run_agent_job(
             update = progress_rx.recv() => match update {
                 Some(update) => {
                     let text = tool_output_text(&update);
-                    if let Ok(Some(output)) = entry.append_output("agent", text) {
+                    if let Ok(Some(output)) = entry.core.append_output("agent", text) {
                         let _ = append_record(
-                            &entry.metadata_path,
+                            &entry.core.metadata_path,
                             &PersistedRecord {
                                 kind: "output".into(),
                                 task: None,
@@ -177,9 +92,9 @@ pub(super) async fn run_agent_job(
     };
     while let Ok(update) = progress_rx.try_recv() {
         let text = tool_output_text(&update);
-        if let Ok(Some(output)) = entry.append_output("agent", text) {
+        if let Ok(Some(output)) = entry.core.append_output("agent", text) {
             let _ = append_record(
-                &entry.metadata_path,
+                &entry.core.metadata_path,
                 &PersistedRecord {
                     kind: "output".into(),
                     task: None,
@@ -202,9 +117,9 @@ pub(super) async fn run_agent_job(
         Err(error) => (BackgroundTaskStatus::Failed, None, Some(error)),
     };
     entry.finish(status, result.as_ref(), error);
-    if let Ok(snapshot) = entry.snapshot(0) {
+    if let Ok(snapshot) = entry.core.snapshot(0) {
         let _ = append_record(
-            &entry.metadata_path,
+            &entry.core.metadata_path,
             &PersistedRecord {
                 kind: "finished".into(),
                 task: Some(snapshot.task),

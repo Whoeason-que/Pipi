@@ -34,7 +34,7 @@ use pipi_venv::agents;
 use self::agent::AgentJobEntry;
 use self::persist::{PersistedRecord, append_record, load_persisted_snapshot, validate_job_id};
 use self::shell::JobEntry;
-use self::state::{JobState, wait_for_state};
+use self::state::{JobCore, wait_for_state};
 
 pub(super) const MAX_OUTPUT_BYTES: usize = 512 * 1024;
 pub(super) const TERMINATE_GRACE: Duration = Duration::from_secs(2);
@@ -63,8 +63,42 @@ pub struct BackgroundTaskManager {
 struct Inner {
     pub(super) runtime: tokio::runtime::Handle,
     pub(super) child_runner: Arc<dyn ChildAgentRunner>,
-    pub(super) jobs: Mutex<HashMap<String, Arc<JobEntry>>>,
-    pub(super) agent_jobs: Mutex<HashMap<String, Arc<AgentJobEntry>>>,
+    /// 全部托管任务（shell 子进程与 child Agent）一张表：job_id 全局唯一，
+    /// 后端差异只在需要处 match [`JobHandle`]。
+    jobs: Mutex<HashMap<String, JobHandle>>,
+}
+
+/// 表里的一条任务。绝大部分操作（身份、状态、快照、输出）走共用的
+/// [`JobCore`]；两种后端仅在终止方式上不同（控制通道 vs abort）。
+#[derive(Clone)]
+enum JobHandle {
+    Shell(Arc<JobEntry>),
+    Agent(Arc<AgentJobEntry>),
+}
+
+impl JobHandle {
+    fn core(&self) -> &JobCore {
+        match self {
+            Self::Shell(entry) => &entry.core,
+            Self::Agent(entry) => &entry.core,
+        }
+    }
+
+    fn job_id(&self) -> String {
+        self.core().job_id()
+    }
+
+    fn belongs_to(&self, owner: &BackgroundTaskOwner) -> bool {
+        self.core().belongs_to(owner)
+    }
+
+    fn is_active(&self) -> bool {
+        self.core().is_active()
+    }
+
+    fn snapshot(&self, after_seq: u64) -> Result<BackgroundTaskSnapshot, String> {
+        self.core().snapshot(after_seq)
+    }
 }
 
 impl BackgroundTaskManager {
@@ -74,7 +108,6 @@ impl BackgroundTaskManager {
                 runtime,
                 child_runner,
                 jobs: Mutex::new(HashMap::new()),
-                agent_jobs: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -88,28 +121,10 @@ impl BackgroundTaskManager {
         }
         let mut updates = Vec::new();
         if let Ok(jobs) = self.inner.jobs.lock() {
-            for entry in jobs.values() {
-                if rekey_job_owner(
-                    &entry.owner,
-                    &entry.state,
-                    agent_name,
-                    old_session_id,
-                    new_session_id,
-                ) {
-                    updates.push((entry.metadata_path.clone(), entry.info()));
-                }
-            }
-        }
-        if let Ok(jobs) = self.inner.agent_jobs.lock() {
-            for entry in jobs.values() {
-                if rekey_job_owner(
-                    &entry.owner,
-                    &entry.state,
-                    agent_name,
-                    old_session_id,
-                    new_session_id,
-                ) {
-                    updates.push((entry.metadata_path.clone(), entry.info()));
+            for handle in jobs.values() {
+                let core = handle.core();
+                if let Some(info) = core.rekey(agent_name, old_session_id, new_session_id) {
+                    updates.push((core.metadata_path.clone(), info));
                 }
             }
         }
@@ -148,66 +163,36 @@ impl BackgroundTaskManager {
         Ok(jobs_dir)
     }
 
-    fn insert_job(&self, entry: Arc<JobEntry>) -> Result<(), String> {
-        let job_id = entry.info().job_id;
+    fn insert_job(&self, handle: JobHandle) -> Result<(), String> {
+        let job_id = handle.job_id();
         self.inner
             .jobs
             .lock()
             .map_err(|error| format!("后台任务表不可用: {error}"))?
-            .insert(job_id, entry);
+            .insert(job_id, handle);
         Ok(())
     }
 
-    fn find_job(&self, job_id: &str) -> Result<Option<Arc<JobEntry>>, String> {
+    fn find_job(&self, job_id: &str) -> Result<Option<JobHandle>, String> {
         Ok(self
             .inner
             .jobs
             .lock()
             .map_err(|error| format!("后台任务表不可用: {error}"))?
-            .get(job_id)
-            .cloned())
-    }
-
-    fn insert_agent_job(&self, entry: Arc<AgentJobEntry>) -> Result<(), String> {
-        let job_id = entry.info().job_id;
-        self.inner
-            .agent_jobs
-            .lock()
-            .map_err(|error| format!("后台 Agent 任务表不可用: {error}"))?
-            .insert(job_id, entry);
-        Ok(())
-    }
-
-    fn find_agent_job(&self, job_id: &str) -> Result<Option<Arc<AgentJobEntry>>, String> {
-        Ok(self
-            .inner
-            .agent_jobs
-            .lock()
-            .map_err(|error| format!("后台 Agent 任务表不可用: {error}"))?
             .get(job_id)
             .cloned())
     }
 
     async fn query_live_job(
         &self,
-        entry: Arc<JobEntry>,
+        handle: JobHandle,
         query: &BackgroundTaskQuery,
     ) -> Result<BackgroundTaskSnapshot, String> {
         if query.wait_ms > 0 {
-            wait_for_state(&entry.state, &entry.notify, query.wait_ms).await;
+            let core = handle.core();
+            wait_for_state(&core.state, &core.notify, query.wait_ms).await;
         }
-        entry.snapshot(query.after_seq)
-    }
-
-    async fn query_live_agent_job(
-        &self,
-        entry: Arc<AgentJobEntry>,
-        query: &BackgroundTaskQuery,
-    ) -> Result<BackgroundTaskSnapshot, String> {
-        if query.wait_ms > 0 {
-            wait_for_state(&entry.state, &entry.notify, query.wait_ms).await;
-        }
-        entry.snapshot(query.after_seq)
+        handle.snapshot(query.after_seq)
     }
 
     async fn query_persisted_job(
@@ -261,26 +246,4 @@ impl BackgroundTaskManager {
         )
         .await
     }
-}
-
-fn rekey_job_owner(
-    owner: &Mutex<BackgroundTaskOwner>,
-    state: &Mutex<JobState>,
-    agent_name: &str,
-    old_session_id: &str,
-    new_session_id: &str,
-) -> bool {
-    let Ok(mut current) = owner.lock() else {
-        return false;
-    };
-    if current.agent_name != agent_name || current.session_id != old_session_id {
-        return false;
-    }
-    current.session_id = new_session_id.to_string();
-    drop(current);
-    let Ok(mut state) = state.lock() else {
-        return false;
-    };
-    state.info.session_id = new_session_id.to_string();
-    true
 }

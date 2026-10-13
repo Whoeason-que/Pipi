@@ -1,109 +1,25 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStderr, ChildStdout};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::mpsc;
 
-use crate::tools::background::BackgroundTaskOwner;
-use pipi_protocol::{
-    BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskOutput, BackgroundTaskSnapshot,
-    BackgroundTaskStatus, now_millis,
-};
+use pipi_protocol::BackgroundTaskStatus;
 
 use super::persist::{PersistedRecord, append_log, append_record};
-use super::state::{JobCommand, JobState};
+use super::state::{JobCommand, JobCore};
 use super::{READER_DRAIN_TIMEOUT, TERMINATE_GRACE};
 
 pub(super) struct JobEntry {
-    pub(super) owner: Mutex<BackgroundTaskOwner>,
+    pub(super) core: JobCore,
     pub(super) pid: AtomicU32,
-    pub(super) state: Mutex<JobState>,
     pub(super) control: mpsc::UnboundedSender<JobCommand>,
-    pub(super) notify: Notify,
-    pub(super) metadata_path: PathBuf,
     pub(super) log_path: PathBuf,
 }
 
 impl JobEntry {
-    pub(super) fn info(&self) -> BackgroundTaskInfo {
-        let owner = self
-            .owner
-            .lock()
-            .map(|owner| owner.clone())
-            .unwrap_or_else(|_| BackgroundTaskOwner::new("unknown", "unknown", 0));
-        self.state
-            .lock()
-            .map(|state| state.info.clone())
-            .unwrap_or_else(|_| BackgroundTaskInfo {
-                job_id: String::new(),
-                kind: BackgroundTaskKind::Shell,
-                agent_name: owner.agent_name,
-                session_id: owner.session_id,
-                run_id: owner.run_id,
-                command: String::new(),
-                cwd: String::new(),
-                target_agent: None,
-                child_session_id: None,
-                status: BackgroundTaskStatus::Failed,
-                started_at: 0,
-                completed_at: Some(now_millis()),
-                exit_code: None,
-                output_cursor: 0,
-                output_truncated: false,
-                error: Some("后台任务状态锁损坏".into()),
-                result: None,
-            })
-    }
-
-    pub(super) fn job_id(&self) -> String {
-        self.info().job_id
-    }
-
-    pub(super) fn belongs_to(&self, owner: &BackgroundTaskOwner) -> bool {
-        // run_id 只记录「由哪一轮提交」，控制权属于 session，而不是某一轮。
-        // 下一轮模型必须能查询/终止上一轮留下的后台任务。
-        self.owner
-            .lock()
-            .map(|current| {
-                current.agent_name == owner.agent_name && current.session_id == owner.session_id
-            })
-            .unwrap_or(false)
-    }
-
-    pub(super) fn is_active(&self) -> bool {
-        self.state
-            .lock()
-            .map(|state| state.info.status.is_active())
-            .unwrap_or(false)
-    }
-
-    pub(super) fn snapshot(&self, after_seq: u64) -> Result<BackgroundTaskSnapshot, String> {
-        let state = self
-            .state
-            .lock()
-            .map_err(|error| format!("后台任务状态不可用: {error}"))?;
-        Ok(state.snapshot(after_seq))
-    }
-
-    pub(super) fn append_output(
-        &self,
-        stream: &'static str,
-        text: String,
-    ) -> Result<Option<BackgroundTaskOutput>, String> {
-        if text.is_empty() {
-            return Ok(None);
-        }
-        let chunk = self
-            .state
-            .lock()
-            .map_err(|error| format!("后台任务状态不可用: {error}"))?
-            .append_output(stream, text);
-        self.notify.notify_waiters();
-        Ok(Some(chunk))
-    }
-
     pub(super) fn finish(
         &self,
         status: BackgroundTaskStatus,
@@ -111,11 +27,8 @@ impl JobEntry {
         error: Option<String>,
     ) {
         self.pid.store(0, Ordering::Release);
-        if let Ok(mut state) = self.state.lock() {
-            state.info.exit_code = exit_code;
-            state.finish(status, error);
-        }
-        self.notify.notify_waiters();
+        self.core
+            .finish_with(status, error, |info| info.exit_code = exit_code);
     }
 }
 
@@ -179,9 +92,9 @@ pub(super) async fn run_job(
             chunk = output_rx.recv() => match chunk {
                 Some((stream, text)) => {
                     let _ = append_log(&entry.log_path, &text).await;
-                    if let Ok(Some(output)) = entry.append_output(stream, text) {
+                    if let Ok(Some(output)) = entry.core.append_output(stream, text) {
                         let _ = append_record(
-                            &entry.metadata_path,
+                            &entry.core.metadata_path,
                             &PersistedRecord {
                                 kind: "output".into(),
                                 task: None,
@@ -202,9 +115,9 @@ pub(super) async fn run_job(
     .await;
     while let Ok((stream, text)) = output_rx.try_recv() {
         let _ = append_log(&entry.log_path, &text).await;
-        if let Ok(Some(output)) = entry.append_output(stream, text) {
+        if let Ok(Some(output)) = entry.core.append_output(stream, text) {
             let _ = append_record(
-                &entry.metadata_path,
+                &entry.core.metadata_path,
                 &PersistedRecord {
                     kind: "output".into(),
                     task: None,
@@ -230,9 +143,9 @@ pub(super) async fn run_job(
         ),
     };
     entry.finish(status, exit_code, error);
-    if let Ok(snapshot) = entry.snapshot(0) {
+    if let Ok(snapshot) = entry.core.snapshot(0) {
         let _ = append_record(
-            &entry.metadata_path,
+            &entry.core.metadata_path,
             &PersistedRecord {
                 kind: "finished".into(),
                 task: Some(snapshot.task),
@@ -256,7 +169,10 @@ async fn read_output<R>(
             Ok(0) | Err(_) => break,
             Ok(size) => {
                 if sender
-                    .send((stream, String::from_utf8_lossy(&buffer[..size]).into_owned()))
+                    .send((
+                        stream,
+                        String::from_utf8_lossy(&buffer[..size]).into_owned(),
+                    ))
                     .await
                     .is_err()
                 {
@@ -306,14 +222,18 @@ mod tests {
     use super::*;
     use crate::background::MAX_OUTPUT_BYTES;
     use crate::background::test_support::{entry, owner};
+    use crate::tools::background::BackgroundTaskOwner;
 
     #[test]
     fn output_buffer_is_bounded_and_keeps_cursor() {
         let entry = entry(BackgroundTaskStatus::Running);
         for _ in 0..1000 {
-            entry.append_output("stdout", "x".repeat(1024)).unwrap();
+            entry
+                .core
+                .append_output("stdout", "x".repeat(1024))
+                .unwrap();
         }
-        let snapshot = entry.snapshot(0).unwrap();
+        let snapshot = entry.core.snapshot(0).unwrap();
         assert_eq!(snapshot.next_seq, 1000);
         assert!(snapshot.task.output_truncated);
         assert!(
@@ -329,7 +249,11 @@ mod tests {
     #[test]
     fn owner_check_is_strict() {
         let entry = entry(BackgroundTaskStatus::Completed);
-        assert!(entry.belongs_to(&owner()));
-        assert!(!entry.belongs_to(&BackgroundTaskOwner::new("agent", "other", 1)));
+        assert!(entry.core.belongs_to(&owner()));
+        assert!(
+            !entry
+                .core
+                .belongs_to(&BackgroundTaskOwner::new("agent", "other", 1))
+        );
     }
 }
