@@ -346,8 +346,8 @@ export default function ChatView({
                 </>
               ) : (
                 <>
-                  与 <span className="mono">{agent.name}</span> 对话。会话记录将写入
-                  <span className="mono"> sessions/*.jsonl</span>。
+                  与 <span className="mono">{agent.name}</span> 对话。会话记录写入
+                  <span className="mono"> sessions.git</span>（一轮一个 commit，`git log` 即对话）。
                 </>
               )}
             </div>

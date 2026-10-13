@@ -48,7 +48,10 @@ fn imported_entries_are_byte_identical_to_the_jsonl_lines() {
     assert_eq!(lines.len(), entries.len());
 
     let repo = GitSessionRepo::new(dir.join("sessions.git"));
-    assert!(repo.import(&id, &entries).unwrap(), "首次导入应当写入");
+    assert!(
+        repo.import(&id, &entries, false).unwrap(),
+        "首次导入应当写入"
+    );
 
     let exec = GitExec::new(dir.join("sessions.git"));
     for (entry, line) in entries.iter().zip(&lines) {
@@ -71,7 +74,7 @@ fn compaction_style_fork_shares_the_tip_commit_and_stays_browsable() {
     let dir = pipi_test_support::temp_dir("pipi-git-compaction");
     let (id, _file, entries) = make_jsonl_session(&dir);
     let repo = GitSessionRepo::new(dir.join("sessions.git"));
-    repo.import(&id, &entries).unwrap();
+    repo.import(&id, &entries, false).unwrap();
     let exec = GitExec::new(dir.join("sessions.git"));
 
     // 分叉（= 压缩换会话的同一机制）：新分支指向原 tip，零复制
@@ -120,7 +123,7 @@ fn delete_prunes_the_objects_only_that_session_referenced() {
     let dir = pipi_test_support::temp_dir("pipi-git-delete");
     let (id, _file, entries) = make_jsonl_session(&dir);
     let repo = GitSessionRepo::new(dir.join("sessions.git"));
-    repo.import(&id, &entries).unwrap();
+    repo.import(&id, &entries, false).unwrap();
     let exec = GitExec::new(dir.join("sessions.git"));
 
     // 记下该会话独有 blob 的 sha
@@ -147,7 +150,7 @@ fn bundle_roundtrip_reaches_a_receiver() {
     let dir = pipi_test_support::temp_dir("pipi-git-bundle");
     let (id, _file, entries) = make_jsonl_session(&dir);
     let repo = GitSessionRepo::new(dir.join("sessions.git"));
-    repo.import(&id, &entries).unwrap();
+    repo.import(&id, &entries, false).unwrap();
     let exec = GitExec::new(dir.join("sessions.git"));
 
     let bundle = dir.join("session.bundle");
@@ -300,7 +303,10 @@ fn dogfood_a_real_session_roundtrips_through_git() {
     let dir = pipi_test_support::temp_dir("pipi-dogfood");
     let repo = GitSessionRepo::new(dir.join("sessions.git"));
     let started = std::time::Instant::now();
-    assert!(repo.import(&id, &entries).unwrap(), "首次导入应当写入");
+    assert!(
+        repo.import(&id, &entries, false).unwrap(),
+        "首次导入应当写入"
+    );
     let imported_ms = started.elapsed().as_millis();
 
     let read_back = repo.entries(&id).unwrap();
@@ -360,7 +366,9 @@ fn dir_size(path: &std::path::Path) -> u64 {
         return 0;
     };
     for entry in entries.flatten() {
-        let Ok(metadata) = entry.metadata() else { continue };
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
         if metadata.is_dir() {
             total += dir_size(&entry.path());
         } else {

@@ -56,7 +56,7 @@ impl AgentSessionRepo {
     /// 原文件改名 `.jsonl.imported` 保留 —— 不改内容、不做隐式迁移。
     pub fn import_legacy_sessions(&self) -> SessionImportReport {
         let mut report = SessionImportReport::default();
-        for (id, path) in self.legacy_files() {
+        for (id, path, archived) in self.legacy_files() {
             let entries = match load_session(&path) {
                 Ok(entries) => entries,
                 Err(error) => {
@@ -67,7 +67,7 @@ impl AgentSessionRepo {
                     continue;
                 }
             };
-            match self.git.import(&id, &entries) {
+            match self.git.import(&id, &entries, archived) {
                 Ok(true) => {
                     if let Err(error) = mark_imported(&path) {
                         report.failed.push(SessionImportFailure {
@@ -89,11 +89,12 @@ impl AgentSessionRepo {
     }
 
     /// 枚举旧载体里的会话文件（活跃区 + 归档区）。
-    fn legacy_files(&self) -> Vec<(String, PathBuf)> {
+    fn legacy_files(&self) -> Vec<(String, PathBuf, bool)> {
         let mut files = Vec::new();
-        for dir in [
-            self.jsonl.dir().to_path_buf(),
-            self.jsonl.dir().join(".archive"),
+        // `archived` 标记来源：导入归档区的会话要落在 archive/<id>，不能搬回活跃区
+        for (dir, archived) in [
+            (self.jsonl.dir().to_path_buf(), false),
+            (self.jsonl.dir().join(".archive"), true),
         ] {
             if !matches!(
                 pipi_protocol::fs::ensure_real_directory(&dir, "旧会话目录"),
@@ -112,7 +113,7 @@ impl AgentSessionRepo {
                 let Some(id) = path.file_stem().and_then(|value| value.to_str()) else {
                     continue;
                 };
-                files.push((id.to_string(), path));
+                files.push((id.to_string(), path, archived));
             }
         }
         files.sort();

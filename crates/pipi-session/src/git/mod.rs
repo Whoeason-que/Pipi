@@ -60,21 +60,30 @@ impl GitSessionRepo {
     /// 从外部条目序列导入一条会话（`import_sessions` 用）。
     ///
     /// 沿用原会话 id（分支名 = id，id 形态零变更），按「一轮一个 commit」
-    /// 切分：每个 user 条目起一个新批次。分支已存在且内容一致时返回
-    /// `Ok(false)`（幂等）；导入后读回校验，不一致就删掉刚建的分支并报错。
-    pub fn import(&self, session_id: &str, entries: &[SessionEntry]) -> Result<bool, String> {
+    /// 切分：每个 user 条目起一个新批次。`archived` 表示来源在归档区 ——
+    /// 导入后要落在 `archive/<id>`，别把归档会话搬回活跃区。分支已存在且内容
+    /// 一致时返回 `Ok(false)`（幂等）；导入后读回校验，不一致就删掉刚建的分支
+    /// 并报错。
+    pub fn import(
+        &self,
+        session_id: &str,
+        entries: &[SessionEntry],
+        archived: bool,
+    ) -> Result<bool, String> {
         validate_session_id(session_id)?;
         if entries.is_empty() {
             return Ok(false);
         }
         let ref_name = refs::session_ref(session_id);
-        if self.exec.ref_exists(&ref_name)? {
-            let existing = self.read_session(&ref_name)?;
-            return if same_entries(&existing, entries) {
-                Ok(false)
-            } else {
-                Err("同名会话已存在且内容不同".into())
-            };
+        for existing_ref in [&ref_name, &refs::archive_ref(session_id)] {
+            if self.exec.ref_exists(existing_ref)? {
+                let existing = self.read_session(existing_ref)?;
+                return if same_entries(&existing, entries) {
+                    Ok(false)
+                } else {
+                    Err("同名会话已存在且内容不同".into())
+                };
+            }
         }
         self.exec.ensure_ready()?;
         let mut sink = GitSink::from_entries(self.exec.clone(), session_id.to_string(), &[], 0);
@@ -84,6 +93,10 @@ impl GitSessionRepo {
         if !same_entries(&read_back, entries) {
             let _ = refs::delete_branch(&self.exec, &ref_name);
             return Err("导入校验失败：读回与原文不一致".into());
+        }
+        if archived {
+            // 来源在归档区：把刚建的分支移过去（ref 迁移，零复制）
+            refs::archive(&self.exec, session_id)?;
         }
         Ok(true)
     }

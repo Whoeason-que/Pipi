@@ -57,6 +57,16 @@ fn seed_legacy(agent_dir: &std::path::Path, first_message: &str) -> String {
     writer.session_id().to_string()
 }
 
+/// 归档区的旧会话（导入后必须仍留在归档区）。
+fn seed_archived_legacy(agent_dir: &std::path::Path, first_message: &str) -> String {
+    let id = seed_legacy(agent_dir, first_message);
+    let source = agent_dir.join("sessions").join(format!("{id}.jsonl"));
+    let archive = agent_dir.join("sessions").join(".archive");
+    std::fs::create_dir_all(&archive).unwrap();
+    std::fs::rename(&source, archive.join(format!("{id}.jsonl"))).unwrap();
+    id
+}
+
 #[test]
 fn new_sessions_land_in_git_and_legacy_ones_stay_readable_until_imported() {
     let _guard = pipi_test_support::HOME_LOCK
@@ -112,9 +122,35 @@ fn new_sessions_land_in_git_and_legacy_ones_stay_readable_until_imported() {
     assert_eq!(legacy_summary.title, "旧会话的第一句");
     assert_eq!(legacy_summary.message_count, 2);
 
-    // 导入：迁到 git、原文件改名保留、幂等
+    // 归档区的旧会话：导入后必须仍留在归档区
+    let archived_id = seed_archived_legacy(&agent_dir, "归档的旧会话");
     let report = repo.import_legacy_sessions();
-    assert_eq!(report.imported, vec![legacy_id.clone()]);
+    assert!(
+        report.imported.contains(&archived_id),
+        "归档会话也要导入：{:?}",
+        report
+    );
+    assert!(
+        repo.list_archived()
+            .unwrap()
+            .iter()
+            .any(|summary| summary.id == archived_id),
+        "导入后应留在归档区"
+    );
+    assert!(
+        !repo.exists(&archived_id).unwrap(),
+        "导入不该把归档会话搬回活跃区"
+    );
+    // 内容经「先恢复再读」验一遍（与旧载体的产品流程一致：归档区只出摘要）
+    repo.restore(&archived_id).unwrap();
+    assert_eq!(repo.entries(&archived_id).unwrap().len(), 1);
+    repo.archive(&archived_id).unwrap();
+
+    // 导入：迁到 git、原文件改名保留、幂等
+    assert_eq!(
+        report.imported,
+        vec![legacy_id.clone(), archived_id.clone()]
+    );
     assert!(report.failed.is_empty(), "{:?}", report.failed);
     assert!(repo.git().exists(&legacy_id).unwrap());
     assert_eq!(repo.entries(&legacy_id).unwrap().len(), 2);
@@ -126,7 +162,7 @@ fn new_sessions_land_in_git_and_legacy_ones_stay_readable_until_imported() {
         "原文件应当改名保留"
     );
     let again = repo.import_legacy_sessions();
-    assert!(again.imported.is_empty(), "重复导入幂等");
+    assert!(again.imported.is_empty(), "重复导入幂等：{:?}", again);
     assert!(again.failed.is_empty());
 
     // 导入后列表仍能看到它（且只有一条，不重复）
