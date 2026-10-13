@@ -133,6 +133,16 @@ src/                 React + TypeScript 前端
   偶发失败）。**读取方同样要持锁**：断言 `~/.pipi/agents/...` 这类派生路径的
   用例若在别人改 HOME 的中途读取，会看到跨状态的结果。
 - Agent 数据根目录是 `~/.pipi/agents/<name>/`，结构见 README；不要把 Agent 状态存到别处。
+  **系统提示词素材固定落在 `<Agent 目录>/harness/`**（`AGENTS.md` / `memory/` / `skills/`，
+  路径常量与 helper 在 `pipi-venv/src/agents/paths.rs`，不要在别处手写 `join("memory")`），
+  Agent 根只放清单（`agent.json` / `agent.toml` / `agent.lock`）与运行态（`workspace/`、
+  `sessions*`、`jobs/`）。`.pi/skills` 是**工作区侧**的约定目录，与 `harness/skills` 不是一回事；
+  `.agents/` 不是任何默认约定（只有契约 `[resources.skills] sources` 显式声明才读）。
+  `agent.json` 的 `systemPrompt` 策略（`both` / `agent` / `workspace` / `none`）**只决定哪一侧
+  的素材进系统提示**：env、权限、沙箱与受信任读取根一律与它无关，别把策略判断塞进
+  `build_tool_context`；`none` 走「组装返回空串、`stream.rs` 的 `!is_empty()` 不发 system」
+  这条路。`harness/` 缺席不报错（约定发现没有文件就是没有上下文），只有契约里显式声明的
+  路径缺失才 fail-closed。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息用用户可读的中文。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
   - react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，

@@ -38,14 +38,15 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 ~/.pipi/
 ├── settings.json       # 全局设置：主题、模型提供商（密钥支持环境变量引用）
 └── agents/my-agent/
-    ├── agent.json          # Agent 清单：模型、工作目录、权限、沙箱、压缩阈值、MCP 服务器等
+    ├── agent.json          # Agent 清单：模型、工作目录、权限、沙箱、压缩阈值、提示词策略、MCP 服务器等
     ├── agent.toml          # 环境契约（av 标准）：env 声明、工具链断言、资源覆盖（可选）
     ├── agent.lock          # 技能解析锁：use 声明过的技能 → 精确修订 + 内容哈希（可选）
-    ├── AGENTS.md           # 系统级指令，每次运行注入上下文
-    ├── skills/             # 技能包（SKILL.md + 随附文件）
-    │   └── git-safety/
-    │       └── SKILL.md
-    ├── memory/             # 持久记忆（Markdown，人机共写）
+    ├── harness/            # 系统提示词素材（由 agent.json 的 systemPrompt 策略决定是否取材）
+    │   ├── AGENTS.md       #   系统级指令，每次运行注入上下文
+    │   ├── skills/         #   技能包（SKILL.md + 随附文件）
+    │   │   └── git-safety/
+    │   │       └── SKILL.md
+    │   └── memory/         #   持久记忆（Markdown，人机共写）
     ├── workspace/          # Agent 目录内的默认工作区（也可指向任意本地路径）
     ├── jobs/               # 托管后台任务的状态 JSONL 与完整输出日志
     └── sessions/           # 运行记录（JSONL，append-only）
@@ -90,9 +91,10 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | --- | --- | --- |
 | 工作目录 | `agent.json` → `workspace` | Agent 可操作的文件系统范围，可指向任意本地项目（如 `~/projects/my-app`），缺省为 Agent 目录内的 `workspace/` |
 | 模型 | `agent.json` → `provider` | OpenAI / Anthropic 兼容 API（流式）；`model` 字段仅作展示标签 |
-| 系统指令 | `AGENTS.md` | 人直接读写的 Markdown，每次运行注入为系统提示 |
-| 技能 | `skills/<name>/SKILL.md`；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
-| 记忆 | `memory/*.md` | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
+| 系统指令 | `harness/AGENTS.md` | 人直接读写的 Markdown，每次运行注入为系统提示（是否取材由 `systemPrompt` 策略决定） |
+| 技能 | `harness/skills/<name>/SKILL.md`；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
+| 记忆 | `harness/memory/*.md` | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
+| 系统提示词策略 | `agent.json` → `systemPrompt` | `both`（默认：Pipi 侧 + 工作区侧）/ `agent`（只取 `harness/`）/ `workspace`（只取项目上下文）/ `none`（完全不发 system 消息，只发对话与工具定义）。策略只影响提示词：权限、沙箱、env 与受信任读取根不受影响，`workspace` 策略的 Agent 照样能用 memory 工具读写 `harness/memory/` |
 | 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查；Allowlist 模式下白名单外的非危险命令可交互审批救回（拒绝 / 允许一次 / 总是允许——按段写回白名单），黑名单命中、危险命令与沙箱约束不可审批 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、写入文件系统的重定向（`>` `>>` `2>文件`）与从文件读入的重定向（`<文件` `<(cmd)`）在非完全访问下被拒绝。`rm -f` 家族只放行「工作区内、非仓库根 / 工作区根」的绝对路径字面量；`2>/dev/null`、`2>&1`、管道与 heredoc 不受限 |
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |
@@ -118,7 +120,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 
 点击 Agent 名称或齿轮会进入设置工作台：中间是复用正式会话交互链路的测试对话，
 右侧收纳模型、工作目录、权限、技能、Agent 文件和运行诊断。测试只读取**已经保存**的
-`agent.json`、`AGENTS.md`、`memory/*.md` 与技能声明（`agent.toml` + `agent.lock`）；
+`agent.json`、`harness/AGENTS.md`、`harness/memory/*.md` 与技能声明（`agent.toml` + `agent.lock`）；
 保存配置或文件后会换成一个新的空测试上下文。
 
 右栏的**技能**页管理这个 Agent 声明启用的 store 技能：启用 / 禁用、解析状态
@@ -175,7 +177,8 @@ Agent 可以通过三项显式工具组合已有 Agent：
 
 - `create_agent`：用结构化参数创建一个持久的 Agent，并将 `agent.json` 的
   `subagent` 设为 `true`；模型、工作目录、沙箱和基础工具从调用者继承，
-  `instructions` 写入新 Agent 的 `AGENTS.md`。设置界面可将它改回普通 Agent。
+  `instructions` 写入新 Agent 的 `harness/AGENTS.md`，并建好 `harness/` 骨架。
+  设置界面可将它改回普通 Agent。
   新 Agent 不继承三项 Agent 组合工具。
 - `run_agent`：在目标 Agent 下创建一个全新 session。若当前 Agent 同时启用了
   `query_background_tasks` 与 `manage_background_task`，默认提交为托管后台任务并
@@ -493,7 +496,7 @@ command = "node"
 version = ">=20"
 
 [resources]                           # 资源覆盖：只允许路径，绝不内联正文
-instructions = ["AGENTS.md"]          # 三态：缺席=约定发现 | 列表=完全替换 | []=禁用
+instructions = ["harness/AGENTS.md"]  # 三态：缺席=约定发现 | 列表=完全替换 | []=禁用
 max-bytes = 16384                     # 项目层字节预算（缺省 16KiB）
 [resources.skills]
 sources = [".pi/skills"]              # 按层替换约定目录
@@ -596,7 +599,7 @@ Pipi 也可以把 React 前端和宿主运行时以浏览器服务方式启动�
 
 - [x] **M0 — 项目骨架**：Tauri 2.0 跑通，设计文档定稿
 - [x] **M1½ — 核心移植**：pi 的 agent loop / 工具 / provider / session 移植为 Rust（现为 `pipi-agent` / `pipi-core` 等 crate），命令权限与工作目录进 `agent.json`
-- [x] **M2 — Agent 管理**：UI 全字段编辑 `agent.json` / `AGENTS.md` 双向同步，memory 渐进召回（索引常驻 + 按需读取）
+- [x] **M2 — Agent 管理**：UI 全字段编辑 `agent.json` / `harness/AGENTS.md` 双向同步，memory 渐进召回（索引常驻 + 按需读取）
 - [ ] **M3 — Skills 与 MCP**：Skills 渐进注入已实现；技能库与 Agent 技能页已接线（安装 / 校验 / 启用 / 同步）；stdio MCP 服务器接入未动
 - [x] **M4（部分）— 会话树状分叉**：`fork_session` 已实现并接线 UI；LLM 摘要式 compaction 已实现（turn 边界触发，摘要落盘可回放）。模板市场、多语言未动
 - [x] **M5 — 会话进 git**：会话载体从 JSONL 换成 git 分支（一轮一个 commit，`git log` 即对话、压缩＝新建分支、`git bundle` 可分发）；旧会话照旧可读，Agent 工作台「文件」页可一键导入（逐条校验、幂等、原文件保留）
