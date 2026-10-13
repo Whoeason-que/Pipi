@@ -17,12 +17,10 @@ pub fn build_tool_context(
     fs::create_dir_all(&workspace).map_err(|e| format!("工作目录不可用: {e}"))?;
     let workspace =
         fs::canonicalize(&workspace).map_err(|e| format!("工作目录不可用：无法规范化路径: {e}"))?;
-    let mut read_roots = match def.dir().map(|dir| dir.join("skills")) {
-        Some(skills) if skills.is_dir() => {
-            let agent_dir = skills
-                .parent()
-                .ok_or("Agent 目录不可用：无法确定 skills 所属目录")?;
-            let canonical_agent_dir = fs::canonicalize(agent_dir)
+    let mut read_roots = match def.skills_dir().filter(|skills| skills.is_dir()) {
+        Some(skills) => {
+            let agent_dir = def.dir().ok_or("Agent 目录不可用：无法确定 skills 所属目录")?;
+            let canonical_agent_dir = fs::canonicalize(&agent_dir)
                 .map_err(|e| format!("Agent 目录不可用：无法规范化路径: {e}"))?;
             let canonical_skills = fs::canonicalize(&skills)
                 .map_err(|e| format!("skills 目录不可用：无法规范化路径: {e}"))?;
@@ -35,7 +33,7 @@ pub fn build_tool_context(
             }
             vec![canonical_skills]
         }
-        _ => Vec::new(),
+        None => Vec::new(),
     };
     // memory 渐进召回：正文由模型用 read 按需加载，memory 目录须在受信任
     // 读取根内（memory 工具本身仍走自己的 memory_dir 约束）。
@@ -128,6 +126,27 @@ mod tests {
         let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
     }
 
+    /// Agent 自带的技能目录搬进 harness/ 后仍是受信任读取根（与提示词策略无关：
+    /// 即便策略只取工作区侧，模型也能用 read 加载技能正文）。
+    #[test]
+    fn tool_context_grants_read_access_to_harness_skills() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let name = format!("skills-read-{}", pipi_protocol::new_id());
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
+        fs::write(def.skills_dir().unwrap().join("SKILL.md"), "body").unwrap();
+
+        let (ctx, _) = build_tool_context(&def, None, pipi_protocol::AbortSignal::new()).unwrap();
+        assert!(
+            ctx.read_roots
+                .iter()
+                .any(|root| root.ends_with("harness/skills")),
+            "harness/skills 应在 read_roots：{:?}",
+            ctx.read_roots
+        );
+
+        let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
     #[cfg(unix)]
     #[test]
     fn build_tool_context_rejects_skills_symlink_outside_agent_dir() {
@@ -141,9 +160,9 @@ mod tests {
             pipi_protocol::new_id()
         ));
         let agent_dir = home.join(".pipi/agents/skills-link-agent");
-        std::fs::create_dir_all(&agent_dir).unwrap();
+        std::fs::create_dir_all(agent_dir.join("harness")).unwrap();
         std::fs::create_dir_all(&external).unwrap();
-        symlink(&external, agent_dir.join("skills")).unwrap();
+        symlink(&external, agent_dir.join("harness/skills")).unwrap();
 
         let previous_home = std::env::var("HOME").unwrap();
         pipi_test_support::set_env_var("HOME", &home);
@@ -158,6 +177,7 @@ mod tests {
             subagent: false,
             compact_threshold_percent: 75,
             compact_target_percent: None,
+            system_prompt: Default::default(),
         };
 
         let result = build_tool_context(&def, None, pipi_protocol::AbortSignal::new());

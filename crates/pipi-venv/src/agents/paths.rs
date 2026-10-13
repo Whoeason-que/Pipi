@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pipi_protocol::fs::ensure_real_directory;
 use pipi_protocol::session::ARCHIVE_DIR;
@@ -7,6 +7,24 @@ use pipi_protocol::session::ARCHIVE_DIR;
 /// 所有 Agent 数据的根：`~/.pipi/agents`（路径布局由 av 统一定义）。
 pub fn agents_dir() -> Option<PathBuf> {
     crate::av::paths::agents_root()
+}
+
+/// 系统提示词素材目录名（`<Agent 目录>/harness/`）：指令、记忆与技能的载体。
+pub const HARNESS_DIR: &str = "harness";
+
+/// 提示词素材目录：`<Agent 目录>/harness/`。
+pub fn harness_dir(agent_dir: &Path) -> PathBuf {
+    agent_dir.join(HARNESS_DIR)
+}
+
+/// Agent 自带的技能目录：`<Agent 目录>/harness/skills/`。
+pub fn skills_dir(agent_dir: &Path) -> PathBuf {
+    harness_dir(agent_dir).join("skills")
+}
+
+/// Agent 的持久记忆目录：`<Agent 目录>/harness/memory/`。
+pub fn memory_dir(agent_dir: &Path) -> PathBuf {
+    harness_dir(agent_dir).join("memory")
 }
 
 /// 校验 Agent 名称必须是单一、稳定的目录名，禁止路径分隔符与 `..` 穿越。
@@ -134,6 +152,7 @@ mod tests {
             subagent: false,
             compact_threshold_percent: 75,
             compact_target_percent: None,
+            system_prompt: Default::default(),
         };
 
         assert!(agent_dir("linked-agent").is_none());

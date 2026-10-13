@@ -132,8 +132,10 @@ async fn create_run_and_read_agent_output() {
             .all(|tool| !definition.permissions.tool_enabled(tool))
     );
     assert_eq!(definition.workspace.as_deref(), workspace.to_str());
-    let instructions =
-        std::fs::read_to_string(home.join(".pipi/agents/composition-worker/AGENTS.md")).unwrap();
+    let instructions = std::fs::read_to_string(
+        home.join(".pipi/agents/composition-worker/harness/AGENTS.md"),
+    )
+    .unwrap();
     assert!(instructions.contains("Return a concise result."));
 
     // 未指定 tools 时也只继承已启用的基础工具，不继承后台任务或组合工具。

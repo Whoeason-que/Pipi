@@ -177,8 +177,8 @@ impl RuntimeState {
         Ok(())
     }
 
-    /// 写入 AGENTS.md / memory 后同样让旧测试上下文失效，避免界面声称已经测试了
-    /// 尚未注入的文件内容。
+    /// 写入 harness/AGENTS.md / memory 后同样让旧测试上下文失效，避免界面声称已经
+    /// 测试了尚未注入的文件内容。
     pub fn write_agent_file(
         &self,
         agent_name: &str,

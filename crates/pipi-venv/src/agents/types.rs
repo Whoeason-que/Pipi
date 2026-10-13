@@ -39,6 +39,42 @@ pub struct AgentDefinition {
     /// 可选的压缩后上下文目标比例；缺失时继续保留最多 20K 近期原文。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_target_percent: Option<u8>,
+    /// 系统提示词的取材范围（默认两者都要）。
+    #[serde(default)]
+    pub system_prompt: PromptScope,
+}
+
+/// 系统提示词的取材策略：决定 Agent 侧（`harness/`）与工作区侧
+/// （项目 AGENTS.md 链、`.pi/skills`、项目契约资源）各自是否参与组装。
+///
+/// 只影响提示词 —— env、权限、沙箱与受信任读取根一律与策略无关。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PromptScope {
+    /// Agent 侧 + 工作区侧（新建 Agent 的默认）。
+    #[default]
+    #[serde(rename = "both")]
+    Both,
+    /// 只要 Agent 侧的 `harness/`（指令、记忆索引、技能索引）。
+    #[serde(rename = "agent")]
+    Agent,
+    /// 只要工作区侧的项目上下文。
+    #[serde(rename = "workspace")]
+    Workspace,
+    /// 完全不发 system 消息（对话历史与工具 schema 照发）。
+    #[serde(rename = "none")]
+    None,
+}
+
+impl PromptScope {
+    /// 是否读取 Agent 侧的 `harness/`（含指令、记忆索引与技能索引）。
+    pub fn uses_agent_side(self) -> bool {
+        matches!(self, Self::Both | Self::Agent)
+    }
+
+    /// 是否读取工作区侧的项目上下文。
+    pub fn uses_workspace_side(self) -> bool {
+        matches!(self, Self::Both | Self::Workspace)
+    }
 }
 
 pub(super) fn default_compact_threshold_percent() -> u8 {
@@ -82,7 +118,7 @@ fn default_true() -> bool {
 pub const DEFAULT_AGENT_NAME: &str = "Pipi";
 
 /// 播种默认 Agent 时写入的描述（同时作为它 AGENTS.md 的首段）。
-pub(super) const DEFAULT_AGENT_DESCRIPTION: &str = "Pipi 自带的默认 Agent：开箱可用；工作目录、技能与记忆都在 ~/.pipi/agents/Pipi/ 下，改文件即生效";
+pub(super) const DEFAULT_AGENT_DESCRIPTION: &str = "Pipi 自带的默认 Agent：开箱可用；工作目录、技能与记忆都在 ~/.pipi/agents/Pipi/ 下（提示词素材在 harness/），改文件即生效";
 
 /// 校验 Agent 定义的合法性（create 与 save 共用；UI 全字段编辑也走 save）。
 ///
@@ -144,6 +180,7 @@ mod tests {
             subagent: false,
             compact_threshold_percent: 75,
             compact_target_percent: None,
+            system_prompt: Default::default(),
         };
 
         // 未知工具 / 空工具名单
@@ -176,6 +213,36 @@ mod tests {
         assert!(validate_definition(&def).is_err());
         def.mcp_servers = vec![server("a"), server("b")];
         assert!(validate_definition(&def).is_ok());
+    }
+
+    /// systemPrompt 策略：缺字段 = both（旧 agent.json 直接可用），
+    /// 显式值按名解析，非法值拒绝（宁可拒绝不可放行）。
+    #[test]
+    fn system_prompt_scope_defaults_to_both_and_rejects_unknown_values() {
+        let legacy: AgentDefinition = serde_json::from_str(r#"{"name":"legacy"}"#).unwrap();
+        assert_eq!(legacy.system_prompt, PromptScope::Both);
+        assert_eq!(
+            serde_json::to_value(&legacy).unwrap()["systemPrompt"],
+            serde_json::json!("both")
+        );
+
+        for (raw, expected) in [
+            ("both", PromptScope::Both),
+            ("agent", PromptScope::Agent),
+            ("workspace", PromptScope::Workspace),
+            ("none", PromptScope::None),
+        ] {
+            let def: AgentDefinition =
+                serde_json::from_str(&format!(r#"{{"name":"a","systemPrompt":"{raw}"}}"#)).unwrap();
+            assert_eq!(def.system_prompt, expected, "{raw}");
+        }
+
+        assert!(
+            serde_json::from_str::<AgentDefinition>(
+                r#"{"name":"a","systemPrompt":"everything"}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

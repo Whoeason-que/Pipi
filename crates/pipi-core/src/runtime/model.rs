@@ -153,6 +153,7 @@ mod tests {
             subagent: false,
             compact_threshold_percent: 75,
             compact_target_percent: None,
+            system_prompt: Default::default(),
         };
 
         // 未配置 key 时的校验

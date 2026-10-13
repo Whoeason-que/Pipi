@@ -91,10 +91,13 @@ pub fn build_system_prompt(options: BuildSystemPromptOptions) -> String {
         append_memory_index(&mut prompt, &memory_files, read_tool);
     }
 
-    prompt.push_str("\nCurrent working directory: ");
-    prompt.push_str(&prompt_cwd);
-    if has_custom_prompt {
-        prompt.push('\n');
+    // 无工作目录时不渲染这行：空的 "Current working directory: " 只会误导模型
+    if !prompt_cwd.is_empty() {
+        prompt.push_str("\nCurrent working directory: ");
+        prompt.push_str(&prompt_cwd);
+        if has_custom_prompt {
+            prompt.push('\n');
+        }
     }
     prompt
 }

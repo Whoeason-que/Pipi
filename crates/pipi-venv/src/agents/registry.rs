@@ -31,9 +31,14 @@ impl AgentDefinition {
         }
     }
 
-    /// memory 目录（Agent 目录内，固定）。
+    /// memory 目录（`harness/memory`，与提示词策略无关：工具写入位置固定）。
     pub fn memory_dir(&self) -> Option<PathBuf> {
-        self.dir().map(|dir| dir.join("memory"))
+        self.dir().map(|dir| super::paths::memory_dir(&dir))
+    }
+
+    /// Agent 自带的技能目录（`harness/skills`）。
+    pub fn skills_dir(&self) -> Option<PathBuf> {
+        self.dir().map(|dir| super::paths::skills_dir(&dir))
     }
 
     pub fn sessions_dir(&self) -> Option<PathBuf> {
@@ -217,6 +222,7 @@ pub fn create_agent_with_instructions(
         subagent,
         compact_threshold_percent: default_compact_threshold_percent(),
         compact_target_percent: None,
+        system_prompt: Default::default(),
     };
     // 与 save_agent 同一套校验（工具名单等）
     validate_definition(&def)?;
@@ -225,8 +231,13 @@ pub fn create_agent_with_instructions(
         return Err(format!("Agent「{name}」已存在"));
     }
 
-    // 目录骨架（与 README「Agent 的组成」一一对应）
-    for sub in ["skills", "memory", "sessions", "jobs"] {
+    // 目录骨架（与 README「Agent 的组成」一一对应）：提示词素材进 harness/，
+    // 运行态（sessions/jobs）留在 Agent 根。
+    let harness = super::paths::harness_dir(&dir);
+    for sub in ["skills", "memory"] {
+        fs::create_dir_all(harness.join(sub)).map_err(|e| e.to_string())?;
+    }
+    for sub in ["sessions", "jobs"] {
         fs::create_dir_all(dir.join(sub)).map_err(|e| e.to_string())?;
     }
     if workspace.is_none() {
@@ -245,7 +256,7 @@ pub fn create_agent_with_instructions(
         .filter(|instructions| !instructions.is_empty())
         .unwrap_or("- ");
     fs::write(
-        dir.join("AGENTS.md"),
+        harness.join("AGENTS.md"),
         format!("# {name}\n\n{intro}\n\n## 指令\n\n{instructions}\n"),
     )
     .map_err(|e| e.to_string())?;
@@ -347,6 +358,7 @@ mod tests {
             subagent: false,
             compact_threshold_percent: 75,
             compact_target_percent: None,
+            system_prompt: Default::default(),
         };
         std::fs::write(
             &external_manifest,
@@ -378,6 +390,27 @@ mod tests {
             pipi_protocol::permissions::SandboxMode::WorkspaceWrite
         );
         assert!(!def.subagent);
+        assert_eq!(def.system_prompt, crate::agents::PromptScope::Both);
+        let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
+    /// 策略字段随 agent.json 落盘并读回（UI 改完保存 → 下次运行生效）。
+    #[test]
+    fn system_prompt_scope_persists_changes() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let name = format!("pipi-scope-roundtrip-{}", pipi_protocol::new_id());
+        let mut def = create_agent(&name, "", None, None, None, None).unwrap();
+        assert_eq!(def.system_prompt, crate::agents::PromptScope::Both);
+
+        def.system_prompt = crate::agents::PromptScope::Workspace;
+        save_agent(&def).unwrap();
+        let text = std::fs::read_to_string(agent_dir(&name).unwrap().join("agent.json")).unwrap();
+        assert!(text.contains("\"systemPrompt\": \"workspace\""), "{text}");
+        assert_eq!(
+            load_agent(&name).unwrap().system_prompt,
+            crate::agents::PromptScope::Workspace
+        );
+
         let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
     }
 
@@ -473,10 +506,17 @@ mod tests {
         )
         .unwrap();
         let dir = home.join(".pipi/agents/tester");
-        for file in ["agent.json", "AGENTS.md"] {
+        // 提示词素材在 harness/，运行态（jobs/sessions）留在 Agent 根
+        for file in ["agent.json", "harness/AGENTS.md"] {
             assert!(dir.join(file).is_file(), "{file} 未创建");
         }
-        for sub in ["skills", "memory", "jobs", "sessions", "workspace"] {
+        for sub in [
+            "harness/skills",
+            "harness/memory",
+            "jobs",
+            "sessions",
+            "workspace",
+        ] {
             assert!(dir.join(sub).is_dir(), "{sub}/ 未创建");
         }
         let text = std::fs::read_to_string(dir.join("agent.json")).unwrap();
@@ -538,9 +578,9 @@ mod tests {
         let dir = home.join(".pipi").join("agents").join(DEFAULT_AGENT_NAME);
         for entry in [
             "agent.json",
-            "AGENTS.md",
-            "skills",
-            "memory",
+            "harness/AGENTS.md",
+            "harness/skills",
+            "harness/memory",
             "jobs",
             "sessions",
             "workspace",
@@ -559,13 +599,17 @@ mod tests {
         );
 
         // 已存在 → 不再创建，且不覆盖用户改动
-        std::fs::write(dir.join("AGENTS.md"), "# Pipi\n\n用户改过的说明\n").unwrap();
+        std::fs::write(
+            dir.join("harness/AGENTS.md"),
+            "# Pipi\n\n用户改过的说明\n",
+        )
+        .unwrap();
         assert!(ensure_default_agent().unwrap().is_none());
         let agents = list_agents_bootstrapped().unwrap();
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].name, DEFAULT_AGENT_NAME);
         assert!(
-            std::fs::read_to_string(dir.join("AGENTS.md"))
+            std::fs::read_to_string(dir.join("harness/AGENTS.md"))
                 .unwrap()
                 .contains("用户改过的说明"),
             "播种不得覆盖用户对 AGENTS.md 的改动"

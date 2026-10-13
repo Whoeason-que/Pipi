@@ -53,19 +53,19 @@ pub fn list_archived_agents() -> Result<Vec<AgentDefinition>, String> {
     pipi_core::commands::list_archived_agents()
 }
 
-/// 列出 Agent 目录内可编辑的 Markdown（AGENTS.md / memory/*.md）。
+/// 列出 Agent 目录内可编辑的 Markdown（harness/AGENTS.md / harness/memory/*.md）。
 #[tauri::command]
 pub fn list_agent_files(args: InvokeArgs<ListAgentFilesArgs>) -> Result<Vec<String>, String> {
     pipi_core::commands::list_agent_files(args.0)
 }
 
-/// 读取 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+/// 读取 Agent 目录内的可编辑 Markdown（harness/AGENTS.md / harness/memory/*.md）。
 #[tauri::command]
 pub fn read_agent_file(args: InvokeArgs<ReadAgentFileArgs>) -> Result<String, String> {
     pipi_core::commands::read_agent_file(args.0)
 }
 
-/// 写入 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+/// 写入 Agent 目录内的可编辑 Markdown（harness/AGENTS.md / harness/memory/*.md）。
 #[tauri::command]
 pub fn write_agent_file(
     state: State<'_, RuntimeState>,

@@ -72,7 +72,7 @@ impl AgentTool for CreateAgentTool {
     }
 
     fn description(&self) -> String {
-        "Create a persistent Pipi Agent. The new Agent inherits the current model, workspace, sandbox, and ordinary tools; instructions become its AGENTS.md. Agent-composition tools are never inherited."
+        "Create a persistent Pipi Agent. The new Agent inherits the current model, workspace, sandbox, and ordinary tools; instructions become its harness/AGENTS.md. Agent-composition tools are never inherited."
             .into()
     }
 
@@ -90,7 +90,7 @@ impl AgentTool for CreateAgentTool {
                 },
                 "instructions": {
                     "type": "string",
-                    "description": "Complete operating instructions written to AGENTS.md"
+                    "description": "Complete operating instructions written to harness/AGENTS.md"
                 },
                 "tools": {
                     "type": "array",

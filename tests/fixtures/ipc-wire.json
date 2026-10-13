@@ -1,6 +1,6 @@
 {
   "model": {"id":"fixture-model","name":"Fixture","api":"openai-completions","baseUrl":"http://127.0.0.1:1/v1","maxTokens":8192,"contextWindow":128000},
-  "agent": {"name":"fixture","description":"contract","model":"","workspace":null,"permissions":{"tools":["read"],"bash":{"mode":"allowlist","commands":[]},"sandbox":"workspace-write"},"mcpServers":[],"subagent":false,"compactThresholdPercent":75},
+  "agent": {"name":"fixture","description":"contract","model":"","workspace":null,"permissions":{"tools":["read"],"bash":{"mode":"allowlist","commands":[]},"sandbox":"workspace-write"},"mcpServers":[],"subagent":false,"compactThresholdPercent":75,"systemPrompt":"both"},
   "settings": {"theme":"dark","providers":[{"id":"fixture","name":"Fixture","api":"openai-completions","apiMode":"auto","baseUrl":"http://127.0.0.1:1/v1","envKey":"FIXTURE_API_KEY"}],"compaction":{"forkBeforeCompact":true,"archiveOriginal":true},"retry":{"maxAttempts":3,"baseDelayMs":1000,"maxDelayMs":10000}},
   "messages": [
     {"role":"user","content":"hello","timestamp":1},

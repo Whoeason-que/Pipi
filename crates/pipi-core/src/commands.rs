@@ -161,7 +161,7 @@ pub struct ListAgentFilesArgs {
     pub agent_name: String,
 }
 
-/// 列出 Agent 目录内可编辑的 Markdown（AGENTS.md / memory/*.md）。
+/// 列出 Agent 目录内可编辑的 Markdown（harness/AGENTS.md / harness/memory/*.md）。
 pub fn list_agent_files(args: ListAgentFilesArgs) -> Result<Vec<String>, String> {
     agents::list_agent_md_files(&args.agent_name)
 }
@@ -173,7 +173,7 @@ pub struct ReadAgentFileArgs {
     pub rel_path: String,
 }
 
-/// 读取 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+/// 读取 Agent 目录内的可编辑 Markdown（harness/AGENTS.md / harness/memory/*.md）。
 pub fn read_agent_file(args: ReadAgentFileArgs) -> Result<String, String> {
     agents::read_agent_file(&args.agent_name, &args.rel_path)
 }
@@ -186,7 +186,7 @@ pub struct WriteAgentFileArgs {
     pub content: String,
 }
 
-/// 写入 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+/// 写入 Agent 目录内的可编辑 Markdown（harness/AGENTS.md / harness/memory/*.md）。
 pub fn write_agent_file(runtime: &RuntimeState, args: WriteAgentFileArgs) -> Result<(), String> {
     runtime.write_agent_file(&args.agent_name, &args.rel_path, &args.content)
 }

@@ -8,10 +8,10 @@ use super::types::AgentDefinition;
 
 /// 解析 Agent 目录内允许 UI 编辑的 Markdown 相对路径。
 ///
-/// 只放行两类：根目录的 `AGENTS.md`，以及 `memory/` 下的 `.md` 文件树
-/// （深度 ≤ 3，对齐 memory 工具的 `collect_markdown`）。其余路径一律
-/// 拒绝 —— UI 编辑器不是任意文件写入通道。任何组件都不允许 `..`、
-/// 点开头或符号链接（fail-closed）。
+/// 只放行两类，且都在提示词素材目录 `harness/` 下：`harness/AGENTS.md`，
+/// 以及 `harness/memory/` 下的 `.md` 文件树（深度 ≤ 3，对齐 memory 工具的
+/// `collect_markdown`）。其余路径一律拒绝 —— UI 编辑器不是任意文件写入通道。
+/// 任何组件都不允许 `..`、点开头或符号链接（fail-closed）。
 fn resolve_agent_md_path(dir: &Path, rel_path: &str) -> Result<PathBuf, String> {
     let relative = Path::new(rel_path);
     if relative.is_absolute() {
@@ -30,28 +30,46 @@ fn resolve_agent_md_path(dir: &Path, rel_path: &str) -> Result<PathBuf, String> 
     if dot_or_escape {
         return Err(format!("路径不合法: {rel_path}"));
     }
-
-    let first = components[0].to_string_lossy().into_owned();
-    let target = if first == "AGENTS.md" {
-        if components.len() != 1 {
-            return Err(format!("AGENTS.md 只能是 Agent 目录根下的文件: {rel_path}"));
+    if components[0] != super::paths::HARNESS_DIR {
+        return Err(format!(
+            "只允许编辑 {}/AGENTS.md 与 {}/memory/*.md: {rel_path}",
+            super::paths::HARNESS_DIR,
+            super::paths::HARNESS_DIR
+        ));
+    }
+    let rest = &components[1..];
+    let first = rest.first().map(|c| c.to_string_lossy().into_owned());
+    let target = match first.as_deref() {
+        Some("AGENTS.md") => {
+            if rest.len() != 1 {
+                return Err(format!(
+                    "{}/AGENTS.md 只能是该目录下的文件: {rel_path}",
+                    super::paths::HARNESS_DIR
+                ));
+            }
+            dir.join(super::paths::HARNESS_DIR).join("AGENTS.md")
         }
-        dir.join("AGENTS.md")
-    } else if first == "memory" {
-        if components.len() < 2 || components.len() > 4 {
-            return Err(format!("memory 路径深度须为 1-3 层: {rel_path}"));
+        Some("memory") => {
+            if rest.len() < 2 || rest.len() > 4 {
+                return Err(format!("memory 路径深度须为 1-3 层: {rel_path}"));
+            }
+            let file_name = rest.last().unwrap().to_string_lossy().into_owned();
+            if !file_name.ends_with(".md") || file_name.len() <= 3 {
+                return Err(format!("memory 下只能编辑 .md 文件: {rel_path}"));
+            }
+            let mut path = dir.to_path_buf();
+            for component in &components {
+                path.push(component);
+            }
+            path
         }
-        let file_name = components.last().unwrap().to_string_lossy().into_owned();
-        if !file_name.ends_with(".md") || file_name.len() <= 3 {
-            return Err(format!("memory 下只能编辑 .md 文件: {rel_path}"));
+        _ => {
+            return Err(format!(
+                "只允许编辑 {}/AGENTS.md 与 {}/memory/*.md: {rel_path}",
+                super::paths::HARNESS_DIR,
+                super::paths::HARNESS_DIR
+            ));
         }
-        let mut path = dir.to_path_buf();
-        for component in &components {
-            path.push(component);
-        }
-        path
-    } else {
-        return Err(format!("只允许编辑 AGENTS.md 与 memory/*.md: {rel_path}"));
     };
 
     // 中间目录与目标本身都不能是符号链接/非常规条目
@@ -67,7 +85,7 @@ fn resolve_agent_md_path(dir: &Path, rel_path: &str) -> Result<PathBuf, String> 
     Ok(target)
 }
 
-/// 读取 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+/// 读取 Agent 目录内的可编辑 Markdown（`harness/AGENTS.md` / `harness/memory/*.md`）。
 pub fn read_agent_file(agent_name: &str, rel_path: &str) -> Result<String, String> {
     let dir = checked_agent_dir(agent_name)?;
     let target = resolve_agent_md_path(&dir, rel_path)?;
@@ -77,12 +95,12 @@ pub fn read_agent_file(agent_name: &str, rel_path: &str) -> Result<String, Strin
     fs::read_to_string(&target).map_err(|e| format!("无法读取 {rel_path}: {e}"))
 }
 
-/// 写入 Agent 目录内的可编辑 Markdown（AGENTS.md / memory/*.md）。
+/// 写入 Agent 目录内的可编辑 Markdown（`harness/AGENTS.md` / `harness/memory/*.md`）。
 /// memory 下的新文件允许创建（父目录自动补齐）；AGENTS.md 必须已存在。
 pub fn write_agent_file(agent_name: &str, rel_path: &str, content: &str) -> Result<(), String> {
     let dir = checked_agent_dir(agent_name)?;
     let target = resolve_agent_md_path(&dir, rel_path)?;
-    if rel_path == "AGENTS.md" && !target.is_file() {
+    if target == super::paths::harness_dir(&dir).join("AGENTS.md") && !target.is_file() {
         return Err("AGENTS.md 不存在（不应删除 Agent 的系统指令文件）".into());
     }
     if let Some(parent) = target.parent() {
@@ -92,19 +110,21 @@ pub fn write_agent_file(agent_name: &str, rel_path: &str, content: &str) -> Resu
     fs::write(&target, content).map_err(|e| format!("无法写入 {rel_path}: {e}"))
 }
 
-/// 列出 Agent 目录内可编辑的 Markdown 相对路径（`AGENTS.md` + `memory/*.md`）。
+/// 列出 Agent 目录内可编辑的 Markdown 相对路径
+/// （`harness/AGENTS.md` + `harness/memory/*.md`）。
 /// UI 文件编辑器与 memory 索引共用此扫描（复用 memory 工具的 collect_markdown）。
 pub fn list_agent_md_files(agent_name: &str) -> Result<Vec<String>, String> {
     let dir = checked_agent_dir(agent_name)?;
+    let harness = super::paths::HARNESS_DIR;
     let mut out = Vec::new();
-    if dir.join("AGENTS.md").is_file() {
-        out.push("AGENTS.md".to_string());
+    if super::paths::harness_dir(&dir).join("AGENTS.md").is_file() {
+        out.push(format!("{harness}/AGENTS.md"));
     }
     let mut rels = Vec::new();
-    pipi_tools::memory::collect_markdown(&dir.join("memory"), 0, &mut rels);
+    pipi_tools::memory::collect_markdown(&super::paths::memory_dir(&dir), 0, &mut rels);
     rels.sort();
     for rel in rels {
-        out.push(format!("memory/{rel}"));
+        out.push(format!("{harness}/memory/{rel}"));
     }
     Ok(out)
 }
@@ -178,17 +198,17 @@ mod tests {
         pipi_test_support::set_env_var("HOME", &home);
         create_agent("editor", "d", None, None, None, None).unwrap();
 
-        // AGENTS.md 可读写
-        write_agent_file("editor", "AGENTS.md", "# 新指令\n").unwrap();
+        // harness/AGENTS.md 可读写
+        write_agent_file("editor", "harness/AGENTS.md", "# 新指令\n").unwrap();
         assert_eq!(
-            read_agent_file("editor", "AGENTS.md").unwrap(),
+            read_agent_file("editor", "harness/AGENTS.md").unwrap(),
             "# 新指令\n"
         );
 
         // memory 新文件可创建并读写
-        write_agent_file("editor", "memory/user-prefs.md", "偏好： concise\n").unwrap();
+        write_agent_file("editor", "harness/memory/user-prefs.md", "偏好： concise\n").unwrap();
         assert!(
-            read_agent_file("editor", "memory/user-prefs.md")
+            read_agent_file("editor", "harness/memory/user-prefs.md")
                 .unwrap()
                 .contains("偏好")
         );
@@ -197,13 +217,16 @@ mod tests {
         assert!(read_agent_file("editor", "/etc/passwd").is_err());
         assert!(read_agent_file("editor", "../escape.md").is_err());
         assert!(write_agent_file("editor", "agent.json", "{}").is_err());
-        assert!(write_agent_file("editor", "memory/notes.txt", "x").is_err());
-        assert!(write_agent_file("editor", "skills/tool/SKILL.md", "x").is_err());
-        assert!(write_agent_file("editor", "memory/a/b/c/d.md", "x").is_err());
-        assert!(read_agent_file("editor", "memory/missing.md").is_err());
-        // AGENTS.md 不允许通过 write 新建（已被 create_agent 管理）
-        std::fs::remove_file(home.join(".pipi/agents/editor/AGENTS.md")).unwrap();
+        assert!(write_agent_file("editor", "harness/memory/notes.txt", "x").is_err());
+        assert!(write_agent_file("editor", "harness/skills/tool/SKILL.md", "x").is_err());
+        assert!(write_agent_file("editor", "harness/memory/a/b/c/d.md", "x").is_err());
+        assert!(read_agent_file("editor", "harness/memory/missing.md").is_err());
+        // 顶层 legacy 路径已收口：不再是可编辑位置
         assert!(write_agent_file("editor", "AGENTS.md", "x").is_err());
+        assert!(write_agent_file("editor", "memory/user-prefs.md", "x").is_err());
+        // AGENTS.md 不允许通过 write 新建（已被 create_agent 管理）
+        std::fs::remove_file(home.join(".pipi/agents/editor/harness/AGENTS.md")).unwrap();
+        assert!(write_agent_file("editor", "harness/AGENTS.md", "x").is_err());
 
         pipi_test_support::set_env_var("HOME", prev);
         std::fs::remove_dir_all(&home).unwrap();

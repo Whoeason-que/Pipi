@@ -30,4 +30,4 @@ pub use registry::{
     list_agents, list_agents_bootstrapped, load_agent, save_agent,
 };
 pub use tool_context::build_tool_context;
-pub use types::{AgentDefinition, DEFAULT_AGENT_NAME, McpServerConfig, validate_definition};
+pub use types::{AgentDefinition, DEFAULT_AGENT_NAME, McpServerConfig, PromptScope, validate_definition};
