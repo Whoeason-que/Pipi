@@ -1,12 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   catalogSourceLabel,
   providerGroups,
   providerSeed,
-  type CatalogProvider,
-  type ModelCatalog
+  type CatalogProvider
 } from "../catalog";
-import { loadCatalog, peekCatalog } from "../catalog-client";
 import { ChoiceSelect } from "../Select";
 import {
   API_LABELS,
@@ -14,6 +12,7 @@ import {
   type ApiMode,
   type ProviderConfig
 } from "../types";
+import { useCatalog } from "../use-catalog";
 
 
 interface PresetPickerProps {
@@ -27,31 +26,7 @@ interface PresetPickerProps {
  * 搜索与键盘导航交给 react-select；这里只标注「已添加」和来源。
  */
 export function PresetPicker({ existingIds, onPick, onCancel }: PresetPickerProps) {
-  const [catalog, setCatalog] = useState<ModelCatalog | null>(peekCatalog());
-  const [loading, setLoading] = useState(peekCatalog() === null);
-  const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    if (peekCatalog()) return;
-    let alive = true;
-    setLoading(true);
-    loadCatalog(attempt > 0)
-      .then((next) => {
-        if (!alive) return;
-        setCatalog(next);
-        setError(null);
-      })
-      .catch((reason: unknown) => {
-        if (alive) setError(reason instanceof Error ? reason.message : String(reason));
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [attempt]);
+  const { catalog, loading, error, reload } = useCatalog();
 
   const groups = catalog
     ? providerGroups(catalog).map((entry) => ({
@@ -93,7 +68,7 @@ export function PresetPicker({ existingIds, onPick, onCancel }: PresetPickerProp
         {error && (
           <div className="form-warning">
             {error}
-            <button type="button" className="link" onClick={() => setAttempt((n) => n + 1)}>
+            <button type="button" className="link" onClick={reload}>
               重试
             </button>
           </div>

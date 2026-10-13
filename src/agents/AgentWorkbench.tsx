@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   resolveContextWindow,
-  resolveMaxTokens,
-  type CatalogModel
+  resolveMaxTokens
 } from "../catalog";
 import ChatView from "../Chat";
 import {
@@ -20,14 +19,13 @@ import { ChoiceSelect } from "../Select";
 import type { SessionRuntime } from "../session-runtime";
 import {
   type AgentDefinition,
-  type BashMode,
   type PromptScope,
   type ProviderConfig,
-  type SandboxMode,
   type SessionInfoView
 } from "../types";
 import { permissionsFromFields } from "./agent-fields";
 import { BashChoices, PromptScopeChoices, SandboxChoices, ToolChoices } from "./PermissionChoices";
+import { useAgentConfigFields } from "./use-agent-config-fields";
 
 import AgentFileEditor from "./AgentFileEditor";
 import { AgentSkillsTab } from "../skills/AgentSkillsTab";
@@ -63,15 +61,40 @@ export default function AgentWorkbench({
   const [importReport, setImportReport] = useState<string | null>(null);
   const [testLoadVersion, setTestLoadVersion] = useState(0);
   const [settingsTab, setSettingsTab] = useState<AgentSettingsTab>("basic");
-  const [providerId, setProviderId] = useState<string>(() => {
-    const bound = providers.find(
+  // —— 共享字段（供应商 / 模型 / 描述 / 工作目录 / 工具 / bash / 沙箱）——
+  // 状态与「换供应商清模型」联动在 useAgentConfigFields；工作台只保留自己的
+  // savedLimits、subagent、压缩阈值、promptScope 与保存/校验逻辑。
+  const {
+    providerId,
+    modelId,
+    pickedModel,
+    description,
+    workspace,
+    tools,
+    bashMode,
+    commands,
+    sandbox,
+    setDescription,
+    setWorkspace,
+    setTools,
+    setBashMode,
+    setCommands,
+    setSandbox,
+    changeProvider,
+    changeModel,
+    toggleTool,
+  } = useAgentConfigFields({
+    providerId: providers.find(
       (p) => agent.provider && p.api === agent.provider.api && p.baseUrl === agent.provider.baseUrl,
-    );
-    return bound?.id ?? "";
+    )?.id ?? "",
+    modelId: agent.provider?.id ?? "",
+    description: agent.description,
+    workspace: agent.workspace ?? "",
+    tools: agent.permissions.tools,
+    bashMode: bash.mode,
+    commands: bash.commands.join("\n"),
+    sandbox: agent.permissions.sandbox,
   });
-  const [modelId, setModelId] = useState(agent.provider?.id ?? "");
-  // 从目录里选的模型：用它回填 maxTokens / contextWindow（不在目录里的模型保持原值）
-  const [pickedModel, setPickedModel] = useState<CatalogModel | undefined>(undefined);
   // 当前「已保存绑定」的限额。换供应商后必须作废：否则手填目录外模型时会写回
   // 上一家供应商的旧限额（端点换成了 B、限额还是 A 的）。
   const [savedLimits, setSavedLimits] = useState(() => ({
@@ -81,13 +104,7 @@ export default function AgentWorkbench({
   const [saving, setSaving] = useState(false);
 
   // —— 元信息 / 权限编辑（agent.json 全字段）——
-  const [description, setDescription] = useState(agent.description);
   const [subagent, setSubagent] = useState(agent.subagent);
-  const [workspace, setWorkspace] = useState(agent.workspace ?? "");
-  const [tools, setTools] = useState<string[]>(agent.permissions.tools);
-  const [bashMode, setBashMode] = useState<BashMode>(bash.mode);
-  const [commands, setCommands] = useState(bash.commands.join("\n"));
-  const [sandbox, setSandbox] = useState<SandboxMode>(agent.permissions.sandbox);
   // 自动压缩阈值（窗口占用的百分比，1–100）
   const [compactThreshold, setCompactThreshold] = useState(agent.compactThresholdPercent);
   const [compactTarget, setCompactTarget] = useState(agent.compactTargetPercent?.toString() ?? "");
@@ -317,9 +334,7 @@ export default function AgentWorkbench({
                     isClearable
                     menuInPortal
                     onChange={(next) => {
-                      setProviderId(next);
-                      setModelId("");
-                      setPickedModel(undefined);
+                      changeProvider(next);
                       setSavedLimits({ maxTokens: 8192, contextWindow: 0 });
                     }}
                   />
@@ -333,10 +348,7 @@ export default function AgentWorkbench({
                     modelId={modelId}
                     disabled={saving}
                     placeholder="模型 ID，如 claude-sonnet-4-5"
-                    onModelChange={(nextId, model) => {
-                      setModelId(nextId);
-                      setPickedModel(model);
-                    }}
+                    onModelChange={changeModel}
                   />
                   <span className="hint">保存后，新的临时测试和正式会话会使用此模型。</span>
                   {draftProvider && (
@@ -427,7 +439,7 @@ export default function AgentWorkbench({
               <section className="settings-section">
                 <div className="settings-field">
                   <span className="field-label">tools</span>
-                  <ToolChoices value={tools} className="tool-row settings-choice-grid" onToggle={tool => setTools(previous => previous.includes(tool) ? previous.filter(candidate => candidate !== tool) : [...previous, tool])} />
+                  <ToolChoices value={tools} className="tool-row settings-choice-grid" onToggle={toggleTool} />
                   {tools.length === 0 && <span className="field-error">至少保留一个工具。</span>}
                 </div>
                 <div className="settings-field">

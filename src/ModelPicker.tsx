@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   catalogSourceLabel,
   fallbackModelChoices,
@@ -8,11 +7,10 @@ import {
   modelChoices,
   pinnedApiConflict,
   type CatalogModel,
-  type ModelCatalog,
 } from "./catalog";
-import { loadCatalog, peekCatalog } from "./catalog-client";
 import { ChoiceCreatable } from "./Select";
 import { API_LABELS, pinnedProtocolHint, type ProviderConfig } from "./types";
+import { useCatalog } from "./use-catalog";
 
 interface ModelPickerProps {
   /** 已配置的供应商（settings.providers） */
@@ -42,30 +40,7 @@ export function ModelPicker({
   placeholder,
 }: ModelPickerProps) {
   const provider = providers.find((p) => p.id === providerId);
-  const [catalog, setCatalog] = useState<ModelCatalog | null>(peekCatalog());
-  const [loading, setLoading] = useState(peekCatalog() === null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (peekCatalog()) return;
-    let alive = true;
-    setLoading(true);
-    loadCatalog()
-      .then((next) => {
-        if (!alive) return;
-        setCatalog(next);
-        setError(null);
-      })
-      .catch((reason: unknown) => {
-        if (alive) setError(reason instanceof Error ? reason.message : String(reason));
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const { catalog, loading, error } = useCatalog();
 
   const entry = matchProvider(catalog, provider?.api ?? "", provider?.baseUrl ?? "");
   const choices = entry ? modelChoices(entry) : catalog ? [] : fallbackModelChoices();

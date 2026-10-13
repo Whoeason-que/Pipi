@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   catalogSourceLabel,
   findCatalogModel,
@@ -7,15 +7,14 @@ import {
   pinnedApiConflict,
   resolveContextWindow,
   resolveMaxTokens,
-  type ModelCatalog,
 } from "../catalog";
-import { loadCatalog, peekCatalog } from "../catalog-client";
 import {
   formatTokens
 } from "../chat-runtime";
 import { ModelPicker } from "../ModelPicker";
 import { ChoiceSelect } from "../Select";
 import { API_LABELS, pinnedProtocolHint, type ModelConfig, type ProviderConfig } from "../types";
+import { useCatalog } from "../use-catalog";
 
 
 // ============ 会话模型选择 ============
@@ -63,22 +62,8 @@ export default function ModelSelectModal({
   );
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<ModelCatalog | null>(peekCatalog());
-
-  useEffect(() => {
-    if (peekCatalog()) return;
-    let alive = true;
-    loadCatalog()
-      .then((next) => {
-        if (alive) setCatalog(next);
-      })
-      .catch(() => {
-        // 目录拉不到不影响切换模型：ModelPicker 会退化成手填
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // 目录拉不到不影响切换模型：ModelPicker 会退化成手填，错误静默忽略
+  const { catalog } = useCatalog();
 
   // 当前选中的供应商在目录里的条目（按「协议 + 端点」反查，口径与会话绑定一致）
   const activeProvider = providers.find((p) => p.id === selectedProviderId);
