@@ -8,7 +8,7 @@
 //! 因为它是**确定性投影**（给定原始历史必得同一结果），所以不落盘：回放时
 //! 重算即可，live 与重开自然一致。幂等由占位符前缀保证 —— 二次应用是空操作。
 
-use super::{Plan, Preparation, Projection};
+use super::{Plan, Preparation};
 use pipi_protocol::{Message, ToolResultContent};
 
 /// 占位符前缀：既是给模型看的说明，也是「已清理」的幂等标记。
@@ -16,16 +16,15 @@ pub const CLEARED_TOOL_RESULT_PREFIX: &str = "[工具输出已清理";
 
 pub struct ToolOutputPrune;
 
-impl Projection for ToolOutputPrune {
-    fn name(&self) -> &'static str {
-        "tool-output-prune"
-    }
+impl ToolOutputPrune {
+    pub(super) const NAME: &'static str = "tool-output-prune";
 
-    fn applies(&self, prep: &Preparation<'_>) -> bool {
+    /// 前置条件：超预算且确有可清的输出；不满足则跳过（不算失败）。
+    pub(super) fn applies(&self, prep: &Preparation<'_>) -> bool {
         prep.over_budget() && !clearable(prep).is_empty()
     }
 
-    fn plan(&self, prep: &Preparation<'_>) -> Plan {
+    pub(super) fn plan(&self, prep: &Preparation<'_>) -> Plan {
         Plan {
             rewrites: clearable(prep),
             ..Default::default()
@@ -136,7 +135,7 @@ fn cleared_message(
 #[cfg(test)]
 mod tests {
     use crate::compaction::tool_output::{CLEARED_TOOL_RESULT_PREFIX, ToolOutputPrune};
-    use crate::compaction::{Budget, Preparation, Projection};
+    use crate::compaction::{Budget, Preparation};
     use crate::test_support::tool_result;
     use pipi_protocol::compaction::DEFAULT_THRESHOLD_PERCENT;
     use pipi_protocol::{ContentBlock, Message, ToolResultContent};

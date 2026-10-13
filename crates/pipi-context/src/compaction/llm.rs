@@ -5,7 +5,7 @@
 //! 清单。新增的是「产出 [`Plan`] 而不是直接改历史」，以及把摘要调用的
 //! usage 带回上层（计入会话账本）。
 
-use super::{Plan, Preparation, Replacement, StrategyEnv, file_operations};
+use super::{Plan, Preparation, StrategyEnv, file_operations};
 use pipi_protocol::{AbortSignal, Context, Message, StopReason, StreamEvent, StreamOptions, Usage};
 
 /// 摘要调用的系统提示：限定为总结者角色，禁止把对话接下去（对齐 pi）。
@@ -15,57 +15,53 @@ ONLY output the structured summary.";
 
 pub struct LlmSummarize;
 
-impl Replacement for LlmSummarize {
-    fn name(&self) -> &'static str {
-        "llm-summarize"
-    }
+impl LlmSummarize {
+    pub(super) const NAME: &'static str = "llm-summarize";
 
-    fn applies(&self, prep: &Preparation<'_>) -> bool {
-        // 阈值由 runtime 判（自动看 needs_compaction、手动不看）；
-        // 这里只回答「有没有东西可压」——`run` 里切不出旧轮次时会给出可读错误。
+    /// 前置条件：有没有东西可压。阈值由 runtime 判（自动看 needs_compaction、
+    /// 手动不看）；`run` 里切不出旧轮次时会给出可读错误。
+    pub(super) fn applies(&self, prep: &Preparation<'_>) -> bool {
         !prep.messages.is_empty()
     }
 
-    fn run<'a>(
-        &'a self,
-        prep: &'a Preparation<'a>,
-        env: &'a StrategyEnv<'a>,
-    ) -> super::BoxFuture<'a, Result<Plan, String>> {
-        Box::pin(async move {
-            // 保留尾部的切点（尾部无可行 user 边界时保留空段，全部摘要化）
-            let keep_start =
-                find_keep_start(prep.messages, prep.budget.keep_budget_for(prep.tokens()))
-                    .ok_or_else(|| "历史无需压缩：尚未超出保留预算".to_string())?;
-            let to_summarize = &prep.messages[..keep_start];
+    /// 让同一个模型把旧轮次压成一条摘要。
+    pub(super) async fn run(
+        &self,
+        prep: &Preparation<'_>,
+        env: &StrategyEnv<'_>,
+    ) -> Result<Plan, String> {
+        // 保留尾部的切点（尾部无可行 user 边界时保留空段，全部摘要化）
+        let keep_start = find_keep_start(prep.messages, prep.budget.keep_budget_for(prep.tokens()))
+            .ok_or_else(|| "历史无需压缩：尚未超出保留预算".to_string())?;
+        let to_summarize = &prep.messages[..keep_start];
 
-            let (summary_text, usage) = summarize(
-                to_summarize,
-                prep.previous_summary(),
-                prep.budget.summary_max,
-                env,
-            )
-            .await?;
+        let (summary_text, usage) = summarize(
+            to_summarize,
+            prep.previous_summary(),
+            prep.budget.summary_max,
+            env,
+        )
+        .await?;
 
-            // 摘要末尾追加文件操作清单（对齐 pi 的 formatFileOperations）：
-            // 继续工作时最需要知道动过哪些文件。
-            let (read_files, modified_files) = file_operations(to_summarize);
-            let mut summary = summary_text.trim().to_string();
-            if !read_files.is_empty() {
-                summary.push_str(&format!("\n\nFiles read: {}", read_files.join(", ")));
-            }
-            if !modified_files.is_empty() {
-                summary.push_str(&format!(
-                    "\n\nFiles modified: {}",
-                    modified_files.join(", ")
-                ));
-            }
+        // 摘要末尾追加文件操作清单（对齐 pi 的 formatFileOperations）：
+        // 继续工作时最需要知道动过哪些文件。
+        let (read_files, modified_files) = file_operations(to_summarize);
+        let mut summary = summary_text.trim().to_string();
+        if !read_files.is_empty() {
+            summary.push_str(&format!("\n\nFiles read: {}", read_files.join(", ")));
+        }
+        if !modified_files.is_empty() {
+            summary.push_str(&format!(
+                "\n\nFiles modified: {}",
+                modified_files.join(", ")
+            ));
+        }
 
-            Ok(Plan {
-                keep_from: Some(keep_start),
-                injections: vec![pipi_protocol::session::summary_message(&summary)],
-                usage,
-                ..Default::default()
-            })
+        Ok(Plan {
+            keep_from: Some(keep_start),
+            injections: vec![pipi_protocol::session::summary_message(&summary)],
+            usage,
+            ..Default::default()
         })
     }
 }
@@ -344,7 +340,7 @@ async fn summarize_once(
 #[cfg(test)]
 mod tests {
     use crate::compaction::llm::{LlmSummarize, build_summary_prompt, find_keep_start, summarize};
-    use crate::compaction::{Preparation, Replacement, StrategyEnv};
+    use crate::compaction::{Preparation, StrategyEnv};
     use crate::test_support::{assistant_text, tool_result};
     use pipi_protocol::provider::{EventStream, Provider};
     use pipi_protocol::{

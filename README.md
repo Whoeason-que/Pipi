@@ -258,8 +258,8 @@ server`）。前端 `ipc.ts` 声明命令参数、返回值和事件类型，`np
 
 | 类别 | 例子 | 持久化 | 应用位置 |
 | --- | --- | --- | --- |
-| `Projection`（投影式，纯函数、确定性） | 旧工具输出清理、边界硬裁 | **不落盘**（回放时重算） | `transform_context`（组装请求时） |
-| `Replacement`（替换式，信息已丢失） | LLM 摘要 | 必须落盘为 `compaction` 条目 | turn 边界（单会话内核触发） |
+| 投影式（`project` 路径，纯函数、确定性） | 旧工具输出清理、边界硬裁 | **不落盘**（回放时重算） | `transform_context`（组装请求时） |
+| 替换式（`compact` 路径，信息已丢失） | LLM 摘要 | 必须落盘为 `compaction` 条目 | turn 边界（单会话内核触发） |
 
 - 「何时压」由 `pipi-agent::session` 决定，策略只回答「我能不能压」。触发口径只有一处
   （`Budget::trigger_tokens` = **窗口 × 百分比**，默认 75%，按 Agent 在
@@ -280,8 +280,8 @@ server`）。前端 `ipc.ts` 声明命令参数、返回值和事件类型，`np
 - 硬不变量集中在 `compaction::validate` / `validate_result`：切点不得孤立
   toolResult、就地改写不得改角色、压缩后破损度不得增加（历史里本来就有的中段
   悬挂不算在压缩头上）；
-- 参数集中在 `Budget::from_window`，加一档投影式压缩 = 一个纯函数 + 流水线里
-  一行登记。
+- 参数集中在 `Budget::from_window`，加一档投影式压缩 = 一个具象策略 + `project`
+  里一行调用。
 
 **压缩不原地改写会话**（可关）：摘要成功后先**分叉**出新会话（活跃路径完整拷贝 +
 压缩条目 + 溯源标记 `compaction-fork:<原 id>`），把 writer 换过去，再把原会话移入

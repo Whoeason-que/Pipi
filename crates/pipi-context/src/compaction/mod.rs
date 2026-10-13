@@ -6,14 +6,15 @@
 //! - **策略产出 [`Plan`]，不直接改历史** —— 于是不变量能统一校验、UI 能观测、
 //!   落盘能回放，三件事都只依赖这一层；
 //! - 策略分两类，这条线决定扩展成本：
-//!   - [`Projection`]（投影式）：**可从原始历史重算** —— 纯函数、确定性、
+//!   - **投影式**（[`project`] 路径）：**可从原始历史重算** —— 纯函数、确定性、
 //!     不落盘，只在组装请求时应用（`transform_context`）。加一档不动会话格式。
-//!   - [`Replacement`]（替换式）：信息已丢失（摘要），必须落盘成 compaction
+//!   - **替换式**（[`compact`] 路径）：信息已丢失（摘要），必须落盘成 compaction
 //!     条目并在回放时重建。
 //!
-//! 两类刻意用两个 trait：投影式是同步纯函数，替换式要发请求（async）且改变
-//! 持久状态 —— 合成一个 trait 只会逼出「假的 async」，或让投影式拿到不该有的
-//! 写权限。
+//! 两类刻意分成两条路径：投影式是同步纯函数、可重算所以不落盘；替换式要发
+//! 请求（async）且改变持久状态 —— 合成一条只会逼出「假的 async」，或让投影式
+//! 拿到不该有的写权限。每条路径的档位是具象类型、顺序写死在入口里：加一档 =
+//! 写一个策略 + 在入口里加一行调用。
 
 mod llm;
 mod tool_output;
@@ -277,44 +278,17 @@ fn pairing_damage(messages: &[Message]) -> (usize, usize) {
     )
 }
 
-/// 投影式策略：纯函数（同步、确定性），可从原始历史重算 —— 因此**不落盘**。
-pub trait Projection: Send + Sync {
-    fn name(&self) -> &'static str;
-    /// 前置条件；不满足则跳过（不算失败）。
-    fn applies(&self, prep: &Preparation<'_>) -> bool;
-    fn plan(&self, prep: &Preparation<'_>) -> Plan;
-}
-
-/// 替换式策略的异步返回类型（`Send`，可跨 await 持有）。
-pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
-
-/// 替换式策略：信息已丢失，必须落盘成 compaction 条目并在回放时重建。
-///
-/// 手写 boxed future 而不用 `#[async_trait]`：这里的入参带借用（`Preparation` /
-/// `StrategyEnv` 都有生命周期），宏展开出的签名与实现很难对齐，显式写出更省事。
-pub trait Replacement: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn applies(&self, prep: &Preparation<'_>) -> bool;
-    fn run<'a>(
-        &'a self,
-        prep: &'a Preparation<'a>,
-        env: &'a StrategyEnv<'a>,
-    ) -> BoxFuture<'a, Result<Plan, String>>;
-}
-
 /// 硬裁剪（投影式，保底档）：超预算时从最旧的完整轮次开始丢弃。
 pub struct BoundaryPrune;
 
-impl Projection for BoundaryPrune {
-    fn name(&self) -> &'static str {
-        "boundary-prune"
-    }
+impl BoundaryPrune {
+    pub(super) const NAME: &'static str = "boundary-prune";
 
-    fn applies(&self, prep: &Preparation<'_>) -> bool {
+    pub(super) fn applies(&self, prep: &Preparation<'_>) -> bool {
         prep.over_budget()
     }
 
-    fn plan(&self, prep: &Preparation<'_>) -> Plan {
+    pub(super) fn plan(&self, prep: &Preparation<'_>) -> Plan {
         Plan {
             // 硬裁是最后一档：裁到触发线为止（裁完不该马上又触发压缩）
             keep_from: prune_cut_index(prep.messages, prep.budget.trigger_tokens()),
@@ -323,55 +297,49 @@ impl Projection for BoundaryPrune {
     }
 }
 
-/// 投影式流水线：按成本从低到高（清理旧工具输出 → 硬裁）。
-pub fn projections() -> Vec<Box<dyn Projection>> {
-    vec![Box::new(ToolOutputPrune), Box::new(BoundaryPrune)]
-}
-
-/// 替换式流水线：目前只有摘要；未来按成本排序追加（例如服务端压缩）。
-pub fn replacements() -> Vec<Box<dyn Replacement>> {
-    vec![Box::new(LlmSummarize)]
-}
-
 /// 应用投影式流水线（组装请求时调用）。
 ///
 /// 结果**不落盘**：回放时用同一份逻辑重算，于是 live 与重开自然一致 ——
-/// 这是「可重算就不持久化」这条规则的直接收益。每档都过校验，任何一档
-/// 出问题只跳过它自己，不影响其余档与会话。
+/// 这是「可重算就不持久化」这条规则的直接收益。顺序即成本顺序：先清旧工具
+/// 输出（不花 LLM 调用、不动对话结构），仍超预算才硬裁；每档看到的是前一档
+/// 应用后的历史。任何一档出问题只跳过它自己，不影响其余档与会话。
 pub fn project(messages: Vec<Message>, budget: Budget) -> Vec<Message> {
     if budget.context_window == 0 {
         return messages;
     }
-    let mut current = messages;
-    for strategy in projections() {
-        let plan = {
-            let prep = Preparation::new(&current, budget);
-            if !strategy.applies(&prep) {
-                continue;
-            }
-            strategy.plan(&prep)
-        };
-        if plan.is_noop() {
-            continue;
-        }
-        if let Err(error) = validate(&current, &plan) {
-            eprintln!(
-                "pipi: 投影式压缩「{}」计划不合法，已跳过: {error}",
-                strategy.name()
-            );
-            continue;
-        }
-        let next = plan.apply(&current);
-        if let Err(error) = validate_result(&current, &next) {
-            eprintln!(
-                "pipi: 投影式压缩「{}」结果不合法，已跳过: {error}",
-                strategy.name()
-            );
-            continue;
-        }
-        current = next;
+    let current = apply_projection(messages, budget, ToolOutputPrune::NAME, |prep| {
+        ToolOutputPrune
+            .applies(prep)
+            .then(|| ToolOutputPrune.plan(prep))
+    });
+    apply_projection(current, budget, BoundaryPrune::NAME, |prep| {
+        BoundaryPrune
+            .applies(prep)
+            .then(|| BoundaryPrune.plan(prep))
+    })
+}
+
+/// 跑一档投影策略：不适用、空计划或校验失败都只跳过这一档。
+fn apply_projection(
+    current: Vec<Message>,
+    budget: Budget,
+    name: &'static str,
+    plan_for: impl FnOnce(&Preparation<'_>) -> Option<Plan>,
+) -> Vec<Message> {
+    let plan = match plan_for(&Preparation::new(&current, budget)) {
+        Some(plan) if !plan.is_noop() => plan,
+        _ => return current,
+    };
+    if let Err(error) = validate(&current, &plan) {
+        eprintln!("pipi: 投影式压缩「{name}」计划不合法，已跳过: {error}");
+        return current;
     }
-    current
+    let next = plan.apply(&current);
+    if let Err(error) = validate_result(&current, &next) {
+        eprintln!("pipi: 投影式压缩「{name}」结果不合法，已跳过: {error}");
+        return current;
+    }
+    next
 }
 
 /// 替换式压缩的结果（runtime 据此落盘 compaction 条目）。
@@ -405,26 +373,24 @@ pub async fn compact(
         return Err("空上下文无需压缩".into());
     }
     let prep = Preparation::new(messages, budget);
-    for strategy in replacements() {
-        if !strategy.applies(&prep) {
-            continue;
-        }
-        let plan = strategy.run(&prep, env).await?;
-        if plan.is_noop() {
-            continue;
-        }
-        validate(messages, &plan)?;
-        let out = plan.apply(messages);
-        validate_result(messages, &out)?;
-        return Ok(Compacted {
-            replaced: plan.keep_from.unwrap_or(messages.len()),
-            messages: out,
-            strategy: strategy.name(),
-            keep_from: plan.keep_from,
-            usage: plan.usage,
-        });
+    // 替换式目前只有摘要一档：不适用或产出空计划都算「没得压」。
+    if !LlmSummarize.applies(&prep) {
+        return Err("没有可用的压缩策略".into());
     }
-    Err("没有可用的压缩策略".into())
+    let plan = LlmSummarize.run(&prep, env).await?;
+    if plan.is_noop() {
+        return Err("没有可用的压缩策略".into());
+    }
+    validate(messages, &plan)?;
+    let out = plan.apply(messages);
+    validate_result(messages, &out)?;
+    Ok(Compacted {
+        replaced: plan.keep_from.unwrap_or(messages.len()),
+        messages: out,
+        strategy: LlmSummarize::NAME,
+        keep_from: plan.keep_from,
+        usage: plan.usage,
+    })
 }
 
 /// 压缩决策：上下文是否达到触发线（供 runtime 在 turn 边界检查）。

@@ -179,9 +179,10 @@ src/                 React + TypeScript 前端
   相加 —— 相加会把命中量算两遍，命中率恒为 50%。摘要压缩这类一次性调用的用量走
   `SessionStatsTracker::record_ledger`（只进累计值，不改写「当前上下文占用」）。
 - 上下文压缩（`pipi-context/src/compaction/`）分两类，加档位前先判断属于哪类：**投影式**
-  （`Projection`：纯函数、确定性、可从原始历史重算 → **不落盘**，只在
+  （`project` 路径：纯函数、确定性、可从原始历史重算 → **不落盘**，只在
   `transform_context` 里应用；写进历史会造成 live 与重开不一致）与**替换式**
-  （`Replacement`：信息已丢失 → 必须落盘成 compaction 条目并在回放时重建）。
+  （`compact` 路径：信息已丢失 → 必须落盘成 compaction 条目并在回放时重建）。
+  档位是具象类型、顺序写死在各自的入口里（不引入 trait 对象）；
   策略只能返回 `Plan`，不得直接改 `messages`；切点不得孤立 toolResult、就地改写
   不得改角色、压缩后破损度不得增加 —— 这些不变量统一由 `validate` /
   `validate_result` 把关（fail-closed），预算参数集中在 `Budget::from_window`。
