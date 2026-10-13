@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_protocol::{BackgroundTaskInfo, BackgroundTaskSnapshot, ToolResultContent};
 
-use pipi_tools::permissions::BashPolicy;
+use pipi_tools::permissions::check_bash_command;
 
 const MAX_COMMAND_BYTES: usize = 16 * 1024;
 const MAX_WAIT_MS: u64 = 60_000;
@@ -172,19 +172,7 @@ impl AgentTool for SubmitBackgroundTaskTool {
             .trim();
         validate_managed_command(command)?;
 
-        match ctx.permissions.assess_bash_classified(command, &ctx.workspace) {
-            pipi_protocol::permissions::BashAssessment::Allowed => {}
-            pipi_protocol::permissions::BashAssessment::HardDenied(message) => return Err(message),
-            pipi_protocol::permissions::BashAssessment::NeedsApproval { .. } => match &ctx.approver {
-                Some(approver) => approver.approve(command).await?,
-                None => {
-                    return Err(
-                        "后台命令不在白名单中，且当前会话没有可用的交互审批通道（请把命令加入 bash 白名单）"
-                            .into(),
-                    )
-                }
-            },
-        }
+        check_bash_command(ctx, command).await?;
 
         let cwd = resolve_workspace_cwd(ctx, args.get("cwd").and_then(Value::as_str))?;
         let info = self

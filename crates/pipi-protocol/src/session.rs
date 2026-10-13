@@ -202,6 +202,15 @@ pub trait SessionRepo: Send + Sync {
     fn create(&self) -> Result<Box<dyn SessionLog>, String>;
     /// 打开已有会话继续追加。
     fn open(&self, session_id: &str) -> Result<Box<dyn SessionLog>, String>;
+    /// 打开已有会话继续追加，并同时返回已读出的条目（避免重复磁盘/Git树扫描）。
+    fn open_with_entries(
+        &self,
+        session_id: &str,
+    ) -> Result<(Box<dyn SessionLog>, Vec<SessionEntry>), String> {
+        let entries = self.entries(session_id)?;
+        let log = self.open(session_id)?;
+        Ok((log, entries))
+    }
     /// 会话是否存在于活跃区（供「先检查、再进临界区」的调用点）。
     ///
     /// 实现必须对符号链接 fail-closed（返回 `Err`）—— 读、写、分叉都不得

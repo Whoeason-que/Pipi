@@ -10,7 +10,7 @@ pub struct BuildSystemPromptOptions {
     pub append_system_prompt: Option<String>,
     pub cwd: String,
     pub context_files: Vec<ContextFile>,
-    pub skills: Vec<SkillMetadata>,
+    pub skills: Vec<crate::av::SkillMeta>,
     /// memory 渐进召回索引：路径 + 一句话摘要常驻，正文按需 read。
     pub memory_files: Vec<MemoryFileMeta>,
 }
@@ -20,16 +20,6 @@ pub struct BuildSystemPromptOptions {
 pub struct ContextFile {
     pub path: String,
     pub content: String,
-}
-
-/// 常驻 system prompt 的技能元信息；SKILL.md 正文仍按需读取。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SkillMetadata {
-    pub name: String,
-    pub description: Option<String>,
-    /// `true` 时只允许显式调用，不注入模型可见技能索引。
-    pub disable_model_invocation: bool,
-    pub path: String,
 }
 
 /// 常驻 system prompt 的 memory 索引条目；正文按需 read（渐进披露）。
@@ -182,7 +172,7 @@ fn append_context_files(prompt: &mut String, context_files: &[ContextFile]) {
     prompt.push_str("</project_context>\n");
 }
 
-fn append_skills(prompt: &mut String, skills: &[SkillMetadata], read_tool: &str) {
+fn append_skills(prompt: &mut String, skills: &[crate::av::SkillMeta], read_tool: &str) {
     let visible_skills = skills
         .iter()
         .filter(|skill| !skill.disable_model_invocation)
@@ -206,7 +196,7 @@ fn append_skills(prompt: &mut String, skills: &[SkillMetadata], read_tool: &str)
         ));
         prompt.push_str(&format!(
             "    <location>{}</location>\n",
-            pipi_protocol::text::escape_path_for_prompt(&skill.path)
+            pipi_protocol::text::escape_path_for_prompt(&skill.path.to_string_lossy())
         ));
         prompt.push_str("  </skill>\n");
     }
@@ -251,7 +241,8 @@ fn escape_xml(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{BuildSystemPromptOptions, ContextFile, SkillMetadata, build_system_prompt};
+    use super::{BuildSystemPromptOptions, ContextFile, build_system_prompt};
+    use crate::av::SkillMeta;
     use std::collections::HashMap;
 
     fn options() -> BuildSystemPromptOptions {
@@ -261,8 +252,8 @@ mod tests {
         }
     }
 
-    fn skill(name: &str) -> SkillMetadata {
-        SkillMetadata {
+    fn skill(name: &str) -> SkillMeta {
+        SkillMeta {
             name: name.into(),
             description: Some("specialized help".into()),
             disable_model_invocation: false,

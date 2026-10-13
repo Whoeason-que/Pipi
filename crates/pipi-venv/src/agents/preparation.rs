@@ -24,6 +24,8 @@ pub struct PreparedAgent {
     layers: Vec<crate::av::Layer>,
     /// `layers` 中项目层的起点（agent 层缺席时为 0；存在时为 1）。
     project_start: usize,
+    /// 契约层合并结果。
+    merged: crate::av::Merged,
     /// Agent 侧素材（指令正文、记忆目录、技能来源目录）。
     material: AgentMaterial,
     /// 声明启用的 store 技能（`use` + 同层 `agent.lock` 的解析结果）。
@@ -39,6 +41,11 @@ impl PreparedAgent {
     /// 项目层（不含 agent 层）—— 项目侧声明（instructions / skills.sources）用。
     pub fn project_layers(&self) -> &[crate::av::Layer] {
         &self.layers[self.project_start..]
+    }
+
+    /// 契约层合并结果（准备阶段已预先合并并校验）。
+    pub fn merged(&self) -> &crate::av::Merged {
+        &self.merged
     }
 
     /// Agent 侧素材（指令正文、记忆目录、技能来源目录）。
@@ -79,10 +86,12 @@ pub fn prepare_agent(def: &AgentDefinition) -> Result<PreparedAgent, String> {
     layers.extend(project_layers);
 
     let store_skills = load_declared_store_skills(&layers)?;
+    let merged = crate::av::merge_layers(&layers)?;
 
     Ok(PreparedAgent {
         layers,
         project_start,
+        merged,
         material,
         store_skills,
     })

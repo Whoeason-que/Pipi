@@ -456,6 +456,11 @@ pub(crate) fn endpoint_key(url: &str) -> String {
     strip_slash(url).to_ascii_lowercase()
 }
 
+/// 规范化端点地址：去除尾斜杠并转为小写。
+pub fn normalize_endpoint(url: &str) -> String {
+    endpoint_key(url)
+}
+
 /// 目录里同一端点的全部条目（同一端点可能有多条：协议不同，如 deepseek 与
 /// deepseek-anthropic）。`declared` 命中协议的那条优先 —— 模型级覆盖是相对
 /// 它自己的 provider 说的。

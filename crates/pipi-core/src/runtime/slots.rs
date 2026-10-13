@@ -15,8 +15,7 @@ impl RuntimeState {
         repo: Arc<dyn SessionRepo>,
         session_id: &str,
     ) -> Result<HostSession, String> {
-        let entries = repo.entries(session_id)?;
-        let log = repo.open(session_id)?;
+        let (log, entries) = repo.open_with_entries(session_id)?;
         let engine = AgentSession::restore(
             SessionStorage {
                 log,

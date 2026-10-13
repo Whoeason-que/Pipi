@@ -39,5 +39,5 @@ mod parse;
 mod redirect;
 mod rm;
 
-pub use config::BashPolicy;
+pub use config::{BashPolicy, check_bash_command};
 pub use parse::{matches_entry, split_segments};

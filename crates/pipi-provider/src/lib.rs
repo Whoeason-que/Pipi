@@ -41,13 +41,15 @@ use rig::message::{
     AssistantContent, CallId, Message as RigMessage, ReasoningContent, ToolName,
     ToolResultContent as RigToolResultContent,
 };
+use rig::operation::Completion;
 use rig::providers::anthropic::AnthropicConfig;
 use rig::providers::openai::OpenAIConfig;
-use rig::streaming::{Item as RigItem, StreamEvent as RigStreamEvent};
+use rig::streaming::{Item as RigItem, StreamEvent as RigStreamEvent, Streamed};
 use serde_json::{Value, json};
 use tokio::sync::mpsc::{self, Sender};
 
 pub mod catalog;
+pub use catalog::normalize_endpoint;
 mod classify;
 
 use classify::{RetryVerdict, classify_rig_error};
@@ -568,155 +570,155 @@ impl Accumulator {
     }
 }
 
-/// 流式生命周期：构造请求 → 迭代映射 → finish 取用量/结束原因 → Done。
-/// 两个协议的 wire 类型不同（Messages / Chat），用宏在分派点统一流程。
-macro_rules! run_with_model {
-    ($tx:expr, $abort:expr, $model:expr, $context:expr, $options:expr, $api:expr, $rig_model:expr) => {{
-        let tx = $tx;
-        let model: &Model = &$model;
-        let context: &Context = &$context;
-        let options: &StreamOptions = &$options;
-        // 本次实际使用的协议（可能是运行期学到的，未必等于声明里的）
-        let api: Api = $api;
-        let started = Instant::now();
+/// 构造统一的 rig CompletionRequest。
+fn build_completion_request(
+    context: &Context,
+    options: &StreamOptions,
+    api: Api,
+) -> Result<CompletionRequest, StreamError> {
+    // rig 语义：请求的 prompt 是最后一条消息，messages 是它之前的历史
+    let mut msgs = to_rig_messages(context, api);
+    let Some(prompt) = msgs.pop() else {
+        return Err(StreamError::terminal("空消息历史"));
+    };
+    let mut request = CompletionRequest::new(prompt)
+        .messages(msgs)
+        .temperature(options.temperature.map(f64::from));
+    if let Some(max_tokens) = options.max_tokens {
+        request = request.max_tokens(max_tokens as u64);
+    }
+    if let Some(system) = &context.system_prompt {
+        request = request.preamble(system.clone());
+    }
+    if !context.tools.is_empty() {
+        request = request.tools(to_rig_tools(context));
+    }
+    Ok(request)
+}
 
-        // rig 语义：请求的 prompt 是最后一条消息，messages 是它之前的历史
-        let mut msgs = to_rig_messages(context, api);
-        let Some(prompt) = msgs.pop() else {
-            return Err(StreamError::terminal("空消息历史"));
+/// 消费 rig 流式响应并映射为 StreamEvent。
+async fn consume_rig_stream(
+    mut stream: Streamed<Completion>,
+    tx: &Sender<StreamEvent>,
+    abort: &AbortSignal,
+    model: &Model,
+    options: &StreamOptions,
+    api: Api,
+    started: Instant,
+) -> Result<(), StreamError> {
+    // 请求级时限（无进展超时）：首个事件、以及相邻事件之间超过时限没有
+    // 任何数据即中止 —— 挂死的连接变成可见错误，而不是让会话无限期停在
+    // 「运行中」。持续有增量的长响应不受影响。
+    let idle_secs = if options.timeout_secs == 0 {
+        DEFAULT_REQUEST_TIMEOUT_SECS
+    } else {
+        options.timeout_secs
+    };
+    let idle = std::time::Duration::from_secs(idle_secs);
+
+    let mut acc = Accumulator::default();
+    let mut timed_out = false;
+
+    loop {
+        let item = tokio::select! {
+            _ = abort.wait_aborted() => None,
+            item = stream.next() => item,
+            // 每个事件到达都会重开计时：这是「无进展」超时，不是总时长超时
+            _ = tokio::time::sleep(idle) => { timed_out = true; None }
         };
-        let mut request = CompletionRequest::new(prompt)
-            .messages(msgs)
-            .temperature(options.temperature.map(f64::from));
-        if let Some(max_tokens) = options.max_tokens {
-            request = request.max_tokens(max_tokens as u64);
-        }
-        if let Some(system) = &context.system_prompt {
-            request = request.preamble(system.clone());
-        }
-        if !context.tools.is_empty() {
-            request = request.tools(to_rig_tools(context));
-        }
-
-        // rig 0.43：编码/校验失败在这里返回；传输失败是流里的最后一个事件项。
-        let mut stream = $rig_model
-            .stream(request)
-            .map_err(|e| classify_with("请求失败", &e))?;
-
-        // 请求级时限（无进展超时）：首个事件、以及相邻事件之间超过时限没有
-        // 任何数据即中止 —— 挂死的连接变成可见错误，而不是让会话无限期停在
-        // 「运行中」。持续有增量的长响应不受影响。
-        let idle_secs = if options.timeout_secs == 0 {
-            DEFAULT_REQUEST_TIMEOUT_SECS
-        } else {
-            options.timeout_secs
-        };
-        let idle = std::time::Duration::from_secs(idle_secs);
-
-        let mut acc = Accumulator::default();
-        let mut timed_out = false;
-
-        loop {
-            let item = tokio::select! {
-                _ = $abort.wait_aborted() => None,
-                item = stream.next() => item,
-                // 每个事件到达都会重开计时：这是「无进展」超时，不是总时长超时
-                _ = tokio::time::sleep(idle) => { timed_out = true; None }
-            };
-            let Some(item) = item else { break };
-            let event = item.map_err(|e| classify_with("流错误", &e))?;
-            match event {
-                RigItem::Event(RigStreamEvent::Text { part, text }) => {
-                    acc.text_delta(part.index(), &text);
-                    let _ = tx
-                        .send(StreamEvent::TextDelta {
-                            delta: text,
-                        })
-                        .await;
-                }
-                RigItem::Event(RigStreamEvent::Reasoning { part, text }) => {
-                    acc.thinking_delta(part.index(), &text);
-                    let _ = tx
-                        .send(StreamEvent::ThinkingDelta {
-                            delta: text,
-                        })
-                        .await;
-                }
-                RigItem::Event(RigStreamEvent::Arguments { part, json }) => {
-                    if !json.is_empty() {
-                        acc.tool_call_delta(part.index(), &json);
-                        let _ = tx
-                            .send(StreamEvent::ToolCallDelta {
-                                delta: json,
-                            })
-                            .await;
-                    }
-                }
-                RigItem::Event(RigStreamEvent::End {
-                    part,
-                    content: AssistantContent::ToolCall(call),
-                }) => {
-                    let id = call.id.to_string();
-                    let name = call.function.name.as_str().to_string();
-                    let arguments = call.function.arguments.clone();
-                    acc.tool_call_end(part.index(), &id, &name, arguments.clone());
-                    let _ = tx
-                        .send(StreamEvent::ToolCallEnd {
-                            call: ContentBlock::ToolCall { id, name, arguments },
-                        })
-                        .await;
-                }
-                // 文本 / 思考 / 图片的 End 是聚合块：delta 已覆盖，忽略
-                RigItem::Event(
-                    RigStreamEvent::Start { .. }
-                    | RigStreamEvent::End { .. },
-                ) => {}
-                // 未建模的供应商载荷：跳过（与 0.42 的 Unknown 处理一致）
-                RigItem::Unknown(_) => {}
+        let Some(item) = item else { break };
+        let event = item.map_err(|e| classify_with("流错误", &e))?;
+        match event {
+            RigItem::Event(RigStreamEvent::Text { part, text }) => {
+                acc.text_delta(part.index(), &text);
+                let _ = tx
+                    .send(StreamEvent::TextDelta {
+                        delta: text,
+                    })
+                    .await;
             }
+            RigItem::Event(RigStreamEvent::Reasoning { part, text }) => {
+                acc.thinking_delta(part.index(), &text);
+                let _ = tx
+                    .send(StreamEvent::ThinkingDelta {
+                        delta: text,
+                    })
+                    .await;
+            }
+            RigItem::Event(RigStreamEvent::Arguments { part, json }) => {
+                if !json.is_empty() {
+                    acc.tool_call_delta(part.index(), &json);
+                    let _ = tx
+                        .send(StreamEvent::ToolCallDelta {
+                            delta: json,
+                        })
+                        .await;
+                }
+            }
+            RigItem::Event(RigStreamEvent::End {
+                part,
+                content: AssistantContent::ToolCall(call),
+            }) => {
+                let id = call.id.to_string();
+                let name = call.function.name.as_str().to_string();
+                let arguments = call.function.arguments.clone();
+                acc.tool_call_end(part.index(), &id, &name, arguments.clone());
+                let _ = tx
+                    .send(StreamEvent::ToolCallEnd {
+                        call: ContentBlock::ToolCall { id, name, arguments },
+                    })
+                    .await;
+            }
+            // 文本 / 思考 / 图片的 End 是聚合块：delta 已覆盖，忽略
+            RigItem::Event(
+                RigStreamEvent::Start { .. }
+                | RigStreamEvent::End { .. },
+            ) => {}
+            // 未建模的供应商载荷：跳过（与 0.42 的 Unknown 处理一致）
+            RigItem::Unknown(_) => {}
         }
+    }
 
-        if timed_out {
-            // 无进展超时：可重试，但每次尝试都要花掉整个 timeout 预算，
-            // 所以带上 RetryHint::timeout()（重试层据此最多再试一次）。
-            return Err(StreamError::retryable_with(
-                format!("请求超时：{idle_secs} 秒内没有新的响应数据，已中止本轮请求"),
-                Some(RetryHint::timeout()),
-            ));
-        }
+    if timed_out {
+        // 无进展超时：可重试，但每次尝试都要花掉整个 timeout 预算，
+        // 所以带上 RetryHint::timeout()（重试层据此最多再试一次）。
+        return Err(StreamError::retryable_with(
+            format!("请求超时：{idle_secs} 秒内没有新的响应数据，已中止本轮请求"),
+            Some(RetryHint::timeout()),
+        ));
+    }
 
-        if $abort.is_aborted() {
-            // 用户中止：静默收尾，agent_loop 按 aborted 处理（不可重试）
-            return Ok(());
-        }
+    if abort.is_aborted() {
+        // 用户中止：静默收尾，agent_loop 按 aborted 处理（不可重试）
+        return Ok(());
+    }
 
-        // 流被截断（干净 EOF、代理掐断等）由 rig 报成 Truncated 的最后一项，
-        // 上面已按可重试分类；能走到这里说明收到过结束帧。
-        let response = stream
-            .finish()
-            .await
-            .map_err(|e| classify_with("流错误", &e))?;
+    // 流被截断（干净 EOF、代理掐断等）由 rig 报成 Truncated 的最后一项，
+    // 上面已按可重试分类；能走到这里说明收到过结束帧。
+    let response = stream
+        .finish()
+        .await
+        .map_err(|e| classify_with("流错误", &e))?;
 
-        let duration_ms = started.elapsed().as_millis() as u64;
-        let has_tools = acc
-            .blocks
-            .iter()
-            .any(|b| matches!(b, ContentBlock::ToolCall { .. }));
-        let reason = map_finish_reason(response.finish_reason().as_ref(), has_tools);
-        let usage_mapped = from_rig_usage(&response.usage);
-        let message = acc.finalize(&model.id, usage_mapped, reason, duration_ms);
-        // 完整响应到手 = 这套协议对这个 (端点, 模型) 可用：记进进程内记忆，
-        // 后续请求（下一次 run、压缩摘要）不再从头探协议。
-        remember_protocol(&model.base_url, &model.id, api);
-        let _ = tx
-            .send(StreamEvent::Done {
-                reason,
-                usage: usage_mapped,
-                message: Box::new(message),
-            })
-            .await;
-        Ok(())
-    }};
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let has_tools = acc
+        .blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::ToolCall { .. }));
+    let reason = map_finish_reason(response.finish_reason().as_ref(), has_tools);
+    let usage_mapped = from_rig_usage(&response.usage);
+    let message = acc.finalize(&model.id, usage_mapped, reason, duration_ms);
+    // 完整响应到手 = 这套协议对这个 (端点, 模型) 可用：记进进程内记忆，
+    // 后续请求（下一次 run、压缩摘要）不再从头探协议。
+    remember_protocol(&model.base_url, &model.id, api);
+    let _ = tx
+        .send(StreamEvent::Done {
+            reason,
+            usage: usage_mapped,
+            message: Box::new(message),
+        })
+        .await;
+    Ok(())
 }
 
 #[async_trait]
@@ -752,21 +754,19 @@ impl Provider for RigProvider {
                     &model.base_url,
                     options.session_id.as_deref(),
                 ));
-                match api {
+                let started = Instant::now();
+                let request = build_completion_request(&context, &options, api)?;
+                let stream = match api {
                     Api::AnthropicMessages => {
                         let mut config = AnthropicConfig::new(key);
                         if !model.base_url.is_empty() {
                             config = config.with_base_url(&model.base_url);
                         }
-                        run_with_model!(
-                            tx,
-                            abort,
-                            model,
-                            context,
-                            options,
-                            api,
-                            config.connect(transport).completion(&model.id)
-                        )
+                        config
+                            .connect(transport)
+                            .completion(&model.id)
+                            .stream(request)
+                            .map_err(|e| classify_with("请求失败", &e))?
                     }
                     Api::OpenAICompletions => {
                         let mut config = OpenAIConfig::new(key);
@@ -778,17 +778,14 @@ impl Provider for RigProvider {
                         // Chat Completions 的兼容层 —— 只有官方 OpenAI 才认
                         // /responses。协议名与实现必须一致，否则绝大多数兼容
                         // 端点直接 404。
-                        run_with_model!(
-                            tx,
-                            abort,
-                            model,
-                            context,
-                            options,
-                            api,
-                            config.connect(transport).chat(&model.id)
-                        )
+                        config
+                            .connect(transport)
+                            .chat(&model.id)
+                            .stream(request)
+                            .map_err(|e| classify_with("请求失败", &e))?
                     }
-                }
+                };
+                consume_rig_stream(stream, tx, &abort, &model, &options, api, started).await
             }
             if let Err(e) = stream_impl(model, context, options, abort, &tx).await {
                 send_error(&tx, e);

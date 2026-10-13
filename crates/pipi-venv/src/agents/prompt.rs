@@ -39,16 +39,6 @@ fn merge_store_skills(
     skills
 }
 
-/// pipi-core 技能元信息 → harness 渲染所需的元信息。
-fn harness_skill_metadata(skill: crate::av::skills::SkillMeta) -> crate::prompt::SkillMetadata {
-    crate::prompt::SkillMetadata {
-        name: skill.name,
-        description: skill.description,
-        disable_model_invocation: skill.disable_model_invocation,
-        path: skill.path.display().to_string(),
-    }
-}
-
 /// 组装带 wire tool 描述的系统提示。
 ///
 /// 契约层、Agent 侧素材与声明的 store 技能由调用方先经
@@ -83,7 +73,7 @@ pub fn build_system_prompt_with_tools(
     let workspace = def.resolve_workspace();
     // 契约层、Agent 侧素材与声明的 store 技能都来自 prepare_agent 的同一份
     // 准备结果（错/缺在准备阶段已 fail-closed，这里只按策略取用）。
-    let merged = crate::av::merge_layers(prepared.layers())?;
+    let merged = prepared.merged();
 
     // Agent 侧素材只有策略含 agent 侧时才消费；准备阶段不区分策略。
     let material = if scope.uses_agent_side() {
@@ -204,8 +194,7 @@ pub fn build_system_prompt_with_tools(
             skills_filter.as_ref().and_then(|(only, _)| *only),
             skills_filter.as_ref().and_then(|(_, exclude)| *exclude),
         )?;
-        let skills: Vec<crate::prompt::SkillMetadata> =
-            filtered.into_iter().map(harness_skill_metadata).collect();
+        let skills = filtered;
 
         (
             workspace.display().to_string(),
@@ -223,7 +212,7 @@ pub fn build_system_prompt_with_tools(
             skills = prepared
                 .store_skills()
                 .iter()
-                .map(|skill| harness_skill_metadata(skill.meta.clone()))
+                .map(|skill| skill.meta.clone())
                 .collect();
         }
         (String::new(), None, skills)

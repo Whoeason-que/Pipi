@@ -38,7 +38,7 @@ pub fn build_tool_context(
         runtime_vars.insert("AV_SESSION".to_string(), session_id.clone());
     }
     let layers = prepared.layers();
-    let merged = crate::av::merge_layers(layers)?;
+    let merged = prepared.merged();
     let resolved =
         crate::av::resolve_env(layers, &crate::av::collect_process_env(), &runtime_vars)?;
     crate::av::check_requires(&merged.requires, &resolved.vars)?;

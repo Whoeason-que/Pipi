@@ -116,16 +116,24 @@ impl SessionRepo for GitSessionRepo {
     }
 
     fn open(&self, session_id: &str) -> Result<Box<dyn SessionLog>, String> {
+        self.open_with_entries(session_id).map(|(log, _)| log)
+    }
+
+    fn open_with_entries(
+        &self,
+        session_id: &str,
+    ) -> Result<(Box<dyn SessionLog>, Vec<SessionEntry>), String> {
         validate_session_id(session_id)?;
         let ref_name = refs::session_ref(session_id);
         let entries = self.read_session(&ref_name)?;
         let turn = reader::count_turns(&self.exec, &ref_name)?;
-        Ok(Box::new(GitSink::from_entries(
+        let sink = Box::new(GitSink::from_entries(
             self.exec.clone(),
             session_id.to_string(),
             &entries,
             turn,
-        )))
+        ));
+        Ok((sink, entries))
     }
 
     fn exists(&self, session_id: &str) -> Result<bool, String> {

@@ -15,7 +15,7 @@ use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncat
 use pipi_protocol::ToolResultContent;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 
-use crate::permissions::BashPolicy;
+use crate::permissions::check_bash_command;
 
 pub struct BashTool;
 
@@ -118,19 +118,7 @@ impl AgentTool for BashTool {
 
         // Pipi：命令权限检查（切分 → 白/黑名单 → 危险命令 → 沙箱重定向）。
         // 只有 Allowlist 未命中的非危险命令可以走交互审批救回；其余硬拒。
-        match ctx.permissions.assess_bash_classified(command, &ctx.workspace) {
-            pipi_protocol::permissions::BashAssessment::Allowed => {}
-            pipi_protocol::permissions::BashAssessment::HardDenied(message) => return Err(message),
-            pipi_protocol::permissions::BashAssessment::NeedsApproval { .. } => match &ctx.approver {
-                Some(approver) => approver.approve(command).await?,
-                None => {
-                    return Err(
-                        "命令不在白名单中，且当前会话没有可用的交互审批通道（请在 Agent 的命令权限中加入该命令，或调整沙箱设置）"
-                            .into(),
-                    )
-                }
-            },
-        }
+        check_bash_command(ctx, command).await?;
 
         tokio::fs::create_dir_all(&ctx.workspace)
             .await

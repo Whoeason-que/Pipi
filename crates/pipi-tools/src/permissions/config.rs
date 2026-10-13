@@ -127,3 +127,25 @@ impl BashPolicy for PermissionsConfig {
         }
     }
 }
+
+/// 统一检查待执行的 bash 命令权限与审批通道。
+///
+/// 命令权限检查（切分 → 白/黑名单 → 危险命令 → 沙箱重定向）。
+/// 只有 Allowlist 未命中的非危险命令可以走交互审批救回；其余硬拒。
+pub async fn check_bash_command(
+    ctx: &pipi_protocol::tools::ToolContext,
+    command: &str,
+) -> Result<(), String> {
+    match ctx.permissions.assess_bash_classified(command, &ctx.workspace) {
+        BashAssessment::Allowed => Ok(()),
+        BashAssessment::HardDenied(message) => Err(message),
+        BashAssessment::NeedsApproval { .. } => match &ctx.approver {
+            Some(approver) => approver.approve(command).await,
+            None => Err(
+                "命令不在白名单中，且当前会话没有可用的交互审批通道（请在 Agent 的命令权限中加入该命令，或调整沙箱设置）"
+                    .into(),
+            ),
+        },
+    }
+}
+
