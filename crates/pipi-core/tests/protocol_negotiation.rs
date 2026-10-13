@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use pipi_core::events::{EventEmitter, RuntimeEvent};
 use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
+use pipi_protocol::session::SessionRepo;
 use pipi_protocol::{Api, Model};
 use pipi_venv::agents;
 use serde_json::json;
@@ -325,11 +326,13 @@ fn run_prompt(
         wait_until(10_000, || !state.session_running(agent_name, &id)),
         "本轮应当在 10s 内收尾"
     );
+    // 经载体端口读：新会话在 git 分支上（不假设文件长什么样）
     let sessions_dir = agents::load_agent(agent_name)
         .expect("加载 Agent")
         .sessions_dir()
         .expect("会话目录");
-    std::fs::read_to_string(sessions_dir.join(format!("{id}.jsonl"))).expect("读取会话文件")
+    let repo = pipi_session::AgentSessionRepo::new(sessions_dir.parent().expect("Agent 目录"));
+    serde_json::to_string(&repo.entries(&id).expect("读取会话条目")).expect("序列化会话条目")
 }
 
 // ---------------------------------------------------------------------------

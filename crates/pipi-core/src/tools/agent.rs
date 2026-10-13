@@ -20,7 +20,6 @@ use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_protocol::{
     AbortSignal, BackgroundTaskInfo, ContentBlock, Message, Model, StopReason, ToolResultContent,
 };
-use pipi_session::JsonlSessionRepo;
 use pipi_venv::agents;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -500,12 +499,8 @@ pub fn read_agent_output(
     session_id: Option<&str>,
 ) -> Result<AgentRunResult, String> {
     let definition = agents::load_agent(agent_name)?;
-    let sessions_dir = definition
-        .sessions_dir()
-        .ok_or_else(|| "无法解析会话目录".to_string())?;
-    // 会话载体装配点（pipi-core 侧）：今天是 JSONL 文件目录。接入第二载体时
-    // 与 `crate::runtime::store` 一起改（设计见 docs/git-session-store.md）。
-    let repo = JsonlSessionRepo::new(sessions_dir);
+    // 载体装配点与运行时同源（git 分支 + 旧 JSONL 兼容），不要在这里另起一份
+    let repo = crate::runtime::agent_repo(&definition)?;
 
     let session_id = match session_id {
         Some(id) => {

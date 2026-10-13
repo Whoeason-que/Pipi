@@ -90,6 +90,7 @@ pub use child::{CHILD_RUN_TIMEOUT_SECS, run_agent_once};
 use events::{make_rekey, make_session_change_sink, make_session_hooks};
 use model::{ResolvedModel, append_declared_env, resolve_model, run_stream_options};
 pub use slots::list_sessions;
+pub(crate) use store::agent_repo;
 use store::session_repo;
 pub fn validate_session_id(session_id: &str) -> Result<(), String> {
     pipi_protocol::session::validate_session_id(session_id)

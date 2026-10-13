@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 use pipi_core::events::{EventEmitter, RuntimeEvent};
 use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
+use pipi_protocol::session::SessionRepo;
 use pipi_protocol::{Api, Message, Model};
 use pipi_session::SessionWriter;
 use pipi_venv::agents;
@@ -289,12 +290,23 @@ fn wait_until(deadline_ms: u64, mut condition: impl FnMut() -> bool) -> bool {
     condition()
 }
 
-fn read_session_file(agent_name: &str, session_id: &str) -> String {
+/// 一个 Agent 的会话仓库（与运行时同源：git 分支 + 旧 JSONL 兼容）。
+fn agent_repo(agent_name: &str) -> pipi_session::AgentSessionRepo {
     let sessions_dir = agents::load_agent(agent_name)
         .expect("加载 Agent")
         .sessions_dir()
         .expect("会话目录");
-    std::fs::read_to_string(sessions_dir.join(format!("{session_id}.jsonl"))).expect("读取会话文件")
+    pipi_session::AgentSessionRepo::new(sessions_dir.parent().expect("Agent 目录"))
+}
+
+/// 会话内容的文本视图：经载体端口读，不假设文件长什么样（新会话在 git 分支）。
+fn read_session_text(agent_name: &str, session_id: &str) -> String {
+    serde_json::to_string(
+        &agent_repo(agent_name)
+            .entries(session_id)
+            .expect("读取会话条目"),
+    )
+    .expect("序列化会话条目")
 }
 
 fn runtime() -> tokio::runtime::Runtime {
@@ -411,7 +423,7 @@ fn multiple_agents_run_at_the_same_time_and_stop_independently() {
 
     // 各写各的文件：每个 Agent 的会话文件只含自己的输入
     for (index, name) in agents.iter().enumerate() {
-        let text = read_session_file(name, &session_ids[index]);
+        let text = read_session_text(name, &session_ids[index]);
         assert!(
             text.contains(prompts[index]),
             "{name} 的文件应当有自己的输入"
@@ -525,8 +537,8 @@ fn same_agent_runs_two_sessions_in_parallel() {
     );
 
     // 各写各的文件
-    let first_text = read_session_file("agent-solo", &first);
-    let second_text = read_session_file("agent-solo", &second);
+    let first_text = read_session_text("agent-solo", &first);
+    let second_text = read_session_text("agent-solo", &second);
     assert!(first_text.contains("第一条：跑起来"), "{first_text}");
     assert!(!first_text.contains("第二条：跑起来"), "{first_text}");
     assert!(second_text.contains("第二条：也跑起来"), "{second_text}");
@@ -678,10 +690,6 @@ fn archive_and_delete_idle_open_sessions_without_leaving_view() {
     let state = RuntimeState::new(runtime.handle().clone());
     let archive_id = seed_session("agent-lifecycle", "要归档的当前会话");
     let delete_id = seed_session("agent-lifecycle", "要删除的当前会话");
-    let sessions_dir = agents::load_agent("agent-lifecycle")
-        .expect("加载 Agent")
-        .sessions_dir()
-        .expect("会话目录");
 
     state
         .open_session("agent-lifecycle", &archive_id)
@@ -696,13 +704,17 @@ fn archive_and_delete_idle_open_sessions_without_leaving_view() {
             .is_none(),
         "归档后不应继续占用打开会话槽"
     );
-    assert!(!sessions_dir.join(format!("{archive_id}.jsonl")).exists());
+    let repo = agent_repo("agent-lifecycle");
     assert!(
-        sessions_dir
-            .join(".archive")
-            .join(format!("{archive_id}.jsonl"))
-            .is_file(),
-        "归档文件应进入 .archive"
+        !repo.exists(&archive_id).expect("查询归档后的会话"),
+        "归档后应离开活跃区"
+    );
+    assert!(
+        repo.list_archived()
+            .expect("读归档列表")
+            .iter()
+            .any(|summary| summary.id == archive_id),
+        "归档后应进入归档区"
     );
 
     state
@@ -718,7 +730,10 @@ fn archive_and_delete_idle_open_sessions_without_leaving_view() {
             .is_none(),
         "删除后不应继续占用打开会话槽"
     );
-    assert!(!sessions_dir.join(format!("{delete_id}.jsonl")).exists());
+    assert!(
+        !repo.exists(&delete_id).expect("查询删除后的会话"),
+        "删除后不应存在"
+    );
 
     // Agent 级按钮也应能直接作用于当前打开但空闲的会话，不需要先退出 ChatView。
     fixture_agent("agent-archive-open", &base);

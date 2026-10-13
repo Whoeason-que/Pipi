@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use pipi_core::events::EventEmitter;
 use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
+use pipi_protocol::session::SessionRepo;
 use pipi_protocol::{Api, Model};
 use pipi_venv::agents;
 
@@ -67,7 +68,9 @@ fn fixture(agent: &str, api: Api, base_url: &str) {
     .expect("写入测试设置");
 }
 
-/// 跑一轮并等它失败，返回该会话 jsonl 的全文（里面记录了实际请求的 URL）。
+/// 跑一轮并等它失败，返回该会话条目的文本视图（里面记录了实际请求的 URL）。
+///
+/// 经载体端口读：新会话在 git 分支上，不假设文件长什么样。
 fn send_and_collect(agent: &str, home: &Path) -> String {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
@@ -81,32 +84,22 @@ fn send_and_collect(agent: &str, home: &Path) -> String {
         .send_prompt(agent, None, "hello", None, sink)
         .expect("send_prompt 应能启动这一轮");
 
-    let sessions = home
-        .join(".pipi")
-        .join("agents")
-        .join(agent)
-        .join("sessions");
+    let agent_dir = home.join(".pipi").join("agents").join(agent);
+    let repo = pipi_session::AgentSessionRepo::new(&agent_dir);
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut text = String::new();
     while Instant::now() < deadline {
-        text = std::fs::read_dir(&sessions)
+        text = repo
+            .list()
             .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .map(|e| e == "jsonl")
-                    .unwrap_or(false)
-            })
-            .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+            .filter_map(|summary| repo.entries(&summary.id).ok())
+            .filter_map(|entries| serde_json::to_string(&entries).ok())
             .collect::<Vec<_>>()
             .join("\n");
         if text.contains("\"stopReason\":\"error\"") {
             return text;
         }
-        std::thread::sleep(Duration::from_millis(25));
+        std::thread::sleep(Duration::from_millis(100));
     }
     panic!("这一轮没有在 20s 内落到错误状态；已记录内容：{text}");
 }
