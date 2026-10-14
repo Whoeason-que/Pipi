@@ -141,9 +141,7 @@ impl RuntimeState {
             let session = Self::load_session_object(&def, repo, session_id)?;
             sessions.insert(key.clone(), session);
         }
-        let session = sessions
-            .get(&key)
-            .ok_or_else(|| "会话不存在".to_string())?;
+        let session = sessions.get(&key).ok_or_else(|| "会话不存在".to_string())?;
         let info = self.session_info_of(session)?;
         let messages = session.engine.message_history()?;
         let stats = session.engine.stats()?;

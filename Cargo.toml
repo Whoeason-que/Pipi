@@ -16,7 +16,7 @@ members = [
 
 # 版本与 edition 只在这里写一次，成员用 `version.workspace = true` 继承。
 [workspace.package]
-version = "26.9.3"
+version = "26.10.1"
 edition = "2024"
 # 当前依赖树要求的最低 rustc（edition 2024 本身只要 1.85；这里被 rig 0.43
 # 整套抬到 1.95）。依赖升级抬高它时，这里同步更新。

@@ -199,7 +199,6 @@ pub fn delete_agent(
     pipi_core::commands::delete_agent(&state, args.0)
 }
 
-
 /// 把旧 JSONL 会话导入 git（逐条校验、幂等、原文件改名保留）。
 #[tauri::command]
 pub async fn import_sessions(
@@ -232,4 +231,3 @@ pub fn delete_session(
 ) -> Result<(), String> {
     pipi_core::commands::delete_session(&state, args.0)
 }
-

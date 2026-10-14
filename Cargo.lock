@@ -5784,7 +5784,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pipi"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "pipi-agent",
  "pipi-core",
@@ -5800,7 +5800,7 @@ dependencies = [
 
 [[package]]
 name = "pipi-agent"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -5814,7 +5814,7 @@ dependencies = [
 
 [[package]]
 name = "pipi-context"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "async-trait",
  "fastrand",
@@ -5826,7 +5826,7 @@ dependencies = [
 
 [[package]]
 name = "pipi-core"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -5847,7 +5847,7 @@ dependencies = [
 
 [[package]]
 name = "pipi-protocol"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "async-trait",
  "pipi-test-support",
@@ -5861,7 +5861,7 @@ dependencies = [
 
 [[package]]
 name = "pipi-provider"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -5876,7 +5876,7 @@ dependencies = [
 
 [[package]]
 name = "pipi-session"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "pipi-protocol",
  "pipi-test-support",
@@ -5885,14 +5885,14 @@ dependencies = [
 
 [[package]]
 name = "pipi-test-support"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "uuid",
 ]
 
 [[package]]
 name = "pipi-tools"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -5912,7 +5912,7 @@ dependencies = [
 
 [[package]]
 name = "pipi-venv"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "dirs 7.0.0",
  "glob",
@@ -9784,7 +9784,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "26.9.3"
+version = "26.10.1"
 dependencies = [
  "serde",
  "toml 1.1.6+spec-1.1.0",

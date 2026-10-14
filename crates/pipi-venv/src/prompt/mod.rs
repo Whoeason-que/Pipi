@@ -9,11 +9,11 @@ pub mod environment;
 pub mod resources;
 pub mod system_prompt;
 
+pub use crate::av::SkillMeta;
 pub use environment::environment_context;
 pub use system_prompt::{
     BuildSystemPromptOptions, ContextFile, MemoryFileMeta, build_system_prompt,
 };
-pub use crate::av::SkillMeta;
 
 /// 单个项目文档的默认字节预算（对齐 codex 的 project_doc_max_bytes）。
 pub const DEFAULT_PROJECT_DOC_MAX_BYTES: usize = 16 * 1024;

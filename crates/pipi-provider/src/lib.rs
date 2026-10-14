@@ -631,28 +631,16 @@ async fn consume_rig_stream(
         match event {
             RigItem::Event(RigStreamEvent::Text { part, text }) => {
                 acc.text_delta(part.index(), &text);
-                let _ = tx
-                    .send(StreamEvent::TextDelta {
-                        delta: text,
-                    })
-                    .await;
+                let _ = tx.send(StreamEvent::TextDelta { delta: text }).await;
             }
             RigItem::Event(RigStreamEvent::Reasoning { part, text }) => {
                 acc.thinking_delta(part.index(), &text);
-                let _ = tx
-                    .send(StreamEvent::ThinkingDelta {
-                        delta: text,
-                    })
-                    .await;
+                let _ = tx.send(StreamEvent::ThinkingDelta { delta: text }).await;
             }
             RigItem::Event(RigStreamEvent::Arguments { part, json }) => {
                 if !json.is_empty() {
                     acc.tool_call_delta(part.index(), &json);
-                    let _ = tx
-                        .send(StreamEvent::ToolCallDelta {
-                            delta: json,
-                        })
-                        .await;
+                    let _ = tx.send(StreamEvent::ToolCallDelta { delta: json }).await;
                 }
             }
             RigItem::Event(RigStreamEvent::End {
@@ -665,15 +653,16 @@ async fn consume_rig_stream(
                 acc.tool_call_end(part.index(), &id, &name, arguments.clone());
                 let _ = tx
                     .send(StreamEvent::ToolCallEnd {
-                        call: ContentBlock::ToolCall { id, name, arguments },
+                        call: ContentBlock::ToolCall {
+                            id,
+                            name,
+                            arguments,
+                        },
                     })
                     .await;
             }
             // 文本 / 思考 / 图片的 End 是聚合块：delta 已覆盖，忽略
-            RigItem::Event(
-                RigStreamEvent::Start { .. }
-                | RigStreamEvent::End { .. },
-            ) => {}
+            RigItem::Event(RigStreamEvent::Start { .. } | RigStreamEvent::End { .. }) => {}
             // 未建模的供应商载荷：跳过（与 0.42 的 Unknown 处理一致）
             RigItem::Unknown(_) => {}
         }

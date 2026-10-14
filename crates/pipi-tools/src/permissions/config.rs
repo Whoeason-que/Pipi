@@ -148,4 +148,3 @@ pub async fn check_bash_command(
         },
     }
 }
-

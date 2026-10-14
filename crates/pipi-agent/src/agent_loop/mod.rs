@@ -134,9 +134,7 @@ mod tests {
         };
         vec![
             StreamEvent::Start,
-            StreamEvent::ToolCallEnd {
-                call: call.clone(),
-            },
+            StreamEvent::ToolCallEnd { call: call.clone() },
             StreamEvent::Done {
                 reason: StopReason::ToolUse,
                 usage: Usage::default(),
@@ -180,9 +178,7 @@ mod tests {
     /// 已吐出正文增量、随后失败的一轮（验证「已输出正文不重放」）。
     fn prose_then_error_turn(text: &str, message: &str) -> Vec<StreamEvent> {
         vec![
-            StreamEvent::TextDelta {
-                delta: text.into(),
-            },
+            StreamEvent::TextDelta { delta: text.into() },
             StreamEvent::Error {
                 message: message.into(),
                 retry: Some(pipi_protocol::RetryHint::plain()),
@@ -194,9 +190,7 @@ mod tests {
     /// 已吐出正文增量、随后被端点以「协议不支持」拒绝的一轮。
     fn prose_then_protocol_mismatch_turn(text: &str, message: &str) -> Vec<StreamEvent> {
         vec![
-            StreamEvent::TextDelta {
-                delta: text.into(),
-            },
+            StreamEvent::TextDelta { delta: text.into() },
             StreamEvent::Error {
                 message: message.into(),
                 retry: None,
@@ -293,10 +287,7 @@ mod tests {
             .collect()
     }
 
-    fn test_config(
-        provider: Arc<dyn Provider>,
-        tools: Arc<ToolRegistry>,
-    ) -> AgentLoopConfig {
+    fn test_config(provider: Arc<dyn Provider>, tools: Arc<ToolRegistry>) -> AgentLoopConfig {
         AgentLoopConfig {
             model: test_model(),
             provider,
