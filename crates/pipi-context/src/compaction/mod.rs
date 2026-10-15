@@ -22,7 +22,9 @@ mod tool_output;
 pub use llm::LlmSummarize;
 pub use tool_output::{CLEARED_TOOL_RESULT_PREFIX, ToolOutputPrune};
 
-use crate::context::{DEFAULT_RESERVE_TOKENS, estimate_context_tokens, prune_cut_index};
+use crate::context::{
+    DEFAULT_RESERVE_TOKENS, context_tokens, estimate_context_tokens, prune_cut_index,
+};
 use pipi_protocol::compaction::normalize_threshold_percent;
 use pipi_protocol::provider::Provider;
 use pipi_protocol::{AbortSignal, Message, Model, StreamOptions, Usage};
@@ -140,14 +142,21 @@ impl<'a> Preparation<'a> {
         Preparation { messages, budget }
     }
 
-    /// 当前历史的 token 估算（各策略的触发判断共用）。
-    pub fn tokens(&self) -> u64 {
+    /// 当前历史的估算 token（投影式策略用：只依赖原始历史，可重算）。
+    pub fn estimated_tokens(&self) -> u64 {
         estimate_context_tokens(self.messages)
     }
 
-    /// 是否已超触发阈值。
+    /// 当前上下文占用：有有效助手 usage 时以它为锚（见 [`context_tokens`]）。
+    /// 替换式策略（摘要预算）与触发判断用它，口径与 `needs_compaction` 一致。
+    pub fn tokens(&self) -> u64 {
+        context_tokens(self.messages)
+    }
+
+    /// 投影式策略的超线判断。用估算而不是锚定值：清理/裁剪会改变历史，
+    /// 而锚定值来自旧请求，不随投影下降，拿它判断会过度裁剪。
     pub fn over_budget(&self) -> bool {
-        self.tokens() > self.budget.trigger_tokens()
+        self.estimated_tokens() > self.budget.trigger_tokens()
     }
 
     /// 历史首条若是上次注入的摘要，取出正文 —— 重复压缩时交回给模型，
@@ -400,7 +409,7 @@ pub fn needs_compaction(messages: &[Message], budget: Budget) -> bool {
     if budget.context_window == 0 {
         return false;
     }
-    estimate_context_tokens(messages) > budget.trigger_tokens()
+    context_tokens(messages) > budget.trigger_tokens()
 }
 
 /// 从被摘要的消息中提取文件操作（read → 读取清单，write/edit → 修改清单）。
@@ -524,6 +533,34 @@ mod tests {
             &[Message::user_text("x".repeat(100_000))],
             Budget::from_window(10_000, 75)
         ));
+    }
+
+    #[test]
+    fn needs_compaction_trusts_real_usage_over_estimate() {
+        // 估算只有几十 token，但供应商报告的真实占用已超阈值：必须触发
+        let budget = Budget::from_window(10_000, 75);
+        let messages = vec![
+            Message::User {
+                content: "hi".into(),
+                timestamp: 1,
+            },
+            Message::Assistant {
+                content: vec![ContentBlock::Text { text: "ok".into() }],
+                api: String::new(),
+                provider: String::new(),
+                model: String::new(),
+                usage: pipi_protocol::Usage {
+                    total_tokens: 9_000,
+                    ..Default::default()
+                },
+                stop_reason: StopReason::Stop,
+                error_message: None,
+                timestamp: 10,
+                duration_ms: None,
+            },
+        ];
+        assert!(estimate_context_tokens(&messages) < budget.trigger_tokens());
+        assert!(needs_compaction(&messages, budget));
     }
 
     #[test]

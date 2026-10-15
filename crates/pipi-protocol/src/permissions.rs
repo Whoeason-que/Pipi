@@ -70,6 +70,10 @@ pub const DEFAULT_TOOLS: [&str; 7] = ["read", "write", "edit", "bash", "memory",
 /// Agent 组合工具：必须在 `permissions.tools` 中显式启用。
 pub const AGENT_TOOLS: [&str; 3] = ["create_agent", "run_agent", "read_agent"];
 
+/// 历史会话检索工具：必须显式启用。只读，但会把过去会话的原文带进上下文，
+/// 因此不随默认工具开放（它的开销要由 Agent 作者明确承担）。
+pub const SESSION_TOOLS: [&str; 1] = ["session_search"];
+
 /// 后台任务托管工具：必须显式启用。它们允许进程跨越当前模型轮次继续运行，
 /// 因此不随普通 bash 权限默认开放。
 pub const BACKGROUND_TASK_TOOLS: [&str; 3] = [
@@ -79,7 +83,7 @@ pub const BACKGROUND_TASK_TOOLS: [&str; 3] = [
 ];
 
 /// Pipi 已知内置工具名（基础工具 + 显式启用的 Agent 组合 / 后台任务工具）。
-pub const KNOWN_TOOLS: [&str; 13] = [
+pub const KNOWN_TOOLS: [&str; 14] = [
     "read",
     "write",
     "edit",
@@ -93,6 +97,7 @@ pub const KNOWN_TOOLS: [&str; 13] = [
     "submit_background_task",
     "query_background_tasks",
     "manage_background_task",
+    "session_search",
 ];
 
 /// bash 命令评估结论。

@@ -26,8 +26,9 @@ use pipi_venv::agents;
 /// 摘要请求上报的用量（数字刻意与普通请求拉开，便于断言账本）
 const SUMMARY_INPUT: u64 = 50_000;
 const SUMMARY_OUTPUT: u64 = 700;
-/// 普通请求上报的用量
-const CHAT_INPUT: u64 = 120;
+/// 普通请求上报的用量：真实 prompt 占用必须与种子历史的规模一致（40 轮 ≈ 数万
+/// token，窗口 60k 的 75% 触发线是 45k）—— 压缩触发以真实用量为锚，报低了就不会压。
+const CHAT_INPUT: u64 = 46_000;
 const CHAT_OUTPUT: u64 = 8;
 
 fn read_request(stream: &mut std::net::TcpStream) -> String {

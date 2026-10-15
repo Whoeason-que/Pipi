@@ -222,6 +222,12 @@ pub trait SessionRepo: Send + Sync {
     fn list(&self) -> Vec<SessionSummary>;
     /// 归档区会话摘要。
     fn list_archived(&self) -> Result<Vec<SessionSummary>, String>;
+    /// 读回归档区一个会话的全部条目（只读，供历史检索）。默认不支持：
+    /// 没有归档区的载体直接报错，调用方据此降级而不是猜。
+    fn entries_archived(&self, session_id: &str) -> Result<Vec<SessionEntry>, String> {
+        let _ = session_id;
+        Err("该载体不支持读取归档会话".into())
+    }
     /// 从源会话分叉出新会话（`up_to_entry_id` 为空则到当前 tip）。
     fn fork(
         &self,

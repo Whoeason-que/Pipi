@@ -2,12 +2,13 @@
 //!
 //! - `estimate_tokens` / `prune_cut_index` 移植自
 //!   `packages/agent/src/harness/compaction/compaction.ts` 的启发式部分
-//!   （chars/4、图片按 4800 chars 计）。上游的完整 compaction 用 LLM 做
+//!   （chars/4、图片按 4800 chars 计）。估算只是兜底：有效的助手 usage 存在时，
+//!   `context_tokens` 以真实占用为锚、只估算之后的增量（同 pi 的 `estimateContextTokens`）。上游的完整 compaction 用 LLM 做
 //!   摘要替换，属「有意推迟」；这里的切点规则由压缩管线（`compaction`）使用。
 //! - 环境上下文的注入（`environment_context`，移植自 codex）随提示词层落在
 //!   `pipi-venv/src/prompt/environment.rs` —— 这个 crate 只做策略，不装配提示词。
 
-use pipi_protocol::{ContentBlock, Message, ToolResultContent};
+use pipi_protocol::{ContentBlock, Message, StopReason, ToolResultContent, Usage};
 
 /// 为 compaction 预留的 token（经验值，对齐 pi 的预留思路）。
 pub const DEFAULT_RESERVE_TOKENS: u64 = 16_384;
@@ -53,9 +54,59 @@ pub fn estimate_tokens(message: &Message) -> u64 {
     count.div_ceil(4) as u64
 }
 
-/// 估算整段消息历史的 token。
+/// 估算整段消息历史的 token（纯估算，不看 usage）。
 pub fn estimate_context_tokens(messages: &[Message]) -> u64 {
     messages.iter().map(estimate_tokens).sum()
+}
+
+/// 一次请求的上下文占用：供应商 `total_tokens`（缺失时由分项相加）。
+fn usage_context_tokens(usage: &Usage) -> u64 {
+    if usage.total_tokens > 0 {
+        usage.total_tokens
+    } else {
+        usage.total()
+    }
+}
+
+/// 找到能代表当前前缀的最近一条助手 usage，返回（下标，占用 token）。
+///
+/// 规则对齐 pi 的 `getLastAssistantUsageInfo`：
+/// - `aborted` / `error` 的轮次不计（用量不完整）；占用为 0 的也不计；
+/// - 若某条较新的前缀消息（如压缩摘要）插在它之前，它的用量描述的是旧前缀，
+///   不再适用 —— 判据是「它的时间戳 ≥ 之前所有消息的最大时间戳」。
+pub fn last_usage_anchor(messages: &[Message]) -> Option<(usize, u64)> {
+    let mut latest_prefix_ts = 0u64;
+    let mut anchor = None;
+    for (index, message) in messages.iter().enumerate() {
+        if let Message::Assistant {
+            usage,
+            stop_reason,
+            timestamp,
+            ..
+        } = message
+            && *timestamp >= latest_prefix_ts
+            && !matches!(stop_reason, StopReason::Aborted | StopReason::Error)
+        {
+            let tokens = usage_context_tokens(usage);
+            if tokens > 0 {
+                anchor = Some((index, tokens));
+            }
+        }
+        latest_prefix_ts = latest_prefix_ts.max(message.timestamp());
+    }
+    anchor
+}
+
+/// 当前上下文占用（触发判断与压缩前后统计用）：
+/// 有锚点时 = 锚点的真实占用 + 锚点之后消息的估算；无锚点时整体估算。
+///
+/// 投影式策略（清理 / 硬裁）**不用它**：它们只依赖原始历史、必须可重算；
+/// 锚点来自旧请求，清理后不会下降，拿来判断会过度裁剪。
+pub fn context_tokens(messages: &[Message]) -> u64 {
+    match last_usage_anchor(messages) {
+        Some((index, tokens)) => tokens + estimate_context_tokens(&messages[index + 1..]),
+        None => estimate_context_tokens(messages),
+    }
 }
 
 /// 保底裁剪的切点决策：返回「保留段起点」的下标，`None` 表示无需裁剪。
@@ -342,5 +393,82 @@ mod tests {
             Message::user_text("c"),
         ];
         assert_eq!(repair_tool_pairing(messages.clone()), messages);
+    }
+
+    fn assistant_with_usage(text: &str, total: u64, timestamp: u64, stop: StopReason) -> Message {
+        Message::Assistant {
+            content: vec![ContentBlock::Text { text: text.into() }],
+            api: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            usage: Usage {
+                total_tokens: total,
+                ..Default::default()
+            },
+            stop_reason: stop,
+            error_message: None,
+            timestamp,
+            duration_ms: None,
+        }
+    }
+
+    fn user_at(text: &str, timestamp: u64) -> Message {
+        Message::User {
+            content: text.into(),
+            timestamp,
+        }
+    }
+
+    #[test]
+    fn anchor_is_last_valid_assistant_usage() {
+        let messages = vec![
+            user_at("q", 1),
+            assistant_with_usage("a", 5_000, 2, StopReason::Stop),
+            user_at("q2", 3),
+            assistant_with_usage("bad", 9_999, 4, StopReason::Error),
+        ];
+        // error 轮次的用量不计：锚点仍是 index 1
+        assert_eq!(last_usage_anchor(&messages), Some((1, 5_000)));
+    }
+
+    #[test]
+    fn anchor_ignores_zero_usage_and_falls_back_to_estimate() {
+        let messages = vec![
+            user_at("hello", 1),
+            assistant_with_usage("x", 0, 2, StopReason::Stop),
+        ];
+        assert_eq!(last_usage_anchor(&messages), None);
+        assert_eq!(
+            context_tokens(&messages),
+            estimate_context_tokens(&messages)
+        );
+    }
+
+    #[test]
+    fn context_tokens_adds_trailing_estimate_to_anchor() {
+        let trailing = user_at(&"x".repeat(400), 3);
+        let messages = vec![
+            user_at("q", 1),
+            assistant_with_usage("a", 5_000, 2, StopReason::Stop),
+            trailing.clone(),
+        ];
+        assert_eq!(
+            context_tokens(&messages),
+            5_000 + estimate_tokens(&trailing)
+        );
+    }
+
+    #[test]
+    fn anchor_is_invalidated_by_newer_prefix_message() {
+        // 压缩摘要（时间戳晚于旧助手轮次）插在前面：旧 usage 描述的是旧前缀，不再适用
+        let messages = vec![
+            user_at("summary", 100),
+            assistant_with_usage("old", 5_000, 50, StopReason::Stop),
+        ];
+        assert_eq!(last_usage_anchor(&messages), None);
+        assert_eq!(
+            context_tokens(&messages),
+            estimate_context_tokens(&messages)
+        );
     }
 }

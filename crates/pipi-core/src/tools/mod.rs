@@ -5,3 +5,4 @@
 
 pub mod agent;
 pub mod background;
+pub mod session_search;

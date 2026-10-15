@@ -155,6 +155,11 @@ impl SessionRepo for GitSessionRepo {
         reader::read_summaries(&self.exec, refs::ARCHIVE_PREFIX)
     }
 
+    fn entries_archived(&self, session_id: &str) -> Result<Vec<SessionEntry>, String> {
+        validate_session_id(session_id)?;
+        self.read_session(&refs::archive_ref(session_id))
+    }
+
     fn fork(
         &self,
         session_id: &str,

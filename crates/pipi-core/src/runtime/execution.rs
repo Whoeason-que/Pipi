@@ -140,6 +140,14 @@ impl RuntimeState {
         if tool_context.permissions.tool_enabled("read_agent") {
             registry.push(Arc::new(ReadAgentTool));
         }
+        if tool_context.permissions.tool_enabled("session_search") {
+            registry.push(Arc::new(
+                crate::tools::session_search::SessionSearchTool::new(
+                    repo.clone(),
+                    Some(session_id.clone()),
+                ),
+            ));
+        }
         if tool_context
             .permissions
             .tool_enabled("submit_background_task")

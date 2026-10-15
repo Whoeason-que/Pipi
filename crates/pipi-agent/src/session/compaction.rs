@@ -42,7 +42,7 @@ pub(super) async fn run_compaction(
         return Ok(false);
     }
     hooks.agent(id, run_id, AgentEvent::CompactionStart);
-    let tokens_before = pipi_context::context::estimate_context_tokens(&history);
+    let tokens_before = pipi_context::context::context_tokens(&history);
     let mut options = request.options.clone();
     options.session_id = Some(id.clone());
     options.max_tokens = None;
@@ -87,7 +87,8 @@ pub(super) async fn run_compaction(
     {
         tracker.record_ledger(&usage);
     }
-    let tokens_after = pipi_context::context::estimate_context_tokens(
+    // 压缩后没有新的助手 usage，锚点失效，这里是估算值（与下一轮真实用量衔接）。
+    let tokens_after = pipi_context::context::context_tokens(
         &session.messages.lock().expect("session history poisoned"),
     );
     if let Some(new_id) = switched {
