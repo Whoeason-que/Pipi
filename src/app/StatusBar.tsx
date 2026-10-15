@@ -16,7 +16,7 @@ export interface StatusBarProps {
   version: string;
 }
 
-/** 底部状态栏：连接状态 / 运行位置 / 数量统计 / 版本。 */
+/** 顶部状态栏：连接状态 / 运行位置 / 数量统计 / 版本。 */
 export function StatusBar({
   connection,
   agentCount,
@@ -25,7 +25,7 @@ export function StatusBar({
   version,
 }: StatusBarProps) {
   return (
-    <footer className="status-bar" aria-label="运行状态">
+    <header className="status-bar" aria-label="运行状态">
       <span className="conn">
         <i className={`status-dot ${connection}`} aria-hidden="true" />
         {CONNECTION_LABELS[connection]}
@@ -52,6 +52,6 @@ export function StatusBar({
           </span>
         </>
       )}
-    </footer>
+    </header>
   );
 }

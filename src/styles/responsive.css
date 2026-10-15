@@ -67,6 +67,7 @@
     width: min(300px, calc(84vw - var(--rail-width)));
     height: 100dvh;
     min-width: 0;
+    padding-top: var(--safe-top);
     padding-bottom: var(--safe-bottom);
     /* 关闭态要整个滑出可视区：left 已经让开图标栏，位移必须把它一起算上，
        否则抽屉的尾巴会盖住图标栏（同时挡住图标栏的点击） */
@@ -79,7 +80,7 @@
   .rail {
     gap: 8px;
     padding: 10px 0;
-    padding-top: calc(10px + var(--safe-top));
+    padding-bottom: calc(10px + var(--safe-bottom));
   }
 
   .rail .icon-btn {

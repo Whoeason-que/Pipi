@@ -376,7 +376,7 @@ export function isAuthSilentError(error: unknown): boolean {
 
 function sameMessage(left: ChatEntry, message: MessageView): boolean {
   return left.role === message.role
-    && left.toolCallId === message.toolCallId
+    && left.toolCallId === (message.toolCallId ?? firstToolCallId(message))
     && left.text === messageText(message)
     && left.thinking === messageThinking(message)
     && left.stopReason === message.stopReason
@@ -690,7 +690,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           // 切换会话期间可能只收到 agent_end，不能让它把一个空时间线直接
           // 结算掉；把运行循环带回来的完整消息先合并，再结束 transient 状态。
           const recovered = (event.messages ?? []).reduce(
-            (current, message) => applyCompletedMessage(current, message, action.key),
+            (current, message, index) =>
+              applyCompletedMessage(current, message, `${action.key}-rec-${index}`),
             state,
           );
           return {

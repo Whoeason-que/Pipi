@@ -342,6 +342,14 @@ export default function App() {
       className={`app${sidebarOpen ? " sidebar-open" : ""}`}
       style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
     >
+      <StatusBar
+        connection={connection}
+        agentCount={agents.length}
+        sessionCount={sessionTotal}
+        runningCount={runningSessions.size}
+        version={APP_VERSION}
+      />
+
       <div className="app-body">
         <Rail
           navSection={navSection}
@@ -562,14 +570,6 @@ export default function App() {
           )}
         </main>
       </div>
-
-      <StatusBar
-        connection={connection}
-        agentCount={agents.length}
-        sessionCount={sessionTotal}
-        runningCount={runningSessions.size}
-        version={APP_VERSION}
-      />
 
       {confirmState && (
         <ConfirmModal

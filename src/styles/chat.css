@@ -26,7 +26,7 @@
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   /* 顶栏是悬浮层：给滚动内容让出顶栏高度 + 原有呼吸空隙 */
-  padding-top: calc(68px + var(--safe-top));
+  padding-top: 68px;
 }
 
 /* 会话内容列：居中窄列（ChatGPT thread 宽度） */
@@ -758,7 +758,7 @@ pre.code {
   overflow: hidden;
   background: var(--bg);
   border-left: 1px solid var(--line-soft);
-  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
 }
 
 /* 宽屏下关闭即从布局中移除；窄屏下由 responsive.css 改为抽屉滑出 */
@@ -1042,7 +1042,7 @@ pre.code {
 }
 
 .agent-workbench-loading .compact-empty {
-  padding-top: calc(72px + var(--safe-top));
+  padding-top: 72px;
 }
 
 .ipanel {

@@ -359,3 +359,57 @@ test("repeated hydration keeps earlier run notices before later turns and preser
     assert.deepEqual(state.entries.find(entry => entry.toolCallId === "read-next")?.toolDetails, { path: "README.md" });
   }
 });
+
+test("agent end does not duplicate assistant message with tool calls", () => {
+  let state = chatReducer(INITIAL_CHAT_STATE, {
+    type: "submit_user",
+    key: "user-1",
+    text: "run tool",
+  });
+
+  const toolMessage: MessageView = {
+    role: "assistant",
+    content: [
+      { type: "text", text: "依赖图已拿到。接下来统计每个 crate 的代码量..." },
+      { type: "toolCall", id: "call-1", name: "bash", arguments: {} },
+    ],
+    stopReason: "toolUse",
+  };
+
+  state = event(state, { type: "message_start", message: toolMessage });
+  state = event(state, { type: "message_end", message: toolMessage });
+
+  const finalMessage: MessageView = {
+    role: "assistant",
+    content: [{ type: "text", text: "quant 工作区统计报告" }],
+    stopReason: "stop",
+  };
+
+  state = event(state, { type: "message_start", message: finalMessage });
+  state = event(state, { type: "message_end", message: finalMessage });
+
+  assert.deepEqual(
+    state.entries.map((e) => e.text),
+    [
+      "run tool",
+      "依赖图已拿到。接下来统计每个 crate 的代码量...",
+      "quant 工作区统计报告",
+    ],
+  );
+
+  // agent_end 带回本轮全部 messages，不应产生末尾幽灵重复条目
+  state = event(state, {
+    type: "agent_end",
+    messages: [toolMessage, finalMessage],
+  });
+
+  assert.deepEqual(
+    state.entries.map((e) => e.text),
+    [
+      "run tool",
+      "依赖图已拿到。接下来统计每个 crate 的代码量...",
+      "quant 工作区统计报告",
+    ],
+  );
+});
+
