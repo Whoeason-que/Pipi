@@ -67,10 +67,15 @@ function endpointKey(api: string, baseUrl: string): string | null {
     const rawHost = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
     const host = LOCAL_HOST_ALIASES.has(rawHost) ? "local" : rawHost;
     const port = url.port || (url.protocol === "https:" ? "443" : "80");
-    return `${api}|${url.protocol}//${host}:${port}${url.pathname}`.toLowerCase();
+    let pathname = url.pathname.toLowerCase();
+    if (rawHost === "opencode.ai" && pathname.startsWith("/inference/")) {
+      pathname = pathname.replace(/^\/inference\//, "/zen/");
+    }
+    return `${api}|${url.protocol}//${host}:${port}${pathname}`.toLowerCase();
   } catch {
     // 不是合法 URL（用户可能填了半截）：退回字符串比较
-    return `${api}|${trimmed}`.toLowerCase();
+    const lower = `${api}|${trimmed}`.toLowerCase();
+    return lower.replace("https://opencode.ai/inference/", "https://opencode.ai/zen/");
   }
 }
 

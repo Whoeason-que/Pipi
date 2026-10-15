@@ -102,7 +102,10 @@ pub fn provider_for() -> std::sync::Arc<dyn Provider> {
 /// 目前只有 OpenCode Go：它的文档要求第三方 coding agent 每个会话带稳定 ID
 /// （<https://opencode.ai/docs/go/>，缺失直接 400 `MissingSessionID`），
 /// 这样它才能做路由优化与 prompt 缓存。Hermes、Claude Code 等客户端都按此实现。
-const SESSION_HEADER_PROVIDERS: &[(&str, &str)] = &[("opencode.ai/zen/go", "x-opencode-session")];
+const SESSION_HEADER_PROVIDERS: &[(&str, &str)] = &[
+    ("opencode.ai/zen/go", "x-opencode-session"),
+    ("opencode.ai/inference/go", "x-opencode-session"),
+];
 
 /// `StreamOptions.timeout_secs` 为 0 时的请求时限（秒）：无进展即中止。
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
@@ -1077,11 +1080,19 @@ mod tests {
         assert!(extra_headers("https://api.anthropic.com", None).is_none());
         assert!(extra_headers("", Some("s-1")).is_none());
 
-        // OpenCode Go：UA + 会话头都要有
+        // OpenCode Go：UA + 会话头都要有（覆盖 zen/go 与 inference/go 两种形态）
         let headers = extra_headers("https://opencode.ai/zen/go/v1", Some("1789230239133-abc"))
-            .expect("opencode-go 应带额外请求头");
+            .expect("opencode-go zen 端点应带额外请求头");
         assert_eq!(
             headers
+                .get("x-opencode-session")
+                .and_then(|v| v.to_str().ok()),
+            Some("1789230239133-abc"),
+        );
+        let headers_inf = extra_headers("https://opencode.ai/inference/go/v1", Some("1789230239133-abc"))
+            .expect("opencode-go inference 端点应带额外请求头");
+        assert_eq!(
+            headers_inf
                 .get("x-opencode-session")
                 .and_then(|v| v.to_str().ok()),
             Some("1789230239133-abc"),

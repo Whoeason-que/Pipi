@@ -96,9 +96,15 @@ pub(super) const CURATION: &[Curated] = &[
         "opencode",
         "聚合网关",
         id = "opencode-zen",
-        name = "OpenCode Zen"
+        name = "OpenCode Zen",
+        base_url = "https://opencode.ai/zen/v1"
     ),
-    curated!("opencode-go", "聚合网关", name = "OpenCode Go"),
+    curated!(
+        "opencode-go",
+        "聚合网关",
+        name = "OpenCode Go",
+        base_url = "https://opencode.ai/zen/go/v1"
+    ),
     curated!(
         "302ai",
         "聚合网关",

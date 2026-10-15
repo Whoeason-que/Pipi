@@ -451,9 +451,16 @@ pub fn cached_catalog(cache_path: Option<&Path>) -> Option<ModelCatalog> {
 }
 
 /// 端点归一化键：去尾斜杠 + 忽略大小写（上游与用户手填的写法可能不同）。
+/// 同时折叠 OpenCode 官方端点 (/zen/) 与 models.dev / 控制台推理端点 (/inference/)，
+/// 确保两套等价路径均能稳定命中同一条目录记录。
 /// provider 层的协议记忆（[`crate::learned_protocol`]）用同一个口径。
 pub(crate) fn endpoint_key(url: &str) -> String {
-    strip_slash(url).to_ascii_lowercase()
+    let lower = strip_slash(url).to_ascii_lowercase();
+    if lower.starts_with("https://opencode.ai/inference/") {
+        lower.replacen("/inference/", "/zen/", 1)
+    } else {
+        lower
+    }
 }
 
 /// 规范化端点地址：去除尾斜杠并转为小写。
@@ -829,6 +836,18 @@ mod tests {
     }
 
     #[test]
+    fn opencode端点别名折叠_inference与zen互为别名() {
+        assert_eq!(
+            endpoint_key("https://opencode.ai/inference/go/v1"),
+            endpoint_key("https://opencode.ai/zen/go/v1")
+        );
+        assert_eq!(
+            endpoint_key("https://opencode.ai/inference/v1/"),
+            endpoint_key("https://opencode.ai/zen/v1")
+        );
+    }
+
+    #[test]
     fn 本地运行时是手写条目且不参与版本段校验() {
         let catalog = fixture_catalog();
         let ollama = find(&catalog, "ollama");
@@ -1125,6 +1144,18 @@ mod tests {
                 Api::OpenAICompletions,
                 "http://127.0.0.1:1234/v1",
                 true,
+            ),
+            (
+                "opencode-zen",
+                Api::OpenAICompletions,
+                "https://opencode.ai/zen/v1",
+                false,
+            ),
+            (
+                "opencode-go",
+                Api::OpenAICompletions,
+                "https://opencode.ai/zen/go/v1",
+                false,
             ),
         ];
         for (id, api, base_url, local) in pinned {

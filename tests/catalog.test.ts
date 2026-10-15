@@ -99,8 +99,31 @@ test("本地主机别名归一：localhost / 127.0.0.1 / [::1] 视为同一台",
   assert.equal(matchProvider(catalog, "openai-completions", "http://LOCALHOST:11434/v1/")?.id, "ollama");
   // 端口不同就不是同一台
   assert.equal(matchProvider(catalog, "openai-completions", "http://127.0.0.1:1234/v1"), undefined);
-  // 非本地主机不做别名折叠
+  // 非本地主机且非 opencode 不做别名折叠
   assert.equal(matchProvider(catalog, "openai-completions", "https://api.deepseek.com/v2"), undefined);
+});
+
+test("OpenCode 端点别名归一：/inference/ 自动折叠为 /zen/", () => {
+  const catalog: ModelCatalog = {
+    fetchedAt: 1_700_000_000,
+    source: "models.dev",
+    stale: false,
+    providers: [
+      {
+        id: "opencode-go",
+        name: "OpenCode Go",
+        api: "openai-completions",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+        group: "聚合网关",
+        local: false,
+        models: [{ id: "cat-jam-free", name: "Cat Jam Free" }],
+      },
+    ],
+  };
+  // 无论是填 /zen/ 还是 /inference/，大小写或有无尾斜杠均能命中
+  assert.equal(matchProvider(catalog, "openai-completions", "https://opencode.ai/zen/go/v1")?.id, "opencode-go");
+  assert.equal(matchProvider(catalog, "openai-completions", "https://opencode.ai/inference/go/v1")?.id, "opencode-go");
+  assert.equal(matchProvider(catalog, "openai-completions", "HTTPS://OPENCODE.AI/INFERENCE/GO/V1/")?.id, "opencode-go");
 });
 
 test("模型选项：保持目录顺序，label 带 id（同名/多代模型靠它区分）", () => {
