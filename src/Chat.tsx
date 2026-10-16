@@ -14,7 +14,7 @@ import ChatTimeline from "./chat/ChatTimeline";
 import Inspector, { INSPECTOR_TABS, type InspectorTab } from "./chat/Inspector";
 import type { ChatInspectorContext } from "./chat/inspector-context";
 import ModelSelectModal from "./chat/ModelSelectModal";
-import { IconArrowDown, IconBack, IconGrid, IconPanel, IconPlus, IconSearch, IconSend, IconStop } from "./icons";
+import { IconArrowDown, IconSend, IconStop } from "./icons";
 import { useResizableWidth } from "./resizable";
 import type { SessionRuntime } from "./session-runtime";
 import type { AgentDefinition, ModelConfig, ProviderConfig, SessionInfoView } from "./types";
@@ -27,9 +27,9 @@ interface ChatViewProps {
   sessionId: string | null;
   sessions: SessionRuntime;
   blockedSessionIds: string[];
-  onBack: () => void;
+  onBack?: () => void;
   onError: (msg: string) => void;
-  onNewSession: (previousSessionId?: string) => Promise<boolean>;
+  onNewSession?: (previousSessionId?: string) => Promise<boolean>;
   onRunningChange: () => void;
   /** 新会话：传 null 表示无会话；分叉/重建后传新的会话信息以同步侧栏高亮。 */
   onSessionReset: (info?: SessionInfoView | null) => void;
@@ -43,6 +43,46 @@ interface ChatViewProps {
   onInspectDetail?: () => void;
 }
 
+function renderTabIcon(tab: InspectorTab) {
+  switch (tab) {
+    case "detail":
+      return (
+        <svg className="bar-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" y1="19" x2="20" y2="19" />
+        </svg>
+      );
+    case "stats":
+      return (
+        <svg className="bar-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M18 20V10M12 20V4M6 20v-6" />
+        </svg>
+      );
+    case "state":
+      return (
+        <svg className="bar-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
+      );
+    case "files":
+      return (
+        <svg className="bar-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+        </svg>
+      );
+    case "search":
+      return (
+        <svg className="bar-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+      );
+  }
+}
+
 export default function ChatView({
   title = "新会话",
   agent,
@@ -50,9 +90,9 @@ export default function ChatView({
   sessionId: initialSessionId,
   sessions,
   blockedSessionIds,
-  onBack,
+  onBack: _onBack,
   onError,
-  onNewSession,
+  onNewSession: _onNewSession,
   onRunningChange,
   onSessionReset,
   mode = "session",
@@ -294,12 +334,6 @@ export default function ChatView({
     }
   };
   const stop = () => { void controller.stop(); };
-  const newSession = async () => {
-    if (!ready || sending) return;
-    if (await onNewSession(sessionId ?? undefined) && mountedRef.current) {
-      followTailRef.current = true;
-    }
-  };
   const compactNow = () => {
     void controller.compact().catch(error => onError(formatRuntimeError(error)));
   };
@@ -339,54 +373,52 @@ export default function ChatView({
       style={{ "--inspector-width": `${inspectorResize.width}px` } as React.CSSProperties}
     >
       <div className="screen-bar" role="toolbar" aria-label="会话工具栏">
-          <button type="button" className="icon-btn navigation-toggle" aria-label="切换导航" onClick={layout.toggleNavigation}><IconPanel /></button>
-          <button type="button" className="icon-btn" title="返回" aria-label="返回" onClick={onBack}>
-            <IconBack />
-          </button>
-          {isTest ? (
-            <span className="crumb" title={`Agent 工作台 · ${agent.name}`}>
-              Agent 工作台 · <b>{agent.name}</b>
+        {isTest ? (
+          <span className="crumb" title={`Agent 工作台 · ${agent.name}`}>
+            Agent 工作台 · <b>{agent.name}</b>
+          </span>
+        ) : (
+          <span className="crumb chat-title" title={`${agent.name} · ${title}`}>
+            <b>{title}</b><span className="agent-tag">{agent.name}</span>
+          </span>
+        )}
+        {running && (
+          <span className="running-pill" title="当前会话正在运行">
+            <span className="running-dot pulse" />
+            运行中
+          </span>
+        )}
+        <span className="spacer" />
+        {!isTest ? (
+          <div className="bar-tabs" role="tablist" aria-label="会话检查器选项卡">
+            {INSPECTOR_TABS.map((item) => {
+              const isSelected = inspectorOpen && activeInspectorTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  id={`bar-tab-${item.id}`}
+                  aria-selected={isSelected}
+                  aria-controls={`ipanel-${item.id}`}
+                  className={`bar-tab${isSelected ? " active" : ""}`}
+                  onClick={() => handleBarTabClick(item.id)}
+                  title={`${item.label}${isSelected ? "（点击折叠）" : ""}`}
+                >
+                  {renderTabIcon(item.id)}
+                  <span className="bar-tab-title">{item.label}</span>
+                  {item.id === "detail" && activeChip && <span className="tab-dot" />}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <>
+            <span className="test-mode-pill">
+              <span className={`test-mode-dot${running ? " running" : ""}`} />
+              临时测试
             </span>
-          ) : (
-            <span className="crumb chat-title" title={`${agent.name} · ${title}`}>
-              <b>{title}</b><span className="agent-tag">{agent.name}</span>
-            </span>
-          )}
-          {running && (
-            <span className="running-pill" title="当前会话正在运行">
-              <span className="running-dot pulse" />
-              运行中
-            </span>
-          )}
-          {!isTest && (
-            <div className="bar-tabs" role="tablist" aria-label="会话检查器选项卡">
-              {INSPECTOR_TABS.map((item) => {
-                const isSelected = inspectorOpen && activeInspectorTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    id={`bar-tab-${item.id}`}
-                    aria-selected={isSelected}
-                    aria-controls={`ipanel-${item.id}`}
-                    className={`bar-tab${isSelected ? " active" : ""}`}
-                    onClick={() => handleBarTabClick(item.id)}
-                  >
-                    {item.label}
-                    {item.id === "detail" && activeChip && <span className="tab-dot" />}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <span className="spacer" />
-          {isTest ? (
-            <>
-              <span className="test-mode-pill">
-                <span className={`test-mode-dot${running ? " running" : ""}`} />
-                临时测试
-              </span>
+            {onClearTest && (
               <button
                 type="button"
                 className="btn ghost test-clear"
@@ -396,40 +428,10 @@ export default function ChatView({
               >
                 {clearingTest ? "清空中…" : "清空测试"}
               </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={newSession}
-              disabled={!ready || sending}
-              title="新会话"
-              aria-label="新建会话"
-            >
-              <IconPlus />
-            </button>
-          )}
-          <button
-            type="button"
-            className={`icon-btn${inspectorOpen && activeInspectorTab === "search" ? " active" : ""}`}
-            aria-label="会话搜索"
-            title="会话搜索 Ctrl/⌘ F"
-            onClick={() => handleBarTabClick("search")}
-          >
-            <IconSearch />
-          </button>
-          <button
-            type="button"
-            className={`icon-btn${inspectorOpen ? " active" : ""}`}
-            onClick={() => { layout.closeNavigation(); setInspectorOpen((open) => !open); }}
-            title={isTest ? "Agent 设置" : "展开/折叠检查器"}
-            aria-label={isTest ? "切换 Agent 设置" : "切换检查器"}
-            aria-expanded={inspectorOpen}
-            aria-controls="session-inspector"
-          >
-            <IconGrid />
-          </button>
-        </div>
+            )}
+          </>
+        )}
+      </div>
 
         <div className="chat-body">
           <div className="chat">

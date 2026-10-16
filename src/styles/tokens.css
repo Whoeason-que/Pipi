@@ -43,6 +43,7 @@
   --accent: #0169cc;
   --accent-text: #7ab7ff;
   --on-accent: #ffffff;
+  --accent-soft: rgba(1, 105, 204, 0.16);
 
   /* 黑白主按钮（ChatGPT 式：暗色白底） */
   --primary-bg: #ececec;
@@ -109,6 +110,7 @@
   --accent: #0169cc;
   --accent-text: #2964aa;
   --on-accent: #ffffff;
+  --accent-soft: rgba(1, 105, 204, 0.12);
 
   --primary-bg: #0d0d0d;
   --primary-fg: #ffffff;

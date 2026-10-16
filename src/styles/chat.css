@@ -1472,7 +1472,7 @@ pre.code {
   background: var(--hover);
   border-style: dashed;
   border-color: var(--accent-text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
 }
 
 .search-hit-card.pinned {
@@ -1500,7 +1500,7 @@ pre.code {
 }
 
 .search-hit-badge.user {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: var(--accent-soft);
   color: var(--accent-text);
 }
 
@@ -1525,7 +1525,7 @@ pre.code {
 
 .search-hit-status.preview {
   color: var(--accent-text);
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  background: var(--accent-soft);
 }
 
 .search-hit-status.pinned {
