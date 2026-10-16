@@ -24,6 +24,8 @@ import { useResizableWidth } from "./resizable";
 import { SearchPanel } from "./SearchPanel";
 import { SessionRuntime } from "./session-runtime";
 import SettingsView from "./settings/SettingsView";
+import SettingsSidebar from "./settings/SettingsSidebar";
+import type { SettingsSection } from "./settings/settings-sections";
 import { SkillsSidebar } from "./skills/SkillsSidebar";
 import { SkillsView } from "./skills/SkillsView";
 import { applyTheme } from "./theme";
@@ -33,6 +35,7 @@ export default function App() {
   const { t } = useI18n();
   const [sessionRuntime] = useState(() => new SessionRuntime({ invoke, listen }));
   const [view, setView] = useState<AppView>({ kind: "home" });
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("appearance");
   const viewRef = useRef(view);
   const previousView = useRef<AppView>({ kind: "home" });
   const [authStatus, setAuthStatus] = useState({ authRequired: false, authenticated: true, checking: !isTauriRuntime() });
@@ -95,7 +98,11 @@ export default function App() {
 
   const navigate = (next: AppView) => {
     if (next.kind === "home" && !next.section) next = { ...next, section: collection };
-    if (next.kind === "settings" && viewRef.current.kind !== "settings") previousView.current = viewRef.current;
+    if (next.kind === "settings" && viewRef.current.kind !== "settings") {
+      previousView.current = viewRef.current;
+      setSettingsSection("appearance");
+      setSidebarCollapsed(false);
+    }
     navigation.invalidateNavigation();
     const previous = viewRef.current;
     // 释放离开视图的空闲宿主槽；运行中的会话由核心保留，视图卸载不会停止它。
@@ -207,11 +214,14 @@ export default function App() {
           else if (section === "agents" || section === "subagents") navigate({ kind: "home", section });
           setNavSection(section); setSidebarCollapsed(false); setSidebarOpen(true);
         }} />
-      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label="Agent 与会话列表">
+      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : "Agent 与会话列表"}>
         <div className="sb-head"><button type="button" className="sidebar-home" aria-label={t("nav.home")} onClick={() => navigate({ kind: "home" })}><b>Pipi</b><span>{t("nav.workspace")}</span></button>
           <span className="spacer" /><button type="button" className="icon-btn" title={t("nav.collapseSidebar")} aria-label={t("nav.collapseSidebar")} onClick={toggleNavigation}><IconPanel /></button></div>
         <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
-        {navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={agents}
+        {view.kind === "settings" ? settings && <SettingsSidebar settings={settings} section={settingsSection}
+          showLogout={!isTauriRuntime() && authStatus.authRequired}
+          onSelect={section => { setSettingsSection(section); setSidebarOpen(false); }} />
+          : navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={agents}
           sessionsByAgent={sessionsByAgent} isRunning={isConversationRunning} onSelectAgent={selectAgent} onOpenSession={openSession} />
           : navSection === "skills" ? <SkillsSidebar library={skillLibrary} selected={skillSelected} error={skillLoadError}
             onSelect={name => { setSkillSelected(name); setSidebarOpen(false); }} onRefresh={() => void loadSkillLibrary()} />
@@ -246,7 +256,7 @@ export default function App() {
             </button>
           </div>
         )}
-        {view.kind === "settings" && settings ? <SettingsView settings={settings} onChange={updateSettings} onClose={toggleSettings}
+        {view.kind === "settings" && settings ? <SettingsView settings={settings} section={settingsSection} onChange={updateSettings} onClose={toggleSettings}
           showLogout={!isTauriRuntime() && authStatus.authRequired} />
           : view.kind === "create" ? <CreateAgentForm providers={settings?.providers ?? []} defaultProviderId={settings?.defaultProviderId ?? null}
             onCreated={async name => { await refresh(); selectAgent(name); }} onCancel={() => navigate({ kind: "home" })} onError={safeSetError} />

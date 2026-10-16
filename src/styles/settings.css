@@ -1,11 +1,5 @@
 /* 全局设置：分组导航、外观预览与提供商表单。 */
 
-.settings-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
 .settings-autosave {
   display: inline-flex;
   align-items: center;
@@ -24,14 +18,20 @@
 
 .settings-nav {
   display: flex;
-  flex: 0 0 208px;
+  flex: 1;
+  min-height: 0;
   flex-direction: column;
   gap: 6px;
-  padding: 26px 14px;
-  border-right: 1px solid var(--line-soft);
+  padding: 0 12px 20px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--panel);
+}
+
+.settings-nav-title {
+  padding: 0 12px 9px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .settings-nav-item {

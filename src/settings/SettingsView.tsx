@@ -1,18 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { LayoutContext } from "../app/layout-context";
 import { NavigationToggle } from "../app/AppNavigation";
 import { catalogSourceLabel, type CatalogProvider } from "../catalog";
 import { loadCatalog, resetCatalog } from "../catalog-client";
-import { formatRetryDelay } from "../chat-runtime";
-import {
-  IconBack,
-  IconGear,
-  IconLayers,
-  IconArrowRepeat,
-  IconGrid,
-  IconKey,
-  IconPlus,
-  IconRefresh,
-} from "../icons";
+import { IconBack, IconLayers, IconPlus, IconRefresh } from "../icons";
 import { logout } from "../platform";
 import {
   API_LABELS,
@@ -24,17 +15,13 @@ import { useI18n } from "../i18n";
 
 import { PresetPicker, ProviderForm } from "./ProviderEditor";
 import { LocaleOption, ThemeOption } from "./AppearanceOptions";
-// ============ 设置（主区 tab，与对话界面同构：顶栏 + 左导航 + 内容） ============
-
-/** 设置分组：导航用它划分不同类别。 */
-type SettingsSection =
-  | "appearance"
-  | "context"
-  | "retry"
-  | "providers"
-  | "account";
-
+import {
+  getSettingsSectionInfo,
+  SettingsSectionIcon,
+  type SettingsSection,
+} from "./settings-sections";
 interface SettingsViewProps {
+  section: SettingsSection;
   settings: Settings;
   onChange: (next: Settings) => void | Promise<void>;
   onClose: () => void;
@@ -43,12 +30,14 @@ interface SettingsViewProps {
 
 export default function SettingsView({
   settings,
+  section,
   onChange,
   onClose,
   showLogout,
 }: SettingsViewProps) {
   const { locale, setLocale, t } = useI18n();
-  const [section, setSection] = useState<SettingsSection>("appearance");
+  const { navigationOpen } = useContext(LayoutContext);
+  const sectionInfo = getSettingsSectionInfo(section, t);
   const [editing, setEditing] = useState<ProviderConfig | "new" | null>(null);
   const [preset, setPreset] = useState<CatalogProvider | null>(null);
   const [picking, setPicking] = useState(false);
@@ -90,11 +79,15 @@ export default function SettingsView({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (
+        event.key === "Escape" &&
+        !(navigationOpen && window.matchMedia("(max-width: 860px)").matches)
+      )
+        onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [onClose, navigationOpen]);
 
   const commit = (update: (previous: Settings) => Settings) => {
     const next = update(draftRef.current);
@@ -129,56 +122,6 @@ export default function SettingsView({
     }));
   };
 
-  const sections: SettingsSection[] = showLogout
-    ? ["appearance", "context", "retry", "providers", "account"]
-    : ["appearance", "context", "retry", "providers"];
-
-  const sectionInfo: Record<
-    SettingsSection,
-    { label: string; description: string }
-  > = {
-    appearance: {
-      label: t("settings.appearance"),
-      description: t("settings.appearanceDesc"),
-    },
-    context: {
-      label: t("settings.context"),
-      description: t("settings.contextDesc"),
-    },
-    retry: {
-      label: t("settings.retry"),
-      description: t("settings.retryDesc"),
-    },
-    providers: {
-      label: t("settings.providers"),
-      description: t("settings.providersDesc"),
-    },
-    account: {
-      label: t("settings.account"),
-      description: t("settings.accountDesc"),
-    },
-  };
-
-  /** 导航项右侧的一行状态摘要，让分组一眼可辨。 */
-  const sectionMeta = (id: SettingsSection): string => {
-    switch (id) {
-      case "appearance":
-        return `${draft.theme === "dark" ? t("settings.themeDark") : t("settings.themeLight")} · ${locale.toUpperCase()}`;
-      case "context":
-        return draft.compaction.forkBeforeCompact ? "压缩前分叉" : "原地压缩";
-      case "retry":
-        return `${draft.retry.maxAttempts} 次尝试 · ${formatRetryDelay(draft.retry.baseDelayMs)}起`;
-      case "providers": {
-        const fallback = draft.providers.find(
-          (item) => item.id === draft.defaultProviderId,
-        );
-        return `${draft.providers.length} 家 · 默认 ${fallback?.name ?? "未设置"}`;
-      }
-      case "account":
-        return "Web 访问保护";
-    }
-  };
-
   return (
     <div className="screen settings-view">
       <div className="screen-bar">
@@ -193,7 +136,7 @@ export default function SettingsView({
           <IconBack />
         </button>
         <span className="crumb">
-          {t("settings.title")} · <b>{sectionInfo[section].label}</b>
+          {t("settings.title")} · <b>{sectionInfo.label}</b>
         </span>
         <span className="spacer" />
         <span className="settings-autosave">
@@ -202,440 +145,394 @@ export default function SettingsView({
         </span>
       </div>
 
-      <div className="settings-body">
-        <nav
-          className="settings-nav"
-          role="tablist"
-          aria-label="设置分组"
-          aria-orientation="vertical"
-        >
-          {sections.map((id) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              id={`settings-tab-${id}`}
-              aria-controls="settings-content"
-              aria-selected={section === id}
-              className={`settings-nav-item${section === id ? " active" : ""}`}
-              onClick={() => setSection(id)}
-            >
-              <span className="settings-nav-icon">
-                <SettingsSectionIcon section={id} />
-              </span>
-              <span className="settings-nav-copy">
-                <span className="name">{sectionInfo[id].label}</span>
-                <span className="meta">{sectionMeta(id)}</span>
-              </span>
-            </button>
-          ))}
-        </nav>
-
-        <div
-          className="settings-main"
-          role="tabpanel"
-          id="settings-content"
-          aria-labelledby={`settings-tab-${section}`}
-        >
-          <div className="settings-main-head">
-            <span className="settings-section-icon">
-              <SettingsSectionIcon section={section} />
-            </span>
-            <div>
-              <h2>{sectionInfo[section].label}</h2>
-              <p>{sectionInfo[section].description}</p>
-            </div>
+      <div
+        className="settings-main"
+        role="tabpanel"
+        id="settings-content"
+        aria-labelledby={`settings-tab-${section}`}
+      >
+        <div className="settings-main-head">
+          <span className="settings-section-icon">
+            <SettingsSectionIcon section={section} />
+          </span>
+          <div>
+            <h2>{sectionInfo.label}</h2>
+            <p>{sectionInfo.description}</p>
           </div>
+        </div>
 
-          <div className="settings-main-body">
-            {section === "appearance" && (
-              <>
-                <section className="settings-block">
-                  <span className="label">{t("settings.language")}</span>
-                  <div className="locale-row">
-                    <LocaleOption
-                      active={locale === "zh"}
-                      code="ZH"
-                      label={t("settings.zh")}
-                      onClick={() => setLocale("zh")}
-                    />
-                    <LocaleOption
-                      active={locale === "en"}
-                      code="EN"
-                      label={t("settings.en")}
-                      onClick={() => setLocale("en")}
-                    />
-                  </div>
-                  <span className="hint settings-block-note">
-                    {t("settings.languageDesc")}
-                  </span>
-                </section>
-
-                <section className="settings-block">
-                  <span className="label">{t("settings.theme")}</span>
-                  <div className="theme-row">
-                    <ThemeOption
-                      active={draft.theme === "dark"}
-                      name={t("settings.themeDark")}
-                      theme="dark"
-                      onClick={() =>
-                        commit((previous) => ({ ...previous, theme: "dark" }))
-                      }
-                    />
-                    <ThemeOption
-                      active={draft.theme === "light"}
-                      name={t("settings.themeLight")}
-                      theme="light"
-                      onClick={() =>
-                        commit((previous) => ({ ...previous, theme: "light" }))
-                      }
-                    />
-                  </div>
-                </section>
-              </>
-            )}
-
-            {section === "context" && (
+        <div className="settings-main-body">
+          {section === "appearance" && (
+            <>
               <section className="settings-block">
-                <span className="label">上下文压缩</span>
-                <div className="setting-checks">
-                  <label className="ios-toggle settings-toggle">
-                    <input
-                      type="checkbox"
-                      checked={draft.compaction.forkBeforeCompact}
-                      onChange={() =>
-                        commit((previous) => ({
-                          ...previous,
-                          compaction: {
-                            ...previous.compaction,
-                            forkBeforeCompact:
-                              !previous.compaction.forkBeforeCompact,
-                          },
-                        }))
-                      }
-                    />
-                    <span className="slider" />
-                    <span className="toggle-label">
-                      <strong>压缩前分叉新会话</strong>
-                      <span>保留原会话的完整记录，在新会话中继续。</span>
-                    </span>
-                  </label>
-                  <label className="ios-toggle settings-toggle">
-                    <input
-                      type="checkbox"
-                      checked={draft.compaction.archiveOriginal}
-                      disabled={!draft.compaction.forkBeforeCompact}
-                      onChange={() =>
-                        commit((previous) => ({
-                          ...previous,
-                          compaction: {
-                            ...previous.compaction,
-                            archiveOriginal:
-                              !previous.compaction.archiveOriginal,
-                          },
-                        }))
-                      }
-                    />
-                    <span className="slider" />
-                    <span className="toggle-label">
-                      <strong>分叉后归档原会话</strong>
-                      <span>收起原会话，让会话列表保持清晰。</span>
-                    </span>
-                  </label>
-                  <div className="settings-info-note">
-                    <IconLayers />
-                    <span>
-                      关闭分叉即回到原地压缩：摘要会替换当前会话里被压缩的旧轮次。
-                    </span>
-                  </div>
+                <span className="label">{t("settings.language")}</span>
+                <div className="locale-row">
+                  <LocaleOption
+                    active={locale === "zh"}
+                    code="ZH"
+                    label={t("settings.zh")}
+                    onClick={() => setLocale("zh")}
+                  />
+                  <LocaleOption
+                    active={locale === "en"}
+                    code="EN"
+                    label={t("settings.en")}
+                    onClick={() => setLocale("en")}
+                  />
                 </div>
-              </section>
-            )}
-
-            {section === "retry" && (
-              <section className="settings-block retry-settings">
-                <span className="label">请求重试</span>
-                <div className="settings-field compact-threshold-field">
-                  <label htmlFor="retry-max-attempts">最大尝试次数</label>
-                  <div className="inline-value">
-                    <input
-                      id="retry-max-attempts"
-                      className="mono"
-                      type="number"
-                      min={1}
-                      max={5}
-                      value={draft.retry.maxAttempts}
-                      onChange={(event) =>
-                        commit((previous) => ({
-                          ...previous,
-                          retry: {
-                            ...previous.retry,
-                            maxAttempts: Number(event.target.value) || 1,
-                          },
-                        }))
-                      }
-                    />
-                    <span className="unit">次（含首次）</span>
-                  </div>
-                  <span className="hint">1 = 不重试；上限 5。</span>
-                </div>
-
-                <div className="settings-field compact-threshold-field">
-                  <label htmlFor="retry-base-delay">起始退避</label>
-                  <div className="inline-value">
-                    <input
-                      id="retry-base-delay"
-                      className="mono"
-                      type="number"
-                      min={100}
-                      step={100}
-                      value={draft.retry.baseDelayMs}
-                      onChange={(event) =>
-                        commit((previous) => ({
-                          ...previous,
-                          retry: {
-                            ...previous.retry,
-                            baseDelayMs: Number(event.target.value) || 100,
-                          },
-                        }))
-                      }
-                    />
-                    <span className="unit">毫秒</span>
-                  </div>
-                  <span className="hint">
-                    第 n 次失败后等待 起始退避 × 2ⁿ⁻¹（带抖动）。
-                  </span>
-                </div>
-
-                <div className="settings-field compact-threshold-field">
-                  <label htmlFor="retry-max-delay">退避上限</label>
-                  <div className="inline-value">
-                    <input
-                      id="retry-max-delay"
-                      className="mono"
-                      type="number"
-                      min={1000}
-                      step={1000}
-                      value={draft.retry.maxDelayMs}
-                      onChange={(event) =>
-                        commit((previous) => ({
-                          ...previous,
-                          retry: {
-                            ...previous.retry,
-                            maxDelayMs: Number(event.target.value) || 1000,
-                          },
-                        }))
-                      }
-                    />
-                    <span className="unit">毫秒</span>
-                  </div>
-                  <span className="hint">
-                    服务端要求等待更久时直接放弃（不会静默等待）；无进展超时最多额外重试
-                    1 次。
-                  </span>
-                </div>
-              </section>
-            )}
-
-            {section === "providers" && (
-              <section className="settings-block">
-                <span className="label">
-                  {editing
-                    ? editing === "new"
-                      ? "添加提供商"
-                      : `编辑 ${editing.name}`
-                    : picking
-                      ? "选择提供商"
-                      : "模型提供商"}
+                <span className="hint settings-block-note">
+                  {t("settings.languageDesc")}
                 </span>
-                {editing === null && !picking && (
-                  <>
-                    <div className="settings-provider-list">
-                      {draft.providers.map((provider) => {
-                        const status = keyStatus(provider);
-                        return (
-                          <div
-                            className={`provider-row${draft.defaultProviderId === provider.id ? " is-default" : ""}`}
-                            key={provider.id}
+              </section>
+
+              <section className="settings-block">
+                <span className="label">{t("settings.theme")}</span>
+                <div className="theme-row">
+                  <ThemeOption
+                    active={draft.theme === "dark"}
+                    name={t("settings.themeDark")}
+                    theme="dark"
+                    onClick={() =>
+                      commit((previous) => ({ ...previous, theme: "dark" }))
+                    }
+                  />
+                  <ThemeOption
+                    active={draft.theme === "light"}
+                    name={t("settings.themeLight")}
+                    theme="light"
+                    onClick={() =>
+                      commit((previous) => ({ ...previous, theme: "light" }))
+                    }
+                  />
+                </div>
+              </section>
+            </>
+          )}
+
+          {section === "context" && (
+            <section className="settings-block">
+              <span className="label">上下文压缩</span>
+              <div className="setting-checks">
+                <label className="ios-toggle settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={draft.compaction.forkBeforeCompact}
+                    onChange={() =>
+                      commit((previous) => ({
+                        ...previous,
+                        compaction: {
+                          ...previous.compaction,
+                          forkBeforeCompact:
+                            !previous.compaction.forkBeforeCompact,
+                        },
+                      }))
+                    }
+                  />
+                  <span className="slider" />
+                  <span className="toggle-label">
+                    <strong>压缩前分叉新会话</strong>
+                    <span>保留原会话的完整记录，在新会话中继续。</span>
+                  </span>
+                </label>
+                <label className="ios-toggle settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={draft.compaction.archiveOriginal}
+                    disabled={!draft.compaction.forkBeforeCompact}
+                    onChange={() =>
+                      commit((previous) => ({
+                        ...previous,
+                        compaction: {
+                          ...previous.compaction,
+                          archiveOriginal: !previous.compaction.archiveOriginal,
+                        },
+                      }))
+                    }
+                  />
+                  <span className="slider" />
+                  <span className="toggle-label">
+                    <strong>分叉后归档原会话</strong>
+                    <span>收起原会话，让会话列表保持清晰。</span>
+                  </span>
+                </label>
+                <div className="settings-info-note">
+                  <IconLayers />
+                  <span>
+                    关闭分叉即回到原地压缩：摘要会替换当前会话里被压缩的旧轮次。
+                  </span>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {section === "retry" && (
+            <section className="settings-block retry-settings">
+              <span className="label">请求重试</span>
+              <div className="settings-field compact-threshold-field">
+                <label htmlFor="retry-max-attempts">最大尝试次数</label>
+                <div className="inline-value">
+                  <input
+                    id="retry-max-attempts"
+                    className="mono"
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={draft.retry.maxAttempts}
+                    onChange={(event) =>
+                      commit((previous) => ({
+                        ...previous,
+                        retry: {
+                          ...previous.retry,
+                          maxAttempts: Number(event.target.value) || 1,
+                        },
+                      }))
+                    }
+                  />
+                  <span className="unit">次（含首次）</span>
+                </div>
+                <span className="hint">1 = 不重试；上限 5。</span>
+              </div>
+
+              <div className="settings-field compact-threshold-field">
+                <label htmlFor="retry-base-delay">起始退避</label>
+                <div className="inline-value">
+                  <input
+                    id="retry-base-delay"
+                    className="mono"
+                    type="number"
+                    min={100}
+                    step={100}
+                    value={draft.retry.baseDelayMs}
+                    onChange={(event) =>
+                      commit((previous) => ({
+                        ...previous,
+                        retry: {
+                          ...previous.retry,
+                          baseDelayMs: Number(event.target.value) || 100,
+                        },
+                      }))
+                    }
+                  />
+                  <span className="unit">毫秒</span>
+                </div>
+                <span className="hint">
+                  第 n 次失败后等待 起始退避 × 2ⁿ⁻¹（带抖动）。
+                </span>
+              </div>
+
+              <div className="settings-field compact-threshold-field">
+                <label htmlFor="retry-max-delay">退避上限</label>
+                <div className="inline-value">
+                  <input
+                    id="retry-max-delay"
+                    className="mono"
+                    type="number"
+                    min={1000}
+                    step={1000}
+                    value={draft.retry.maxDelayMs}
+                    onChange={(event) =>
+                      commit((previous) => ({
+                        ...previous,
+                        retry: {
+                          ...previous.retry,
+                          maxDelayMs: Number(event.target.value) || 1000,
+                        },
+                      }))
+                    }
+                  />
+                  <span className="unit">毫秒</span>
+                </div>
+                <span className="hint">
+                  服务端要求等待更久时直接放弃（不会静默等待）；无进展超时最多额外重试
+                  1 次。
+                </span>
+              </div>
+            </section>
+          )}
+
+          {section === "providers" && (
+            <section className="settings-block">
+              <span className="label">
+                {editing
+                  ? editing === "new"
+                    ? "添加提供商"
+                    : `编辑 ${editing.name}`
+                  : picking
+                    ? "选择提供商"
+                    : "模型提供商"}
+              </span>
+              {editing === null && !picking && (
+                <>
+                  <div className="settings-provider-list">
+                    {draft.providers.map((provider) => {
+                      const status = keyStatus(provider);
+                      return (
+                        <div
+                          className={`provider-row${draft.defaultProviderId === provider.id ? " is-default" : ""}`}
+                          key={provider.id}
+                        >
+                          <span
+                            className="provider-monogram"
+                            aria-hidden="true"
                           >
-                            <span
-                              className="provider-monogram"
-                              aria-hidden="true"
-                            >
-                              {provider.name.slice(0, 1).toUpperCase()}
-                            </span>
-                            <div className="info">
-                              <div className="p-name">
-                                {provider.name}
-                                {draft.defaultProviderId === provider.id && (
-                                  <span className="badge provider-default">
-                                    默认
-                                  </span>
-                                )}
-                              </div>
-                              <div className="p-url mono">
-                                {provider.baseUrl}
-                              </div>
-                              <div className="p-badges">
-                                <span className="badge neutral">
-                                  {provider.apiMode === "auto"
-                                    ? `${API_MODE_LABELS.auto}（按模型）`
-                                    : `${API_LABELS[provider.api]}（固定）`}
+                            {provider.name.slice(0, 1).toUpperCase()}
+                          </span>
+                          <div className="info">
+                            <div className="p-name">
+                              {provider.name}
+                              {draft.defaultProviderId === provider.id && (
+                                <span className="badge provider-default">
+                                  默认
                                 </span>
-                                <span
-                                  className={`badge ${status.warn ? "warn" : "neutral"}`}
-                                >
-                                  {status.label}
-                                </span>
-                              </div>
+                              )}
                             </div>
-                            <div className="p-actions">
+                            <div className="p-url mono">{provider.baseUrl}</div>
+                            <div className="p-badges">
+                              <span className="badge neutral">
+                                {provider.apiMode === "auto"
+                                  ? `${API_MODE_LABELS.auto}（按模型）`
+                                  : `${API_LABELS[provider.api]}（固定）`}
+                              </span>
+                              <span
+                                className={`badge ${status.warn ? "warn" : "neutral"}`}
+                              >
+                                {status.label}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="p-actions">
+                            <button
+                              type="button"
+                              className="link"
+                              onClick={() => {
+                                setPreset(null);
+                                setPicking(false);
+                                setEditing(provider);
+                              }}
+                            >
+                              编辑
+                            </button>
+                            {draft.defaultProviderId !== provider.id && (
                               <button
                                 type="button"
                                 className="link"
-                                onClick={() => {
-                                  setPreset(null);
-                                  setPicking(false);
-                                  setEditing(provider);
-                                }}
+                                onClick={() =>
+                                  commit((previous) => ({
+                                    ...previous,
+                                    defaultProviderId: provider.id,
+                                  }))
+                                }
                               >
-                                编辑
+                                设为默认
                               </button>
-                              {draft.defaultProviderId !== provider.id && (
-                                <button
-                                  type="button"
-                                  className="link"
-                                  onClick={() =>
-                                    commit((previous) => ({
-                                      ...previous,
-                                      defaultProviderId: provider.id,
-                                    }))
-                                  }
-                                >
-                                  设为默认
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="link danger"
-                                onClick={() => deleteProvider(provider.id)}
-                              >
-                                删除
-                              </button>
-                            </div>
+                            )}
+                            <button
+                              type="button"
+                              className="link danger"
+                              onClick={() => deleteProvider(provider.id)}
+                            >
+                              删除
+                            </button>
                           </div>
-                        );
-                      })}
-                    </div>
-                    {draft.providers.length === 0 && (
-                      <p className="hint">
-                        添加一个模型提供商，为 Agent 选择可用的模型。
-                      </p>
-                    )}
-                  </>
-                )}
-
-                {editing === null && !picking && (
-                  <div className="preset-actions">
-                    <button
-                      type="button"
-                      className="btn ghost"
-                      onClick={() => setPicking(true)}
-                    >
-                      <IconPlus /> 从预设添加
-                    </button>
-                    <button
-                      type="button"
-                      className="link"
-                      onClick={() => {
-                        setPreset(null);
-                        setEditing("new");
-                      }}
-                    >
-                      手动配置端点
-                    </button>
-                    <span className="spacer" />
-                    <button
-                      type="button"
-                      className="link"
-                      disabled={refreshingCatalog}
-                      onClick={() => void refreshCatalog()}
-                    >
-                      <IconRefresh />
-                      {refreshingCatalog ? "刷新中…" : "刷新模型目录"}
-                    </button>
-                    {catalogNote && <span className="hint">{catalogNote}</span>}
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                  {draft.providers.length === 0 && (
+                    <p className="hint">
+                      添加一个模型提供商，为 Agent 选择可用的模型。
+                    </p>
+                  )}
+                </>
+              )}
 
-                {editing === null && picking && (
-                  <PresetPicker
-                    existingIds={draft.providers.map((provider) => provider.id)}
-                    onPick={(next) => {
-                      setPreset(next);
-                      setPicking(false);
+              {editing === null && !picking && (
+                <div className="preset-actions">
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    onClick={() => setPicking(true)}
+                  >
+                    <IconPlus /> 从预设添加
+                  </button>
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => {
+                      setPreset(null);
                       setEditing("new");
                     }}
-                    onCancel={() => setPicking(false)}
-                  />
-                )}
-
-                {editing !== null && (
-                  <ProviderForm
-                    initial={editing === "new" ? null : editing}
-                    preset={editing === "new" ? preset : null}
-                    existingIds={draft.providers.map((provider) => provider.id)}
-                    onSave={saveProvider}
-                    onCancel={closeEditor}
-                  />
-                )}
-              </section>
-            )}
-
-            {section === "account" && showLogout && (
-              <section className="settings-block">
-                <span className="label">远程访问凭据</span>
-                <div className="provider-row">
-                  <div className="info">
-                    <div className="p-name">
-                      Web 访问保护
-                      <span className="badge neutral">已认证</span>
-                    </div>
-                    <div className="p-url mono">PIPI_AUTH_TOKEN 已验证</div>
-                  </div>
-                  <div className="p-actions">
-                    <button
-                      type="button"
-                      className="link danger"
-                      onClick={async () => {
-                        await logout();
-                        onClose();
-                      }}
-                    >
-                      退出登录
-                    </button>
-                  </div>
+                  >
+                    手动配置端点
+                  </button>
+                  <span className="spacer" />
+                  <button
+                    type="button"
+                    className="link"
+                    disabled={refreshingCatalog}
+                    onClick={() => void refreshCatalog()}
+                  >
+                    <IconRefresh />
+                    {refreshingCatalog ? "刷新中…" : "刷新模型目录"}
+                  </button>
+                  {catalogNote && <span className="hint">{catalogNote}</span>}
                 </div>
-              </section>
-            )}
-          </div>
+              )}
+
+              {editing === null && picking && (
+                <PresetPicker
+                  existingIds={draft.providers.map((provider) => provider.id)}
+                  onPick={(next) => {
+                    setPreset(next);
+                    setPicking(false);
+                    setEditing("new");
+                  }}
+                  onCancel={() => setPicking(false)}
+                />
+              )}
+
+              {editing !== null && (
+                <ProviderForm
+                  initial={editing === "new" ? null : editing}
+                  preset={editing === "new" ? preset : null}
+                  existingIds={draft.providers.map((provider) => provider.id)}
+                  onSave={saveProvider}
+                  onCancel={closeEditor}
+                />
+              )}
+            </section>
+          )}
+
+          {section === "account" && showLogout && (
+            <section className="settings-block">
+              <span className="label">远程访问凭据</span>
+              <div className="provider-row">
+                <div className="info">
+                  <div className="p-name">
+                    Web 访问保护
+                    <span className="badge neutral">已认证</span>
+                  </div>
+                  <div className="p-url mono">PIPI_AUTH_TOKEN 已验证</div>
+                </div>
+                <div className="p-actions">
+                  <button
+                    type="button"
+                    className="link danger"
+                    onClick={async () => {
+                      await logout();
+                      onClose();
+                    }}
+                  >
+                    退出登录
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>
   );
-}
-
-const SECTION_ICONS = {
-  appearance: IconGear,
-  context: IconLayers,
-  retry: IconArrowRepeat,
-  providers: IconGrid,
-  account: IconKey,
-};
-
-function SettingsSectionIcon({ section }: { section: SettingsSection }) {
-  const Icon = SECTION_ICONS[section];
-  return <Icon />;
 }
 
 function keyStatus(p: ProviderConfig): { label: string; warn: boolean } {
