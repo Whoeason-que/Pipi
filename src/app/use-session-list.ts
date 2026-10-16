@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { formatRuntimeError, isAuthSilentError } from "../chat-runtime";
 import { invoke } from "../platform";
 import type { AgentDefinition, SessionSummaryView } from "../types";
@@ -13,7 +13,6 @@ export interface SessionListState {
   /** 删除 / 归档一个 Agent 后清掉它的会话缓存（避免同名重建后残留旧数据）。 */
   removeAgentSessions: (agentName: string) => void;
   sessionsFor: (agent: AgentDefinition) => SessionSummaryView[];
-  sessionTotal: number;
 }
 
 /**
@@ -113,11 +112,6 @@ export function useSessionList(
   const sessionsFor = useCallback((agent: AgentDefinition): SessionSummaryView[] =>
     sessionsByAgent[agent.name] ?? [], [sessionsByAgent]);
 
-  const sessionTotal = useMemo(
-    () => Object.values(sessionsByAgent).reduce((total, list) => total + list.length, 0),
-    [sessionsByAgent],
-  );
-
   return {
     agents,
     archivedAgents,
@@ -127,6 +121,5 @@ export function useSessionList(
     refreshArchived,
     removeAgentSessions,
     sessionsFor,
-    sessionTotal,
   };
 }

@@ -242,14 +242,11 @@
 
   /* 触屏没有 hover：时间与按钮直接常显（opacity 挂在子元素上） */
   .row-meta .time,
-  .row-meta .copy-btn {
+  .row-meta .copy-btn,
+  .row-meta .fork-btn {
     opacity: 1;
   }
 
-  /* 状态栏在窄屏只保留核心信息，长字段交给横向滚动 */
-  .status-bar .opt {
-    display: none;
-  }
 
   .tool-body {
     grid-template-columns: minmax(0, 1fr);

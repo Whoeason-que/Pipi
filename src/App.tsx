@@ -7,7 +7,6 @@ import { quickItems, type AppView, type QuickTarget } from "./app/navigation";
 import Overview from "./app/Overview";
 import { Rail, type NavSection } from "./app/Rail";
 import { Sidebar } from "./app/Sidebar";
-import { StatusBar } from "./app/StatusBar";
 import { useArchiveActions, type ConfirmRequest } from "./app/use-archive-actions";
 import { useHostEvents } from "./app/use-host-events";
 import { useSessionList } from "./app/use-session-list";
@@ -19,8 +18,7 @@ import ConfirmModal from "./components/ConfirmModal";
 import { useDialogFocus } from "./components/use-dialog-focus";
 import { IconClose, IconPanel, IconSearch } from "./icons";
 import Login from "./Login";
-import { getAuthStatus, getConnectionState, invoke, isTauriRuntime, listen, onAuthRequired,
-  subscribeConnection, type ConnectionState } from "./platform";
+import { getAuthStatus, invoke, isTauriRuntime, listen, onAuthRequired } from "./platform";
 import { useResizableWidth } from "./resizable";
 import { SearchPanel } from "./SearchPanel";
 import { SessionRuntime } from "./session-runtime";
@@ -29,8 +27,6 @@ import { SkillsSidebar } from "./skills/SkillsSidebar";
 import { SkillsView } from "./skills/SkillsView";
 import { applyTheme } from "./theme";
 import type { SessionInfoView, SessionSummaryView, SkillLibrary } from "./types";
-
-const APP_VERSION = typeof __PIPI_VERSION__ === "string" ? __PIPI_VERSION__ : "";
 
 export default function App() {
   const [sessionRuntime] = useState(() => new SessionRuntime({ invoke, listen }));
@@ -56,7 +52,6 @@ export default function App() {
   const [skillLibrary, setSkillLibrary] = useState<SkillLibrary | null>(null);
   const [skillSelected, setSkillSelected] = useState<string | null>(null);
   const [skillLoadError, setSkillLoadError] = useState<string | null>(null);
-  const [connection, setConnection] = useState<ConnectionState>(getConnectionState());
   const [error, setError] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmRequest | null>(null);
   const selected = "agentName" in view ? view.agentName : null;
@@ -80,7 +75,7 @@ export default function App() {
     setError(message);
   }, []);
   const { agents, archivedAgents, sessionsByAgent, refresh, refreshSessions, refreshArchived,
-    removeAgentSessions, sessionsFor, sessionTotal } = useSessionList(safeSetError);
+    removeAgentSessions, sessionsFor } = useSessionList(safeSetError);
   const { settings, setSettings, updateSettings } = useSettings(setError);
   const onOpenChat = useCallback((agentName: string, sessionId: string | null) => {
     setNavSection("agents");
@@ -124,7 +119,6 @@ export default function App() {
   const layout = useMemo(() => ({ navigationOpen: sidebarOpen, closeNavigation, toggleNavigation }), [sidebarOpen, closeNavigation, toggleNavigation]);
 
   useEffect(() => { try { localStorage.setItem("pipi-sidebar-collapsed", String(sidebarCollapsed)); } catch { /* 内存状态仍有效 */ } }, [sidebarCollapsed]);
-  useEffect(() => subscribeConnection(setConnection), []);
   useEffect(() => {
     const query = window.matchMedia("(max-width: 860px)");
     const change = () => { setMobile(query.matches); setSidebarOpen(false); };
@@ -192,7 +186,6 @@ export default function App() {
 
   return <LayoutContext.Provider value={layout}><div className={`app${sidebarOpen ? " sidebar-open" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
     style={{ "--sidebar-width": `${sidebarResize.width}px` } as React.CSSProperties}>
-    <StatusBar connection={connection} agentCount={agents.length} sessionCount={sessionTotal} runningCount={runningSessions.size} version={APP_VERSION} />
     <div className="app-body">
       <Rail navSection={navSection} settingsOpen={view.kind === "settings"} onToggleSettings={toggleSettings}
         onOpenSection={section => {

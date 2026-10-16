@@ -29,46 +29,6 @@ let webReconnectAttempt = 0;
 
 const TOKEN_STORAGE_KEY = "pipi_web_token";
 
-/** 前端可见的运行期连接状态（状态栏用）。 */
-export type ConnectionState = "online" | "connecting" | "offline" | "dev";
-
-const connectionListeners = new Set<(state: ConnectionState) => void>();
-let webConnectionState: ConnectionState = "connecting";
-
-function setConnectionState(next: ConnectionState): void {
-  if (webConnectionState === next) return;
-  webConnectionState = next;
-  connectionListeners.forEach((listener) => listener(next));
-}
-
-/**
- * 桌面端与开发桩没有「连接」概念，直接视为在线；
- * 浏览器模式跟随 WebSocket 状态。
- */
-export function getConnectionState(): ConnectionState {
-  if (devPlatform()) return "dev";
-  if (isTauriRuntime()) return "online";
-  return webConnectionState;
-}
-
-export function subscribeConnection(listener: (state: ConnectionState) => void): () => void {
-  connectionListeners.add(listener);
-  listener(getConnectionState());
-  return () => {
-    connectionListeners.delete(listener);
-  };
-}
-
-/** 状态栏展示用：当前实际生效的运行端点描述。 */
-export function getRuntimeEndpoint(): string {
-  if (devPlatform()) return "浏览器演示桩";
-  if (isTauriRuntime()) return "桌面端 · 内置核心";
-  try {
-    return `本地服务 ${new URL(webApiBase()).host}`;
-  } catch {
-    return "本地服务";
-  }
-}
 
 export interface AuthStatus {
   authRequired: boolean;
@@ -264,10 +224,8 @@ function ensureWebSocket(): void {
   }
   const socket = new WebSocket(webEventUrl());
   webSocket = socket;
-  setConnectionState("connecting");
   socket.onopen = () => {
     webReconnectAttempt = 0;
-    setConnectionState("online");
   };
   socket.onmessage = (message) => {
     if (typeof message.data !== "string") return;
@@ -283,13 +241,11 @@ function ensureWebSocket(): void {
     }
   };
   socket.onerror = () => {
-    setConnectionState("offline");
     socket.close();
   };
   socket.onclose = () => {
     if (webSocket !== socket) return;
     webSocket = null;
-    setConnectionState("offline");
     scheduleWebSocketReconnect();
   };
 }

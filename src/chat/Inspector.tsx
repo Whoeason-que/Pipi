@@ -2,15 +2,16 @@ import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTokens } from "../chat-runtime";
 
+import { IconClose } from "../icons";
 import { BASH_MODE_LABELS } from "../agents/agent-fields";
 import type { ChatInspectorContext } from "./inspector-context";
 import { ChipDetailPane } from "./ToolDetails";
 const WRITE_TOOLS = new Set(["write", "edit"]);
 // ============ 右侧检查器 ============
 
-type InspectorTab = "detail" | "stats" | "state" | "files";
+export type InspectorTab = "detail" | "stats" | "state" | "files";
 
-interface InspectorProps {
+export interface InspectorProps {
   hidden?: boolean;
   rootRef?: RefObject<HTMLElement | null>;
   /** 会话投影快照（见 `inspector-context`）：正式会话与设置工作台的测试页共用。 */
@@ -20,9 +21,13 @@ interface InspectorProps {
   embedded?: boolean;
   allowCompact?: boolean;
   temporary?: boolean;
+  activeTab?: InspectorTab;
+  onTabChange?: (tab: InspectorTab) => void;
+  hideHeaderTabs?: boolean;
+  onClose?: () => void;
 }
 
-const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
+export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "detail", label: "调用详情" },
   { id: "stats", label: "会话统计" },
   { id: "state", label: "当前状态" },
@@ -37,6 +42,10 @@ export default function Inspector({
   temporary = false,
   hidden = false,
   rootRef,
+  activeTab: activeTabProp,
+  onTabChange,
+  hideHeaderTabs = false,
+  onClose,
 }: InspectorProps) {
   const {
     agent,
@@ -51,7 +60,12 @@ export default function Inspector({
     chipDetailMode,
     onUnpinChip,
   } = context;
-  const [tab, setTab] = useState<InspectorTab>("stats");
+  const [internalTab, setInternalTab] = useState<InspectorTab>("stats");
+  const tab = activeTabProp ?? internalTab;
+  const setTab = (next: InspectorTab) => {
+    setInternalTab(next);
+    onTabChange?.(next);
+  };
   // 正在压缩：压缩条目在收尾前是 transient（见 chat-runtime 的 compaction_start）
   const compacting = entries.some((entry) => entry.kind === "compaction" && entry.transient);
   const canCompact = allowCompact && Boolean(sessionId) && !running && !compacting;
@@ -160,23 +174,42 @@ export default function Inspector({
       id={embedded ? undefined : "session-inspector"}
       aria-label={embedded ? "临时测试信息" : "会话检查器"}
     >
-      <div className="itabs" role="tablist" aria-label="检查器视图" onKeyDown={handleTabKeys}>
-        {INSPECTOR_TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            id={`itab-${item.id}`}
-            aria-selected={tab === item.id}
-            aria-controls={`ipanel-${item.id}`}
-            tabIndex={tab === item.id ? 0 : -1}
-            className={`itab${tab === item.id ? " active" : ""}`}
-            onClick={() => setTab(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      {hideHeaderTabs ? (
+        <div className="inspector-head">
+          <span className="inspector-title">
+            {INSPECTOR_TABS.find((item) => item.id === tab)?.label ?? "检查器"}
+          </span>
+          {onClose && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={onClose}
+              aria-label="关闭检查器"
+              title="关闭检查器"
+            >
+              <IconClose />
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="itabs" role="tablist" aria-label="检查器视图" onKeyDown={handleTabKeys}>
+          {INSPECTOR_TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              id={`itab-${item.id}`}
+              aria-selected={tab === item.id}
+              aria-controls={`ipanel-${item.id}`}
+              tabIndex={tab === item.id ? 0 : -1}
+              className={`itab${tab === item.id ? " active" : ""}`}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="ipanels">
         <div

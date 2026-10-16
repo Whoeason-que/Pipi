@@ -11,10 +11,10 @@ import {
   type Chip
 } from "./chat-runtime";
 import ChatTimeline from "./chat/ChatTimeline";
-import Inspector from "./chat/Inspector";
+import Inspector, { INSPECTOR_TABS, type InspectorTab } from "./chat/Inspector";
 import type { ChatInspectorContext } from "./chat/inspector-context";
 import ModelSelectModal from "./chat/ModelSelectModal";
-import { IconArrowDown, IconBack, IconClose, IconFork, IconGrid, IconPanel, IconPlus, IconSearch, IconSend, IconStop } from "./icons";
+import { IconArrowDown, IconBack, IconClose, IconGrid, IconPanel, IconPlus, IconSearch, IconSend, IconStop } from "./icons";
 import { useResizableWidth } from "./resizable";
 import type { SessionRuntime } from "./session-runtime";
 import type { AgentDefinition, ModelConfig, ProviderConfig, SessionInfoView } from "./types";
@@ -86,6 +86,9 @@ export default function ChatView({
   const [pinnedChip, setPinnedChip] = useState<string | null>(null);
   const [previewChip, setPreviewChip] = useState<string | null>(null);
   const [modelModalOpen, setModelModalOpen] = useState(false);
+  const [activeInspectorTab, setActiveInspectorTab] = useState<InspectorTab>("stats");
+  const previousTabRef = useRef<InspectorTab>("stats");
+
   const [inspectorOpen, setInspectorOpen] = useState(
     () => isTest && (typeof window === "undefined" || window.innerWidth > 1100),
   );
@@ -126,6 +129,16 @@ export default function ChatView({
     if (pinnedChip && !chipById.has(pinnedChip)) setPinnedChip(null);
     if (previewChip && !chipById.has(previewChip)) setPreviewChip(null);
   }, [chipById, pinnedChip, previewChip]);
+  useEffect(() => {
+    if (activeChipId) {
+      if (activeInspectorTab !== "detail") {
+        previousTabRef.current = activeInspectorTab;
+        setActiveInspectorTab("detail");
+      }
+    } else if (activeInspectorTab === "detail") {
+      setActiveInspectorTab(previousTabRef.current);
+    }
+  }, [activeChipId]);
   const followTailRef = useRef(true);
   const composingRef = useRef(false);
   const compositionEndedAtRef = useRef(0);
@@ -251,9 +264,19 @@ export default function ChatView({
   const togglePinnedDetail = (id: string) => {
     setPinnedChip(current => current === id ? null : id);
     setPreviewChip(null);
+    setActiveInspectorTab("detail");
     onInspectDetail?.();
     layout.closeNavigation();
     setInspectorOpen(true);
+  };
+  const handleBarTabClick = (tabId: InspectorTab) => {
+    if (inspectorOpen && activeInspectorTab === tabId) {
+      setInspectorOpen(false);
+    } else {
+      setActiveInspectorTab(tabId);
+      layout.closeNavigation();
+      setInspectorOpen(true);
+    }
   };
   const stop = () => { void controller.stop(); };
   const newSession = async () => {
@@ -300,8 +323,7 @@ export default function ChatView({
       className={`chat-shell${inspectorOpen ? " inspector-open" : ""}${isTest ? " test-workbench" : ""}`}
       style={{ "--inspector-width": `${inspectorResize.width}px` } as React.CSSProperties}
     >
-      <div className="chat">
-        <div className="screen-bar">
+      <div className="screen-bar" role="toolbar" aria-label="会话工具栏">
           <button type="button" className="icon-btn navigation-toggle" aria-label="切换导航" onClick={layout.toggleNavigation}><IconPanel /></button>
           <button type="button" className="icon-btn" title="返回" aria-label="返回" onClick={onBack}>
             <IconBack />
@@ -312,8 +334,36 @@ export default function ChatView({
             </span>
           ) : (
             <span className="crumb chat-title" title={`${agent.name} · ${title}`}>
-              <b>{title}</b><span>{agent.name}</span>
+              <b>{title}</b><span className="agent-tag">{agent.name}</span>
             </span>
+          )}
+          {running && (
+            <span className="running-pill" title="当前会话正在运行">
+              <span className="running-dot pulse" />
+              运行中
+            </span>
+          )}
+          {!isTest && (
+            <div className="bar-tabs" role="tablist" aria-label="会话检查器选项卡">
+              {INSPECTOR_TABS.map((item) => {
+                const isSelected = inspectorOpen && activeInspectorTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="tab"
+                    id={`bar-tab-${item.id}`}
+                    aria-selected={isSelected}
+                    aria-controls={`ipanel-${item.id}`}
+                    className={`bar-tab${isSelected ? " active" : ""}`}
+                    onClick={() => handleBarTabClick(item.id)}
+                  >
+                    {item.label}
+                    {item.id === "detail" && activeChip && <span className="tab-dot" />}
+                  </button>
+                );
+              })}
+            </div>
           )}
           <span className="spacer" />
           {isTest ? (
@@ -321,9 +371,6 @@ export default function ChatView({
               <span className="test-mode-pill">
                 <span className={`test-mode-dot${running ? " running" : ""}`} />
                 临时测试
-              </span>
-              <span className="test-model mono" title={sessionModel?.id || "未配置模型"}>
-                {sessionModel?.id || "未配置模型"}
               </span>
               <button
                 type="button"
@@ -336,45 +383,23 @@ export default function ChatView({
               </button>
             </>
           ) : (
-            <>
-              <button
-                type="button"
-                className="model-pill"
-                onClick={() => setModelModalOpen(true)}
-                disabled={running}
-                title={running ? "Agent 运行中不可切换模型" : "点击切换当前会话的模型"}
-              >
-                <span className="model-pill-name mono">{sessionModel?.id || "未配置模型"}</span>
-                <span className="model-pill-tag">{isCustomModel ? "自定义" : "默认"}</span>
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={forkSession}
-                disabled={!ready || running || !sessionId}
-                title="从当前对话节点分叉出新会话"
-                aria-label="分叉会话"
-              >
-                <IconFork />
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={newSession}
-                disabled={!ready || sending}
-                title="新会话"
-                aria-label="新建会话"
-              >
-                <IconPlus />
-              </button>
-            </>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={newSession}
+              disabled={!ready || sending}
+              title="新会话"
+              aria-label="新建会话"
+            >
+              <IconPlus />
+            </button>
           )}
           <button type="button" className={`icon-btn${findOpen ? " active" : ""}`} aria-label="查找会话内容" title="查找 Ctrl/⌘ F" onClick={() => setFindOpen(open => !open)}><IconSearch /></button>
           <button
             type="button"
             className={`icon-btn${inspectorOpen ? " active" : ""}`}
             onClick={() => { layout.closeNavigation(); setInspectorOpen((open) => !open); }}
-            title={isTest ? "Agent 设置" : "统计 / 检查器"}
+            title={isTest ? "Agent 设置" : "展开/折叠检查器"}
             aria-label={isTest ? "切换 Agent 设置" : "切换检查器"}
             aria-expanded={inspectorOpen}
             aria-controls="session-inspector"
@@ -383,7 +408,9 @@ export default function ChatView({
           </button>
         </div>
 
-        {findOpen && <div className="conversation-find" role="search" aria-label="会话内查找">
+        <div className="chat-body">
+          <div className="chat">
+            {findOpen && <div className="conversation-find" role="search" aria-label="会话内查找">
           <IconSearch /><input ref={findInputRef} aria-label="查找当前会话" placeholder="查找当前会话…" value={findQuery}
             onChange={event => { setFindQuery(event.target.value); setFindKey(null); }} onKeyDown={event => {
               if (event.nativeEvent.isComposing) return;
@@ -422,7 +449,8 @@ export default function ChatView({
           )}
           <ChatTimeline blocks={blocks} activeChipId={activeChipId} pinnedChip={pinnedChip}
             findHits={findOpen ? findHits : []} activeFindKey={findOpen ? activeFindKey : null}
-            previewDetail={setPreviewChip} clearPreviewDetail={clearPreviewDetail} togglePinnedDetail={togglePinnedDetail} />
+            previewDetail={setPreviewChip} clearPreviewDetail={clearPreviewDetail} togglePinnedDetail={togglePinnedDetail}
+            onFork={!isTest ? forkSession : undefined} forkDisabled={!ready || running || !sessionId} />
         </div>
 
         <div className="composer">
@@ -486,6 +514,22 @@ export default function ChatView({
               }}
             />
             <div className="composer-bar">
+              {!isTest ? (
+                <button
+                  type="button"
+                  className="model-pill composer-model-pill"
+                  onClick={() => setModelModalOpen(true)}
+                  disabled={running}
+                  title={running ? "Agent 运行中不可切换模型" : "点击切换当前会话的模型"}
+                >
+                  <span className="model-pill-name mono">{sessionModel?.id || "未配置模型"}</span>
+                  <span className="model-pill-tag">{isCustomModel ? "自定义" : "默认"}</span>
+                </button>
+              ) : (
+                <span className="test-model mono composer-model-pill" title={sessionModel?.id || "未配置模型"}>
+                  {sessionModel?.id || "未配置模型"}
+                </span>
+              )}
               <span className="hint composer-state" role="status">{stopping ? "正在停止…" : sending ? "正在提交…" : running ? "运行中 · 可插话调整方向" : "Enter 发送 · Shift+Enter 换行"}</span>
               <span className="spacer" />
               {running && (
@@ -536,8 +580,18 @@ export default function ChatView({
           {renderInspector(inspectorContext)}
         </aside>
       ) : (
-        <Inspector context={inspectorContext} onCompact={compactNow} hidden={!inspectorOpen} rootRef={inspectorRef} />
+        <Inspector
+          context={inspectorContext}
+          onCompact={compactNow}
+          hidden={!inspectorOpen}
+          rootRef={inspectorRef}
+          activeTab={activeInspectorTab}
+          onTabChange={setActiveInspectorTab}
+          hideHeaderTabs={true}
+          onClose={() => setInspectorOpen(false)}
+        />
       )}
+      </div>
 
       {narrow && inspectorOpen && (
         <button

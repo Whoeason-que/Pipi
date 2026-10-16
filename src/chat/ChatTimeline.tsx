@@ -1,11 +1,30 @@
 import { assistantFooter, type ChatBlock } from "../chat-runtime";
 import { Markdown } from "../Markdown";
 import { ChipRow, CopyButton, formatClock } from "./ToolDetails";
+import { IconFork } from "../icons";
 
-export default function ChatTimeline({ blocks, activeChipId, pinnedChip, previewDetail, clearPreviewDetail, togglePinnedDetail, findHits, activeFindKey }: {
-  blocks: ChatBlock[]; activeChipId: string | null; pinnedChip: string | null;
-  findHits: string[]; activeFindKey: string | null;
-  previewDetail: (id: string) => void; clearPreviewDetail: () => void; togglePinnedDetail: (id: string) => void;
+export default function ChatTimeline({
+  blocks,
+  activeChipId,
+  pinnedChip,
+  previewDetail,
+  clearPreviewDetail,
+  togglePinnedDetail,
+  findHits,
+  activeFindKey,
+  onFork,
+  forkDisabled,
+}: {
+  blocks: ChatBlock[];
+  activeChipId: string | null;
+  pinnedChip: string | null;
+  findHits: string[];
+  activeFindKey: string | null;
+  previewDetail: (id: string) => void;
+  clearPreviewDetail: () => void;
+  togglePinnedDetail: (id: string) => void;
+  onFork?: () => void;
+  forkDisabled?: boolean;
 }) {
   return <>
           {blocks.map((block) => {
@@ -88,6 +107,18 @@ export default function ChatTimeline({ blocks, activeChipId, pinnedChip, preview
                         <span className="time">{formatClock(entry.timestamp)}</span>
                       ) : null}
                       <CopyButton text={entry.text} />
+                      {onFork ? (
+                        <button
+                          type="button"
+                          className="icon-btn fork-btn"
+                          onClick={onFork}
+                          disabled={forkDisabled}
+                          title={forkDisabled ? "当前无法分叉" : "分叉会话"}
+                          aria-label="分叉会话"
+                        >
+                          <IconFork />
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </div>
