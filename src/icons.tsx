@@ -150,9 +150,9 @@ export function IconSend() {
 }
 
 /** 停止（运行中） */
-export function IconStop() {
+export function IconStop({ size = 11 }: { size?: number } = {}) {
   return (
-    <IconBase size={11}>
+    <IconBase size={size}>
       <rect x="6" y="6" width="12" height="12" rx="1.5" />
     </IconBase>
   );
@@ -242,3 +242,84 @@ export function IconDownload() {
     </IconBase>
   );
 }
+
+/** 警告三角形（通用错误） */
+export function IconAlertTriangle({ size }: { size?: number }) {
+  return (
+    <IconBase size={size}>
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </IconBase>
+  );
+}
+
+/** 钥匙（认证 / API Key 异常） */
+export function IconKey({ size }: { size?: number }) {
+  return (
+    <IconBase size={size}>
+      <circle cx="7.5" cy="15.5" r="5.5" />
+      <path d="m21 2-9.6 9.6M15.5 7.5l3 3M18.5 4.5l3 3" />
+    </IconBase>
+  );
+}
+
+/** 时钟（速率限制 / 频次耗尽） */
+export function IconClock({ size }: { size?: number }) {
+  return (
+    <IconBase size={size}>
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </IconBase>
+  );
+}
+
+/** 断网 / 连接中断 */
+export function IconWifiOff({ size }: { size?: number }) {
+  return (
+    <IconBase size={size}>
+      <line x1="1" y1="1" x2="23" y2="23" />
+      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+      <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+      <path d="M10.71 5.05A16 16 0 0 1 22.58 9" />
+      <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+      <line x1="12" y1="20" x2="12.01" y2="20" />
+    </IconBase>
+  );
+}
+
+/** 图层 / 上下文窗口 */
+export function IconLayers({ size }: { size?: number }) {
+  return (
+    <IconBase size={size}>
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 22 17" />
+      <polyline points="2 12 12 17 22 12" />
+    </IconBase>
+  );
+}
+
+/** 盾牌告警（权限拒绝 / 安全策略） */
+export function IconShieldAlert({ size }: { size?: number }) {
+  return (
+    <IconBase size={size}>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </IconBase>
+  );
+}
+
+/** 协议切换 / 双向循环 */
+export function IconArrowRepeat({ size }: { size?: number }) {
+  return (
+    <IconBase size={size}>
+      <path d="m17 2 4 4-4 4" />
+      <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+      <path d="m7 22-4-4 4-4" />
+      <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+    </IconBase>
+  );
+}
+

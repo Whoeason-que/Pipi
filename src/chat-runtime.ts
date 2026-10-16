@@ -575,7 +575,13 @@ export function groupChatBlocks(entries: ChatEntry[]): ChatBlock[] {
         status: entry.streaming ? "running" : "ok",
       });
     }
-    if (entry.text && entry.text.trim()) {
+    const hasError =
+      entry.status === "error" ||
+      entry.status === "aborted" ||
+      entry.stopReason === "error" ||
+      entry.stopReason === "aborted" ||
+      Boolean(entry.errorMessage);
+    if ((entry.text && entry.text.trim()) || hasError) {
       flushChips();
       blocks.push({ kind: "body", key: entry.key, entry });
     }

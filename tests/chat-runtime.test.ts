@@ -413,3 +413,105 @@ test("agent end does not duplicate assistant message with tool calls", () => {
   );
 });
 
+test("classifyChatError correctly identifies all error categories with actionable suggestions", async () => {
+  const { classifyChatError } = await import("../src/chat/chat-errors.ts");
+
+  // 用户主动中止
+  const aborted = classifyChatError({ status: "aborted", text: "■ 已中止" });
+  assert.equal(aborted.category, "aborted");
+  assert.equal(aborted.badge, "已中止");
+
+  // 认证与 API Key
+  const auth1 = classifyChatError({ errorMessage: "401 Unauthorized: Invalid API Key" });
+  assert.equal(auth1.category, "auth");
+  assert.equal(auth1.badge, "认证异常");
+  assert.ok(auth1.suggestion?.includes("设置 → 模型服务"));
+
+  const auth2 = classifyChatError({ errorMessage: "ProviderError::InvalidAuthentication" });
+  assert.equal(auth2.category, "auth");
+
+  // 频率与配额限制
+  const rateLimit = classifyChatError({ errorMessage: "429 Too Many Requests: Rate limit exceeded for model" });
+  assert.equal(rateLimit.category, "rate_limit");
+  assert.equal(rateLimit.badge, "频率限制");
+  assert.ok(rateLimit.suggestion?.includes("稍候片刻"));
+
+  const quota = classifyChatError({ errorMessage: "insufficient_quota: 账户余额已耗尽" });
+  assert.equal(quota.category, "rate_limit");
+
+  // 上下文超限
+  const context = classifyChatError({ errorMessage: "maximum context length is 128000 tokens, but prompt had 135000" });
+  assert.equal(context.category, "context_overflow");
+  assert.equal(context.badge, "上下文超限");
+  assert.ok(context.suggestion?.includes("会话压缩"));
+
+  // 协议不匹配
+  const protocol = classifyChatError({ errorMessage: "ModelProtocolUnsupported: Anthropic / OpenAI 两种协议均已尝试" });
+  assert.equal(protocol.category, "protocol");
+  assert.equal(protocol.badge, "协议错误");
+  assert.ok(protocol.suggestion?.includes("自动"));
+
+  // 权限拦截
+  const permission = classifyChatError({ errorMessage: "命令被拒绝：检测到安全策略拦截" });
+  assert.equal(permission.category, "permission");
+  assert.equal(permission.badge, "权限拦截");
+
+  // 网络超时与中断
+  const timeout = classifyChatError({ errorMessage: "请求超时（timeout after 30s）：流提前结束" });
+  assert.equal(timeout.category, "network");
+  assert.equal(timeout.badge, "连接异常");
+  assert.ok(timeout.suggestion?.includes("代理"));
+
+  // 通用错误
+  const generic = classifyChatError({ errorMessage: "500 Internal Server Error in backend cluster" });
+  assert.equal(generic.category, "generic");
+  assert.equal(generic.badge, "运行错误");
+});
+
+test("extractAssistantContentAndError separates prose and error states cleanly", async () => {
+  const { extractAssistantContentAndError } = await import("../src/chat/chat-errors.ts");
+
+  // 1. 正常正文，无错误
+  const normal = extractAssistantContentAndError({
+    text: "这是生成的回答",
+  });
+  assert.equal(normal.cleanText, "这是生成的回答");
+  assert.equal(normal.errorInfo, null);
+
+  // 2. 纯错误文本
+  const pureError = extractAssistantContentAndError({
+    text: "⚠ 401 Unauthorized",
+    status: "error",
+    errorMessage: "401 Unauthorized",
+  });
+  assert.equal(pureError.cleanText, "");
+  assert.equal(pureError.errorInfo?.category, "auth");
+
+  // 3. 半截正文 + 中止标记
+  const partialAborted = extractAssistantContentAndError({
+    text: "代码实现如下：\n```ts\nconst x = 1;\n```\n■ 已中止",
+    status: "aborted",
+    stopReason: "aborted",
+  });
+  assert.equal(partialAborted.cleanText, "代码实现如下：\n```ts\nconst x = 1;\n```");
+  assert.equal(partialAborted.errorInfo?.category, "aborted");
+
+  // 4. 纯中止
+  const pureAborted = extractAssistantContentAndError({
+    text: "■ 已中止",
+    status: "aborted",
+  });
+  assert.equal(pureAborted.cleanText, "");
+  assert.equal(pureAborted.errorInfo?.category, "aborted");
+
+  // 5. 输出部分正文后遭遇网络超时
+  const partialNetworkError = extractAssistantContentAndError({
+    text: "第一步先解析 AST：",
+    status: "error",
+    errorMessage: "流提前结束：未收到结束帧（连接被中断）",
+  });
+  assert.equal(partialNetworkError.cleanText, "第一步先解析 AST：");
+  assert.equal(partialNetworkError.errorInfo?.category, "network");
+});
+
+

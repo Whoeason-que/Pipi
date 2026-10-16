@@ -16,7 +16,7 @@ import ChatView from "./Chat";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
 import { useDialogFocus } from "./components/use-dialog-focus";
-import { IconClose, IconPanel, IconSearch } from "./icons";
+import { IconAlertTriangle, IconClose, IconPanel, IconSearch } from "./icons";
 import Login from "./Login";
 import { getAuthStatus, invoke, isTauriRuntime, listen, onAuthRequired } from "./platform";
 import { useResizableWidth } from "./resizable";
@@ -222,7 +222,15 @@ export default function App() {
           <span className="toolbar-divider" /><span>{title}</span><span className="spacer" />
           <button type="button" className="icon-btn" aria-label="打开快捷操作" title="快捷操作 Ctrl/⌘ K" onClick={() => setPaletteOpen(true)}><IconSearch /></button>
         </header>}
-        {error && <div className="error" role="alert"><span>{error}</span><button type="button" className="error-dismiss" aria-label="关闭错误提示" onClick={() => setError(null)}><IconClose /></button></div>}
+        {error && (
+          <div className="error" role="alert">
+            <IconAlertTriangle size={15} />
+            <span>{error}</span>
+            <button type="button" className="error-dismiss" aria-label="关闭错误提示" onClick={() => setError(null)}>
+              <IconClose />
+            </button>
+          </div>
+        )}
         {view.kind === "settings" && settings ? <SettingsView settings={settings} onChange={updateSettings} onClose={toggleSettings}
           showLogout={!isTauriRuntime() && authStatus.authRequired} />
           : view.kind === "create" ? <CreateAgentForm providers={settings?.providers ?? []} defaultProviderId={settings?.defaultProviderId ?? null}

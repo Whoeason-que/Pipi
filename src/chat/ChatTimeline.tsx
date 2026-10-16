@@ -2,6 +2,8 @@ import { assistantFooter, type ChatBlock } from "../chat-runtime";
 import { Markdown } from "../Markdown";
 import { ChipRow, CopyButton, formatClock } from "./ToolDetails";
 import { IconFork } from "../icons";
+import { ChatErrorCard } from "./ChatErrorCard";
+import { extractAssistantContentAndError } from "./chat-errors";
 
 export default function ChatTimeline({
   blocks,
@@ -92,10 +94,11 @@ export default function ChatTimeline({
               );
             }
             // 正文块：assistant 文本（thinking 与工具调用已由标签行承载）
-            const footer = !entry.streaming && !entry.status
+            const { cleanText, errorInfo } = extractAssistantContentAndError(entry);
+            const footer = !entry.streaming && !errorInfo && cleanText
               ? assistantFooter({
                   role: "assistant",
-                  content: entry.text,
+                  content: cleanText,
                   usage: entry.usage,
                   durationMs: entry.durationMs,
                 })
@@ -105,13 +108,23 @@ export default function ChatTimeline({
             const isPreview = previewFindKey === block.key;
             const isPinned = pinnedFindKey === block.key;
             const findCls = isHit ? ` find-hit${isCurrent ? " find-current" : ""}${isPreview ? " find-preview" : ""}${isPinned ? " find-pinned" : ""}` : "";
+            const errorCls = errorInfo ? ` row-has-error row-error-${errorInfo.category}` : "";
             return (
-              <div key={entry.key} data-entry-key={block.key} className={`row${findCls}`}>
+              <div key={entry.key} data-entry-key={block.key} className={`row${findCls}${errorCls}`}>
                 <div className="row-inner">
-                  <div className="content">
-                    <Markdown text={entry.text} />
-                    {entry.streaming && <span className="cursor" aria-hidden="true" />}
-                  </div>
+                  {cleanText ? (
+                    <div className="content">
+                      <Markdown text={cleanText} />
+                      {entry.streaming && <span className="cursor" aria-hidden="true" />}
+                    </div>
+                  ) : entry.streaming ? (
+                    <div className="content">
+                      <span className="cursor" aria-hidden="true" />
+                    </div>
+                  ) : null}
+
+                  {errorInfo && <ChatErrorCard info={errorInfo} />}
+
                   {!entry.streaming && (
                     // 统计信息与时间、按钮同一行；时间与按钮靠右（hover 时淡入）
                     <div className="row-meta">
@@ -120,7 +133,7 @@ export default function ChatTimeline({
                       {entry.timestamp ? (
                         <span className="time">{formatClock(entry.timestamp)}</span>
                       ) : null}
-                      <CopyButton text={entry.text} />
+                      {cleanText ? <CopyButton text={cleanText} /> : null}
                       {onFork ? (
                         <button
                           type="button"

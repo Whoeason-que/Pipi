@@ -247,6 +247,289 @@
   font-size: 13px;
 }
 
+/* ============ 会话报错与中止差异化渲染 ============ */
+
+/* 用户主动中止胶囊 */
+.chat-aborted-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  background: var(--stripe);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-full);
+  user-select: none;
+}
+
+.chat-aborted-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--faint);
+}
+
+.chat-aborted-text {
+  font-weight: 450;
+}
+
+/* 结构化错误卡片 */
+.chat-error-card {
+  --error-accent: var(--danger);
+  --error-bg: var(--danger-soft);
+  --error-border: var(--danger-border);
+  --error-badge-bg: rgba(229, 72, 77, 0.15);
+
+  margin-top: 8px;
+  padding: 11px 13px;
+  border-radius: var(--r);
+  border: 1px solid var(--error-border);
+  background: var(--error-bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* 差异化错误分类颜色配置（暗色主题默认） */
+.chat-error-card.chat-error-auth {
+  --error-accent: #f59e0b;
+  --error-bg: rgba(245, 158, 11, 0.08);
+  --error-border: rgba(245, 158, 11, 0.32);
+  --error-badge-bg: rgba(245, 158, 11, 0.18);
+}
+
+.chat-error-card.chat-error-rate_limit {
+  --error-accent: var(--warn);
+  --error-bg: var(--warn-soft);
+  --error-border: var(--warn-border);
+  --error-badge-bg: rgba(213, 160, 33, 0.2);
+}
+
+.chat-error-card.chat-error-context_overflow {
+  --error-accent: #a78bfa;
+  --error-bg: rgba(167, 139, 250, 0.08);
+  --error-border: rgba(167, 139, 250, 0.32);
+  --error-badge-bg: rgba(167, 139, 250, 0.18);
+}
+
+.chat-error-card.chat-error-network {
+  --error-accent: #38bdf8;
+  --error-bg: rgba(56, 189, 248, 0.08);
+  --error-border: rgba(56, 189, 248, 0.32);
+  --error-badge-bg: rgba(56, 189, 248, 0.18);
+}
+
+.chat-error-card.chat-error-protocol {
+  --error-accent: #e879f9;
+  --error-bg: rgba(232, 121, 249, 0.08);
+  --error-border: rgba(232, 121, 249, 0.32);
+  --error-badge-bg: rgba(232, 121, 249, 0.18);
+}
+
+.chat-error-card.chat-error-permission {
+  --error-accent: #fb7185;
+  --error-bg: rgba(251, 113, 133, 0.08);
+  --error-border: rgba(251, 113, 133, 0.32);
+  --error-badge-bg: rgba(251, 113, 133, 0.18);
+}
+
+.chat-error-card.chat-error-generic {
+  --error-accent: var(--danger);
+  --error-bg: var(--danger-soft);
+  --error-border: var(--danger-border);
+  --error-badge-bg: rgba(229, 72, 77, 0.2);
+}
+
+/* 亮色模式微调适配 */
+:root[data-theme="light"] .chat-error-card.chat-error-auth {
+  --error-accent: #b45309;
+  --error-bg: rgba(217, 119, 6, 0.06);
+  --error-border: rgba(217, 119, 6, 0.28);
+  --error-badge-bg: rgba(217, 119, 6, 0.14);
+}
+
+:root[data-theme="light"] .chat-error-card.chat-error-rate_limit {
+  --error-accent: var(--warn);
+  --error-bg: var(--warn-soft);
+  --error-border: var(--warn-border);
+  --error-badge-bg: rgba(154, 103, 0, 0.14);
+}
+
+:root[data-theme="light"] .chat-error-card.chat-error-context_overflow {
+  --error-accent: #7c3aed;
+  --error-bg: rgba(124, 58, 237, 0.06);
+  --error-border: rgba(124, 58, 237, 0.26);
+  --error-badge-bg: rgba(124, 58, 237, 0.14);
+}
+
+:root[data-theme="light"] .chat-error-card.chat-error-network {
+  --error-accent: #0284c7;
+  --error-bg: rgba(2, 132, 199, 0.06);
+  --error-border: rgba(2, 132, 199, 0.26);
+  --error-badge-bg: rgba(2, 132, 199, 0.14);
+}
+
+:root[data-theme="light"] .chat-error-card.chat-error-protocol {
+  --error-accent: #c026d3;
+  --error-bg: rgba(192, 38, 211, 0.06);
+  --error-border: rgba(192, 38, 211, 0.26);
+  --error-badge-bg: rgba(192, 38, 211, 0.14);
+}
+
+:root[data-theme="light"] .chat-error-card.chat-error-permission {
+  --error-accent: #e11d48;
+  --error-bg: rgba(225, 29, 72, 0.06);
+  --error-border: rgba(225, 29, 72, 0.26);
+  --error-badge-bg: rgba(225, 29, 72, 0.14);
+}
+
+:root[data-theme="light"] .chat-error-card.chat-error-generic {
+  --error-accent: var(--danger);
+  --error-bg: var(--danger-soft);
+  --error-border: var(--danger-border);
+  --error-badge-bg: rgba(207, 34, 46, 0.12);
+}
+
+/* 头部布局 */
+.chat-error-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.chat-error-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--error-accent);
+}
+
+.chat-error-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-error-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-error-badge {
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 1.5px 6px;
+  border-radius: var(--r-sm);
+  color: var(--error-accent);
+  background: var(--error-badge-bg);
+  border: 1px solid var(--error-border);
+  flex-shrink: 0;
+}
+
+.chat-error-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  flex-shrink: 0;
+}
+
+.chat-error-copy-btn:hover {
+  color: var(--text);
+  border-color: var(--line-2);
+  background: var(--hover);
+}
+
+.chat-error-copy-btn .copy-label {
+  font-family: var(--font-sans);
+}
+
+/* 建议指引条 */
+.chat-error-suggestion {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--stripe);
+  border-left: 3px solid var(--error-accent);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.chat-error-suggestion .suggestion-prefix {
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 2px;
+}
+
+.chat-error-suggestion .suggestion-text {
+  color: var(--text);
+}
+
+/* 短错误正文 */
+.chat-error-message {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* 长错误可折叠详情 */
+.chat-error-details {
+  margin-top: 8px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 6px;
+}
+
+.chat-error-summary {
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s;
+}
+
+.chat-error-summary:hover {
+  color: var(--text);
+}
+
+.chat-error-pre {
+  margin-top: 6px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+
 /* 标签行：连续的工具调用 / thinking 折叠成一行（细节在右栏「调用详情」） */
 
 .chip-line {
@@ -771,7 +1054,7 @@ pre.code {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--panel);
   border-left: 1px solid var(--line-soft);
   padding-bottom: var(--safe-bottom);
 }
@@ -1029,7 +1312,7 @@ pre.code {
   gap: 12px;
   padding: 10px 14px calc(10px + var(--safe-bottom));
   border-top: 1px solid var(--line-soft);
-  background: var(--bg);
+  background: var(--panel);
 }
 
 .save-state {

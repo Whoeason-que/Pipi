@@ -138,7 +138,7 @@ kbd { font-family: inherit; font-size: 10px; color: var(--faint); border: 1px so
 .palette-footer { display: flex; gap: 18px; border-top: 1px solid var(--line); padding: 10px 18px; color: var(--faint); font-size: 10px; }
 .chat-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .chat-body { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; position: relative; }
-.screen-bar { position: relative; flex-shrink: 0; height: 50px; padding: 0 16px 0 20px; gap: 12px; background: var(--panel); border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; }
+.screen-bar { position: relative; flex-shrink: 0; height: 50px; padding: 0 16px 0 20px; gap: 12px; background: var(--bg); border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; }
 .screen-bar::after { display: none; }
 .screen-bar .crumb { flex: 0 1 auto; min-width: 0; max-width: 44ch; font-family: inherit; }
 .chat-title { display: flex; align-items: baseline; gap: 8px; }
@@ -167,7 +167,7 @@ kbd { font-family: inherit; font-size: 10px; color: var(--faint); border: 1px so
 .bar-tab:hover .bar-tab-icon { opacity: 0.9; }
 
 /* 激活 Tab：浏览器 Tab 卡片形态，与下方面板无缝衔接 */
-.bar-tab.active { color: var(--fg); font-weight: 550; background: var(--bg); border: 1px solid var(--line); border-bottom: 1px solid var(--bg); border-radius: 8px 8px 0 0; z-index: 2; box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.05); }
+.bar-tab.active { color: var(--fg); font-weight: 550; background: var(--panel); border: 1px solid var(--line); border-bottom: 1px solid var(--panel); border-radius: 8px 8px 0 0; z-index: 2; box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.05); }
 .bar-tab.active .bar-tab-icon { opacity: 1; color: var(--accent-text); }
 .bar-tab.active::before { content: ""; position: absolute; top: -1px; left: 6px; right: 6px; height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; }
 .bar-tab .tab-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); margin-left: -1px; }
