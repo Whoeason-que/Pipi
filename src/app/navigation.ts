@@ -1,7 +1,19 @@
 import type { AgentDefinition, SessionSummaryView } from "../types.ts";
 
+export type AgentSection = "agents" | "subagents";
+export type NavSection = AgentSection | "search" | "skills";
+
+export function agentSection(agent: Pick<AgentDefinition, "subagent"> | undefined): AgentSection {
+  return agent?.subagent ? "subagents" : "agents";
+}
+
+export function agentsInSection(agents: AgentDefinition[], section: AgentSection): AgentDefinition[] {
+  return agents.filter(agent => agentSection(agent) === section);
+}
+
 export type AppView =
-  | { kind: "home" | "create" | "skills" | "settings" }
+  | { kind: "home"; section?: AgentSection }
+  | { kind: "create" | "skills" | "settings" }
   | { kind: "agent" | "workbench"; agentName: string }
   | { kind: "chat"; agentName: string; sessionId: string | null };
 

@@ -1,0 +1,406 @@
+/* 工作区与 Agent 概览：身份卡片、活动列表、工作信息。 */
+.overview-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 48px max(34px, calc((100% - 1040px) / 2)) 28px;
+  scrollbar-gutter: stable;
+}
+
+.overview-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+  margin-bottom: 32px;
+}
+.overview-intro {
+  min-width: 0;
+  flex: 1;
+}
+.overview-heading h1 {
+  font-size: clamp(27px, 2.5vw, 36px);
+  line-height: 1.3;
+  letter-spacing: -1px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.overview-heading p {
+  margin-top: 12px;
+  max-width: 60ch;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.overview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-top: 25px;
+}
+.overview-actions .btn {
+  height: 38px;
+  padding-inline: 15px;
+  gap: 7px;
+  font-size: 12px;
+}
+.overview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 22px;
+  padding: 17px 0;
+  border-block: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.overview-summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.overview-summary b {
+  font-weight: 600;
+  color: var(--fg);
+}
+.overview-summary .summary-local {
+  margin-left: auto;
+  gap: 6px;
+}
+.summary-local svg {
+  width: 13px;
+  height: 13px;
+}
+.summary-running {
+  color: var(--ok);
+}
+.overview-section {
+  margin-top: 34px;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.section-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.section-heading > span {
+  color: var(--faint);
+  font-size: 11px;
+}
+.section-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 450;
+}
+
+.agent-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 21px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--card);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--card-shadow);
+  transition:
+    border-color 0.16s,
+    background 0.16s;
+}
+.agent-card:hover {
+  border-color: var(--accent-border);
+  background: var(--panel-2);
+}
+.agent-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 17px;
+}
+.agent-card-top > .activity-arrow {
+  margin-left: auto;
+}
+.agent-card-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 10.5px;
+}
+.agent-card-state.running {
+  color: var(--ok);
+}
+.agent-card-top .agent-card-state + .activity-arrow {
+  margin-left: 3px;
+}
+.agent-card-copy {
+  flex: 1;
+  min-width: 0;
+}
+.agent-card-copy b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-card-copy p {
+  min-height: 42px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.agent-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--faint);
+  font-size: 10.5px;
+}
+.agent-card-footer > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-card-footer svg {
+  width: 12px;
+  height: 12px;
+}
+.agent-kind {
+  padding: 1px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  background: var(--stripe);
+  color: var(--muted);
+}
+.activity-arrow {
+  display: inline-flex;
+  color: var(--faint);
+}
+.activity-arrow svg {
+  width: 14px;
+  height: 14px;
+}
+.agent-card:hover .activity-arrow,
+.activity-row:hover .activity-arrow {
+  color: var(--accent-text);
+}
+
+.activity-list {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  overflow: hidden;
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  padding: 17px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
+  color: var(--fg);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s;
+}
+.activity-row:last-child {
+  border-bottom: 0;
+}
+.activity-row:hover {
+  background: var(--stripe);
+}
+.activity-row:focus-visible {
+  outline-offset: -3px;
+  border-radius: 6px;
+}
+.activity-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 33px;
+  height: 33px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: var(--stripe);
+  color: var(--muted);
+}
+.activity-icon svg {
+  width: 15px;
+  height: 15px;
+}
+.activity-icon.running {
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-color: var(--ok-border);
+}
+.activity-name {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+.activity-name b {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-name small {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 11px;
+  color: var(--faint);
+  font-size: 10.5px;
+}
+.activity-name small > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 24ch;
+}
+.activity-row time {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.activity-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--ok);
+}
+
+.agent-facts {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 20px;
+  padding: 24px 0 0;
+}
+.agent-facts > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 8px;
+}
+.agent-facts span {
+  color: var(--faint);
+  font-size: 11px;
+}
+.agent-facts strong {
+  font-size: 12px;
+  font-weight: 450;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.overview-heading .overview-avatar {
+  width: 58px;
+  height: 58px;
+  border-radius: 17px;
+}
+.overview-heading .overview-avatar svg {
+  width: 28px;
+  height: 28px;
+}
+.overview-empty {
+  padding: 36px 24px;
+  border: 1px dashed var(--line-2);
+  border-radius: 14px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty-agent-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.overview-empty h3 {
+  margin: 14px 0 9px;
+  font-size: 16px;
+  font-weight: 550;
+  color: var(--fg);
+}
+.overview-empty p {
+  margin-bottom: 18px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.overview-empty.compact {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  text-align: left;
+  background: var(--stripe);
+}
+.overview-empty.compact > svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.overview-empty.compact p {
+  margin: 0;
+}
+.overview-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 28px;
+  padding-top: 20px;
+  color: var(--faint);
+  font-size: 10.5px;
+}
+.overview-footer kbd {
+  margin-left: 6px;
+}

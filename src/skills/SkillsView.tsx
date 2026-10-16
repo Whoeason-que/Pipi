@@ -2,7 +2,7 @@
 // （版本与来源、内容校验、启用它的 Agent 及开关）。
 
 import { useCallback, useEffect, useState } from "react";
-import NavigationToggle from "../app/NavigationToggle";
+import { NavigationToggle } from "../app/AppNavigation";
 import { formatRuntimeError } from "../chat-runtime";
 import ConfirmModal from "../components/ConfirmModal";
 import { IconCheck, IconDownload, IconRefresh } from "../icons";

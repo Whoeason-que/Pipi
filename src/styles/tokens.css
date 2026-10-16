@@ -1,136 +1,141 @@
-/* ============================================================
-   Pipi 设计令牌 —— 参考 chatgpt.com 的真实视觉体系
-   - 中性灰阶分层：暗色主区 #212121 / 侧栏 #171717 / 浮层 #2f2f2f；
-     浅色主区 #ffffff / 侧栏 #f9f9f9 / 气泡与输入面 #f4f4f4
-   - 边框一律黑白透明度（5%/10%/18%），靠表面色差而不是实体灰线
-   - 彩色只保留三类：focus ring（蓝）、链接、语义状态 ok·warn·danger
-   - 黑白主按钮（--primary-*）：暗色白底黑字，浅色黑底白字（ChatGPT 反转）
-   - 代码块两个主题都为深底（ChatGPT 做法），hljs 只需一套配色
-   - 不用 color-mix()/嵌套等新语法：Tauri 各平台 WebView 版本不一
-     （Linux 走 WebKitGTK），全部用显式令牌保证一致
-   ============================================================ */
-
+/* Pipi：墨蓝工作台。显式双色令牌，兼容桌面 WebView；不加载远程字体或素材。 */
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --font-sans:
+    "Aptos", "Segoe UI Variable Text", "Segoe UI", "PingFang SC",
+    "Noto Sans CJK SC", sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-  /* 等宽字体栈（单一来源，各处用 var(--font-mono)） */
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --bg: #141a24;
+  --panel: #111721;
+  --panel-2: #1d2634;
+  --nav-bg: #101620;
+  --rail-bg: #0c121b;
+  --nav-divider: #252e3e;
+  --card: #1a2230;
+  --chat-surface: #1d2634;
+  --code-bg: #0d121b;
+  --inline-code: rgba(157, 181, 226, 0.1);
 
-  /* 表面 */
-  --bg: #212121;            /* 主区 */
-  --panel: #171717;         /* 侧栏 / 状态栏 */
-  --panel-2: #2f2f2f;       /* 浮层：弹窗 / 菜单 / 工具卡片 */
-  --chat-surface: #303030;  /* 用户气泡 / 输入框 / composer */
-  --code-bg: #0d0d0d;       /* 代码块（两个主题都为深底） */
-  --inline-code: rgba(255, 255, 255, 0.08);
+  --fg: #e6ecf7;
+  --text: #e6ecf7;
+  --muted: #a4b1c8;
+  --faint: #8999b3;
+  --line: rgba(170, 190, 225, 0.13);
+  --line-2: rgba(170, 190, 225, 0.25);
+  --line-soft: rgba(170, 190, 225, 0.08);
+  --stripe: rgba(170, 190, 225, 0.035);
+  --hover: rgba(170, 190, 225, 0.07);
+  --hover-2: rgba(170, 190, 225, 0.12);
 
-  /* 线与填充 */
-  --line: rgba(255, 255, 255, 0.1);
-  --line-2: rgba(255, 255, 255, 0.18);
-  --line-soft: rgba(255, 255, 255, 0.06);
-  --stripe: rgba(255, 255, 255, 0.03);
-  --hover: rgba(255, 255, 255, 0.07);
-  --hover-2: rgba(255, 255, 255, 0.12);
+  --accent: #88a5ff;
+  --accent-text: #a9bfff;
+  --on-accent: #111c38;
+  --on-danger: #35101c;
+  --accent-soft: rgba(120, 155, 255, 0.12);
+  --accent-border: rgba(136, 165, 255, 0.3);
+  --primary-bg: #91acff;
+  --primary-fg: #111c38;
 
-  /* 文字（正文与标题同阶，层级靠字号/字重） */
-  --fg: #ececec;
-  --text: #ececec;
-  --muted: #b4b4b4;
-  --faint: #8f8f8f;
+  --ok: #78cfb5;
+  --ok-soft: rgba(120, 207, 181, 0.1);
+  --ok-border: rgba(120, 207, 181, 0.3);
+  --warn: #e0bb7a;
+  --warn-soft: rgba(224, 187, 122, 0.1);
+  --warn-border: rgba(224, 187, 122, 0.3);
+  --danger: #f18d9b;
+  --danger-soft: rgba(241, 141, 155, 0.1);
+  --danger-border: rgba(241, 141, 155, 0.32);
 
-  /* 强调：focus ring / 链接 / 少量小指示 */
-  --accent: #0169cc;
-  --accent-text: #7ab7ff;
-  --on-accent: #ffffff;
-  --accent-soft: rgba(1, 105, 204, 0.16);
+  --avatar-blue: #263553;
+  --avatar-blue-fg: #a9c1ff;
+  --avatar-teal: #1c393a;
+  --avatar-teal-fg: #8ad6c5;
+  --avatar-amber: #3d3224;
+  --avatar-amber-fg: #e4c18a;
+  --avatar-rose: #3b293b;
+  --avatar-rose-fg: #dfafd2;
 
-  /* 黑白主按钮（ChatGPT 式：暗色白底） */
-  --primary-bg: #ececec;
-  --primary-fg: #0d0d0d;
+  --track: rgba(170, 190, 225, 0.1);
+  --bar: rgba(170, 190, 225, 0.4);
+  --glow-ok: rgba(120, 207, 181, 0.35);
+  --glow-warn: rgba(224, 187, 122, 0.35);
+  --shadow: 0 20px 70px rgba(0, 6, 18, 0.4), 0 2px 8px rgba(0, 6, 18, 0.2);
+  --card-shadow: 0 3px 14px rgba(0, 6, 18, 0.08);
+  --composer-shadow: 0 6px 28px rgba(0, 6, 18, 0.16);
+  --bg-fade: rgba(20, 26, 36, 0);
 
-  /* 语义状态 */
-  --ok: #4ac26b;
-  --ok-soft: rgba(74, 194, 107, 0.12);
-  --ok-border: rgba(74, 194, 107, 0.32);
-  --warn: #d5a021;
-  --warn-soft: rgba(213, 160, 33, 0.12);
-  --warn-border: rgba(213, 160, 33, 0.32);
-  --danger: #e5484d;
-  --danger-soft: rgba(229, 72, 77, 0.12);
-  --danger-border: rgba(229, 72, 77, 0.4);
-
-  /* 进度条 / 图表 */
-  --track: rgba(255, 255, 255, 0.1);
-  --bar: rgba(255, 255, 255, 0.35);
-  --glow-ok: rgba(74, 194, 107, 0.5);
-  --glow-warn: rgba(213, 160, 33, 0.45);
-
-  --shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
-
-  /* 圆角阶梯（ChatGPT 官方阶：8/12/16/24/全圆） */
   --r-sm: 8px;
-  --r: 12px;
-  --r-lg: 16px;
-  --r-xl: 24px;
+  --r: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
   --r-full: 999px;
-
+  --rail-width: 60px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-
-  /* 左侧图标栏宽度（窄屏抽屉从它右边开始滑出） */
-  --rail-width: 52px;
-
-  /* composer 顶部渐隐的透明端（与 --bg 同色相） */
-  --bg-fade: rgba(33, 33, 33, 0);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-
-  --bg: #ffffff;
-  --panel: #f9f9f9;
+  --bg: #f8faff;
+  --panel: #f0f4fa;
   --panel-2: #ffffff;
-  --chat-surface: #f4f4f4;
-  --code-bg: #27272a;
-  --inline-code: #ececec;
+  --nav-bg: #f0f4fa;
+  --rail-bg: #e9eef8;
+  --nav-divider: #dfe6f1;
+  --card: #ffffff;
+  --chat-surface: #ffffff;
+  --code-bg: #172132;
+  --inline-code: #e9eef9;
 
-  --line: rgba(0, 0, 0, 0.1);
-  --line-2: rgba(0, 0, 0, 0.18);
-  --line-soft: rgba(0, 0, 0, 0.06);
-  --stripe: rgba(0, 0, 0, 0.025);
-  --hover: rgba(0, 0, 0, 0.05);
-  --hover-2: rgba(0, 0, 0, 0.08);
+  --fg: #25324b;
+  --text: #25324b;
+  --muted: #596982;
+  --faint: #66768f;
+  --line: rgba(45, 65, 105, 0.13);
+  --line-2: rgba(45, 65, 105, 0.24);
+  --line-soft: rgba(45, 65, 105, 0.075);
+  --stripe: rgba(45, 65, 105, 0.025);
+  --hover: rgba(45, 65, 105, 0.055);
+  --hover-2: rgba(45, 65, 105, 0.1);
 
-  --fg: #0d0d0d;
-  --text: #0d0d0d;
-  --muted: #5d5d5d;
-  --faint: #9b9b9b;
-
-  --accent: #0169cc;
-  --accent-text: #2964aa;
-  --on-accent: #ffffff;
-  --accent-soft: rgba(1, 105, 204, 0.12);
-
-  --primary-bg: #0d0d0d;
+  --accent: #365edc;
+  --accent-text: #365bc5;
+  --accent-soft: rgba(54, 94, 220, 0.08);
+  --accent-border: rgba(54, 94, 220, 0.22);
+  --primary-bg: #365edc;
   --primary-fg: #ffffff;
+  --on-accent: #ffffff;
+  --on-danger: #ffffff;
 
-  --ok: #1a7f37;
-  --ok-soft: rgba(26, 127, 55, 0.1);
-  --ok-border: rgba(26, 127, 55, 0.3);
-  --warn: #9a6700;
-  --warn-soft: rgba(154, 103, 0, 0.1);
-  --warn-border: rgba(154, 103, 0, 0.3);
-  --danger: #cf222e;
-  --danger-soft: rgba(207, 34, 46, 0.08);
-  --danger-border: rgba(207, 34, 46, 0.35);
+  --ok: #267963;
+  --ok-soft: rgba(38, 121, 99, 0.08);
+  --ok-border: rgba(38, 121, 99, 0.25);
+  --warn: #8e641d;
+  --warn-soft: rgba(142, 100, 29, 0.08);
+  --warn-border: rgba(142, 100, 29, 0.25);
+  --danger: #b93a56;
+  --danger-soft: rgba(185, 58, 86, 0.07);
+  --danger-border: rgba(185, 58, 86, 0.25);
 
-  --track: rgba(0, 0, 0, 0.08);
-  --bar: rgba(0, 0, 0, 0.3);
-  --glow-ok: rgba(26, 127, 55, 0.4);
-  --glow-warn: rgba(154, 103, 0, 0.35);
+  --avatar-blue: #eaf0ff;
+  --avatar-blue-fg: #4468c6;
+  --avatar-teal: #e3f2ef;
+  --avatar-teal-fg: #287865;
+  --avatar-amber: #fbf1df;
+  --avatar-amber-fg: #8e641d;
+  --avatar-rose: #f6eaf3;
+  --avatar-rose-fg: #965080;
 
-  --shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
-
-  --bg-fade: rgba(255, 255, 255, 0);
+  --track: rgba(45, 65, 105, 0.1);
+  --bar: rgba(45, 65, 105, 0.35);
+  --glow-ok: rgba(38, 121, 99, 0.3);
+  --glow-warn: rgba(142, 100, 29, 0.3);
+  --shadow:
+    0 20px 70px rgba(33, 51, 88, 0.14), 0 2px 8px rgba(33, 51, 88, 0.06);
+  --card-shadow: 0 3px 14px rgba(33, 51, 88, 0.025);
+  --composer-shadow: 0 6px 28px rgba(33, 51, 88, 0.06);
+  --bg-fade: rgba(248, 250, 255, 0);
 }

@@ -3,16 +3,16 @@ import AgentWorkbench from "./agents/AgentWorkbench";
 import CreateAgentForm from "./agents/CreateAgentForm";
 import CommandPalette from "./app/CommandPalette";
 import { LayoutContext } from "./app/layout-context";
-import { quickItems, type AppView, type QuickTarget } from "./app/navigation";
-import Overview from "./app/Overview";
-import { Rail, type NavSection } from "./app/Rail";
-import { Sidebar } from "./app/Sidebar";
+import { agentSection, agentsInSection, quickItems, type AgentSection, type AppView, type NavSection, type QuickTarget } from "./app/navigation";
+import WorkspaceOverview from "./app/WorkspaceOverview";
+import AppNavigation, { NavigationToggle } from "./app/AppNavigation";
+import AgentSidebar from "./app/AgentSidebar";
 import { useArchiveActions, type ConfirmRequest } from "./app/use-archive-actions";
 import { useHostEvents } from "./app/use-host-events";
 import { useSessionList } from "./app/use-session-list";
 import { useSessionNavigation } from "./app/use-session-navigation";
 import { useSettings } from "./app/use-settings";
-import ChatView from "./Chat";
+import ChatView from "./chat/ChatView";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
 import { useDialogFocus } from "./components/use-dialog-focus";
@@ -78,11 +78,14 @@ export default function App() {
   }, []);
   const { agents, archivedAgents, sessionsByAgent, refresh, refreshSessions, refreshArchived,
     removeAgentSessions, sessionsFor } = useSessionList(safeSetError);
+  const current = agents.find(agent => agent.name === selected);
+  const collection: AgentSection = view.kind === "home" ? view.section ?? "agents"
+    : current ? agentSection(current) : navSection === "subagents" ? "subagents" : "agents";
   const { settings, setSettings, updateSettings } = useSettings(setError);
   const onOpenChat = useCallback((agentName: string, sessionId: string | null) => {
-    setNavSection("agents");
+    setNavSection(agentSection(agents.find(agent => agent.name === agentName)));
     commitView({ kind: "chat", agentName, sessionId });
-  }, [commitView]);
+  }, [commitView, agents]);
   const navigation = useSessionNavigation({ setError, selectedRef, activeSessionRef, onOpenChat,
     setSidebarOpen, setExpandedAgents, setActiveSession, setChatKey });
   const { runningSessions, handleRunningChange, isConversationRunning, agentHasRunning,
@@ -91,6 +94,7 @@ export default function App() {
     blockedSessionIdsRef: navigation.blockedSessionIdsRef, sessionInfoRequestRef: navigation.sessionInfoRequestRef });
 
   const navigate = (next: AppView) => {
+    if (next.kind === "home" && !next.section) next = { ...next, section: collection };
     if (next.kind === "settings" && viewRef.current.kind !== "settings") previousView.current = viewRef.current;
     navigation.invalidateNavigation();
     const previous = viewRef.current;
@@ -100,7 +104,9 @@ export default function App() {
       void invoke("new_session", { agentName: previous.agentName }).catch(() => {});
     }
     if (next.kind === "skills") setNavSection("skills");
-    else if (next.kind !== "settings") setNavSection("agents");
+    else if (next.kind === "home") setNavSection(next.section ?? "agents");
+    else if (next.kind === "create") setNavSection("agents");
+    else if ("agentName" in next) setNavSection(agentSection(agents.find(agent => agent.name === next.agentName)));
     commitView(next);
   };
   const archive = useArchiveActions({ sessionRuntime, safeSetError, setConfirmState, refresh, refreshArchived,
@@ -174,11 +180,15 @@ export default function App() {
     else if (target.action === "new-session") { if (selected) void navigation.startNewSession(selected); }
     else navigate({ kind: target.action });
   };
-  const current = agents.find(agent => agent.name === selected);
-  const title = view.kind === "home" ? t("nav.workspace") : view.kind === "settings" ? t("nav.settings") : view.kind === "create" ? t("nav.newAgent")
+  const visibleAgents = agentsInSection(agents, collection);
+  const visibleArchivedAgents = agentsInSection(archivedAgents, collection);
+  useEffect(() => {
+    if (current && (view.kind === "agent" || view.kind === "chat" || view.kind === "workbench")) setNavSection(agentSection(current));
+  }, [current?.name, current?.subagent, view.kind]);
+  const title = view.kind === "home" ? t(collection === "subagents" ? "nav.subagents" : "nav.workspace") : view.kind === "settings" ? t("nav.settings") : view.kind === "create" ? t("nav.newAgent")
     : view.kind === "skills" ? t("nav.skills") : current?.name ?? "Pipi";
   const sessionTitle = view.kind === "chat" ? (sessionsByAgent[view.agentName] ?? []).find(session => session.id === view.sessionId)?.title : undefined;
-  const overviewProps = { agents, sessions: sessionsByAgent, running: runningSessions, onAgent: selectAgent, onSession: openSession,
+  const overviewProps = { section: collection, agents: visibleAgents, sessions: sessionsByAgent, running: runningSessions, onAgent: selectAgent, onSession: openSession,
     onNewSession: (name: string) => { void navigation.startNewSession(name); }, onConfigure: configureAgent, onCreate: startCreating };
 
   if (authStatus.checking) return <div className="login-container" />;
@@ -189,21 +199,23 @@ export default function App() {
   return <LayoutContext.Provider value={layout}><div className={`app${sidebarOpen ? " sidebar-open" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
     style={{ "--sidebar-width": `${sidebarResize.width}px` } as React.CSSProperties}>
     <div className="app-body">
-      <Rail navSection={navSection} settingsOpen={view.kind === "settings"} onToggleSettings={toggleSettings}
+      <AppNavigation navSection={navSection} settingsOpen={view.kind === "settings"} onToggleSettings={toggleSettings}
+        running={{ agents: agentsInSection(agents, "agents").some(agent => agentHasRunning(agent.name)),
+          subagents: agentsInSection(agents, "subagents").some(agent => agentHasRunning(agent.name)) }}
         onOpenSection={section => {
           if (section === "skills") navigate({ kind: "skills" });
-          else if (section === "agents") navigate({ kind: "home" });
+          else if (section === "agents" || section === "subagents") navigate({ kind: "home", section });
           setNavSection(section); setSidebarCollapsed(false); setSidebarOpen(true);
         }} />
       <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label="Agent 与会话列表">
-        <div className="sb-head"><button type="button" className="sidebar-home" onClick={() => navigate({ kind: "home" })}>{t("nav.home")}</button>
+        <div className="sb-head"><button type="button" className="sidebar-home" aria-label={t("nav.home")} onClick={() => navigate({ kind: "home" })}><b>Pipi</b><span>{t("nav.workspace")}</span></button>
           <span className="spacer" /><button type="button" className="icon-btn" title={t("nav.collapseSidebar")} aria-label={t("nav.collapseSidebar")} onClick={toggleNavigation}><IconPanel /></button></div>
         <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
         {navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={agents}
           sessionsByAgent={sessionsByAgent} isRunning={isConversationRunning} onSelectAgent={selectAgent} onOpenSession={openSession} />
           : navSection === "skills" ? <SkillsSidebar library={skillLibrary} selected={skillSelected} error={skillLoadError}
             onSelect={name => { setSkillSelected(name); setSidebarOpen(false); }} onRefresh={() => void loadSkillLibrary()} />
-          : <Sidebar agents={agents} archivedAgents={archivedAgents} selected={selected} chatOpen={view.kind === "chat"}
+          : <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
             viewSessionId={view.kind === "chat" ? view.sessionId : null} expandedAgents={expandedAgents}
             archivedSessions={archivedSessions} archivedSessionsExpanded={archivedSessionsExpanded} archivedOpen={archivedOpen}
             sessionsFor={sessionsFor} agentHasRunning={agentHasRunning} isConversationRunning={isConversationRunning}
@@ -215,12 +227,13 @@ export default function App() {
             onDeleteSession={(name, id) => void archive.deleteSession(name, id)} onToggleArchivedSessions={name => void archive.toggleArchivedSessions(name)}
             onRestoreSession={(name, id) => void archive.restoreSession(name, id)} onDeleteArchivedSession={(name, id) => void archive.deleteArchivedSession(name, id)}
             onToggleArchivedOpen={() => setArchivedOpen(open => !open)} />}
+        <div className="sidebar-footer"><span><i className="activity-dot" />{t("workspace.localWorkspace")}</span><span>v{__PIPI_VERSION__}</span></div>
       </aside>
       <div className="resize-handle sidebar-resize" title="拖动调整侧栏宽度" aria-label="调整侧栏宽度" {...sidebarResize.handleProps} />
       {sidebarOpen && <button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={closeNavigation} />}
       <main className="main" inert={mobile && sidebarOpen}>
         {(view.kind === "home" || view.kind === "agent" || (!current && (view.kind === "chat" || view.kind === "workbench"))) && <header className="workspace-toolbar">
-          <button type="button" className="icon-btn" aria-label="切换导航" aria-controls="primary-navigation" onClick={toggleNavigation}><IconPanel /></button>
+          <NavigationToggle />
           <span className="toolbar-divider" /><span>{title}</span><span className="spacer" />
           <button type="button" className="icon-btn" aria-label="打开快捷操作" title="快捷操作 Ctrl/⌘ K" onClick={() => setPaletteOpen(true)}><IconSearch /></button>
         </header>}
@@ -253,7 +266,7 @@ export default function App() {
           : current && view.kind === "workbench" && settings ? <AgentWorkbench key={current.name} agent={current} providers={settings.providers}
             onSaved={async () => { await refresh(); }} onBack={() => selectAgent(current.name)} onError={safeSetError}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} sessions={sessionRuntime} onRunningChange={handleRunningChange} />
-          : <Overview {...overviewProps} agent={view.kind === "agent" ? current : undefined} />}
+          : <WorkspaceOverview {...overviewProps} agent={view.kind === "agent" ? current : undefined} />}
       </main>
     </div>
     {paletteOpen && <CommandPalette items={quickItems(agents, sessionsByAgent, selected)} onChoose={chooseQuick} onClose={closePalette} />}

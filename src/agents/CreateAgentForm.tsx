@@ -1,5 +1,5 @@
 import { useState } from "react";
-import NavigationToggle from "../app/NavigationToggle";
+import { NavigationToggle } from "../app/AppNavigation";
 import {
   resolveContextWindow,
   resolveMaxTokens

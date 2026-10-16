@@ -15,9 +15,6 @@ body {
 }
 
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC",
-    "Microsoft YaHei", sans-serif;
-  font-size: 13px;
   line-height: 1.6;
   background: var(--bg);
   color: var(--fg);
@@ -26,6 +23,8 @@ body {
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
+  font-family: var(--font-sans);
+  font-size: 14px;
 }
 
 button,
@@ -38,6 +37,7 @@ select {
 
 button {
   touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .mono {
@@ -52,7 +52,8 @@ button {
 .hint {
   font-size: 10.5px;
   color: var(--faint);
-  font-family: var(--font-mono);
+  font-family: inherit;
+  line-height: 1.7;
 }
 
 ::-webkit-scrollbar {
@@ -74,11 +75,86 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent-text);
-  outline-offset: 1px;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 #root {
-  height: 100vh;
   height: 100dvh;
+}
+
+kbd {
+  font-family: inherit;
+  color: var(--faint);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  font-size: 10px;
+  border-radius: 5px;
+  padding: 1px 5px;
+  background: var(--stripe);
+  box-shadow: 0 1px 0 var(--line-soft);
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+.activity-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.activity-dot.running {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.disclosure-chevron {
+  display: block;
+  flex-shrink: 0;
+  transform-origin: center;
+  transition: transform 0.16s;
+}
+
+.disclosure-chevron.open {
+  transform: rotate(90deg);
+}
+
+.agent-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 41px;
+  height: 41px;
+  flex-shrink: 0;
+  border-radius: 12px;
+}
+
+.agent-avatar svg {
+  width: 21px;
+  height: 21px;
+}
+
+.avatar-blue {
+  background: var(--avatar-blue);
+  color: var(--avatar-blue-fg);
+}
+
+.avatar-teal {
+  background: var(--avatar-teal);
+  color: var(--avatar-teal-fg);
+}
+
+.avatar-amber {
+  background: var(--avatar-amber);
+  color: var(--avatar-amber-fg);
+}
+
+.avatar-rose {
+  background: var(--avatar-rose);
+  color: var(--avatar-rose-fg);
 }

@@ -238,9 +238,15 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 
 前端的会话状态独立于组件生命周期：`session-runtime.ts` 统一订阅宿主事件，按
 `(Agent 名, sessionId)` 路由到 `session-controller.ts`。控制器负责历史快照、
-run 代际、停止确认与压缩重键；`Chat.tsx` 只持有输入、滚动和检查器等界面状态。
+run 代际、停止确认与压缩重键；`chat/ChatView.tsx` 编排会话视图，`ChatToolbar` 与
+`ChatComposer` 分别负责工具栏与输入交互。
 退出或卸载视图不会中止运行。实际运行状态仍由 Rust 会话守卫与 `session_infos`
 确认，持久历史仍来自会话载体（git 分支）；前端缓存不设置运行会话数量上限。
+
+前端导航的 Agent 与 Subagent 是两个独立分区，各自展示列表、概览、会话活动与
+归档；搜索和快捷操作仍可跨分区跳转。共享导航入口集中在 `app/AppNavigation.tsx`，
+Agent 身份样式由 `components/AgentAvatar.tsx` 统一渲染。样式以 `styles/tokens.css`
+定义深浅主题，基础、外壳、会话、检查器、设置、概览各自拥有样式，响应式规则最后加载。
 
 `pipi_agent::session::AgentSession` 拥有单会话的消息、账本、模型绑定、统计、
 运行守卫与 abort / steering。宿主注入存储端口、provider、工具与已解析的预算和选项；

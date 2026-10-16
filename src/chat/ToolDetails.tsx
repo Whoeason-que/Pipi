@@ -3,7 +3,7 @@ import {
   type ChatEntry,
   type Chip
 } from "../chat-runtime";
-import { IconCheck, IconCopy } from "../icons";
+import { IconCheck, IconChevronRight, IconCopy } from "../icons";
 import { useCopyFeedback } from "../components/use-copy";
 
 
@@ -127,7 +127,7 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
           ) : (
             <span className="ok">✓ 完成</span>
           )}
-          <span>{open ? "▾" : "▸"}</span>
+          <IconChevronRight expanded={open} />
         </span>
       </button>
 
@@ -199,7 +199,7 @@ export function ChipDetailPane({
   const entry = entries.find((candidate) => candidate.key === chip.entryKey);
   return (
     <div className="detail-pane">
-      <div className="detail-head">
+      <div className="tool-detail-head">
         <span className={`detail-name chip-${chip.status}`}>{chip.name}</span>
         <span className="detail-mode">{mode === "preview" ? "预览" : "已固定"}</span>
         <span className="spacer" />

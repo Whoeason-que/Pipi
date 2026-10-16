@@ -1,6 +1,6 @@
 /* ============================================================
-   Pipi 样式（参考 chatgpt.com 视觉体系重构）
-   - 结构：三栏（侧栏 / 主区 / 检查器）+ 全局状态栏
+   Pipi 工作台样式
+   - 结构：分区导航 / Agent 列表 / 工作区与会话 / 按需检查器
    - 暗色为默认，浅色通过 [data-theme="light"] 覆盖令牌
    - 手写样式，零 UI 框架依赖（见 AGENTS.md）
    - 不用 color-mix()/嵌套等新语法：Tauri 各平台 WebView 版本不一
@@ -12,6 +12,8 @@
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./styles/chat.css";
+@import "./styles/inspector.css";
+@import "./styles/settings.css";
 @import "./styles/markdown.css";
+@import "./styles/overview.css";
 @import "./styles/responsive.css";
-@import "./styles/workbench.css";

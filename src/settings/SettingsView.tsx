@@ -1,32 +1,38 @@
 import { useEffect, useRef, useState } from "react";
-import NavigationToggle from "../app/NavigationToggle";
-import {
-  catalogSourceLabel,
-  type CatalogProvider
-} from "../catalog";
+import { NavigationToggle } from "../app/AppNavigation";
+import { catalogSourceLabel, type CatalogProvider } from "../catalog";
 import { loadCatalog, resetCatalog } from "../catalog-client";
+import { formatRetryDelay } from "../chat-runtime";
 import {
-  formatRetryDelay
-} from "../chat-runtime";
-import {
-  IconBack
+  IconBack,
+  IconGear,
+  IconLayers,
+  IconArrowRepeat,
+  IconGrid,
+  IconKey,
+  IconPlus,
+  IconRefresh,
 } from "../icons";
-import {
-  logout
-} from "../platform";
+import { logout } from "../platform";
 import {
   API_LABELS,
   API_MODE_LABELS,
   type ProviderConfig,
-  type Settings
+  type Settings,
 } from "../types";
 import { useI18n } from "../i18n";
 
 import { PresetPicker, ProviderForm } from "./ProviderEditor";
+import { LocaleOption, ThemeOption } from "./AppearanceOptions";
 // ============ 设置（主区 tab，与对话界面同构：顶栏 + 左导航 + 内容） ============
 
 /** 设置分组：导航用它划分不同类别。 */
-type SettingsSection = "appearance" | "context" | "retry" | "providers" | "account";
+type SettingsSection =
+  | "appearance"
+  | "context"
+  | "retry"
+  | "providers"
+  | "account";
 
 interface SettingsViewProps {
   settings: Settings;
@@ -35,7 +41,12 @@ interface SettingsViewProps {
   showLogout?: boolean;
 }
 
-export default function SettingsView({ settings, onChange, onClose, showLogout }: SettingsViewProps) {
+export default function SettingsView({
+  settings,
+  onChange,
+  onClose,
+  showLogout,
+}: SettingsViewProps) {
   const { locale, setLocale, t } = useI18n();
   const [section, setSection] = useState<SettingsSection>("appearance");
   const [editing, setEditing] = useState<ProviderConfig | "new" | null>(null);
@@ -54,9 +65,13 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
     try {
       resetCatalog();
       const next = await loadCatalog(true);
-      setCatalogNote(`已刷新：${next.providers.length} 家提供商 · 来源 ${catalogSourceLabel(next)}`);
+      setCatalogNote(
+        `已刷新：${next.providers.length} 家提供商 · 来源 ${catalogSourceLabel(next)}`,
+      );
     } catch (reason) {
-      setCatalogNote(`刷新失败：${reason instanceof Error ? reason.message : String(reason)}`);
+      setCatalogNote(
+        `刷新失败：${reason instanceof Error ? reason.message : String(reason)}`,
+      );
     } finally {
       setRefreshingCatalog(false);
     }
@@ -100,11 +115,17 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
   };
 
   const deleteProvider = (id: string) => {
-    if (!confirm(`删除提供商「${id}」？（已绑定它的 Agent 不受影响，但需重新配置）`)) return;
+    if (
+      !confirm(
+        `删除提供商「${id}」？（已绑定它的 Agent 不受影响，但需重新配置）`,
+      )
+    )
+      return;
     commit((previous) => ({
       ...previous,
       providers: previous.providers.filter((provider) => provider.id !== id),
-      defaultProviderId: previous.defaultProviderId === id ? null : previous.defaultProviderId,
+      defaultProviderId:
+        previous.defaultProviderId === id ? null : previous.defaultProviderId,
     }));
   };
 
@@ -112,7 +133,10 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
     ? ["appearance", "context", "retry", "providers", "account"]
     : ["appearance", "context", "retry", "providers"];
 
-  const sectionInfo: Record<SettingsSection, { label: string; description: string }> = {
+  const sectionInfo: Record<
+    SettingsSection,
+    { label: string; description: string }
+  > = {
     appearance: {
       label: t("settings.appearance"),
       description: t("settings.appearanceDesc"),
@@ -145,7 +169,9 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
       case "retry":
         return `${draft.retry.maxAttempts} 次尝试 · ${formatRetryDelay(draft.retry.baseDelayMs)}起`;
       case "providers": {
-        const fallback = draft.providers.find((item) => item.id === draft.defaultProviderId);
+        const fallback = draft.providers.find(
+          (item) => item.id === draft.defaultProviderId,
+        );
         return `${draft.providers.length} 家 · 默认 ${fallback?.name ?? "未设置"}`;
       }
       case "account":
@@ -170,7 +196,10 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
           {t("settings.title")} · <b>{sectionInfo[section].label}</b>
         </span>
         <span className="spacer" />
-        <span className="hint">{t("common.saveAuto")}</span>
+        <span className="settings-autosave">
+          <span aria-hidden="true" />
+          {t("common.saveAuto")}
+        </span>
       </div>
 
       <div className="settings-body">
@@ -185,20 +214,37 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
               key={id}
               type="button"
               role="tab"
+              id={`settings-tab-${id}`}
+              aria-controls="settings-content"
               aria-selected={section === id}
               className={`settings-nav-item${section === id ? " active" : ""}`}
               onClick={() => setSection(id)}
             >
-              <span className="name">{sectionInfo[id].label}</span>
-              <span className="meta">{sectionMeta(id)}</span>
+              <span className="settings-nav-icon">
+                <SettingsSectionIcon section={id} />
+              </span>
+              <span className="settings-nav-copy">
+                <span className="name">{sectionInfo[id].label}</span>
+                <span className="meta">{sectionMeta(id)}</span>
+              </span>
             </button>
           ))}
         </nav>
 
-        <div className="settings-main">
+        <div
+          className="settings-main"
+          role="tabpanel"
+          id="settings-content"
+          aria-labelledby={`settings-tab-${section}`}
+        >
           <div className="settings-main-head">
-            <h2>{sectionInfo[section].label}</h2>
-            <p>{sectionInfo[section].description}</p>
+            <span className="settings-section-icon">
+              <SettingsSectionIcon section={section} />
+            </span>
+            <div>
+              <h2>{sectionInfo[section].label}</h2>
+              <p>{sectionInfo[section].description}</p>
+            </div>
           </div>
 
           <div className="settings-main-body">
@@ -206,7 +252,7 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
               <>
                 <section className="settings-block">
                   <span className="label">{t("settings.language")}</span>
-                  <div className="theme-row">
+                  <div className="locale-row">
                     <LocaleOption
                       active={locale === "zh"}
                       code="ZH"
@@ -220,7 +266,7 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
                       onClick={() => setLocale("en")}
                     />
                   </div>
-                  <span className="hint" style={{ marginTop: 8, display: "block" }}>
+                  <span className="hint settings-block-note">
                     {t("settings.languageDesc")}
                   </span>
                 </section>
@@ -231,14 +277,18 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
                     <ThemeOption
                       active={draft.theme === "dark"}
                       name={t("settings.themeDark")}
-                      swatch={["#171717", "#212121", "#0169CC", "#ececec"]}
-                      onClick={() => commit((previous) => ({ ...previous, theme: "dark" }))}
+                      theme="dark"
+                      onClick={() =>
+                        commit((previous) => ({ ...previous, theme: "dark" }))
+                      }
                     />
                     <ThemeOption
                       active={draft.theme === "light"}
                       name={t("settings.themeLight")}
-                      swatch={["#f9f9f9", "#ffffff", "#0169CC", "#0d0d0d"]}
-                      onClick={() => commit((previous) => ({ ...previous, theme: "light" }))}
+                      theme="light"
+                      onClick={() =>
+                        commit((previous) => ({ ...previous, theme: "light" }))
+                      }
                     />
                   </div>
                 </section>
@@ -249,7 +299,7 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
               <section className="settings-block">
                 <span className="label">上下文压缩</span>
                 <div className="setting-checks">
-                  <label className="ios-toggle">
+                  <label className="ios-toggle settings-toggle">
                     <input
                       type="checkbox"
                       checked={draft.compaction.forkBeforeCompact}
@@ -258,15 +308,19 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
                           ...previous,
                           compaction: {
                             ...previous.compaction,
-                            forkBeforeCompact: !previous.compaction.forkBeforeCompact,
+                            forkBeforeCompact:
+                              !previous.compaction.forkBeforeCompact,
                           },
                         }))
                       }
                     />
                     <span className="slider" />
-                    <span className="toggle-label">压缩前分叉新会话（原会话保留为完整记录）</span>
+                    <span className="toggle-label">
+                      <strong>压缩前分叉新会话</strong>
+                      <span>保留原会话的完整记录，在新会话中继续。</span>
+                    </span>
                   </label>
-                  <label className="ios-toggle">
+                  <label className="ios-toggle settings-toggle">
                     <input
                       type="checkbox"
                       checked={draft.compaction.archiveOriginal}
@@ -276,21 +330,30 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
                           ...previous,
                           compaction: {
                             ...previous.compaction,
-                            archiveOriginal: !previous.compaction.archiveOriginal,
+                            archiveOriginal:
+                              !previous.compaction.archiveOriginal,
                           },
                         }))
                       }
                     />
                     <span className="slider" />
-                    <span className="toggle-label">分叉后归档原会话</span>
+                    <span className="toggle-label">
+                      <strong>分叉后归档原会话</strong>
+                      <span>收起原会话，让会话列表保持清晰。</span>
+                    </span>
                   </label>
-                  <div className="hint">关闭分叉即回到原地压缩：摘要会替换当前会话里被压缩的旧轮次。</div>
+                  <div className="settings-info-note">
+                    <IconLayers />
+                    <span>
+                      关闭分叉即回到原地压缩：摘要会替换当前会话里被压缩的旧轮次。
+                    </span>
+                  </div>
                 </div>
               </section>
             )}
 
             {section === "retry" && (
-              <section className="settings-block">
+              <section className="settings-block retry-settings">
                 <span className="label">请求重试</span>
                 <div className="settings-field compact-threshold-field">
                   <label htmlFor="retry-max-attempts">最大尝试次数</label>
@@ -339,7 +402,9 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
                     />
                     <span className="unit">毫秒</span>
                   </div>
-                  <span className="hint">第 n 次失败后等待 起始退避 × 2ⁿ⁻¹（带抖动）。</span>
+                  <span className="hint">
+                    第 n 次失败后等待 起始退避 × 2ⁿ⁻¹（带抖动）。
+                  </span>
                 </div>
 
                 <div className="settings-field compact-threshold-field">
@@ -365,7 +430,8 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
                     <span className="unit">毫秒</span>
                   </div>
                   <span className="hint">
-                    服务端要求等待更久时直接放弃（不会静默等待）；无进展超时最多额外重试 1 次。
+                    服务端要求等待更久时直接放弃（不会静默等待）；无进展超时最多额外重试
+                    1 次。
                   </span>
                 </div>
               </section>
@@ -373,61 +439,110 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
 
             {section === "providers" && (
               <section className="settings-block">
-                <span className="label">模型提供商</span>
-                {draft.providers.map((provider) => {
-                  const status = keyStatus(provider);
-                  return (
-                    <div className="provider-row" key={provider.id}>
-                      <div className="info">
-                        <div className="p-name">
-                          {provider.name}
-                          <span className="badge neutral">
-                            {provider.apiMode === "auto"
-                              ? `${API_MODE_LABELS.auto}（按模型）`
-                              : `${API_LABELS[provider.api]}（固定）`}
-                          </span>
-                          <span className={`badge ${status.warn ? "warn" : "neutral"}`}>
-                            {status.label}
-                          </span>
-                          {draft.defaultProviderId === provider.id && (
-                            <span className="badge">默认</span>
-                          )}
-                        </div>
-                        <div className="p-url mono">{provider.baseUrl}</div>
-                      </div>
-                      <div className="p-actions">
-                        <button
-                          type="button"
-                          className="link"
-                          onClick={() => {
-                            setPreset(null);
-                            setPicking(false);
-                            setEditing(provider);
-                          }}
-                        >
-                          编辑
-                        </button>
-                        {draft.defaultProviderId !== provider.id && (
-                          <button
-                            type="button"
-                            className="link"
-                            onClick={() => commit((previous) => ({ ...previous, defaultProviderId: provider.id }))}
+                <span className="label">
+                  {editing
+                    ? editing === "new"
+                      ? "添加提供商"
+                      : `编辑 ${editing.name}`
+                    : picking
+                      ? "选择提供商"
+                      : "模型提供商"}
+                </span>
+                {editing === null && !picking && (
+                  <>
+                    <div className="settings-provider-list">
+                      {draft.providers.map((provider) => {
+                        const status = keyStatus(provider);
+                        return (
+                          <div
+                            className={`provider-row${draft.defaultProviderId === provider.id ? " is-default" : ""}`}
+                            key={provider.id}
                           >
-                            设为默认
-                          </button>
-                        )}
-                        <button type="button" className="link danger" onClick={() => deleteProvider(provider.id)}>
-                          删除
-                        </button>
-                      </div>
+                            <span
+                              className="provider-monogram"
+                              aria-hidden="true"
+                            >
+                              {provider.name.slice(0, 1).toUpperCase()}
+                            </span>
+                            <div className="info">
+                              <div className="p-name">
+                                {provider.name}
+                                {draft.defaultProviderId === provider.id && (
+                                  <span className="badge provider-default">
+                                    默认
+                                  </span>
+                                )}
+                              </div>
+                              <div className="p-url mono">
+                                {provider.baseUrl}
+                              </div>
+                              <div className="p-badges">
+                                <span className="badge neutral">
+                                  {provider.apiMode === "auto"
+                                    ? `${API_MODE_LABELS.auto}（按模型）`
+                                    : `${API_LABELS[provider.api]}（固定）`}
+                                </span>
+                                <span
+                                  className={`badge ${status.warn ? "warn" : "neutral"}`}
+                                >
+                                  {status.label}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="p-actions">
+                              <button
+                                type="button"
+                                className="link"
+                                onClick={() => {
+                                  setPreset(null);
+                                  setPicking(false);
+                                  setEditing(provider);
+                                }}
+                              >
+                                编辑
+                              </button>
+                              {draft.defaultProviderId !== provider.id && (
+                                <button
+                                  type="button"
+                                  className="link"
+                                  onClick={() =>
+                                    commit((previous) => ({
+                                      ...previous,
+                                      defaultProviderId: provider.id,
+                                    }))
+                                  }
+                                >
+                                  设为默认
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="link danger"
+                                onClick={() => deleteProvider(provider.id)}
+                              >
+                                删除
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                    {draft.providers.length === 0 && (
+                      <p className="hint">
+                        添加一个模型提供商，为 Agent 选择可用的模型。
+                      </p>
+                    )}
+                  </>
+                )}
 
                 {editing === null && !picking && (
                   <div className="preset-actions">
-                    <button type="button" className="btn ghost" onClick={() => setPicking(true)}>
-                      ＋ 从预设添加
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      onClick={() => setPicking(true)}
+                    >
+                      <IconPlus /> 从预设添加
                     </button>
                     <button
                       type="button"
@@ -446,6 +561,7 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
                       disabled={refreshingCatalog}
                       onClick={() => void refreshCatalog()}
                     >
+                      <IconRefresh />
                       {refreshingCatalog ? "刷新中…" : "刷新模型目录"}
                     </button>
                     {catalogNote && <span className="hint">{catalogNote}</span>}
@@ -509,73 +625,17 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
   );
 }
 
-function ThemeOption({
-  active,
-  name,
-  swatch,
-  onClick,
-}: {
-  active: boolean;
-  name: string;
-  swatch: string[];
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`theme-option${active ? " active" : ""}`}
-      aria-pressed={active}
-      onClick={onClick}
-    >
-      <div className="swatch">
-        {swatch.map((color) => (
-          <span key={color} style={{ background: color }} />
-        ))}
-      </div>
-      <div className="name">
-        {name}
-        {active && <span style={{ color: "var(--accent-text)" }}> ✓</span>}
-      </div>
-    </button>
-  );
-}
+const SECTION_ICONS = {
+  appearance: IconGear,
+  context: IconLayers,
+  retry: IconArrowRepeat,
+  providers: IconGrid,
+  account: IconKey,
+};
 
-function LocaleOption({
-  active,
-  code,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  code: string;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`theme-option locale-option${active ? " active" : ""}`}
-      aria-pressed={active}
-      onClick={onClick}
-    >
-      <div
-        className="locale-badge"
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: "13px",
-          fontWeight: 650,
-          color: active ? "var(--accent-text)" : "var(--muted)",
-          padding: "4px 0",
-        }}
-      >
-        {code}
-      </div>
-      <div className="name">
-        {label}
-        {active && <span style={{ color: "var(--accent-text)" }}> ✓</span>}
-      </div>
-    </button>
-  );
+function SettingsSectionIcon({ section }: { section: SettingsSection }) {
+  const Icon = SECTION_ICONS[section];
+  return <Icon />;
 }
 
 function keyStatus(p: ProviderConfig): { label: string; warn: boolean } {

@@ -91,7 +91,7 @@ const peerDemoMessages: Array<Record<string, unknown>> = [
   { role: "user", content: "审查一下 src/ 的组件拆分", timestamp: Date.now() - 60000 },
   {
     role: "assistant",
-    content: [{ type: "text", text: "读完了 src/：App.tsx 负责编排，Chat.tsx 是单会话视图。需要我把拆分建议写下来吗？" }],
+    content: [{ type: "text", text: "读完了 src/：App.tsx 负责编排，chat/ChatView.tsx 是单会话视图。需要我把拆分建议写下来吗？" }],
     usage: { input: 20, output: 40, cacheRead: 120, cacheWrite: 0, totalTokens: 180 },
     stopReason: "stop",
     timestamp: Date.now() - 58000,
