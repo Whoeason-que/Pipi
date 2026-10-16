@@ -1,25 +1,39 @@
 import { IconCheck } from "../icons";
+import type { ThemeDefinition } from "../theme";
 
 export function ThemeOption({
   active,
-  name,
   theme,
   onClick,
 }: {
   active: boolean;
-  name: string;
-  theme: "dark" | "light";
+  theme: ThemeDefinition;
   onClick: () => void;
 }) {
+  const { preview } = theme;
+  const previewStyle = {
+    "--preview-bg": preview.bg,
+    "--preview-nav": preview.nav,
+    "--preview-rail": preview.rail,
+    "--preview-card": preview.card,
+    "--preview-line": preview.line,
+    "--preview-accent": preview.accent,
+  } as React.CSSProperties;
+
   return (
     <button
       type="button"
       className={`theme-option${active ? " active" : ""}`}
-      aria-label={name}
+      aria-label={theme.label}
       aria-pressed={active}
       onClick={onClick}
+      title={theme.description}
     >
-      <span className={`theme-preview ${theme}`} aria-hidden="true">
+      <span
+        className={`theme-preview ${theme.mode}`}
+        style={previewStyle}
+        aria-hidden="true"
+      >
         <span className="theme-preview-rail">
           <i />
           <i />
@@ -44,7 +58,7 @@ export function ThemeOption({
         </span>
       </span>
       <span className="option-caption">
-        <span>{name}</span>
+        <span>{theme.label}</span>
         <SelectionMark active={active} />
       </span>
     </button>

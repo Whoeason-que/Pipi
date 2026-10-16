@@ -512,7 +512,7 @@ const demoCatalog: ModelCatalog = {
 };
 
 const settings: Settings = {
-  theme: localStorage.getItem("pipi-theme") === "light" ? "light" : "dark",
+  theme: localStorage.getItem("pipi-theme") || "ink-blue",
   providers: [
     {
       id: "anthropic",

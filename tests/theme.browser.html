@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>主题样式回归</title>
+  </head>
+  <body>
+    <h1>主题样式回归</h1>
+    <p role="status" id="status">运行中</p>
+    <pre id="results"></pre>
+    <!-- npm run dev 后打开 /tests/theme.browser.html，使用真实 CSS 层叠验证主题。 -->
+    <script type="module">
+      import fallbackCss from "../src/styles/tokens.css?inline";
+      import {
+        applyTheme,
+        BUILTIN_THEMES,
+        compileThemeTokens,
+        getInitialThemeId,
+        resolveTheme,
+        toCssVarName,
+      } from "../src/theme/index.ts";
+
+      const root = document.documentElement;
+      const originalTheme = getInitialThemeId();
+      const fallbackStyle = document.createElement("style");
+      fallbackStyle.textContent = fallbackCss;
+      document.head.appendChild(fallbackStyle);
+      const cases = [
+        ...BUILTIN_THEMES.map(({ id }) => [id, id]),
+        ["dark", "ink-blue"],
+        ["unknown-theme", "ink-blue"],
+        [null, "ink-blue"],
+      ];
+      const results = [];
+      let failed = 0;
+
+      try {
+        for (const order of ["默认样式先加载", "默认样式后加载"]) {
+          // 模拟样式在启动或 HMR 后重排，主题覆盖不能依赖标签顺序。
+          document.head.appendChild(fallbackStyle);
+          for (const [input, expectedId] of cases) {
+            applyTheme(input);
+            const expected = compileThemeTokens(resolveTheme(expectedId));
+            const computed = getComputedStyle(root);
+            const errors = [];
+            if (root.dataset.palette !== expectedId || root.dataset.theme !== expected.mode) {
+              errors.push("主题身份或明暗模式不匹配");
+            }
+            for (const [key, value] of Object.entries(expected.tokens)) {
+              const name = toCssVarName(key);
+              const actual = computed.getPropertyValue(name).trim().replace(/\s+/g, " ");
+              if (actual !== value.replace(/\s+/g, " ")) {
+                errors.push(`${name}: ${actual}，预期 ${value}`);
+              }
+            }
+            if (!computed.getPropertyValue("--r").trim()) errors.push("结构令牌丢失");
+            if (errors.length) failed += 1;
+            results.push(`${errors.length ? "FAIL" : "PASS"} ${order} / ${input ?? "null"}`);
+            results.push(...errors.map((error) => `  ${error}`));
+          }
+        }
+      } finally {
+        applyTheme(originalTheme);
+      }
+
+      document.getElementById("status").textContent = failed
+        ? `${failed} / ${cases.length * 2} 项失败`
+        : `${cases.length * 2} 项全部通过`;
+      document.getElementById("results").textContent = results.join("\n");
+    </script>
+  </body>
+</html>

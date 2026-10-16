@@ -4,9 +4,10 @@ import App from "./App";
 import { I18nProvider, getDefaultLocale } from "./i18n";
 import "./styles.css";
 
+import { applyTheme, getInitialThemeId } from "./theme";
+
 // 渲染前应用缓存的主题与语言，避免首帧闪烁（真实设置由 get_settings 校准）
-const savedTheme = localStorage.getItem("pipi-theme");
-document.documentElement.dataset.theme = savedTheme === "light" ? "light" : "dark";
+applyTheme(getInitialThemeId());
 document.documentElement.lang = getDefaultLocale();
 
 // 开发环境下若没有 Tauri 后端（纯浏览器调试），安装最小 invoke 桩。

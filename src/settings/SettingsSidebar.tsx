@@ -1,5 +1,6 @@
 import { formatRetryDelay } from "../chat-runtime";
 import { useI18n } from "../i18n";
+import { resolveTheme } from "../theme";
 import type { Settings } from "../types";
 import {
   getSettingsSectionInfo,
@@ -30,7 +31,7 @@ export default function SettingsSidebar({
   const sectionMeta = (id: SettingsSection): string => {
     switch (id) {
       case "appearance":
-        return `${settings.theme === "dark" ? t("settings.themeDark") : t("settings.themeLight")} · ${locale.toUpperCase()}`;
+        return `${resolveTheme(settings.theme).label} · ${locale.toUpperCase()}`;
       case "context":
         return settings.compaction.forkBeforeCompact
           ? "压缩前分叉"

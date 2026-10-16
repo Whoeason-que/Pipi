@@ -11,13 +11,68 @@ use serde::{Deserialize, Serialize};
 
 use pipi_protocol::Api;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Theme {
     #[default]
-    #[serde(rename = "dark")]
     Dark,
-    #[serde(rename = "light")]
     Light,
+    Custom(String),
+}
+
+impl Theme {
+    pub const DARK: &'static str = "dark";
+    pub const LIGHT: &'static str = "light";
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+            Self::Custom(s) => s.as_str(),
+        }
+    }
+}
+
+impl Serialize for Theme {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Theme {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "dark" => Ok(Theme::Dark),
+            "light" => Ok(Theme::Light),
+            _ => Ok(Theme::Custom(s)),
+        }
+    }
+}
+
+impl From<&str> for Theme {
+    fn from(s: &str) -> Self {
+        match s {
+            "dark" => Theme::Dark,
+            "light" => Theme::Light,
+            _ => Theme::Custom(s.to_string()),
+        }
+    }
+}
+
+impl From<String> for Theme {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "dark" => Theme::Dark,
+            "light" => Theme::Light,
+            _ => Theme::Custom(s),
+        }
+    }
 }
 
 /// 提供商协议的选择方式。
@@ -250,6 +305,10 @@ mod tests {
         assert_eq!(serde_json::to_string(&Theme::Light).unwrap(), r#""light""#);
         let t: Theme = serde_json::from_str(r#""light""#).unwrap();
         assert_eq!(t, Theme::Light);
+
+        let custom: Theme = serde_json::from_str(r#""nord""#).unwrap();
+        assert_eq!(custom, Theme::Custom("nord".to_string()));
+        assert_eq!(serde_json::to_string(&custom).unwrap(), r#""nord""#);
     }
 
     #[test]
@@ -396,5 +455,14 @@ mod tests {
         let loaded: Settings =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(loaded.theme, Theme::Light);
+
+        let custom_settings = Settings {
+            theme: Theme::Custom("nord".into()),
+            ..Settings::default()
+        };
+        let text = serde_json::to_string_pretty(&custom_settings).unwrap();
+        assert!(text.contains("\"theme\": \"nord\""));
+        let loaded_custom: Settings = serde_json::from_str(&text).unwrap();
+        assert_eq!(loaded_custom.theme, Theme::Custom("nord".into()));
     }
 }

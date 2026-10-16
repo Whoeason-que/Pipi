@@ -176,6 +176,12 @@
   line-height: 1.65;
 }
 
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
 .theme-row,
 .locale-row {
   display: flex;

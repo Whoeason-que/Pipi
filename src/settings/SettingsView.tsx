@@ -15,6 +15,7 @@ import { useI18n } from "../i18n";
 
 import { PresetPicker, ProviderForm } from "./ProviderEditor";
 import { LocaleOption, ThemeOption } from "./AppearanceOptions";
+import { BUILTIN_THEMES, resolveTheme } from "../theme";
 import {
   getSettingsSectionInfo,
   SettingsSectionIcon,
@@ -187,23 +188,20 @@ export default function SettingsView({
 
               <section className="settings-block">
                 <span className="label">{t("settings.theme")}</span>
-                <div className="theme-row">
-                  <ThemeOption
-                    active={draft.theme === "dark"}
-                    name={t("settings.themeDark")}
-                    theme="dark"
-                    onClick={() =>
-                      commit((previous) => ({ ...previous, theme: "dark" }))
-                    }
-                  />
-                  <ThemeOption
-                    active={draft.theme === "light"}
-                    name={t("settings.themeLight")}
-                    theme="light"
-                    onClick={() =>
-                      commit((previous) => ({ ...previous, theme: "light" }))
-                    }
-                  />
+                <div className="theme-grid">
+                  {BUILTIN_THEMES.map((item) => {
+                    const activeTheme = resolveTheme(draft.theme);
+                    return (
+                      <ThemeOption
+                        key={item.id}
+                        active={activeTheme.id === item.id}
+                        theme={item}
+                        onClick={() =>
+                          commit((previous) => ({ ...previous, theme: item.id }))
+                        }
+                      />
+                    );
+                  })}
                 </div>
               </section>
             </>

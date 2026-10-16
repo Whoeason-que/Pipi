@@ -1,7 +1,7 @@
 // 与 Rust 侧类型对齐（serde camelCase）—— 前端共享类型
 import type { MessageView } from "./chat-runtime";
 
-export type Theme = "dark" | "light";
+export type Theme = string;
 
 export type ApiKind = "anthropic-messages" | "openai-completions";
 

@@ -758,6 +758,10 @@
     flex-direction: column;
   }
 
+  .theme-grid {
+    grid-template-columns: 1fr;
+  }
+
   .test-workbench .screen-bar {
     gap: 6px;
     padding-inline: 8px;
