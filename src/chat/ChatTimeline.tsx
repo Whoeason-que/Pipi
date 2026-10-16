@@ -4,6 +4,7 @@ import { ChipRow, CopyButton, formatClock } from "./ToolDetails";
 import { IconFork } from "../icons";
 import { ChatErrorCard } from "./ChatErrorCard";
 import { extractAssistantContentAndError } from "./chat-errors";
+import { useI18n } from "../i18n";
 
 export default function ChatTimeline({
   blocks,
@@ -32,6 +33,7 @@ export default function ChatTimeline({
   onFork?: () => void;
   forkDisabled?: boolean;
 }) {
+  const { locale, t } = useI18n();
   return <>
           {blocks.map((block) => {
             if (block.kind === "system") {
@@ -94,7 +96,7 @@ export default function ChatTimeline({
               );
             }
             // 正文块：assistant 文本（thinking 与工具调用已由标签行承载）
-            const { cleanText, errorInfo } = extractAssistantContentAndError(entry);
+            const { cleanText, errorInfo } = extractAssistantContentAndError(entry, locale);
             const footer = !entry.streaming && !errorInfo && cleanText
               ? assistantFooter({
                   role: "assistant",
@@ -140,8 +142,8 @@ export default function ChatTimeline({
                           className="icon-btn fork-btn"
                           onClick={onFork}
                           disabled={forkDisabled}
-                          title={forkDisabled ? "当前无法分叉" : "分叉会话"}
-                          aria-label="分叉会话"
+                          title={forkDisabled ? t("chat.cannotFork") : t("chat.fork")}
+                          aria-label={t("chat.fork")}
                         >
                           <IconFork />
                         </button>

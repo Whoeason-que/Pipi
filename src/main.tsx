@@ -1,11 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { I18nProvider, getDefaultLocale } from "./i18n";
 import "./styles.css";
 
-// 渲染前应用缓存的主题，避免首帧闪烁（真实设置由 get_settings 校准）
-const saved = localStorage.getItem("pipi-theme");
-document.documentElement.dataset.theme = saved === "light" ? "light" : "dark";
+// 渲染前应用缓存的主题与语言，避免首帧闪烁（真实设置由 get_settings 校准）
+const savedTheme = localStorage.getItem("pipi-theme");
+document.documentElement.dataset.theme = savedTheme === "light" ? "light" : "dark";
+document.documentElement.lang = getDefaultLocale();
 
 // 开发环境下若没有 Tauri 后端（纯浏览器调试），安装最小 invoke 桩。
 // 动态 import：dev-mock 只服务浏览器调试，不进生产 bundle（含演示数据）。
@@ -16,7 +18,12 @@ async function mount() {
     installDevMock();
   }
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <React.StrictMode><App /></React.StrictMode>,
+    <React.StrictMode>
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    </React.StrictMode>,
   );
 }
 void mount();
+

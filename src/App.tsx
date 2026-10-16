@@ -16,6 +16,7 @@ import ChatView from "./Chat";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
 import { useDialogFocus } from "./components/use-dialog-focus";
+import { useI18n } from "./i18n";
 import { IconAlertTriangle, IconClose, IconPanel, IconSearch } from "./icons";
 import Login from "./Login";
 import { getAuthStatus, invoke, isTauriRuntime, listen, onAuthRequired } from "./platform";
@@ -29,6 +30,7 @@ import { applyTheme } from "./theme";
 import type { SessionInfoView, SessionSummaryView, SkillLibrary } from "./types";
 
 export default function App() {
+  const { t } = useI18n();
   const [sessionRuntime] = useState(() => new SessionRuntime({ invoke, listen }));
   const [view, setView] = useState<AppView>({ kind: "home" });
   const viewRef = useRef(view);
@@ -173,8 +175,8 @@ export default function App() {
     else navigate({ kind: target.action });
   };
   const current = agents.find(agent => agent.name === selected);
-  const title = view.kind === "home" ? "工作区" : view.kind === "settings" ? "设置" : view.kind === "create" ? "新建 Agent"
-    : view.kind === "skills" ? "技能库" : current?.name ?? "Pipi";
+  const title = view.kind === "home" ? t("nav.workspace") : view.kind === "settings" ? t("nav.settings") : view.kind === "create" ? t("nav.newAgent")
+    : view.kind === "skills" ? t("nav.skills") : current?.name ?? "Pipi";
   const sessionTitle = view.kind === "chat" ? (sessionsByAgent[view.agentName] ?? []).find(session => session.id === view.sessionId)?.title : undefined;
   const overviewProps = { agents, sessions: sessionsByAgent, running: runningSessions, onAgent: selectAgent, onSession: openSession,
     onNewSession: (name: string) => { void navigation.startNewSession(name); }, onConfigure: configureAgent, onCreate: startCreating };
@@ -194,9 +196,9 @@ export default function App() {
           setNavSection(section); setSidebarCollapsed(false); setSidebarOpen(true);
         }} />
       <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label="Agent 与会话列表">
-        <div className="sb-head"><button type="button" className="sidebar-home" onClick={() => navigate({ kind: "home" })}>首页</button>
-          <span className="spacer" /><button type="button" className="icon-btn" title="收起侧栏" aria-label="收起侧栏" onClick={toggleNavigation}><IconPanel /></button></div>
-        <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>搜索与快捷操作</span><kbd>⌘ K</kbd></button>
+        <div className="sb-head"><button type="button" className="sidebar-home" onClick={() => navigate({ kind: "home" })}>{t("nav.home")}</button>
+          <span className="spacer" /><button type="button" className="icon-btn" title={t("nav.collapseSidebar")} aria-label={t("nav.collapseSidebar")} onClick={toggleNavigation}><IconPanel /></button></div>
+        <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
         {navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={agents}
           sessionsByAgent={sessionsByAgent} isRunning={isConversationRunning} onSelectAgent={selectAgent} onOpenSession={openSession} />
           : navSection === "skills" ? <SkillsSidebar library={skillLibrary} selected={skillSelected} error={skillLoadError}
@@ -238,7 +240,7 @@ export default function App() {
           : view.kind === "skills" ? <SkillsView library={skillLibrary} loadError={skillLoadError} selected={skillSelected}
             onSelect={setSkillSelected} onRefresh={loadSkillLibrary} onError={safeSetError} />
           : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
-            title={sessionTitle || "新会话"} sessionId={view.sessionId} sessions={sessionRuntime}
+            title={sessionTitle || t("chat.newSessionTitle")} sessionId={view.sessionId} sessions={sessionRuntime}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} onBack={() => selectAgent(current.name)} onError={safeSetError}
             onNewSession={navigation.createSessionFromChat} onRunningChange={handleRunningChange} onSessionReset={info => {
               setActiveSession(info ?? null);

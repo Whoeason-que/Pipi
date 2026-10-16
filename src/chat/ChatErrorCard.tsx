@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ChatErrorInfo } from "./chat-errors";
+import { useI18n } from "../i18n";
 import {
   IconAlertTriangle,
   IconArrowRepeat,
@@ -36,13 +37,14 @@ function renderCategoryIcon(category: ChatErrorInfo["category"]) {
 }
 
 export function ChatErrorCard({ info }: { info: ChatErrorInfo }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [openRaw, setOpenRaw] = useState(false);
 
   // 用户主动中止：以温和低调的 pill 胶囊展现，不给红色惊悚感
   if (info.category === "aborted") {
     return (
-      <div className="chat-aborted-pill" role="status" aria-label="生成已中止">
+      <div className="chat-aborted-pill" role="status" aria-label={info.title}>
         <span className="chat-aborted-icon">
           <IconStop size={11} />
         </span>
@@ -54,7 +56,7 @@ export function ChatErrorCard({ info }: { info: ChatErrorInfo }) {
   const handleCopy = async () => {
     try {
       const textToCopy = `${info.title}\n[${info.badge}] ${info.rawError}${
-        info.suggestion ? `\n建议: ${info.suggestion}` : ""
+        info.suggestion ? `\n${t("chat.suggestionPrefix")}${info.suggestion}` : ""
       }`;
       await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
@@ -82,17 +84,17 @@ export function ChatErrorCard({ info }: { info: ChatErrorInfo }) {
           type="button"
           className="chat-error-copy-btn"
           onClick={handleCopy}
-          title={copied ? "已复制" : "复制错误信息"}
-          aria-label={copied ? "已复制" : "复制错误信息"}
+          title={copied ? t("common.copied") : t("chat.copyError")}
+          aria-label={copied ? t("common.copied") : t("chat.copyError")}
         >
           {copied ? <IconCheck /> : <IconCopy />}
-          <span className="copy-label">{copied ? "已复制" : "复制"}</span>
+          <span className="copy-label">{copied ? t("common.copied") : t("common.copy")}</span>
         </button>
       </div>
 
       {info.suggestion && (
         <div className="chat-error-suggestion">
-          <span className="suggestion-prefix">建议：</span>
+          <span className="suggestion-prefix">{t("chat.suggestionPrefix")}</span>
           <span className="suggestion-text">{info.suggestion}</span>
         </div>
       )}
@@ -104,7 +106,7 @@ export function ChatErrorCard({ info }: { info: ChatErrorInfo }) {
           onToggle={(e) => setOpenRaw(e.currentTarget.open)}
         >
           <summary className="chat-error-summary">
-            <span>{openRaw ? "收起详细错误信息" : "展开详细错误信息"}</span>
+            <span>{openRaw ? t("chat.collapseDetails") : t("chat.expandDetails")}</span>
           </summary>
           <pre className="chat-error-pre">{info.rawError}</pre>
         </details>

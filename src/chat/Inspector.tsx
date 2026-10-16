@@ -44,6 +44,19 @@ export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "search", label: "会话搜索" },
 ];
 
+export function getInspectorTabLabel(tab: InspectorTab, t?: (key: string) => string): string {
+  if (!t) {
+    return INSPECTOR_TABS.find((item) => item.id === tab)?.label ?? tab;
+  }
+  switch (tab) {
+    case "detail": return t("inspector.detail");
+    case "stats": return t("inspector.stats");
+    case "state": return t("inspector.state");
+    case "files": return t("inspector.files");
+    case "search": return t("inspector.search");
+  }
+}
+
 export default function Inspector({
   context,
   onCompact,

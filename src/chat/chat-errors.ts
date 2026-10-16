@@ -5,6 +5,10 @@
  * 提供语义化分类、差异化展示标签、友好的操作建议与详情提取。
  */
 
+import { getDefaultLocale, type Locale } from "../i18n/core.ts";
+import { zh } from "../i18n/zh.ts";
+import { en } from "../i18n/en.ts";
+
 export type ChatErrorCategory =
   | "aborted"
   | "auth"
@@ -27,12 +31,15 @@ export interface ChatErrorInfo {
   suggestion?: string;
 }
 
-export function classifyChatError(input: {
-  errorMessage?: string | null;
-  text?: string | null;
-  status?: string | null;
-  stopReason?: string | null;
-}): ChatErrorInfo {
+export function classifyChatError(
+  input: {
+    errorMessage?: string | null;
+    text?: string | null;
+    status?: string | null;
+    stopReason?: string | null;
+  },
+  locale: Locale = "zh",
+): ChatErrorInfo {
   const status = input.status ?? undefined;
   const stopReason = input.stopReason ?? undefined;
 
@@ -52,10 +59,11 @@ export function classifyChatError(input: {
     if (status === "aborted" || stopReason === "aborted") {
       raw = "已中止";
     } else {
-      raw = "Agent 返回未知错误";
+      raw = locale === "en" ? "Agent returned an unknown error" : "Agent 返回未知错误";
     }
   }
 
+  const dict = locale === "en" ? en.errors : zh.errors;
   const lower = raw.toLowerCase();
 
   // 1. 用户主动中止
@@ -64,12 +72,13 @@ export function classifyChatError(input: {
     stopReason === "aborted" ||
     raw === "已中止" ||
     raw.includes("用户中止") ||
-    raw.includes("已中止")
+    raw.includes("已中止") ||
+    lower.includes("aborted")
   ) {
     return {
       category: "aborted",
-      title: "生成已由用户中止",
-      badge: "已中止",
+      title: dict.abortedTitle,
+      badge: dict.abortedBadge,
       rawError: raw,
     };
   }
@@ -90,10 +99,10 @@ export function classifyChatError(input: {
   ) {
     return {
       category: "context_overflow",
-      title: "会话上下文超出模型窗口限制",
-      badge: "上下文超限",
+      title: dict.contextTitle,
+      badge: dict.contextBadge,
       rawError: raw,
-      suggestion: "当前会话历史已超出单次最大 Token 容纳窗口，建议在右侧面板执行「会话压缩」或开启新会话。",
+      suggestion: dict.contextSuggestion,
     };
   }
 
@@ -117,10 +126,10 @@ export function classifyChatError(input: {
   ) {
     return {
       category: "rate_limit",
-      title: "请求频率超限或配额耗尽",
-      badge: "频率限制",
+      title: dict.rateLimitTitle,
+      badge: dict.rateLimitBadge,
       rawError: raw,
-      suggestion: "服务端接口调用频率已达上限或账户额度耗尽，请稍候片刻重试，或切换备用模型。",
+      suggestion: dict.rateLimitSuggestion,
     };
   }
 
@@ -149,10 +158,10 @@ export function classifyChatError(input: {
   ) {
     return {
       category: "auth",
-      title: "API 认证失败或凭据无效",
-      badge: "认证异常",
+      title: dict.authTitle,
+      badge: dict.authBadge,
       rawError: raw,
-      suggestion: "请前往「设置 → 模型服务」检查 API 密钥、权限或端点凭据配置。",
+      suggestion: dict.authSuggestion,
     };
   }
 
@@ -167,10 +176,10 @@ export function classifyChatError(input: {
   ) {
     return {
       category: "protocol",
-      title: "模型请求协议不兼容",
-      badge: "协议错误",
+      title: dict.protocolTitle,
+      badge: dict.protocolBadge,
       rawError: raw,
-      suggestion: "当前模型端点不支持所选协议格式，建议在设置中将该提供商的协议模式切换为「自动」。",
+      suggestion: dict.protocolSuggestion,
     };
   }
 
@@ -184,10 +193,10 @@ export function classifyChatError(input: {
   ) {
     return {
       category: "permission",
-      title: "命令执行被安全策略拦截",
-      badge: "权限拦截",
+      title: dict.permissionTitle,
+      badge: dict.permissionBadge,
       rawError: raw,
-      suggestion: "检测到可能对系统存在风险的命令或未授权的文件写入路径，已被安全防护机制拦截。",
+      suggestion: dict.permissionSuggestion,
     };
   }
 
@@ -212,32 +221,35 @@ export function classifyChatError(input: {
   ) {
     return {
       category: "network",
-      title: "网络传输超时或连接中断",
-      badge: "连接异常",
+      title: dict.networkTitle,
+      badge: dict.networkBadge,
       rawError: raw,
-      suggestion: "与模型服务端的通信中断或握手超时，请检查本地网络代理配置、VPN 或服务端状态。",
+      suggestion: dict.networkSuggestion,
     };
   }
 
   // 8. 通用运行时异常
   return {
     category: "generic",
-    title: "Agent 运行异常",
-    badge: "运行错误",
+    title: dict.genericTitle,
+    badge: dict.genericBadge,
     rawError: raw,
-    suggestion: "模型调用或执行环节遇到未预期异常，可尝试重新发送或检查模型服务状态。",
+    suggestion: dict.genericSuggestion,
   };
 }
 
 /**
  * 从可能混杂了错误/中止标记的助手文本中，拆分出干净的生成正文与错误信息对象。
  */
-export function extractAssistantContentAndError(entry: {
-  text?: string;
-  errorMessage?: string;
-  status?: string;
-  stopReason?: string;
-}): {
+export function extractAssistantContentAndError(
+  entry: {
+    text?: string;
+    errorMessage?: string;
+    status?: string;
+    stopReason?: string;
+  },
+  locale: Locale = getDefaultLocale(),
+): {
   cleanText: string;
   errorInfo: ChatErrorInfo | null;
 } {
@@ -268,12 +280,15 @@ export function extractAssistantContentAndError(entry: {
     cleanText = "";
   }
 
-  const errorInfo = classifyChatError({
-    errorMessage: entry.errorMessage,
-    text: rawText,
-    status: entry.status,
-    stopReason: entry.stopReason,
-  });
+  const errorInfo = classifyChatError(
+    {
+      errorMessage: entry.errorMessage,
+      text: rawText,
+      status: entry.status,
+      stopReason: entry.stopReason,
+    },
+    locale,
+  );
 
   return { cleanText, errorInfo };
 }

@@ -20,37 +20,13 @@ import {
   type ProviderConfig,
   type Settings
 } from "../types";
+import { useI18n } from "../i18n";
 
 import { PresetPicker, ProviderForm } from "./ProviderEditor";
 // ============ 设置（主区 tab，与对话界面同构：顶栏 + 左导航 + 内容） ============
 
 /** 设置分组：导航用它划分不同类别。 */
 type SettingsSection = "appearance" | "context" | "retry" | "providers" | "account";
-
-const SETTINGS_SECTIONS: Record<SettingsSection, { label: string; description: string }> = {
-  appearance: {
-    label: "外观",
-    description: "界面主题，只影响本机显示，不改动 Agent 配置。",
-  },
-  context: {
-    label: "上下文",
-    description: "长会话触碰窗口上限时的压缩方式：分叉出新会话，或原地替换旧轮次。",
-  },
-  retry: {
-    label: "重试",
-    description:
-      "请求失败后的重发策略。只重发可重试的错误（限流、5xx、连接中断、流被截断）；"
-      + "请求不合法、鉴权失败、上下文超限、配额耗尽一律不重发。已经输出正文的那一轮也不会重放。",
-  },
-  providers: {
-    label: "模型提供商",
-    description: "端点与密钥。Agent 绑定其中一个提供商，再选具体模型。",
-  },
-  account: {
-    label: "账户",
-    description: "Web 访问保护凭据。",
-  },
-};
 
 interface SettingsViewProps {
   settings: Settings;
@@ -60,6 +36,7 @@ interface SettingsViewProps {
 }
 
 export default function SettingsView({ settings, onChange, onClose, showLogout }: SettingsViewProps) {
+  const { locale, setLocale, t } = useI18n();
   const [section, setSection] = useState<SettingsSection>("appearance");
   const [editing, setEditing] = useState<ProviderConfig | "new" | null>(null);
   const [preset, setPreset] = useState<CatalogProvider | null>(null);
@@ -135,11 +112,34 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
     ? ["appearance", "context", "retry", "providers", "account"]
     : ["appearance", "context", "retry", "providers"];
 
+  const sectionInfo: Record<SettingsSection, { label: string; description: string }> = {
+    appearance: {
+      label: t("settings.appearance"),
+      description: t("settings.appearanceDesc"),
+    },
+    context: {
+      label: t("settings.context"),
+      description: t("settings.contextDesc"),
+    },
+    retry: {
+      label: t("settings.retry"),
+      description: t("settings.retryDesc"),
+    },
+    providers: {
+      label: t("settings.providers"),
+      description: t("settings.providersDesc"),
+    },
+    account: {
+      label: t("settings.account"),
+      description: t("settings.accountDesc"),
+    },
+  };
+
   /** 导航项右侧的一行状态摘要，让分组一眼可辨。 */
   const sectionMeta = (id: SettingsSection): string => {
     switch (id) {
       case "appearance":
-        return draft.theme === "dark" ? "深色" : "浅色";
+        return `${draft.theme === "dark" ? t("settings.themeDark") : t("settings.themeLight")} · ${locale.toUpperCase()}`;
       case "context":
         return draft.compaction.forkBeforeCompact ? "压缩前分叉" : "原地压缩";
       case "retry":
@@ -160,17 +160,17 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
         <button
           type="button"
           className="icon-btn"
-          title="返回"
-          aria-label="返回设置前的界面"
+          title={t("common.back")}
+          aria-label={t("common.back")}
           onClick={onClose}
         >
           <IconBack />
         </button>
         <span className="crumb">
-          设置 · <b>{SETTINGS_SECTIONS[section].label}</b>
+          {t("settings.title")} · <b>{sectionInfo[section].label}</b>
         </span>
         <span className="spacer" />
-        <span className="hint">改动即时保存</span>
+        <span className="hint">{t("common.saveAuto")}</span>
       </div>
 
       <div className="settings-body">
@@ -189,7 +189,7 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
               className={`settings-nav-item${section === id ? " active" : ""}`}
               onClick={() => setSection(id)}
             >
-              <span className="name">{SETTINGS_SECTIONS[id].label}</span>
+              <span className="name">{sectionInfo[id].label}</span>
               <span className="meta">{sectionMeta(id)}</span>
             </button>
           ))}
@@ -197,29 +197,52 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
 
         <div className="settings-main">
           <div className="settings-main-head">
-            <h2>{SETTINGS_SECTIONS[section].label}</h2>
-            <p>{SETTINGS_SECTIONS[section].description}</p>
+            <h2>{sectionInfo[section].label}</h2>
+            <p>{sectionInfo[section].description}</p>
           </div>
 
           <div className="settings-main-body">
             {section === "appearance" && (
-              <section className="settings-block">
-                <span className="label">主题</span>
-                <div className="theme-row">
-                  <ThemeOption
-                    active={draft.theme === "dark"}
-                    name="深色"
-                    swatch={["#171717", "#212121", "#0169CC", "#ececec"]}
-                    onClick={() => commit((previous) => ({ ...previous, theme: "dark" }))}
-                  />
-                  <ThemeOption
-                    active={draft.theme === "light"}
-                    name="浅色"
-                    swatch={["#f9f9f9", "#ffffff", "#0169CC", "#0d0d0d"]}
-                    onClick={() => commit((previous) => ({ ...previous, theme: "light" }))}
-                  />
-                </div>
-              </section>
+              <>
+                <section className="settings-block">
+                  <span className="label">{t("settings.language")}</span>
+                  <div className="theme-row">
+                    <LocaleOption
+                      active={locale === "zh"}
+                      code="ZH"
+                      label={t("settings.zh")}
+                      onClick={() => setLocale("zh")}
+                    />
+                    <LocaleOption
+                      active={locale === "en"}
+                      code="EN"
+                      label={t("settings.en")}
+                      onClick={() => setLocale("en")}
+                    />
+                  </div>
+                  <span className="hint" style={{ marginTop: 8, display: "block" }}>
+                    {t("settings.languageDesc")}
+                  </span>
+                </section>
+
+                <section className="settings-block">
+                  <span className="label">{t("settings.theme")}</span>
+                  <div className="theme-row">
+                    <ThemeOption
+                      active={draft.theme === "dark"}
+                      name={t("settings.themeDark")}
+                      swatch={["#171717", "#212121", "#0169CC", "#ececec"]}
+                      onClick={() => commit((previous) => ({ ...previous, theme: "dark" }))}
+                    />
+                    <ThemeOption
+                      active={draft.theme === "light"}
+                      name={t("settings.themeLight")}
+                      swatch={["#f9f9f9", "#ffffff", "#0169CC", "#0d0d0d"]}
+                      onClick={() => commit((previous) => ({ ...previous, theme: "light" }))}
+                    />
+                  </div>
+                </section>
+              </>
             )}
 
             {section === "context" && (
@@ -511,6 +534,44 @@ function ThemeOption({
       </div>
       <div className="name">
         {name}
+        {active && <span style={{ color: "var(--accent-text)" }}> ✓</span>}
+      </div>
+    </button>
+  );
+}
+
+function LocaleOption({
+  active,
+  code,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  code: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`theme-option locale-option${active ? " active" : ""}`}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      <div
+        className="locale-badge"
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: "13px",
+          fontWeight: 650,
+          color: active ? "var(--accent-text)" : "var(--muted)",
+          padding: "4px 0",
+        }}
+      >
+        {code}
+      </div>
+      <div className="name">
+        {label}
         {active && <span style={{ color: "var(--accent-text)" }}> ✓</span>}
       </div>
     </button>

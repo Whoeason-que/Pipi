@@ -11,7 +11,8 @@ import {
   type Chip
 } from "./chat-runtime";
 import ChatTimeline from "./chat/ChatTimeline";
-import Inspector, { INSPECTOR_TABS, type InspectorTab } from "./chat/Inspector";
+import Inspector, { INSPECTOR_TABS, getInspectorTabLabel, type InspectorTab } from "./chat/Inspector";
+import { useI18n } from "./i18n";
 import type { ChatInspectorContext } from "./chat/inspector-context";
 import ModelSelectModal from "./chat/ModelSelectModal";
 import { IconArrowDown, IconSend, IconStop } from "./icons";
@@ -100,6 +101,7 @@ export default function ChatView({
   renderInspector,
   onInspectDetail,
 }: ChatViewProps) {
+  const { locale, t } = useI18n();
   const isTest = mode === "test";
   const controller = useMemo(() => sessions.get(agent, initialSessionId, isTest),
     [sessions, agent.name, initialSessionId, isTest]);
@@ -383,15 +385,16 @@ export default function ChatView({
           </span>
         )}
         {running && (
-          <span className="running-pill" title="当前会话正在运行">
+          <span className="running-pill" title={t("common.running")}>
             <span className="running-dot pulse" />
-            运行中
+            {t("common.running")}
           </span>
         )}
         <span className="spacer" />
         {!isTest ? (
           <div className="bar-tabs" role="tablist" aria-label="会话检查器选项卡">
             {INSPECTOR_TABS.map((item) => {
+              const label = getInspectorTabLabel(item.id, t);
               const isSelected = inspectorOpen && activeInspectorTab === item.id;
               return (
                 <button
@@ -403,10 +406,10 @@ export default function ChatView({
                   aria-controls={`ipanel-${item.id}`}
                   className={`bar-tab${isSelected ? " active" : ""}`}
                   onClick={() => handleBarTabClick(item.id)}
-                  title={`${item.label}${isSelected ? "（点击折叠）" : ""}`}
+                  title={`${label}${isSelected ? (locale === "en" ? " (click to fold)" : "（点击折叠）") : ""}`}
                 >
                   {renderTabIcon(item.id)}
-                  <span className="bar-tab-title">{item.label}</span>
+                  <span className="bar-tab-title">{label}</span>
                   {item.id === "detail" && activeChip && <span className="tab-dot" />}
                 </button>
               );
@@ -507,9 +510,9 @@ export default function ChatView({
               placeholder={
                 ready
                   ? running
-                    ? "Agent 正在运行…输入内容将作为插话（steering）注入"
-                    : "输入消息，Enter 发送（Shift+Enter 换行）"
-                  : "正在连接 Agent…"
+                    ? (locale === "en" ? "Agent is running… message will be injected as steering" : "Agent 正在运行…输入内容将作为插话（steering）注入")
+                    : t("chat.placeholder")
+                  : (locale === "en" ? "Connecting to Agent…" : "正在连接 Agent…")
               }
               disabled={!ready}
               onCompositionStart={() => {
@@ -538,17 +541,25 @@ export default function ChatView({
                   className="model-pill composer-model-pill"
                   onClick={() => setModelModalOpen(true)}
                   disabled={running}
-                  title={running ? "Agent 运行中不可切换模型" : "点击切换当前会话的模型"}
+                  title={running ? (locale === "en" ? "Cannot change model while running" : "Agent 运行中不可切换模型") : (locale === "en" ? "Switch session model" : "点击切换当前会话的模型")}
                 >
-                  <span className="model-pill-name mono">{sessionModel?.id || "未配置模型"}</span>
-                  <span className="model-pill-tag">{isCustomModel ? "自定义" : "默认"}</span>
+                  <span className="model-pill-name mono">{sessionModel?.id || (locale === "en" ? "No model" : "未配置模型")}</span>
+                  <span className="model-pill-tag">{isCustomModel ? (locale === "en" ? "Custom" : "自定义") : (locale === "en" ? "Default" : "默认")}</span>
                 </button>
               ) : (
-                <span className="test-model mono composer-model-pill" title={sessionModel?.id || "未配置模型"}>
-                  {sessionModel?.id || "未配置模型"}
+                <span className="test-model mono composer-model-pill" title={sessionModel?.id || (locale === "en" ? "No model" : "未配置模型")}>
+                  {sessionModel?.id || (locale === "en" ? "No model" : "未配置模型")}
                 </span>
               )}
-              <span className="hint composer-state" role="status">{stopping ? "正在停止…" : sending ? "正在提交…" : running ? "运行中 · 可插话调整方向" : "Enter 发送 · Shift+Enter 换行"}</span>
+              <span className="hint composer-state" role="status">
+                {stopping
+                  ? (locale === "en" ? "Stopping…" : "正在停止…")
+                  : sending
+                  ? (locale === "en" ? "Sending…" : "正在提交…")
+                  : running
+                  ? (locale === "en" ? "Running · Can send steering" : "运行中 · 可插话调整方向")
+                  : (locale === "en" ? "Enter to send · Shift+Enter for new line" : "Enter 发送 · Shift+Enter 换行")}
+              </span>
               <span className="spacer" />
               {running && (
                 <button
@@ -556,8 +567,8 @@ export default function ChatView({
                   className="btn stop"
                   onClick={stop}
                   disabled={stopping}
-                  title={stopping ? "停止中…" : "停止"}
-                  aria-label="停止运行"
+                  title={stopping ? (locale === "en" ? "Stopping…" : "停止中…") : t("chat.stop")}
+                  aria-label={t("chat.stop")}
                 >
                   <IconStop />
                 </button>
@@ -567,8 +578,8 @@ export default function ChatView({
                 className="btn send"
                 disabled={!ready || !input.trim() || sending || stopping}
                 onClick={() => void send()}
-                title={running ? "插话（steering）" : "发送"}
-                aria-label={running ? "插话" : "发送消息"}
+                title={running ? (locale === "en" ? "Steering" : "插话（steering）") : t("chat.send")}
+                aria-label={running ? (locale === "en" ? "Steering" : "插话") : t("chat.send")}
               >
                 <IconSend />
               </button>
