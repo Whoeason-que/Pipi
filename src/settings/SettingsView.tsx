@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import NavigationToggle from "../app/NavigationToggle";
 import {
   catalogSourceLabel,
   type CatalogProvider
@@ -155,6 +156,7 @@ export default function SettingsView({ settings, onChange, onClose, showLogout }
   return (
     <div className="screen settings-view">
       <div className="screen-bar">
+        <NavigationToggle />
         <button
           type="button"
           className="icon-btn"

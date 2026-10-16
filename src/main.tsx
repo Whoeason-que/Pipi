@@ -9,12 +9,14 @@ document.documentElement.dataset.theme = saved === "light" ? "light" : "dark";
 
 // 开发环境下若没有 Tauri 后端（纯浏览器调试），安装最小 invoke 桩。
 // 动态 import：dev-mock 只服务浏览器调试，不进生产 bundle（含演示数据）。
-if (import.meta.env.DEV) {
-  void import("./dev-mock").then(({ installDevMock }) => installDevMock());
+async function mount() {
+  // 开发桩先于 App 的鉴权/事件订阅安装，避免误连真实 Web 端点并显示断开。
+  if (import.meta.env.DEV) {
+    const { installDevMock } = await import("./dev-mock");
+    installDevMock();
+  }
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode><App /></React.StrictMode>,
+  );
 }
-
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+void mount();

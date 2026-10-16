@@ -156,6 +156,7 @@ export default function AgentWorkbench({
 
   const resetTestSession = async () => {
     const info = await invoke("open_workbench_session", { agentName: agent.name, reset: true });
+    if (testSession) sessions.forget(agent.name, testSession.sessionId);
     setTestSession(info);
   };
   // agent 切换时重置编辑状态（否则上一个 Agent 的草稿会串台）

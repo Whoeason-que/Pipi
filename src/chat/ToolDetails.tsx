@@ -4,6 +4,7 @@ import {
   type Chip
 } from "../chat-runtime";
 import { IconCheck, IconCopy } from "../icons";
+import { useCopyFeedback } from "../components/use-copy";
 
 
 export function formatClock(timestamp: number): string {
@@ -14,27 +15,18 @@ export function formatClock(timestamp: number): string {
 
 /** 消息操作：复制正文（hover 出现的操作行里，成功后短暂显示对勾） */
 export function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+  const { state, copy, label } = useCopyFeedback();
   return (
     <button
       type="button"
-      className={`icon-btn copy-btn${copied ? " copied" : ""}`}
-      title={copied ? "已复制" : "复制"}
-      aria-label={copied ? "已复制" : "复制消息"}
+      className={`icon-btn copy-btn${state === "copied" ? " copied" : ""}${state === "failed" ? " copy-failed" : ""}`}
+      title={label}
+      aria-label={state === "idle" ? "复制消息" : label}
       disabled={!text}
-      onClick={() => {
-        navigator.clipboard
-          ?.writeText(text)
-          .then(() => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1200);
-          })
-          .catch(() => {
-            // 剪贴板不可用时静默失败，不打断阅读
-          });
-      }}
+      onClick={() => void copy(text)}
     >
-      {copied ? <IconCheck /> : <IconCopy />}
+      {state === "copied" ? <IconCheck /> : <IconCopy />}
+      {state === "failed" && <span className="copy-error-note" role="status">{label}</span>}
     </button>
   );
 }

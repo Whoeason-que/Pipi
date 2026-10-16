@@ -30,7 +30,7 @@ export function StatusBar({
         <i className={`status-dot ${connection}`} aria-hidden="true" />
         {CONNECTION_LABELS[connection]}
       </span>
-      <span className="sep">│</span>
+      <span className="sep opt">│</span>
       <span className="opt">{getRuntimeEndpoint()}</span>
       <span className="sep opt">│</span>
       <span className="opt">
@@ -48,7 +48,7 @@ export function StatusBar({
         <>
           <span className="sep">│</span>
           <span>
-            Pipi <b>v{version}</b>
+            <b>v{version}</b>
           </span>
         </>
       )}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import NavigationToggle from "../app/NavigationToggle";
 import {
   resolveContextWindow,
   resolveMaxTokens
@@ -99,11 +100,12 @@ export default function CreateAgentForm({
   return (
     <div className="screen">
       <div className="screen-bar">
+        <NavigationToggle />
         <button type="button" className="icon-btn" title="返回" onClick={onCancel}>
           <IconBack />
         </button>
         <span className="crumb">
-          新建 Agent · <b>~/.pipi/agents/&lt;name&gt;/</b>
+          新建 Agent
         </span>
       </div>
       <div className="detail">
@@ -111,11 +113,7 @@ export default function CreateAgentForm({
           <div>
             <h2>新建 Agent</h2>
             <div className="sub">
-              一切皆文件：将在 <span className="mono">~/.pipi/agents/&lt;name&gt;/</span>{" "}
-              下生成 <span className="mono">agent.json</span>、
-              <span className="mono">harness/</span>（<span className="mono">AGENTS.md</span>、
-              <span className="mono">skills/</span>、<span className="mono">memory/</span>）、
-              <span className="mono">sessions/</span>
+              给 Agent 一个名字，选择模型与工作目录。指令、技能和记忆会随它一起保留。
             </div>
           </div>
 

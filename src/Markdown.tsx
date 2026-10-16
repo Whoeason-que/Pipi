@@ -3,7 +3,6 @@ import {
   isValidElement,
   memo,
   useRef,
-  useState,
   type ClassAttributes,
   type HTMLAttributes,
   type ReactNode,
@@ -11,6 +10,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { useCopyFeedback } from "./components/use-copy";
 
 /**
  * 流式安全：生成中的消息常以未闭合的 ``` 代码块结尾，
@@ -41,20 +41,12 @@ type PreProps = ClassAttributes<HTMLPreElement> & HTMLAttributes<HTMLPreElement>
  */
 function CodeBlockPre({ children }: PreProps) {
   const preRef = useRef<HTMLPreElement>(null);
-  const [copied, setCopied] = useState(false);
+  const { copy, label } = useCopyFeedback();
   const lang = extractLang(children);
 
   const handleCopy = () => {
     const text = preRef.current?.innerText ?? "";
-    navigator.clipboard
-      ?.writeText(text)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      })
-      .catch(() => {
-        // 剪贴板不可用时静默失败：复制是锦上添花，不该打断阅读
-      });
+    void copy(text);
   };
 
   return (
@@ -62,7 +54,7 @@ function CodeBlockPre({ children }: PreProps) {
       <div className="codeblock-head">
         <span className="codeblock-lang">{lang ?? "text"}</span>
         <button type="button" className="codeblock-copy" onClick={handleCopy}>
-          {copied ? "已复制" : "复制"}
+          {label}
         </button>
       </div>
       <pre ref={preRef}>{children}</pre>

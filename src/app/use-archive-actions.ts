@@ -3,6 +3,7 @@ import { formatRuntimeError } from "../chat-runtime";
 import { invoke } from "../platform";
 import type { SessionRuntime } from "../session-runtime";
 import type { SessionInfoView, SessionSummaryView } from "../types";
+import type { AppView } from "./navigation";
 
 export interface ConfirmRequest {
   title: string;
@@ -21,13 +22,9 @@ export interface ArchiveActionOptions {
   selectedRef: { current: string | null };
   activeSessionRef: { current: SessionInfoView | null };
   invalidateNavigation: () => void;
-  chatOpen: boolean;
-  viewSessionId: string | null;
-  setSelected: Dispatch<SetStateAction<string | null>>;
-  setChatOpen: Dispatch<SetStateAction<boolean>>;
+  viewRef: { current: AppView };
+  onNavigate: (view: AppView) => void;
   setActiveSession: Dispatch<SetStateAction<SessionInfoView | null>>;
-  setViewSessionId: Dispatch<SetStateAction<string | null>>;
-  setChatKey: Dispatch<SetStateAction<number>>;
   forgetRunningSession: (agentName: string, sessionId: string) => void;
   forgetRunningAgent: (agentName: string) => void;
   archivedSessionsExpanded: Record<string, boolean>;
@@ -65,13 +62,9 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
     selectedRef,
     activeSessionRef,
     invalidateNavigation,
-    chatOpen,
-    viewSessionId,
-    setSelected,
-    setChatOpen,
+    viewRef,
+    onNavigate,
     setActiveSession,
-    setViewSessionId,
-    setChatKey,
     forgetRunningSession,
     forgetRunningAgent,
     archivedSessionsExpanded,
@@ -84,16 +77,15 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
     forgetRunningSession(agentName, sessionId);
     if (
       selectedRef.current !== agentName
-      || !chatOpen
-      || viewSessionId !== sessionId
+      || viewRef.current.kind !== "chat"
+      || viewRef.current.sessionId !== sessionId
     ) {
       return;
     }
     invalidateNavigation();
     activeSessionRef.current = null;
     setActiveSession(null);
-    setViewSessionId(null);
-    setChatKey((key) => key + 1);
+    onNavigate({ kind: "agent", agentName });
   };
 
   const forgetAgentRuntime = (agentName: string) => {
@@ -103,8 +95,7 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
     invalidateNavigation();
     activeSessionRef.current = null;
     setActiveSession(null);
-    setViewSessionId(null);
-    setChatOpen(false);
+    onNavigate({ kind: "home" });
   };
 
   const archiveAgent = async (name: string) => {
@@ -112,8 +103,7 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
       await invoke("archive_agent", { name });
       forgetAgentRuntime(name);
       if (selectedRef.current === name) {
-        setSelected(null);
-        setChatOpen(false);
+        onNavigate({ kind: "home" });
       }
       removeAgentSessions(name);
       await Promise.all([refresh(), refreshArchived()]);
@@ -142,8 +132,7 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
           await invoke("delete_agent", { name, archived });
           if (!archived) forgetAgentRuntime(name);
           if (!archived && selectedRef.current === name) {
-            setSelected(null);
-            setChatOpen(false);
+            onNavigate({ kind: "home" });
           }
           if (!archived) removeAgentSessions(name);
           // Agent 消失后归档会话缓存一并清掉，避免同名重建后残留旧数据

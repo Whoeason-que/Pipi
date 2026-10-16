@@ -2,6 +2,7 @@
 // （版本与来源、内容校验、启用它的 Agent 及开关）。
 
 import { useCallback, useEffect, useState } from "react";
+import NavigationToggle from "../app/NavigationToggle";
 import { formatRuntimeError } from "../chat-runtime";
 import ConfirmModal from "../components/ConfirmModal";
 import { IconCheck, IconDownload, IconRefresh } from "../icons";
@@ -142,6 +143,7 @@ export function SkillsView({
   return (
     <div className="screen skills-screen">
       <div className="screen-bar">
+        <NavigationToggle />
         <span className="crumb">
           技能库 · <b>{library?.storePath ?? "~/.av/skills"}</b>
         </span>

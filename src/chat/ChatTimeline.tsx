@@ -2,8 +2,9 @@ import { assistantFooter, type ChatBlock } from "../chat-runtime";
 import { Markdown } from "../Markdown";
 import { ChipRow, CopyButton, formatClock } from "./ToolDetails";
 
-export default function ChatTimeline({ blocks, activeChipId, pinnedChip, previewDetail, clearPreviewDetail, togglePinnedDetail }: {
+export default function ChatTimeline({ blocks, activeChipId, pinnedChip, previewDetail, clearPreviewDetail, togglePinnedDetail, findHits, activeFindKey }: {
   blocks: ChatBlock[]; activeChipId: string | null; pinnedChip: string | null;
+  findHits: string[]; activeFindKey: string | null;
   previewDetail: (id: string) => void; clearPreviewDetail: () => void; togglePinnedDetail: (id: string) => void;
 }) {
   return <>
@@ -47,7 +48,7 @@ export default function ChatTimeline({ blocks, activeChipId, pinnedChip, preview
             const entry = block.entry;
             if (block.kind === "user") {
               return (
-                <div key={entry.key} className="row user-row">
+                <div key={entry.key} data-entry-key={block.key} className={`row user-row${findHits.includes(block.key) ? " find-hit" : ""}${activeFindKey === block.key ? " find-current" : ""}`}>
                   <div className="row-inner">
                     <div className="user-bubble">
                       <div className="user-text">{entry.text}</div>
@@ -72,7 +73,7 @@ export default function ChatTimeline({ blocks, activeChipId, pinnedChip, preview
                 })
               : null;
             return (
-              <div key={entry.key} className="row">
+              <div key={entry.key} data-entry-key={block.key} className={`row${findHits.includes(block.key) ? " find-hit" : ""}${activeFindKey === block.key ? " find-current" : ""}`}>
                 <div className="row-inner">
                   <div className="content">
                     <Markdown text={entry.text} />

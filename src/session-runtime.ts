@@ -1,4 +1,5 @@
 import type { Listen } from "./ipc.ts";
+import { DraftStore } from "./drafts.ts";
 import { SessionController, type SessionFrame, type SessionTransport } from "./session-controller.ts";
 import type { AgentDefinition, SessionChangedPayload } from "./types.ts";
 
@@ -14,6 +15,7 @@ const IDLE_CACHE_LIMIT = 32;
 function key(agent: string, session: string): string { return `${agent}\u0000${session}`; }
 /** App 持有一份订阅与会话索引。视图只订阅控制器，不各自注册宿主事件。 */
 export class SessionRuntime {
+  readonly composerDrafts = new DraftStore();
   private sessions = new Map<string, SessionController>();
   private drafts = new Set<SessionController>();
   private replay = new Map<string, { runId: number; frames: SessionFrame[] }>();
@@ -26,11 +28,13 @@ export class SessionRuntime {
   constructor(transport: RuntimeTransport) { this.transport = transport; }
 
   forget(agent: string, session: string): void {
+    this.composerDrafts.forget(agent, session);
     this.sessions.delete(key(agent, session));
     this.replay.delete(key(agent, session));
   }
 
   forgetAgent(agent: string): void {
+    this.composerDrafts.forgetAgent(agent);
     const prefix = `${agent}\u0000`;
     for (const map of [this.sessions, this.replay]) {
       for (const sessionKey of map.keys()) if (sessionKey.startsWith(prefix)) map.delete(sessionKey);
@@ -77,6 +81,7 @@ export class SessionRuntime {
     this.trim();
     const controller = new SessionController(agent, sessionId, temporary, this.transport,
       (current, previous, next) => {
+        this.composerDrafts.move(current.agentName, previous, next, temporary);
         if (previous) this.sessions.delete(key(current.agentName, previous));
         this.drafts.delete(current);
         const nextKey = key(current.agentName, next);

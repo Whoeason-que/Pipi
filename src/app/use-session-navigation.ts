@@ -8,13 +8,9 @@ export interface SessionNavigationOptions {
   setError: (message: string | null) => void;
   selectedRef: { current: string | null };
   activeSessionRef: { current: SessionInfoView | null };
-  setSelected: Dispatch<SetStateAction<string | null>>;
-  setCreating: Dispatch<SetStateAction<boolean>>;
-  setSettingsOpen: Dispatch<SetStateAction<boolean>>;
-  setChatOpen: Dispatch<SetStateAction<boolean>>;
+  onOpenChat: (agentName: string, sessionId: string | null) => void;
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
   setExpandedAgents: Dispatch<SetStateAction<Record<string, boolean>>>;
-  setViewSessionId: Dispatch<SetStateAction<string | null>>;
   setActiveSession: Dispatch<SetStateAction<SessionInfoView | null>>;
   setChatKey: Dispatch<SetStateAction<number>>;
 }
@@ -43,13 +39,9 @@ export function useSessionNavigation(
     setError,
     selectedRef,
     activeSessionRef,
-    setSelected,
-    setCreating,
-    setSettingsOpen,
-    setChatOpen,
+    onOpenChat,
     setSidebarOpen,
     setExpandedAgents,
-    setViewSessionId,
     setActiveSession,
     setChatKey,
   } = options;
@@ -97,13 +89,9 @@ export function useSessionNavigation(
         if (requestId !== navigationRequestRef.current) {
           return;
         }
-        setSelected(agentName);
-        setCreating(false);
-        setSettingsOpen(false);
-        setChatOpen(true);
+        onOpenChat(agentName, sessionId);
         setSidebarOpen(false);
         setExpandedAgents((prev) => ({ ...prev, [agentName]: true }));
-        setViewSessionId(sessionId);
         setChatKey((key) => key + 1);
         setActiveSession(snapshot.info);
       } catch (errorValue) {
@@ -128,13 +116,9 @@ export function useSessionNavigation(
       try {
         await invoke("new_session", { agentName });
         if (requestId !== navigationRequestRef.current) return;
-        setSelected(agentName);
-        setCreating(false);
-        setSettingsOpen(false);
-        setChatOpen(true);
+        onOpenChat(agentName, null);
         setSidebarOpen(false);
         setExpandedAgents((prev) => ({ ...prev, [agentName]: true }));
-        setViewSessionId(null);
         setActiveSession(null);
         setChatKey((key) => key + 1);
       } catch (errorValue) {
@@ -167,7 +151,7 @@ export function useSessionNavigation(
       }
     });
     if (!accepted || requestId !== navigationRequestRef.current) return false;
-    setViewSessionId(null);
+    onOpenChat(agentName, null);
     setActiveSession(null);
     setChatKey((key) => key + 1);
     return true;

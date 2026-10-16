@@ -582,15 +582,6 @@
 }
 
 @media (max-width: 420px) {
-  /* 普通会话已经在外层工具栏显示 Agent 名称，给操作按钮让出完整宽度。 */
-  .chat-shell:not(.test-workbench) .screen-bar .crumb {
-    display: none;
-  }
-
-  .chat-shell:not(.test-workbench) .model-pill {
-    max-width: none;
-  }
-
   .detail-head {
     align-items: flex-start;
     flex-wrap: wrap;

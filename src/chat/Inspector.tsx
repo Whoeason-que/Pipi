@@ -1,4 +1,4 @@
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTokens } from "../chat-runtime";
 
@@ -11,6 +11,8 @@ const WRITE_TOOLS = new Set(["write", "edit"]);
 type InspectorTab = "detail" | "stats" | "state" | "files";
 
 interface InspectorProps {
+  hidden?: boolean;
+  rootRef?: RefObject<HTMLElement | null>;
   /** 会话投影快照（见 `inspector-context`）：正式会话与设置工作台的测试页共用。 */
   context: ChatInspectorContext;
   /** 手动压缩当前会话（「状态」tab 的「立即压缩」按钮）。 */
@@ -33,6 +35,8 @@ export default function Inspector({
   embedded = false,
   allowCompact = true,
   temporary = false,
+  hidden = false,
+  rootRef,
 }: InspectorProps) {
   const {
     agent,
@@ -149,6 +153,9 @@ export default function Inspector({
   const Wrapper: "aside" | "div" = embedded ? "div" : "aside";
   return (
     <Wrapper
+      ref={element => { if (rootRef) rootRef.current = element; }}
+      inert={hidden}
+      aria-hidden={hidden || undefined}
       className={embedded ? "embedded-inspector" : "inspector"}
       id={embedded ? undefined : "session-inspector"}
       aria-label={embedded ? "临时测试信息" : "会话检查器"}

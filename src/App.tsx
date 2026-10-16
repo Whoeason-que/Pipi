@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AgentWorkbench from "./agents/AgentWorkbench";
 import CreateAgentForm from "./agents/CreateAgentForm";
+import CommandPalette from "./app/CommandPalette";
+import { LayoutContext } from "./app/layout-context";
+import { quickItems, type AppView, type QuickTarget } from "./app/navigation";
+import Overview from "./app/Overview";
 import { Rail, type NavSection } from "./app/Rail";
 import { Sidebar } from "./app/Sidebar";
 import { StatusBar } from "./app/StatusBar";
@@ -12,19 +16,11 @@ import { useSettings } from "./app/use-settings";
 import ChatView from "./Chat";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
-import EmptyState from "./components/EmptyState";
-import { IconClose, IconMenu } from "./icons";
+import { useDialogFocus } from "./components/use-dialog-focus";
+import { IconClose, IconPanel, IconSearch } from "./icons";
 import Login from "./Login";
-import {
-  getAuthStatus,
-  getConnectionState,
-  invoke,
-  isTauriRuntime,
-  listen,
-  onAuthRequired,
-  subscribeConnection,
-  type ConnectionState
-} from "./platform";
+import { getAuthStatus, getConnectionState, invoke, isTauriRuntime, listen, onAuthRequired,
+  subscribeConnection, type ConnectionState } from "./platform";
 import { useResizableWidth } from "./resizable";
 import { SearchPanel } from "./SearchPanel";
 import { SessionRuntime } from "./session-runtime";
@@ -32,553 +28,232 @@ import SettingsView from "./settings/SettingsView";
 import { SkillsSidebar } from "./skills/SkillsSidebar";
 import { SkillsView } from "./skills/SkillsView";
 import { applyTheme } from "./theme";
-import {
-  type SessionInfoView,
-  type SessionSummaryView,
-  type SkillLibrary
-} from "./types";
+import type { SessionInfoView, SessionSummaryView, SkillLibrary } from "./types";
 
-/** 构建时注入的版本号（vite define），未注入时留空。 */
 const APP_VERSION = typeof __PIPI_VERSION__ === "string" ? __PIPI_VERSION__ : "";
-
-/** 状态栏的运行位置描述由 platform 统一提供（避免两处各自推导服务地址）。 */
 
 export default function App() {
   const [sessionRuntime] = useState(() => new SessionRuntime({ invoke, listen }));
-  const [authStatus, setAuthStatus] = useState<{
-    authRequired: boolean;
-    authenticated: boolean;
-    checking: boolean;
-  }>({
-    authRequired: false,
-    authenticated: true,
-    checking: !isTauriRuntime(),
-  });
-  const [archivedOpen, setArchivedOpen] = useState(true);
-  const [archivedSessions, setArchivedSessions] = useState<
-    Record<string, SessionSummaryView[]>
-  >({});
-  const [archivedSessionsExpanded, setArchivedSessionsExpanded] = useState<
-    Record<string, boolean>
-  >({});
-  /** 左栏分区（Agent / Subagent / 搜索）；设置是主区视图，由 settingsOpen 控制。 */
+  const [view, setView] = useState<AppView>({ kind: "home" });
+  const viewRef = useRef(view);
+  const previousView = useRef<AppView>({ kind: "home" });
+  const [authStatus, setAuthStatus] = useState({ authRequired: false, authenticated: true, checking: !isTauriRuntime() });
   const [navSection, setNavSection] = useState<NavSection>("agents");
-  /** 侧栏里哪些 Agent 的会话列表展开了（折叠后只显示 agent-row）。 */
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
-  const [selected, setSelected] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archivedSessions, setArchivedSessions] = useState<Record<string, SessionSummaryView[]>>({});
+  const [archivedSessionsExpanded, setArchivedSessionsExpanded] = useState<Record<string, boolean>>({});
   const [chatKey, setChatKey] = useState(0);
   const [activeSession, setActiveSession] = useState<SessionInfoView | null>(null);
-  /** 当前查看的会话 id（null = 新会话，还没落文件）。 */
-  const [viewSessionId, setViewSessionId] = useState<string | null>(null);
-  // 侧栏宽度可拖拽调节（窄屏抽屉模式下由媒体查询接管，见 responsive.css）
-  const sidebarResize = useResizableWidth({
-    storageKey: "sidebar-width",
-    initial: 260,
-    min: 200,
-    max: 460,
-    edge: "right",
-  });
-  const sidebarWidth = sidebarResize.width;
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 860px)").matches);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("pipi-sidebar-collapsed") === "true"; } catch { return false; }
+  });
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  /** 技能库：store 一览 + 当前查看的技能（「技能」分区用）。 */
   const [skillLibrary, setSkillLibrary] = useState<SkillLibrary | null>(null);
   const [skillSelected, setSkillSelected] = useState<string | null>(null);
   const [skillLoadError, setSkillLoadError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionState>(getConnectionState());
   const [error, setError] = useState<string | null>(null);
-  // 删除确认弹窗（window.confirm 在 Tauri WebView 不可用，一律走自定义弹层）
   const [confirmState, setConfirmState] = useState<ConfirmRequest | null>(null);
-  const selectedRef = useRef<string | null>(null);
-  const activeSessionRef = useRef<SessionInfoView | null>(null);
-
+  const selected = "agentName" in view ? view.agentName : null;
+  const selectedRef = useRef<string | null>(selected);
+  const activeSessionRef = useRef(activeSession);
+  viewRef.current = view;
   selectedRef.current = selected;
   activeSessionRef.current = activeSession;
+  const sidebarResize = useResizableWidth({ storageKey: "sidebar-width", initial: 272, min: 200, max: 460, edge: "right" });
 
-  const safeSetError = useCallback((msg: string | null) => {
-    if (!msg) {
-      setError(null);
-      return;
-    }
-    if (msg.includes("需要 PIPI_AUTH_TOKEN")) return;
-    // 核心的「运行中」拒绝：前端状态可能滞后于核心（例如界面刚重载），
-    // 换成可执行的指引而不是把核心原文丢给用户。
-    if (msg.includes("当前会话仍在运行")) {
-      setError("Agent 正在运行：请进入该 Agent 的会话停止，或等它完成后再操作");
-      return;
-    }
-    if (msg.includes("正在运行或有托管后台任务")) {
-      setError("会话仍在运行或有后台任务：请先停止运行并终止后台任务后再操作");
-      return;
-    }
-    setError(msg);
+  const commitView = useCallback((next: AppView) => {
+    viewRef.current = next;
+    selectedRef.current = "agentName" in next ? next.agentName : null;
+    setView(next);
+    setSidebarOpen(false);
   }, []);
-
-  const {
-    agents,
-    archivedAgents,
-    sessionsByAgent,
-    refresh,
-    refreshSessions,
-    refreshArchived,
-    removeAgentSessions,
-    sessionsFor,
-    sessionTotal,
-  } = useSessionList(safeSetError);
-
+  const safeSetError = useCallback((message: string | null) => {
+    if (message?.includes("需要 PIPI_AUTH_TOKEN")) return;
+    if (message?.includes("当前会话仍在运行")) message = "当前会话正在运行，请先停止或使用插话继续沟通";
+    if (message?.includes("正在运行或有托管后台任务")) message = "会话仍在运行或有后台任务，请先停止再操作";
+    setError(message);
+  }, []);
+  const { agents, archivedAgents, sessionsByAgent, refresh, refreshSessions, refreshArchived,
+    removeAgentSessions, sessionsFor, sessionTotal } = useSessionList(safeSetError);
   const { settings, setSettings, updateSettings } = useSettings(setError);
+  const onOpenChat = useCallback((agentName: string, sessionId: string | null) => {
+    setNavSection("agents");
+    commitView({ kind: "chat", agentName, sessionId });
+  }, [commitView]);
+  const navigation = useSessionNavigation({ setError, selectedRef, activeSessionRef, onOpenChat,
+    setSidebarOpen, setExpandedAgents, setActiveSession, setChatKey });
+  const { runningSessions, handleRunningChange, isConversationRunning, agentHasRunning,
+    forgetRunningSession, forgetRunningAgent } = useHostEvents({ sessionRuntime, refreshSessions,
+    safeSetError, setError, setActiveSession, selectedRef, activeSessionRef,
+    blockedSessionIdsRef: navigation.blockedSessionIdsRef, sessionInfoRequestRef: navigation.sessionInfoRequestRef });
 
-  const navigation = useSessionNavigation({
-    setError,
-    selectedRef,
-    activeSessionRef,
-    setSelected,
-    setCreating,
-    setSettingsOpen,
-    setChatOpen,
-    setSidebarOpen,
-    setExpandedAgents,
-    setViewSessionId,
-    setActiveSession,
-    setChatKey,
-  });
-
-  const {
-    runningSessions,
-    handleRunningChange,
-    isConversationRunning,
-    agentHasRunning,
-    forgetRunningSession,
-    forgetRunningAgent,
-  } = useHostEvents({
-    sessionRuntime,
-    refreshSessions,
-    safeSetError,
-    setError,
-    setActiveSession,
-    selectedRef,
-    activeSessionRef,
-    blockedSessionIdsRef: navigation.blockedSessionIdsRef,
-    sessionInfoRequestRef: navigation.sessionInfoRequestRef,
-  });
-
-  useEffect(() => subscribeConnection(setConnection), []);
-
-  /** 读取全局技能 store 一览（进入「技能」分区时，以及每次显式操作之后）。 */
-  const loadSkillLibrary = useCallback(async (): Promise<SkillLibrary | null> => {
-    try {
-      const library = await invoke("skill_library");
-      setSkillLibrary(library);
-      setSkillLoadError(null);
-      return library;
-    } catch (errorValue) {
-      setSkillLoadError(formatRuntimeError(errorValue));
-      return null;
+  const navigate = (next: AppView) => {
+    if (next.kind === "settings" && viewRef.current.kind !== "settings") previousView.current = viewRef.current;
+    navigation.invalidateNavigation();
+    const previous = viewRef.current;
+    // 释放离开视图的空闲宿主槽；运行中的会话由核心保留，视图卸载不会停止它。
+    if ((previous.kind === "chat" || previous.kind === "workbench") && (next.kind !== previous.kind
+      || !("agentName" in next) || next.agentName !== previous.agentName)) {
+      void invoke("new_session", { agentName: previous.agentName }).catch(() => {});
     }
+    if (next.kind === "skills") setNavSection("skills");
+    else if (next.kind !== "settings") setNavSection("agents");
+    commitView(next);
+  };
+  const archive = useArchiveActions({ sessionRuntime, safeSetError, setConfirmState, refresh, refreshArchived,
+    refreshSessions, removeAgentSessions, selectedRef, activeSessionRef, viewRef, onNavigate: navigate,
+    setActiveSession, forgetRunningSession, forgetRunningAgent, archivedSessionsExpanded,
+    setArchivedSessions, setArchivedSessionsExpanded, invalidateNavigation: navigation.invalidateNavigation });
+  const selectAgent = (agentName: string) => navigate({ kind: "agent", agentName });
+  const configureAgent = (agentName: string) => navigate({ kind: "workbench", agentName });
+  const startCreating = () => navigate({ kind: "create" });
+  const openSession = (agentName: string, sessionId: string) => { void navigation.openSession(agentName, sessionId); };
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+  const closeNavigation = useCallback(() => setSidebarOpen(false), []);
+  useDialogFocus(sidebarRef, closeNavigation, mobile && sidebarOpen);
+  const toggleNavigation = useCallback(() => {
+    if (window.matchMedia("(max-width: 860px)").matches) setSidebarOpen(open => !open);
+    else setSidebarCollapsed(collapsed => !collapsed);
   }, []);
+  const layout = useMemo(() => ({ navigationOpen: sidebarOpen, closeNavigation, toggleNavigation }), [sidebarOpen, closeNavigation, toggleNavigation]);
 
+  useEffect(() => { try { localStorage.setItem("pipi-sidebar-collapsed", String(sidebarCollapsed)); } catch { /* 内存状态仍有效 */ } }, [sidebarCollapsed]);
+  useEffect(() => subscribeConnection(setConnection), []);
   useEffect(() => {
-    if (navSection !== "skills" || settingsOpen) return;
-    void loadSkillLibrary();
-  }, [navSection, settingsOpen, loadSkillLibrary]);
-
-  // 技能被移除后清掉选中态（详情会退回过览）
+    const query = window.matchMedia("(max-width: 860px)");
+    const change = () => { setMobile(query.matches); setSidebarOpen(false); };
+    query.addEventListener("change", change);
+    return () => query.removeEventListener("change", change);
+  }, []);
   useEffect(() => {
-    if (!skillSelected || !skillLibrary) return;
-    if (!skillLibrary.skills.some((skill) => skill.name === skillSelected)) {
-      setSkillSelected(null);
-    }
+    const keydown = (event: KeyboardEvent) => {
+      if (event.isComposing || authStatus.checking || !authStatus.authenticated) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k"
+        && !document.querySelector('[aria-modal="true"]')) {
+        event.preventDefault(); setPaletteOpen(open => !open);
+      }
+      if (event.key === "Escape" && !document.querySelector('[aria-modal="true"]')) setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [authStatus]);
+  useEffect(() => {
+    let active = true;
+    if (!isTauriRuntime()) void getAuthStatus().then(status => {
+      if (active) setAuthStatus({ ...status, checking: false });
+    });
+    const unsubscribe = onAuthRequired(() => setAuthStatus(previous => ({ ...previous, authenticated: false })));
+    return () => { active = false; unsubscribe(); };
+  }, []);
+  useEffect(() => {
+    if (authStatus.checking || (authStatus.authRequired && !authStatus.authenticated)) return;
+    void refresh(); void refreshArchived();
+    let active = true;
+    invoke("get_settings").then(next => { if (active) { setSettings(next); applyTheme(next.theme); } })
+      .catch(value => { if (active && !isAuthSilentError(value)) safeSetError(formatRuntimeError(value)); });
+    return () => { active = false; };
+  }, [authStatus, refresh, refreshArchived, safeSetError, setSettings]);
+  const loadSkillLibrary = useCallback(async (): Promise<SkillLibrary | null> => {
+    try { const library = await invoke("skill_library"); setSkillLibrary(library); setSkillLoadError(null); return library; }
+    catch (value) { setSkillLoadError(formatRuntimeError(value)); return null; }
+  }, []);
+  useEffect(() => { if (view.kind === "skills") void loadSkillLibrary(); }, [view.kind, loadSkillLibrary]);
+  useEffect(() => {
+    if (skillSelected && skillLibrary && !skillLibrary.skills.some(skill => skill.name === skillSelected)) setSkillSelected(null);
   }, [skillLibrary, skillSelected]);
 
-  useEffect(() => {
-    let active = true;
-    if (!isTauriRuntime()) {
-      void getAuthStatus().then((status) => {
-        if (!active) return;
-        setAuthStatus({
-          authRequired: status.authRequired,
-          authenticated: status.authenticated,
-          checking: false,
-        });
-      });
-    }
-    const unsub = onAuthRequired(() => {
-      setAuthStatus((prev) => ({ ...prev, authenticated: false }));
-    });
-    return () => {
-      active = false;
-      unsub();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (authStatus.checking || (authStatus.authRequired && !authStatus.authenticated)) {
-      return;
-    }
-    void refresh();
-    void refreshArchived();
-    let active = true;
-    invoke("get_settings")
-      .then((nextSettings) => {
-        if (!active) return;
-        setSettings(nextSettings);
-        applyTheme(nextSettings.theme);
-      })
-      .catch((errorValue) => {
-        if (!active) return;
-        if (isAuthSilentError(errorValue)) return;
-        safeSetError(formatRuntimeError(errorValue));
-      });
-    return () => {
-      active = false;
-    };
-  }, [authStatus.checking, authStatus.authRequired, authStatus.authenticated, refresh, refreshArchived, safeSetError, setSettings]);
-
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSidebarOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [sidebarOpen]);
-
-  // ============ 归档 / 恢复 / 删除 ============
-  const {
-    archiveAgent,
-    restoreAgent,
-    deleteAgent,
-    archiveSession,
-    deleteSession,
-    toggleArchivedSessions,
-    restoreSession,
-    deleteArchivedSession,
-  } = useArchiveActions({
-    sessionRuntime,
-    safeSetError,
-    setConfirmState,
-    refresh,
-    refreshArchived,
-    refreshSessions,
-    removeAgentSessions,
-    selectedRef,
-    activeSessionRef,
-    chatOpen,
-    viewSessionId,
-    setSelected,
-    setChatOpen,
-    setActiveSession,
-    setViewSessionId,
-    setChatKey,
-    forgetRunningSession,
-    forgetRunningAgent,
-    archivedSessionsExpanded,
-    setArchivedSessions,
-    setArchivedSessionsExpanded,
-    invalidateNavigation: navigation.invalidateNavigation,
-  });
-
-  const selectAgent = (agentName: string) => {
-    // 切换不被任何运行态拦住：每条会话是独立的一路，切走不影响它继续跑
-    //（ChatView 卸载也不中止）。这里只做「选中 + 收起会话视图」。
-    const previous = selectedRef.current;
-    navigation.invalidateNavigation();
-    // 释放上一个 Agent 名下**空闲**的会话（不落盘，文件还在），否则它们会一直
-    // 被占用检查锁住（归档 / 删除被拒）。正在跑的那条留着 —— 后台继续跑。
-    if (previous && previous !== agentName) {
-      void invoke("new_session", { agentName: previous }).catch(() => {});
-    }
-    setSelected(agentName);
-    setCreating(false);
-    setChatOpen(false);
-    setSettingsOpen(false);
-    setSidebarOpen(false);
+  const toggleSettings = () => {
+    if (view.kind === "settings") navigate(previousView.current);
+    else navigate({ kind: "settings" });
   };
-
-  const startCreating = () => {
-    navigation.invalidateNavigation();
-    setCreating(true);
-    setSettingsOpen(false);
-    setSidebarOpen(false);
+  const chooseQuick = (target: QuickTarget) => {
+    if (target.kind === "agent") selectAgent(target.agentName);
+    else if (target.kind === "chat") openSession(target.agentName, target.sessionId);
+    else if (target.action === "new-session") { if (selected) void navigation.startNewSession(selected); }
+    else navigate({ kind: target.action });
   };
+  const current = agents.find(agent => agent.name === selected);
+  const title = view.kind === "home" ? "工作区" : view.kind === "settings" ? "设置" : view.kind === "create" ? "新建 Agent"
+    : view.kind === "skills" ? "技能库" : current?.name ?? "Pipi";
+  const sessionTitle = view.kind === "chat" ? (sessionsByAgent[view.agentName] ?? []).find(session => session.id === view.sessionId)?.title : undefined;
+  const overviewProps = { agents, sessions: sessionsByAgent, running: runningSessions, onAgent: selectAgent, onSession: openSession,
+    onNewSession: (name: string) => { void navigation.startNewSession(name); }, onConfigure: configureAgent, onCreate: startCreating };
 
-  /// 左栏分区切换：设置是主区的另一个视图，切分区即离开设置。
-  /// 顺带 setSidebarOpen(true)：宽屏无副作用，窄屏下等于展开抽屉。
-  const openSection = (section: NavSection) => {
-    setNavSection(section);
-    setSettingsOpen(false);
-    setSidebarOpen(true);
-  };
+  if (authStatus.checking) return <div className="login-container" />;
+  if (authStatus.authRequired && !authStatus.authenticated) return <Login onSuccess={() => {
+    setAuthStatus(previous => ({ ...previous, authenticated: true })); safeSetError(null);
+  }} />;
 
-  const current = agents.find((a) => a.name === selected) ?? null;
-
-  const regularAgents = agents.filter((agent) => !agent.subagent);
-  const subagents = agents.filter((agent) => agent.subagent);
-  const sectionAgents = navSection === "subs" ? subagents : regularAgents;
-  const sectionArchived = archivedAgents.filter(
-    (agent) => agent.subagent === (navSection === "subs"),
-  );
-
-  if (authStatus.checking) {
-    return <div className="login-container" />;
-  }
-
-  if (authStatus.authRequired && !authStatus.authenticated) {
-    return (
-      <Login
-        onSuccess={() => {
-          setAuthStatus((prev) => ({ ...prev, authenticated: true }));
-          safeSetError(null);
-        }}
-      />
-    );
-  }
-
-  return (
-    <div
-      className={`app${sidebarOpen ? " sidebar-open" : ""}`}
-      style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
-    >
-      <StatusBar
-        connection={connection}
-        agentCount={agents.length}
-        sessionCount={sessionTotal}
-        runningCount={runningSessions.size}
-        version={APP_VERSION}
-      />
-
-      <div className="app-body">
-        <Rail
-          navSection={navSection}
-          settingsOpen={settingsOpen}
-          onOpenSection={openSection}
-          onToggleSettings={() => {
-            setSidebarOpen(false);
-            // 再点一次即返回设置前的界面（与返回按钮同义）
-            setSettingsOpen((open) => !open);
-          }}
-        />
-
-        <aside className="sidebar" id="primary-navigation" aria-label="Agent 与会话列表">
-          <div className="sb-head">
-            <span className="wordmark">Pipi</span>
-            {APP_VERSION && <span className="ver-chip">v{APP_VERSION}</span>}
-          </div>
-
-          {navSection === "search" ? (
-            <SearchPanel
-              query={searchQuery}
-              onQueryChange={setSearchQuery}
-              agents={agents}
-              sessionsByAgent={sessionsByAgent}
-              isRunning={isConversationRunning}
-              onSelectAgent={(name) => {
-                selectAgent(name);
-                setExpandedAgents((previous) => ({ ...previous, [name]: true }));
-              }}
-              onOpenSession={(agentName, sessionId) =>
-                void navigation.openSession(agentName, sessionId)}
-            />
-          ) : navSection === "skills" ? (
-            <SkillsSidebar
-              library={skillLibrary}
-              selected={skillSelected}
-              error={skillLoadError}
-              onSelect={setSkillSelected}
-              onRefresh={() => void loadSkillLibrary()}
-            />
-          ) : (
-            <Sidebar
-              navSection={navSection}
-              agents={sectionAgents}
-              archivedAgents={sectionArchived}
-              selected={selected}
-              creating={creating}
-              chatOpen={chatOpen}
-              viewSessionId={viewSessionId}
-              activeSession={activeSession}
-              expandedAgents={expandedAgents}
-              archivedSessions={archivedSessions}
-              archivedSessionsExpanded={archivedSessionsExpanded}
-              archivedOpen={archivedOpen}
-              sessionsFor={sessionsFor}
-              agentHasRunning={agentHasRunning}
-              isConversationRunning={isConversationRunning}
-              onCreateAgent={startCreating}
-              onSelectAgent={selectAgent}
-              onStartNewSession={navigation.startNewSession}
-              onOpenSession={(agentName, sessionId) =>
-                void navigation.openSession(agentName, sessionId)}
-              onToggleAgentExpanded={(agentName, expanded) =>
-                setExpandedAgents((previous) => ({ ...previous, [agentName]: expanded }))}
-              onArchiveAgent={(name) => void archiveAgent(name)}
-              onDeleteAgent={(name, archived) => void deleteAgent(name, archived)}
-              onRestoreAgent={(name) => void restoreAgent(name)}
-              onArchiveSession={(agentName, sessionId) => void archiveSession(agentName, sessionId)}
-              onDeleteSession={(agentName, sessionId) => void deleteSession(agentName, sessionId)}
-              onToggleArchivedSessions={(agentName) => void toggleArchivedSessions(agentName)}
-              onRestoreSession={(agentName, sessionId) => void restoreSession(agentName, sessionId)}
-              onDeleteArchivedSession={(agentName, sessionId) =>
-                void deleteArchivedSession(agentName, sessionId)}
-              onToggleArchivedOpen={() => setArchivedOpen((open) => !open)}
-            />
-          )}
-        </aside>
-
-        <div
-          className="resize-handle sidebar-resize"
-          title="拖动调整侧栏宽度（←/→ 微调）"
-          aria-label="调整侧栏宽度"
-          {...sidebarResize.handleProps}
-        />
-
-        {sidebarOpen && (
-          <button
-            type="button"
-            className="sidebar-backdrop"
-            aria-label="关闭导航"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-
-        <main className="main">
-          <div className="mobile-toolbar">
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="打开导航"
-              title="打开导航"
-              aria-expanded={sidebarOpen}
-              aria-controls="primary-navigation"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <IconMenu />
-            </button>
-            <span className="mobile-toolbar-title">
-              {settingsOpen ? "设置" : creating ? "新建 Agent" : navSection === "skills" ? "技能库" : current?.name ?? "Pipi"}
-            </span>
-          </div>
-
-          {error && (
-            <div className="error" role="alert">
-              <span>{error}</span>
-              <button
-                type="button"
-                className="error-dismiss"
-                onClick={() => setError(null)}
-                aria-label="关闭错误提示"
-              >
-                <IconClose />
-              </button>
-            </div>
-          )}
-
-          {settingsOpen && settings ? (
-            <SettingsView
-              settings={settings}
-              onChange={updateSettings}
-              onClose={() => setSettingsOpen(false)}
-              showLogout={!isTauriRuntime() && authStatus.authRequired}
-            />
-          ) : creating ? (
-            <CreateAgentForm
-              providers={settings?.providers ?? []}
-              defaultProviderId={settings?.defaultProviderId ?? null}
-              onCreated={async (name) => {
-                setCreating(false);
-                await refresh();
-                setSelected(name);
-              }}
-              onCancel={() => setCreating(false)}
-              onError={safeSetError}
-            />
-          ) : navSection === "skills" ? (
-            <SkillsView
-              library={skillLibrary}
-              loadError={skillLoadError}
-              selected={skillSelected}
-              onSelect={setSkillSelected}
-              onRefresh={loadSkillLibrary}
-              onError={safeSetError}
-            />
-          ) : current ? (
-            settings && (
-              chatOpen ? (
-                <ChatView
-                  key={`${current.name}-${chatKey}`}
-                  agent={current}
-                  providers={settings.providers}
-                  sessionId={viewSessionId}
-                  sessions={sessionRuntime}
-                  blockedSessionIds={[...navigation.blockedSessionIdsRef.current]}
-                  onBack={() => {
-                    navigation.invalidateNavigation();
-                    // 释放本 Agent 空闲的会话（否则归档/删除会被占用检查拒），
-                    // 正在跑的那条留着：返回后它继续跑（卸载不再中止运行）。
-                    void invoke("new_session", { agentName: current.name }).catch(() => {});
-                    setChatOpen(false);
-                    setSidebarOpen(false);
-                  }}
-                  onError={safeSetError}
-                  onNewSession={navigation.createSessionFromChat}
-                  onRunningChange={handleRunningChange}
-                  onSessionReset={(info) => {
-                    setActiveSession(info ?? null);
-                    if (info) setViewSessionId(info.sessionId);
-                    void refreshSessions([current.name]);
-                    // 压缩换会话可能把原会话移进归档：折叠区正展开时同步刷新
-                    if (archivedSessionsExpanded[current.name]) {
-                      void invoke("list_sessions", {
-                        agentName: current.name,
-                        archived: true,
-                      })
-                        .then((list) =>
-                          setArchivedSessions((previous) => ({
-                            ...previous,
-                            [current.name]: list,
-                          })),
-                        )
-                        .catch(() => {});
-                    }
-                  }}
-                />
-              ) : (
-                <AgentWorkbench
-                  key={current.name}
-                  agent={current}
-                  providers={settings.providers}
-                  onSaved={async (subagent) => {
-                    if (subagent !== undefined) {
-                      // Agent 换了分组：切到它现在所属的分区，不然会在当前列表里"消失"
-                      setNavSection(subagent ? "subs" : "agents");
-                    }
-                    await refresh();
-                  }}
-                  onBack={() => setSelected(null)}
-                  onError={safeSetError}
-                  blockedSessionIds={[...navigation.blockedSessionIdsRef.current]}
-                  sessions={sessionRuntime}
-                  onRunningChange={handleRunningChange}
-                />
-              )
-            )
-          ) : (
-            <EmptyState hasAgents={agents.length > 0} />
-          )}
-        </main>
-      </div>
-
-      {confirmState && (
-        <ConfirmModal
-          title={confirmState.title}
-          message={confirmState.message}
-          onConfirm={confirmState.action}
-          onCancel={() => setConfirmState(null)}
-        />
-      )}
+  return <LayoutContext.Provider value={layout}><div className={`app${sidebarOpen ? " sidebar-open" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
+    style={{ "--sidebar-width": `${sidebarResize.width}px` } as React.CSSProperties}>
+    <StatusBar connection={connection} agentCount={agents.length} sessionCount={sessionTotal} runningCount={runningSessions.size} version={APP_VERSION} />
+    <div className="app-body">
+      <Rail navSection={navSection} settingsOpen={view.kind === "settings"} onToggleSettings={toggleSettings}
+        onOpenSection={section => {
+          if (section === "skills") navigate({ kind: "skills" });
+          else if (section === "agents") navigate({ kind: "home" });
+          setNavSection(section); setSidebarCollapsed(false); setSidebarOpen(true);
+        }} />
+      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label="Agent 与会话列表">
+        <div className="sb-head"><button type="button" className="sidebar-home" onClick={() => navigate({ kind: "home" })}>首页</button>
+          <span className="spacer" /><button type="button" className="icon-btn" title="收起侧栏" aria-label="收起侧栏" onClick={toggleNavigation}><IconPanel /></button></div>
+        <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>搜索与快捷操作</span><kbd>⌘ K</kbd></button>
+        {navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={agents}
+          sessionsByAgent={sessionsByAgent} isRunning={isConversationRunning} onSelectAgent={selectAgent} onOpenSession={openSession} />
+          : navSection === "skills" ? <SkillsSidebar library={skillLibrary} selected={skillSelected} error={skillLoadError}
+            onSelect={name => { setSkillSelected(name); setSidebarOpen(false); }} onRefresh={() => void loadSkillLibrary()} />
+          : <Sidebar agents={agents} archivedAgents={archivedAgents} selected={selected} chatOpen={view.kind === "chat"}
+            viewSessionId={view.kind === "chat" ? view.sessionId : null} expandedAgents={expandedAgents}
+            archivedSessions={archivedSessions} archivedSessionsExpanded={archivedSessionsExpanded} archivedOpen={archivedOpen}
+            sessionsFor={sessionsFor} agentHasRunning={agentHasRunning} isConversationRunning={isConversationRunning}
+            onCreateAgent={startCreating} onSelectAgent={selectAgent} onConfigure={configureAgent}
+            onStartNewSession={name => void navigation.startNewSession(name)} onOpenSession={openSession}
+            onToggleAgentExpanded={(name, expanded) => setExpandedAgents(previous => ({ ...previous, [name]: expanded }))}
+            onArchiveAgent={name => void archive.archiveAgent(name)} onDeleteAgent={(name, archived) => void archive.deleteAgent(name, archived)}
+            onRestoreAgent={name => void archive.restoreAgent(name)} onArchiveSession={(name, id) => void archive.archiveSession(name, id)}
+            onDeleteSession={(name, id) => void archive.deleteSession(name, id)} onToggleArchivedSessions={name => void archive.toggleArchivedSessions(name)}
+            onRestoreSession={(name, id) => void archive.restoreSession(name, id)} onDeleteArchivedSession={(name, id) => void archive.deleteArchivedSession(name, id)}
+            onToggleArchivedOpen={() => setArchivedOpen(open => !open)} />}
+      </aside>
+      <div className="resize-handle sidebar-resize" title="拖动调整侧栏宽度" aria-label="调整侧栏宽度" {...sidebarResize.handleProps} />
+      {sidebarOpen && <button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={closeNavigation} />}
+      <main className="main" inert={mobile && sidebarOpen}>
+        {(view.kind === "home" || view.kind === "agent" || (!current && (view.kind === "chat" || view.kind === "workbench"))) && <header className="workspace-toolbar">
+          <button type="button" className="icon-btn" aria-label="切换导航" aria-controls="primary-navigation" onClick={toggleNavigation}><IconPanel /></button>
+          <span className="toolbar-divider" /><span>{title}</span><span className="spacer" />
+          <button type="button" className="icon-btn" aria-label="打开快捷操作" title="快捷操作 Ctrl/⌘ K" onClick={() => setPaletteOpen(true)}><IconSearch /></button>
+        </header>}
+        {error && <div className="error" role="alert"><span>{error}</span><button type="button" className="error-dismiss" aria-label="关闭错误提示" onClick={() => setError(null)}><IconClose /></button></div>}
+        {view.kind === "settings" && settings ? <SettingsView settings={settings} onChange={updateSettings} onClose={toggleSettings}
+          showLogout={!isTauriRuntime() && authStatus.authRequired} />
+          : view.kind === "create" ? <CreateAgentForm providers={settings?.providers ?? []} defaultProviderId={settings?.defaultProviderId ?? null}
+            onCreated={async name => { await refresh(); selectAgent(name); }} onCancel={() => navigate({ kind: "home" })} onError={safeSetError} />
+          : view.kind === "skills" ? <SkillsView library={skillLibrary} loadError={skillLoadError} selected={skillSelected}
+            onSelect={setSkillSelected} onRefresh={loadSkillLibrary} onError={safeSetError} />
+          : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
+            title={sessionTitle || "新会话"} sessionId={view.sessionId} sessions={sessionRuntime}
+            blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} onBack={() => selectAgent(current.name)} onError={safeSetError}
+            onNewSession={navigation.createSessionFromChat} onRunningChange={handleRunningChange} onSessionReset={info => {
+              setActiveSession(info ?? null);
+              const active = viewRef.current;
+              if (info && active.kind === "chat" && active.agentName === current.name) commitView({ ...active, sessionId: info.sessionId });
+              void refreshSessions([current.name]);
+              if (archivedSessionsExpanded[current.name]) void invoke("list_sessions", { agentName: current.name, archived: true })
+                .then(list => setArchivedSessions(previous => ({ ...previous, [current.name]: list }))).catch(() => {});
+            }} />
+          : current && view.kind === "workbench" && settings ? <AgentWorkbench key={current.name} agent={current} providers={settings.providers}
+            onSaved={async () => { await refresh(); }} onBack={() => selectAgent(current.name)} onError={safeSetError}
+            blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} sessions={sessionRuntime} onRunningChange={handleRunningChange} />
+          : <Overview {...overviewProps} agent={view.kind === "agent" ? current : undefined} />}
+      </main>
     </div>
-  );
+    {paletteOpen && <CommandPalette items={quickItems(agents, sessionsByAgent, selected)} onChoose={chooseQuick} onClose={closePalette} />}
+    {confirmState && <ConfirmModal title={confirmState.title} message={confirmState.message} onConfirm={confirmState.action} onCancel={() => setConfirmState(null)} />}
+  </div></LayoutContext.Provider>;
 }

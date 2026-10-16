@@ -55,6 +55,18 @@ export function IconMenu() {
   );
 }
 
+export function IconMore() {
+  return <IconBase><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></IconBase>;
+}
+
+export function IconArrowDown() {
+  return <IconBase><path d="M12 4v16m-6-6 6 6 6-6" /></IconBase>;
+}
+
+export function IconPanel() {
+  return <IconBase><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16" /></IconBase>;
+}
+
 /** 设置 */
 export function IconGear() {
   return (
@@ -119,11 +131,11 @@ export function IconFork() {
   );
 }
 
-/** 检查器（九宫格） */
+/** 检查器（右侧详情面板） */
 export function IconGrid() {
   return (
     <IconBase>
-      <path d="M4 4h4v4H4zM10 4h4v4h-4zM16 4h4v4h-4zM4 10h4v4H4zM10 10h4v4h-4zM16 10h4v4h-4zM4 16h4v4H4zM10 16h4v4h-4zM16 16h4v4h-4z" />
+      <rect x="3" y="4" width="18" height="16" rx="3" /><path d="M15 4v16" />
     </IconBase>
   );
 }
@@ -132,8 +144,7 @@ export function IconGrid() {
 export function IconSend() {
   return (
     <IconBase size={13}>
-      <path d="M22 2L11 13" />
-      <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+      <path d="M12 20V4m-7 7 7-7 7 7" />
     </IconBase>
   );
 }

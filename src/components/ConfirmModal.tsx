@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
+import { useDialogFocus } from "./use-dialog-focus";
 import {
   IconClose
 } from "../icons";
@@ -18,18 +19,13 @@ export default function ConfirmModal({
   onCancel: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onCancel]);
+  const root = useRef<HTMLDivElement>(null);
+  useDialogFocus(root, () => { if (!busy) onCancel(); });
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
+    <div className="modal-backdrop" onClick={() => { if (!busy) onCancel(); }}>
       <div
+        ref={root}
         className="modal confirm-modal"
         role="alertdialog"
         aria-modal="true"
@@ -38,7 +34,7 @@ export default function ConfirmModal({
       >
         <div className="modal-header">
           <h2 id="confirm-title">{title}</h2>
-          <button type="button" className="icon-btn close-btn" onClick={onCancel} title="取消">
+          <button type="button" className="icon-btn close-btn" onClick={onCancel} title="取消" disabled={busy}>
             <IconClose />
           </button>
         </div>

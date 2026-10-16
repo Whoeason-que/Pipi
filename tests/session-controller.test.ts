@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentEvent, MessageView } from "../src/chat-runtime.ts";
 import { SessionRuntime, type RuntimeTransport } from "../src/session-runtime.ts";
+import { submitDraft } from "../src/drafts.ts";
 import type { AgentDefinition, SessionInfoView, SessionStatsView } from "../src/types.ts";
 
 const agent: AgentDefinition = {
@@ -317,4 +318,23 @@ test("a failed host subscription cleans partial listeners and can reconnect with
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 6);
   runtime.disconnect();
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
+});
+
+test("composer drafts follow authoritative creation and compaction without crossing concurrent sessions", async () => {
+  const { host, runtime } = await fixture();
+  const draft = runtime.composerDrafts.get(agent.name, null);
+  draft.write("first prompt");
+  const controller = runtime.get(agent, null);
+  await controller.hydrate();
+  await submitDraft(draft, text => controller.send(text));
+  assert.equal(runtime.composerDrafts.get(agent.name, "created"), draft);
+  draft.write("next steering draft");
+  runtime.composerDrafts.get(agent.name, "peer").write("peer draft");
+  host.emit("session-switched", { agentName: agent.name, sessionId: "created", runId: 3, toSessionId: "compact" });
+  assert.equal(runtime.composerDrafts.get(agent.name, "compact"), draft);
+  assert.equal(draft.getSnapshot().text, "next steering draft");
+  assert.equal(runtime.composerDrafts.get(agent.name, "peer").getSnapshot().text, "peer draft");
+  runtime.forget(agent.name, "compact");
+  assert.equal(draft.getSnapshot().text, "");
+  assert.equal(runtime.composerDrafts.get(agent.name, "peer").getSnapshot().text, "peer draft");
 });

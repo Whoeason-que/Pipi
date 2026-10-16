@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { LayoutContext } from "./app/layout-context";
+import { submitDraft } from "./drafts";
+import { findMessages } from "./chat/find";
+import { useDialogFocus } from "./components/use-dialog-focus";
 import {
   formatRuntimeError,
   groupChatBlocks,
@@ -10,12 +14,13 @@ import ChatTimeline from "./chat/ChatTimeline";
 import Inspector from "./chat/Inspector";
 import type { ChatInspectorContext } from "./chat/inspector-context";
 import ModelSelectModal from "./chat/ModelSelectModal";
-import { IconBack, IconFork, IconGrid, IconPlus, IconSend, IconStop } from "./icons";
+import { IconArrowDown, IconBack, IconClose, IconFork, IconGrid, IconPanel, IconPlus, IconSearch, IconSend, IconStop } from "./icons";
 import { useResizableWidth } from "./resizable";
 import type { SessionRuntime } from "./session-runtime";
 import type { AgentDefinition, ModelConfig, ProviderConfig, SessionInfoView } from "./types";
 
 interface ChatViewProps {
+  title?: string;
   agent: AgentDefinition;
   providers: ProviderConfig[];
   /** 正在查看的会话 id；null = 新会话（还没有文件，首次发送时创建）。 */
@@ -39,6 +44,7 @@ interface ChatViewProps {
 }
 
 export default function ChatView({
+  title = "新会话",
   agent,
   providers,
   sessionId: initialSessionId,
@@ -57,6 +63,10 @@ export default function ChatView({
   const isTest = mode === "test";
   const controller = useMemo(() => sessions.get(agent, initialSessionId, isTest),
     [sessions, agent.name, initialSessionId, isTest]);
+  const layout = useContext(LayoutContext);
+  const draft = useMemo(() => sessions.composerDrafts.get(agent.name, controller.getSnapshot().sessionId, isTest),
+    [sessions, controller, agent.name, isTest]);
+  const { text: input } = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const { entries, stats, running } = snapshot.chat;
   const ready = snapshot.load === "ready";
@@ -65,13 +75,19 @@ export default function ChatView({
   const sessionModel = snapshot.model;
   const isCustomModel = snapshot.isCustomModel;
   const pendingApproval = snapshot.approval;
-  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const [atTail, setAtTail] = useState(true);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findKey, setFindKey] = useState<string | null>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
   const [clearingTest, setClearingTest] = useState(false);
   const [pinnedChip, setPinnedChip] = useState<string | null>(null);
   const [previewChip, setPreviewChip] = useState<string | null>(null);
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(
-    () => typeof window === "undefined" || window.innerWidth > 1100,
+    () => isTest && (typeof window === "undefined" || window.innerWidth > 1100),
   );
   // 检查器宽度可拖拽调节（窄屏抽屉模式下由媒体查询接管，见 responsive.css）
   const inspectorResize = useResizableWidth({
@@ -86,10 +102,15 @@ export default function ChatView({
   );
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inspectorRef = useRef<HTMLElement>(null);
+  useDialogFocus(inspectorRef, () => setInspectorOpen(false), narrow && inspectorOpen);
   const mountedRef = useRef(true);
 
   // 渲染分组：连续的工具调用 / thinking 折叠为一行标签
   const blocks = useMemo(() => groupChatBlocks(entries), [entries]);
+  const findHits = useMemo(() => findMessages(blocks, findQuery), [blocks, findQuery]);
+  const activeFindKey = findKey && findHits.includes(findKey) ? findKey : findHits[0] ?? null;
+  const findIndex = activeFindKey ? findHits.indexOf(activeFindKey) : -1;
   const chipById = useMemo(() => {
     const map = new Map<string, Chip>();
     for (const block of blocks) {
@@ -141,8 +162,30 @@ export default function ChatView({
   }, []);
 
   useEffect(() => {
-    setInspectorOpen(!narrow);
-  }, [narrow]);
+    setInspectorOpen(isTest && !narrow);
+  }, [narrow, isTest]);
+
+  useEffect(() => {
+    if (layout.navigationOpen && narrow) setInspectorOpen(false);
+  }, [layout.navigationOpen, narrow]);
+
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.isComposing || composingRef.current || document.querySelector('[aria-modal="true"]')) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault(); setFindOpen(true); findInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, []);
+  useEffect(() => { if (findOpen) findInputRef.current?.focus(); }, [findOpen]);
+  useEffect(() => {
+    if (!findOpen || !activeFindKey) return;
+    followTailRef.current = false;
+    setAtTail(false);
+    listRef.current?.querySelector(`[data-entry-key="${CSS.escape(activeFindKey)}"]`)?.scrollIntoView({ block: "center", behavior: "auto" });
+  }, [findOpen, activeFindKey]);
 
   useEffect(() => {
     if (!narrow || !inspectorOpen) return;
@@ -177,17 +220,28 @@ export default function ChatView({
 
   const handleScroll = () => {
     const list = listRef.current;
-    if (list) followTailRef.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 48;
+    if (list) {
+      followTailRef.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 48;
+      setAtTail(followTailRef.current);
+    }
+  };
+  const scrollToLatest = () => {
+    followTailRef.current = true; setAtTail(true);
+    const list = listRef.current;
+    if (list) list.scrollTo({ top: list.scrollHeight, behavior: "auto" });
   };
   const send = async () => {
-    const text = input.trim();
-    if (!ready || !text) return;
-    setInput("");
+    if (!ready || !input.trim() || sendingRef.current) return;
+    sendingRef.current = true; setSending(true);
     followTailRef.current = true;
+    setAtTail(true);
     try {
-      if (!await controller.send(text) && mountedRef.current) setInput(text);
+      await submitDraft(draft, text => controller.send(text));
     } catch (error) {
-      if (mountedRef.current) { setInput(text); onError(formatRuntimeError(error)); }
+      if (mountedRef.current) onError(formatRuntimeError(error));
+    } finally {
+      sendingRef.current = false;
+      if (mountedRef.current) setSending(false);
     }
   };
   const resolveApproval = (decision: ApprovalDecisionValue) => {
@@ -198,13 +252,13 @@ export default function ChatView({
     setPinnedChip(current => current === id ? null : id);
     setPreviewChip(null);
     onInspectDetail?.();
-    if (narrow) setInspectorOpen(true);
+    layout.closeNavigation();
+    setInspectorOpen(true);
   };
   const stop = () => { void controller.stop(); };
   const newSession = async () => {
-    if (!ready || running) return;
+    if (!ready || sending) return;
     if (await onNewSession(sessionId ?? undefined) && mountedRef.current) {
-      setInput("");
       followTailRef.current = true;
     }
   };
@@ -248,6 +302,7 @@ export default function ChatView({
     >
       <div className="chat">
         <div className="screen-bar">
+          <button type="button" className="icon-btn navigation-toggle" aria-label="切换导航" onClick={layout.toggleNavigation}><IconPanel /></button>
           <button type="button" className="icon-btn" title="返回" aria-label="返回" onClick={onBack}>
             <IconBack />
           </button>
@@ -256,8 +311,8 @@ export default function ChatView({
               Agent 工作台 · <b>{agent.name}</b>
             </span>
           ) : (
-            <span className="crumb" title={`~/.pipi/agents/${agent.name}/sessions/${sessionId ?? ""}`}>
-              ~/.pipi/agents/<b>{agent.name}</b>/sessions/{sessionId ? <b>{sessionId}</b> : "…"}
+            <span className="crumb chat-title" title={`${agent.name} · ${title}`}>
+              <b>{title}</b><span>{agent.name}</span>
             </span>
           )}
           <span className="spacer" />
@@ -306,7 +361,7 @@ export default function ChatView({
                 type="button"
                 className="icon-btn"
                 onClick={newSession}
-                disabled={!ready || running}
+                disabled={!ready || sending}
                 title="新会话"
                 aria-label="新建会话"
               >
@@ -314,10 +369,11 @@ export default function ChatView({
               </button>
             </>
           )}
+          <button type="button" className={`icon-btn${findOpen ? " active" : ""}`} aria-label="查找会话内容" title="查找 Ctrl/⌘ F" onClick={() => setFindOpen(open => !open)}><IconSearch /></button>
           <button
             type="button"
             className={`icon-btn${inspectorOpen ? " active" : ""}`}
-            onClick={() => setInspectorOpen((open) => !open)}
+            onClick={() => { layout.closeNavigation(); setInspectorOpen((open) => !open); }}
             title={isTest ? "Agent 设置" : "统计 / 检查器"}
             aria-label={isTest ? "切换 Agent 设置" : "切换检查器"}
             aria-expanded={inspectorOpen}
@@ -326,6 +382,23 @@ export default function ChatView({
             <IconGrid />
           </button>
         </div>
+
+        {findOpen && <div className="conversation-find" role="search" aria-label="会话内查找">
+          <IconSearch /><input ref={findInputRef} aria-label="查找当前会话" placeholder="查找当前会话…" value={findQuery}
+            onChange={event => { setFindQuery(event.target.value); setFindKey(null); }} onKeyDown={event => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === "Escape") { event.preventDefault(); setFindOpen(false); inputRef.current?.focus(); }
+              if (event.key === "Enter" && findHits.length) {
+                event.preventDefault(); setFindKey(findHits[(findIndex + (event.shiftKey ? -1 : 1) + findHits.length) % findHits.length]);
+              }
+            }} />
+          <span className="find-count" aria-live="polite">{findQuery.trim() ? `${findIndex + 1} / ${findHits.length} 条` : "按消息查找"}</span>
+          <button type="button" className="icon-btn" aria-label="上一条匹配" disabled={!findHits.length}
+            onClick={() => setFindKey(findHits[(findIndex - 1 + findHits.length) % findHits.length])}>↑</button>
+          <button type="button" className="icon-btn" aria-label="下一条匹配" disabled={!findHits.length}
+            onClick={() => setFindKey(findHits[(findIndex + 1) % findHits.length])}>↓</button>
+          <button type="button" className="icon-btn" aria-label="关闭会话查找" onClick={() => { setFindOpen(false); inputRef.current?.focus(); }}><IconClose /></button>
+        </div>}
 
         <div
           className="log"
@@ -342,17 +415,18 @@ export default function ChatView({
                 </>
               ) : (
                 <>
-                  与 <span className="mono">{agent.name}</span> 对话。会话记录写入
-                  <span className="mono"> sessions.git</span>（一轮一个 commit，`git log` 即对话）。
+                  <span className="welcome-kicker">{agent.name}</span><h2>这次想完成什么？</h2><p>描述你的目标，让 Agent 帮你继续推进。</p>
                 </>
               )}
             </div>
           )}
           <ChatTimeline blocks={blocks} activeChipId={activeChipId} pinnedChip={pinnedChip}
+            findHits={findOpen ? findHits : []} activeFindKey={findOpen ? activeFindKey : null}
             previewDetail={setPreviewChip} clearPreviewDetail={clearPreviewDetail} togglePinnedDetail={togglePinnedDetail} />
         </div>
 
         <div className="composer">
+          {!atTail && <button type="button" className="jump-to-latest" onClick={scrollToLatest}><IconArrowDown />回到最新消息</button>}
           {pendingApproval && (
             <div className="approval-bar" role="alertdialog" aria-label="命令执行审批">
               <div className="approval-text">
@@ -382,7 +456,8 @@ export default function ChatView({
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              aria-label={isTest ? "临时测试消息" : "会话消息"}
+              onChange={(event) => draft.write(event.target.value)}
               placeholder={
                 ready
                   ? running
@@ -411,7 +486,7 @@ export default function ChatView({
               }}
             />
             <div className="composer-bar">
-              <span className="hint">ENTER 发送 · SHIFT+ENTER 换行</span>
+              <span className="hint composer-state" role="status">{stopping ? "正在停止…" : sending ? "正在提交…" : running ? "运行中 · 可插话调整方向" : "Enter 发送 · Shift+Enter 换行"}</span>
               <span className="spacer" />
               {running && (
                 <button
@@ -428,7 +503,7 @@ export default function ChatView({
               <button
                 type="button"
                 className="btn send"
-                disabled={!ready || !input.trim()}
+                disabled={!ready || !input.trim() || sending || stopping}
                 onClick={() => void send()}
                 title={running ? "插话（steering）" : "发送"}
                 aria-label={running ? "插话" : "发送消息"}
@@ -451,6 +526,9 @@ export default function ChatView({
 
       {renderInspector ? (
         <aside
+          ref={inspectorRef}
+          inert={!inspectorOpen}
+          aria-hidden={!inspectorOpen || undefined}
           className="inspector agent-settings-inspector"
           id="session-inspector"
           aria-label="Agent 设置与测试信息"
@@ -458,7 +536,7 @@ export default function ChatView({
           {renderInspector(inspectorContext)}
         </aside>
       ) : (
-        <Inspector context={inspectorContext} onCompact={compactNow} />
+        <Inspector context={inspectorContext} onCompact={compactNow} hidden={!inspectorOpen} rootRef={inspectorRef} />
       )}
 
       {narrow && inspectorOpen && (

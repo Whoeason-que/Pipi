@@ -85,6 +85,7 @@ const demoPeer: AgentDefinition = {
   compactThresholdPercent: 75,
   systemPrompt: "both",
 };
+const demoAgents = [demoAgent, demoPeer];
 
 const peerDemoMessages: Array<Record<string, unknown>> = [
   { role: "user", content: "审查一下 src/ 的组件拆分", timestamp: Date.now() - 60000 },
@@ -161,6 +162,7 @@ interface DemoConversation {
   running: boolean;
   runId: number;
   runTimer: ReturnType<typeof setTimeout> | null;
+  approvalId?: string;
 }
 
 const conversationKey = (agentName: string, sessionId: string) => `${agentName}\u0000${sessionId}`;
@@ -414,8 +416,17 @@ function startDemoRun(conversation: DemoConversation, prompt: string): void {
     () => emitDemoAgentEvent(conversation, { type: "agent_end", messages: [response] }),
   ];
 
+  // UI 验收的显式演示入口，不调用真实工具，不进入生产 bundle。
+  if (prompt.startsWith("[审批演示]")) steps.splice(1, 0, () => {
+    const requestId = `approval-${conversation.sessionId}-${conversation.runId}`;
+    conversation.approvalId = requestId;
+    emitDevEvent("approval-request", { agentName: conversation.agentName, sessionId: conversation.sessionId,
+      runId: conversation.runId, requestId, command: "git status --short", missing: ["git status --short"] });
+  });
+
   let stepIndex = 0;
   const runNextStep = () => {
+    if (conversation.approvalId) { conversation.runTimer = setTimeout(runNextStep, 240); return; }
     if (stepIndex >= steps.length) {
       conversation.runTimer = null;
       conversation.running = false;
@@ -662,16 +673,27 @@ export function installDevMock(): void {
           // 尊重归档/删除状态：归档后活跃列表为空，删除后彻底消失
           if (args?.archived) {
             return Promise.resolve(
-              [demoAgent, demoPeer].filter(
+              demoAgents.filter(
                 (agent) => demoAgentArchived.has(agent.name) && !demoAgentDeleted.has(agent.name),
               ),
             );
           }
           return Promise.resolve(
-            [demoAgent, demoPeer].filter(
+            demoAgents.filter(
               (agent) => !demoAgentArchived.has(agent.name) && !demoAgentDeleted.has(agent.name),
             ),
           );
+        case "create_agent": {
+          const name = String(args.name ?? "");
+          if (demoAgents.some(agent => agent.name === name)) return Promise.reject(new Error("Agent 名称已存在"));
+          const created: AgentDefinition = { ...structuredClone(demoAgent), name,
+            description: String(args.description ?? ""), workspace: (args.workspace as string | null) ?? null,
+            provider: (args.provider as AgentDefinition["provider"]) ?? null, model: String(args.model ?? ""),
+            permissions: (args.permissions as AgentDefinition["permissions"]) ?? structuredClone(demoAgent.permissions) };
+          demoAgents.push(created);
+          stateFor(name);
+          return Promise.resolve(structuredClone(created));
+        }
         case "save_agent": {
           // 浏览器演示模式：把保存落回对应示例 Agent，让「改完刷新」的流程可验证
           const def = args.def as AgentDefinition | undefined;
@@ -680,7 +702,7 @@ export function installDevMock(): void {
             return Promise.reject(new Error("临时测试仍在运行，请先停止再保存设置"));
           }
           if (def) {
-            const target = [demoAgent, demoPeer].find((agent) => agent.name === def.name);
+            const target = demoAgents.find((agent) => agent.name === def.name);
             if (target) Object.assign(target, def);
           }
           if (current) demoConversations.delete(conversationKey(current.agentName, current.sessionId));
@@ -872,14 +894,26 @@ export function installDevMock(): void {
           });
           return Promise.resolve(null);
         }
-        case "resolve_approval":
+        case "resolve_approval": {
+          const conversation = [...demoConversations.values()].find(item => item.approvalId === args.requestId);
+          if (conversation) {
+            delete conversation.approvalId;
+            if (args.decision === "deny") {
+              if (conversation.runTimer) clearTimeout(conversation.runTimer);
+              conversation.runTimer = null;
+              emitDemoAgentEvent(conversation, { type: "agent_end" });
+              conversation.running = false;
+            }
+          }
           return Promise.resolve(null);
+        }
         case "stop_run": {
           const conversation = conversationOf(
             String(args.agentName ?? demoAgent.name),
             String(args.sessionId ?? ""),
           );
           if (!conversation) return Promise.resolve(null);
+          delete conversation.approvalId;
           if (conversation.runTimer) clearTimeout(conversation.runTimer);
           conversation.runTimer = null;
           if (conversation.running) emitDemoAgentEvent(conversation, { type: "agent_end" });
