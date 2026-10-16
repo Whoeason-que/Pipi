@@ -2,14 +2,15 @@ import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTokens } from "../chat-runtime";
 
-import { IconClose } from "../icons";
+import { IconClose, IconSearch } from "../icons";
 import { BASH_MODE_LABELS } from "../agents/agent-fields";
 import type { ChatInspectorContext } from "./inspector-context";
-import { ChipDetailPane } from "./ToolDetails";
+import { ChipDetailPane, formatClock } from "./ToolDetails";
+import { extractSnippet, type SearchHit } from "./find";
 const WRITE_TOOLS = new Set(["write", "edit"]);
 // ============ 右侧检查器 ============
 
-export type InspectorTab = "detail" | "stats" | "state" | "files";
+export type InspectorTab = "detail" | "stats" | "state" | "files" | "search";
 
 export interface InspectorProps {
   hidden?: boolean;
@@ -25,6 +26,14 @@ export interface InspectorProps {
   onTabChange?: (tab: InspectorTab) => void;
   hideHeaderTabs?: boolean;
   onClose?: () => void;
+  searchQuery?: string;
+  onSearchQueryChange?: (query: string) => void;
+  searchHits?: SearchHit[];
+  pinnedFindKey?: string | null;
+  previewFindKey?: string | null;
+  onPreviewFind?: (key: string | null) => void;
+  onPinFind?: (key: string) => void;
+  searchInputRef?: RefObject<HTMLInputElement | null>;
 }
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
@@ -32,6 +41,7 @@ export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "stats", label: "会话统计" },
   { id: "state", label: "当前状态" },
   { id: "files", label: "文件变更" },
+  { id: "search", label: "会话搜索" },
 ];
 
 export default function Inspector({
@@ -46,7 +56,17 @@ export default function Inspector({
   onTabChange,
   hideHeaderTabs = false,
   onClose,
+  searchQuery = "",
+  onSearchQueryChange,
+  searchHits = [],
+  pinnedFindKey = null,
+  previewFindKey = null,
+  onPreviewFind,
+  onPinFind,
+  searchInputRef,
 }: InspectorProps) {
+  const localSearchInputRef = useRef<HTMLInputElement>(null);
+  const searchInput = searchInputRef ?? localSearchInputRef;
   const {
     agent,
     sessionId,
@@ -84,6 +104,31 @@ export default function Inspector({
       setTab(previousTabRef.current);
     }
   }, [detailKey]);
+
+  useEffect(() => {
+    if (tab === "search" && !hidden) {
+      const timer = setTimeout(() => {
+        searchInput.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [tab, hidden, searchInput]);
+
+  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (!searchHits || searchHits.length === 0) return;
+    if (event.key === "Enter" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const currentIndex = pinnedFindKey ? searchHits.findIndex((h) => h.key === pinnedFindKey) : -1;
+      const nextIndex = (currentIndex + 1) % searchHits.length;
+      onPinFind?.(searchHits[nextIndex].key);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      const currentIndex = pinnedFindKey ? searchHits.findIndex((h) => h.key === pinnedFindKey) : -1;
+      const prevIndex = (currentIndex - 1 + searchHits.length) % searchHits.length;
+      onPinFind?.(searchHits[prevIndex].key);
+    }
+  };
 
   const lastTool = useMemo(() => {
     for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -504,6 +549,93 @@ export default function Inspector({
                 <span className="m-v dim">{writeCalls}</span>
               </div>
             </div>
+        </div>
+
+        <div
+          className={`ipanel${tab === "search" ? " active" : ""}`}
+          id="ipanel-search"
+          role="tabpanel"
+          aria-labelledby="itab-search"
+        >
+          <div className="inspector-search-head">
+            <div className="search-input-wrap">
+              <IconSearch />
+              <input
+                ref={searchInput}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchQueryChange?.(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="搜索当前会话消息…"
+                aria-label="搜索当前会话消息"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="search-clear-btn"
+                  onClick={() => onSearchQueryChange?.("")}
+                  aria-label="清空搜索"
+                  title="清空搜索"
+                >
+                  <IconClose />
+                </button>
+              )}
+            </div>
+            <div className="search-stats-bar">
+              <span className="search-stats-count">
+                {searchQuery.trim() ? `共找到 ${searchHits.length} 条匹配` : "按消息正文检索"}
+              </span>
+              {searchHits.length > 0 && <span className="search-stats-hint">悬浮预览 · 点击固定</span>}
+            </div>
+          </div>
+          <div className="inspector-search-list" onMouseLeave={() => onPreviewFind?.(null)}>
+            {!searchQuery.trim() ? (
+              <div className="search-empty-state">
+                <span className="search-empty-icon"><IconSearch /></span>
+                <p className="search-empty-text">输入关键词检索当前会话消息</p>
+                <span className="search-empty-kbd"><kbd>Enter</kbd> / <kbd>↓</kbd> 切换下一条</span>
+              </div>
+            ) : searchHits.length === 0 ? (
+              <div className="search-empty-state">
+                <p className="search-empty-text">未找到与 “{searchQuery}” 相关的消息</p>
+              </div>
+            ) : (
+              searchHits.map((hit) => {
+                const isPinned = pinnedFindKey === hit.key;
+                const isPreview = previewFindKey === hit.key;
+                const snippet = extractSnippet(hit.text, searchQuery);
+                return (
+                  <button
+                    key={hit.key}
+                    type="button"
+                    className={`search-hit-card${isPinned ? " pinned" : ""}${isPreview ? " preview" : ""}`}
+                    onPointerEnter={() => onPreviewFind?.(hit.key)}
+                    onClick={() => onPinFind?.(hit.key)}
+                    aria-selected={isPinned}
+                  >
+                    <div className="search-hit-top">
+                      <span className={`search-hit-badge ${hit.role}`}>
+                        {hit.role === "user" ? "用户" : "助手"}
+                      </span>
+                      {hit.timestamp ? (
+                        <span className="search-hit-time">{formatClock(hit.timestamp)}</span>
+                      ) : null}
+                      <span className="spacer" />
+                      {isPinned && <span className="search-hit-status pinned">已固定</span>}
+                      {!isPinned && isPreview && <span className="search-hit-status preview">预览中</span>}
+                    </div>
+                    <div className="search-hit-text">
+                      {snippet.prefix}
+                      {snippet.match ? <mark>{snippet.match}</mark> : null}
+                      {snippet.suffix}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
     </Wrapper>

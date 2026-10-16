@@ -167,6 +167,8 @@ kbd { font-family: inherit; font-size: 10px; color: var(--faint); border: 1px so
 .row-inner { border-radius: 10px; }
 .find-hit .row-inner { background: var(--warn-soft); box-shadow: 0 0 0 6px var(--warn-soft); }
 .find-current .row-inner { outline: 1px solid var(--warn-border); outline-offset: 5px; }
+.find-preview .row-inner { outline: 2px dashed var(--accent-text); outline-offset: 5px; box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 12%, transparent); }
+.find-pinned .row-inner { outline: 2px solid var(--accent); outline-offset: 5px; box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 20%, transparent); }
 .chat-welcome { max-width: 100%; padding: clamp(65px, 18vh, 180px) 28px 25px; font-size: 13px; }
 .welcome-kicker { color: var(--faint); font-size: 11px; }
 .chat-welcome h2 { margin: 8px 0; color: var(--fg); font-size: 27px; font-weight: 550; letter-spacing: -.6px; }
@@ -179,10 +181,6 @@ kbd { font-family: inherit; font-size: 10px; color: var(--faint); border: 1px so
 .composer-bar { min-height: 48px; padding: 3px 12px 10px 18px; }
 .composer-state { font-family: inherit; font-size: 10px; }
 .jump-to-latest { position: absolute; top: -33px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 99px; padding: 7px 13px; color: var(--muted); background: var(--panel-2); box-shadow: 0 3px 12px rgba(0,0,0,.1); cursor: pointer; font-size: 11px; white-space: nowrap; z-index: 4; }
-.conversation-find { display: flex; align-items: center; flex-shrink: 0; gap: 8px; padding: 8px 18px; border-bottom: 1px solid var(--line); background: var(--panel); color: var(--muted); }
-.conversation-find input { flex: 1; min-width: 0; padding: 5px 0; border: 0; outline: none; background: none; font-size: 12px; }
-.find-count { flex-shrink: 0; font-size: 10px; color: var(--faint); }
-.conversation-find .icon-btn { width: 26px; height: 26px; flex-shrink: 0; }
 .copy-btn { position: relative; }
 .copy-error-note { position: absolute; right: 0; bottom: calc(100% + 8px); width: 200px; padding: 8px; border: 1px solid var(--danger-border); border-radius: 8px; color: var(--danger); background: var(--panel-2); font-size: 11px; line-height: 1.6; }
 .row-meta .copy-btn.copy-failed { opacity: 1; color: var(--danger); }
@@ -237,9 +235,6 @@ kbd { font-family: inherit; font-size: 10px; color: var(--faint); border: 1px so
   .row { padding: 12px 20px; }
   .composer { padding: 12px 16px calc(14px + var(--safe-bottom)); }
   .composer textarea { font-size: 16px; }
-  .conversation-find { gap: 4px; padding: 8px 12px; }
-  .conversation-find input { font-size: 16px; }
-  .conversation-find > svg { display: none; }
   .palette-input input { font-size: 16px; }
   .palette-backdrop { padding: 65px 12px 12px; }
   .app:not(.sidebar-open) .sidebar { visibility: hidden; }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DraftStore, submitDraft, type DraftStorage } from "../src/drafts.ts";
 import { filterQuickItems, quickItems } from "../src/app/navigation.ts";
-import { findMessages } from "../src/chat/find.ts";
+import { extractSnippet, findMessages, findSearchHits } from "../src/chat/find.ts";
 import { groupChatBlocks } from "../src/chat-runtime.ts";
 import type { AgentDefinition } from "../src/types.ts";
 
@@ -129,4 +129,32 @@ test("conversation find searches body and code per message while excluding tools
   assert.deepEqual(findMessages(blocks, "main"), ["a"]);
   assert.deepEqual(findMessages(blocks, "秘密"), []);
   assert.deepEqual(findMessages(blocks, "  "), []);
+});
+
+test("findSearchHits returns structured hits with role, text and timestamp", () => {
+  const blocks = groupChatBlocks([
+    { key: "u1", role: "user", text: "查找关键词测试", timestamp: 1000 },
+    { key: "a1", role: "assistant", text: "好的，为您查找关键词并生成结果", timestamp: 2000 },
+  ]);
+  const hits = findSearchHits(blocks, "关键词");
+  assert.equal(hits.length, 2);
+  assert.deepEqual(hits[0], {
+    key: "u1",
+    role: "user",
+    text: "查找关键词测试",
+    timestamp: 1000,
+  });
+  assert.deepEqual(hits[1], {
+    key: "a1",
+    role: "assistant",
+    text: "好的，为您查找关键词并生成结果",
+    timestamp: 2000,
+  });
+});
+
+test("extractSnippet highlights matches and ellipses long surrounding context", () => {
+  const snippet = extractSnippet("前面的文字非常长需要截断，但是这里的关键字必须匹配出来，并且后面还有很多文字需要保留", "关键字");
+  assert.equal(snippet.match, "关键字");
+  assert.ok(snippet.prefix.includes("但是这里的"));
+  assert.ok(snippet.suffix.includes("必须匹配出来"));
 });

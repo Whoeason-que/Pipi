@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { LayoutContext } from "./app/layout-context";
 import { submitDraft } from "./drafts";
-import { findMessages } from "./chat/find";
+import { findSearchHits } from "./chat/find";
 import { useDialogFocus } from "./components/use-dialog-focus";
 import {
   formatRuntimeError,
@@ -14,7 +14,7 @@ import ChatTimeline from "./chat/ChatTimeline";
 import Inspector, { INSPECTOR_TABS, type InspectorTab } from "./chat/Inspector";
 import type { ChatInspectorContext } from "./chat/inspector-context";
 import ModelSelectModal from "./chat/ModelSelectModal";
-import { IconArrowDown, IconBack, IconClose, IconGrid, IconPanel, IconPlus, IconSearch, IconSend, IconStop } from "./icons";
+import { IconArrowDown, IconBack, IconGrid, IconPanel, IconPlus, IconSearch, IconSend, IconStop } from "./icons";
 import { useResizableWidth } from "./resizable";
 import type { SessionRuntime } from "./session-runtime";
 import type { AgentDefinition, ModelConfig, ProviderConfig, SessionInfoView } from "./types";
@@ -78,10 +78,10 @@ export default function ChatView({
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const [atTail, setAtTail] = useState(true);
-  const [findOpen, setFindOpen] = useState(false);
-  const [findQuery, setFindQuery] = useState("");
-  const [findKey, setFindKey] = useState<string | null>(null);
-  const findInputRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pinnedFindKey, setPinnedFindKey] = useState<string | null>(null);
+  const [previewFindKey, setPreviewFindKey] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [clearingTest, setClearingTest] = useState(false);
   const [pinnedChip, setPinnedChip] = useState<string | null>(null);
   const [previewChip, setPreviewChip] = useState<string | null>(null);
@@ -111,9 +111,19 @@ export default function ChatView({
 
   // 渲染分组：连续的工具调用 / thinking 折叠为一行标签
   const blocks = useMemo(() => groupChatBlocks(entries), [entries]);
-  const findHits = useMemo(() => findMessages(blocks, findQuery), [blocks, findQuery]);
-  const activeFindKey = findKey && findHits.includes(findKey) ? findKey : findHits[0] ?? null;
-  const findIndex = activeFindKey ? findHits.indexOf(activeFindKey) : -1;
+  const searchHits = useMemo(() => findSearchHits(blocks, searchQuery), [blocks, searchQuery]);
+  const findHits = useMemo(() => searchHits.map((h) => h.key), [searchHits]);
+  const activeFindKey = previewFindKey ?? pinnedFindKey ?? null;
+
+  // 搜索词变更导致原选中项不在新结果中时清掉引用
+  useEffect(() => {
+    if (pinnedFindKey && !findHits.includes(pinnedFindKey)) {
+      setPinnedFindKey(null);
+    }
+    if (previewFindKey && !findHits.includes(previewFindKey)) {
+      setPreviewFindKey(null);
+    }
+  }, [findHits, pinnedFindKey, previewFindKey]);
   const chipById = useMemo(() => {
     const map = new Map<string, Chip>();
     for (const block of blocks) {
@@ -186,19 +196,24 @@ export default function ChatView({
     const keydown = (event: KeyboardEvent) => {
       if (event.isComposing || composingRef.current || document.querySelector('[aria-modal="true"]')) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
-        event.preventDefault(); setFindOpen(true); findInputRef.current?.focus();
+        event.preventDefault();
+        layout.closeNavigation();
+        setActiveInspectorTab("search");
+        setInspectorOpen(true);
+        searchInputRef.current?.focus();
       }
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, []);
-  useEffect(() => { if (findOpen) findInputRef.current?.focus(); }, [findOpen]);
+  }, [layout]);
+
   useEffect(() => {
-    if (!findOpen || !activeFindKey) return;
+    if (!inspectorOpen || activeInspectorTab !== "search" || !activeFindKey) return;
     followTailRef.current = false;
     setAtTail(false);
-    listRef.current?.querySelector(`[data-entry-key="${CSS.escape(activeFindKey)}"]`)?.scrollIntoView({ block: "center", behavior: "auto" });
-  }, [findOpen, activeFindKey]);
+    const target = listRef.current?.querySelector(`[data-entry-key="${CSS.escape(activeFindKey)}"]`);
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [inspectorOpen, activeInspectorTab, activeFindKey]);
 
   useEffect(() => {
     if (!narrow || !inspectorOpen) return;
@@ -394,7 +409,15 @@ export default function ChatView({
               <IconPlus />
             </button>
           )}
-          <button type="button" className={`icon-btn${findOpen ? " active" : ""}`} aria-label="查找会话内容" title="查找 Ctrl/⌘ F" onClick={() => setFindOpen(open => !open)}><IconSearch /></button>
+          <button
+            type="button"
+            className={`icon-btn${inspectorOpen && activeInspectorTab === "search" ? " active" : ""}`}
+            aria-label="会话搜索"
+            title="会话搜索 Ctrl/⌘ F"
+            onClick={() => handleBarTabClick("search")}
+          >
+            <IconSearch />
+          </button>
           <button
             type="button"
             className={`icon-btn${inspectorOpen ? " active" : ""}`}
@@ -410,48 +433,41 @@ export default function ChatView({
 
         <div className="chat-body">
           <div className="chat">
-            {findOpen && <div className="conversation-find" role="search" aria-label="会话内查找">
-          <IconSearch /><input ref={findInputRef} aria-label="查找当前会话" placeholder="查找当前会话…" value={findQuery}
-            onChange={event => { setFindQuery(event.target.value); setFindKey(null); }} onKeyDown={event => {
-              if (event.nativeEvent.isComposing) return;
-              if (event.key === "Escape") { event.preventDefault(); setFindOpen(false); inputRef.current?.focus(); }
-              if (event.key === "Enter" && findHits.length) {
-                event.preventDefault(); setFindKey(findHits[(findIndex + (event.shiftKey ? -1 : 1) + findHits.length) % findHits.length]);
-              }
-            }} />
-          <span className="find-count" aria-live="polite">{findQuery.trim() ? `${findIndex + 1} / ${findHits.length} 条` : "按消息查找"}</span>
-          <button type="button" className="icon-btn" aria-label="上一条匹配" disabled={!findHits.length}
-            onClick={() => setFindKey(findHits[(findIndex - 1 + findHits.length) % findHits.length])}>↑</button>
-          <button type="button" className="icon-btn" aria-label="下一条匹配" disabled={!findHits.length}
-            onClick={() => setFindKey(findHits[(findIndex + 1) % findHits.length])}>↓</button>
-          <button type="button" className="icon-btn" aria-label="关闭会话查找" onClick={() => { setFindOpen(false); inputRef.current?.focus(); }}><IconClose /></button>
-        </div>}
-
-        <div
-          className="log"
-          ref={listRef}
-          onScroll={handleScroll}
-          aria-live={running ? "polite" : undefined}
-        >
-          {entries.length === 0 && (
-            <div className="chat-welcome">
-              {isTest ? (
-                <>
-                  在这里验证 <span className="mono">{agent.name}</span> 的已保存配置。
-                  测试上下文只保留在本次应用运行期，不会进入会话历史。
-                </>
-              ) : (
-                <>
-                  <span className="welcome-kicker">{agent.name}</span><h2>这次想完成什么？</h2><p>描述你的目标，让 Agent 帮你继续推进。</p>
-                </>
+            <div
+              className="log"
+              ref={listRef}
+              onScroll={handleScroll}
+              aria-live={running ? "polite" : undefined}
+            >
+              {entries.length === 0 && (
+                <div className="chat-welcome">
+                  {isTest ? (
+                    <>
+                      在这里验证 <span className="mono">{agent.name}</span> 的已保存配置。
+                      测试上下文只保留在本次应用运行期，不会进入会话历史。
+                    </>
+                  ) : (
+                    <>
+                      <span className="welcome-kicker">{agent.name}</span><h2>这次想完成什么？</h2><p>描述你的目标，让 Agent 帮你继续推进。</p>
+                    </>
+                  )}
+                </div>
               )}
+              <ChatTimeline
+                blocks={blocks}
+                activeChipId={activeChipId}
+                pinnedChip={pinnedChip}
+                findHits={inspectorOpen && activeInspectorTab === "search" ? findHits : []}
+                activeFindKey={inspectorOpen && activeInspectorTab === "search" ? activeFindKey : null}
+                previewFindKey={inspectorOpen && activeInspectorTab === "search" ? previewFindKey : null}
+                pinnedFindKey={inspectorOpen && activeInspectorTab === "search" ? pinnedFindKey : null}
+                previewDetail={setPreviewChip}
+                clearPreviewDetail={clearPreviewDetail}
+                togglePinnedDetail={togglePinnedDetail}
+                onFork={!isTest ? forkSession : undefined}
+                forkDisabled={!ready || running || !sessionId}
+              />
             </div>
-          )}
-          <ChatTimeline blocks={blocks} activeChipId={activeChipId} pinnedChip={pinnedChip}
-            findHits={findOpen ? findHits : []} activeFindKey={findOpen ? activeFindKey : null}
-            previewDetail={setPreviewChip} clearPreviewDetail={clearPreviewDetail} togglePinnedDetail={togglePinnedDetail}
-            onFork={!isTest ? forkSession : undefined} forkDisabled={!ready || running || !sessionId} />
-        </div>
 
         <div className="composer">
           {!atTail && <button type="button" className="jump-to-latest" onClick={scrollToLatest}><IconArrowDown />回到最新消息</button>}
@@ -589,6 +605,17 @@ export default function ChatView({
           onTabChange={setActiveInspectorTab}
           hideHeaderTabs={true}
           onClose={() => setInspectorOpen(false)}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          searchHits={searchHits}
+          pinnedFindKey={pinnedFindKey}
+          previewFindKey={previewFindKey}
+          onPreviewFind={setPreviewFindKey}
+          onPinFind={(key) => {
+            setPinnedFindKey(key);
+            setPreviewFindKey(null);
+          }}
+          searchInputRef={searchInputRef}
         />
       )}
       </div>

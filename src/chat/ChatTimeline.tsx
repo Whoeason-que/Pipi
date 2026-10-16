@@ -12,6 +12,8 @@ export default function ChatTimeline({
   togglePinnedDetail,
   findHits,
   activeFindKey,
+  previewFindKey,
+  pinnedFindKey,
   onFork,
   forkDisabled,
 }: {
@@ -20,6 +22,8 @@ export default function ChatTimeline({
   pinnedChip: string | null;
   findHits: string[];
   activeFindKey: string | null;
+  previewFindKey?: string | null;
+  pinnedFindKey?: string | null;
   previewDetail: (id: string) => void;
   clearPreviewDetail: () => void;
   togglePinnedDetail: (id: string) => void;
@@ -66,8 +70,13 @@ export default function ChatTimeline({
             }
             const entry = block.entry;
             if (block.kind === "user") {
+              const isHit = findHits.includes(block.key);
+              const isCurrent = activeFindKey === block.key;
+              const isPreview = previewFindKey === block.key;
+              const isPinned = pinnedFindKey === block.key;
+              const findCls = isHit ? ` find-hit${isCurrent ? " find-current" : ""}${isPreview ? " find-preview" : ""}${isPinned ? " find-pinned" : ""}` : "";
               return (
-                <div key={entry.key} data-entry-key={block.key} className={`row user-row${findHits.includes(block.key) ? " find-hit" : ""}${activeFindKey === block.key ? " find-current" : ""}`}>
+                <div key={entry.key} data-entry-key={block.key} className={`row user-row${findCls}`}>
                   <div className="row-inner">
                     <div className="user-bubble">
                       <div className="user-text">{entry.text}</div>
@@ -91,8 +100,13 @@ export default function ChatTimeline({
                   durationMs: entry.durationMs,
                 })
               : null;
+            const isHit = findHits.includes(block.key);
+            const isCurrent = activeFindKey === block.key;
+            const isPreview = previewFindKey === block.key;
+            const isPinned = pinnedFindKey === block.key;
+            const findCls = isHit ? ` find-hit${isCurrent ? " find-current" : ""}${isPreview ? " find-preview" : ""}${isPinned ? " find-pinned" : ""}` : "";
             return (
-              <div key={entry.key} data-entry-key={block.key} className={`row${findHits.includes(block.key) ? " find-hit" : ""}${activeFindKey === block.key ? " find-current" : ""}`}>
+              <div key={entry.key} data-entry-key={block.key} className={`row${findCls}`}>
                 <div className="row-inner">
                   <div className="content">
                     <Markdown text={entry.text} />
