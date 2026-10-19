@@ -2,13 +2,15 @@
 //! 逻辑与参数结构体在 `pipi_core::commands`（宿主命令的单一事实来源）。
 
 use pipi_core::commands::{
-    AgentSkillsArgs, CreateAgentArgs, InstallSkillArgs, ListAgentFilesArgs, ListAgentsArgs,
-    ModelCatalogArgs, ReadAgentFileArgs, RemoveStoreSkillArgs, SaveAgentArgs, SaveSettingsArgs,
-    SetSkillEnabledArgs, SkillUsageArgs, SyncAgentSkillsArgs, VerifyStoreSkillsArgs,
-    WriteAgentFileArgs,
+    AgentSkillsArgs, CreateAgentArgs, ForumPostArgs, ForumReadArgs, ForumReplyArgs,
+    ForumSearchArgs, ForumThread, ForumThreadsArgs, InstallSkillArgs, ListAgentFilesArgs,
+    ListAgentsArgs, ModelCatalogArgs, ReadAgentFileArgs, RemoveStoreSkillArgs, SaveAgentArgs,
+    SaveSettingsArgs, SetSkillEnabledArgs, SkillUsageArgs, SyncAgentSkillsArgs,
+    VerifyStoreSkillsArgs, WriteAgentFileArgs,
 };
 use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::Settings;
+use pipi_protocol::forum::{Post, SearchHit, Thread, ThreadSummary};
 use pipi_provider::catalog::ModelCatalog;
 use pipi_venv::agents::AgentDefinition;
 use pipi_venv::skills::{
@@ -130,4 +132,29 @@ pub async fn sync_agent_skills(
 #[tauri::command]
 pub fn skill_usage(args: InvokeArgs<SkillUsageArgs>) -> Result<Vec<SkillUsage>, String> {
     pipi_core::commands::skill_usage(args.0)
+}
+
+#[tauri::command]
+pub fn forum_threads(args: InvokeArgs<ForumThreadsArgs>) -> Result<Vec<ThreadSummary>, String> {
+    pipi_core::commands::forum_threads(args.0)
+}
+
+#[tauri::command]
+pub fn forum_read(args: InvokeArgs<ForumReadArgs>) -> Result<ForumThread, String> {
+    pipi_core::commands::forum_read(args.0)
+}
+
+#[tauri::command]
+pub fn forum_search(args: InvokeArgs<ForumSearchArgs>) -> Result<Vec<SearchHit>, String> {
+    pipi_core::commands::forum_search(args.0)
+}
+
+#[tauri::command]
+pub fn forum_post(args: InvokeArgs<ForumPostArgs>) -> Result<Thread, String> {
+    pipi_core::commands::forum_post(args.0)
+}
+
+#[tauri::command]
+pub fn forum_reply(args: InvokeArgs<ForumReplyArgs>) -> Result<Post, String> {
+    pipi_core::commands::forum_reply(args.0)
 }

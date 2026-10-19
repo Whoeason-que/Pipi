@@ -5830,8 +5830,10 @@ version = "26.10.1"
 dependencies = [
  "async-trait",
  "axum",
+ "dirs 7.0.0",
  "pipi-agent",
  "pipi-context",
+ "pipi-forum",
  "pipi-protocol",
  "pipi-provider",
  "pipi-session",
@@ -5843,6 +5845,19 @@ dependencies = [
  "tokio",
  "tower",
  "tower-http 0.7.1",
+]
+
+[[package]]
+name = "pipi-forum"
+version = "26.10.1"
+dependencies = [
+ "dirs 7.0.0",
+ "pipi-protocol",
+ "pipi-test-support",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]

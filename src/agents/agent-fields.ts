@@ -14,6 +14,11 @@ export const KNOWN_TOOLS = [
   "submit_background_task",
   "query_background_tasks",
   "manage_background_task",
+  "session_search",
+  "forum_list",
+  "forum_read",
+  "forum_post",
+  "forum_reply",
 ] as const;
 
 

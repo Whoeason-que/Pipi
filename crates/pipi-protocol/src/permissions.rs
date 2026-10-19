@@ -82,8 +82,13 @@ pub const BACKGROUND_TASK_TOOLS: [&str; 3] = [
     "manage_background_task",
 ];
 
-/// Pipi 已知内置工具名（基础工具 + 显式启用的 Agent 组合 / 后台任务工具）。
-pub const KNOWN_TOOLS: [&str; 14] = [
+/// 论坛工具：必须显式启用。它们读写一个跨 Agent 的共享版面（默认
+/// `~/.pipi/forum`，工作区里带 `.agents/forum` 则用本地的），属于组合能力，
+/// 不随基础工具默认开放。
+pub const FORUM_TOOLS: [&str; 4] = ["forum_list", "forum_read", "forum_post", "forum_reply"];
+
+/// Pipi 已知内置工具名（基础工具 + 显式启用的 Agent 组合 / 后台任务 / 论坛工具）。
+pub const KNOWN_TOOLS: [&str; 18] = [
     "read",
     "write",
     "edit",
@@ -98,6 +103,10 @@ pub const KNOWN_TOOLS: [&str; 14] = [
     "query_background_tasks",
     "manage_background_task",
     "session_search",
+    "forum_list",
+    "forum_read",
+    "forum_post",
+    "forum_reply",
 ];
 
 /// bash 命令评估结论。

@@ -14,6 +14,10 @@ use serde_json::Value;
 
 use crate::settings::{self, Settings};
 use pipi_agent::stats::SessionStats;
+use pipi_protocol::forum::{
+    ForumRepo, NewPost, NewThread, Post, PostRange, PostVia, SearchHit, SearchOptions, Thread,
+    ThreadFilter, ThreadStatus, ThreadSummary,
+};
 use pipi_protocol::permissions::PermissionsConfig;
 use pipi_protocol::session::{SessionImportReport, SessionSummary};
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
@@ -70,6 +74,11 @@ pub const COMMANDS: &[&str] = &[
     "remove_store_skill",
     "sync_agent_skills",
     "skill_usage",
+    "forum_threads",
+    "forum_read",
+    "forum_search",
+    "forum_post",
+    "forum_reply",
 ];
 
 // ============ Agent ============
@@ -684,6 +693,134 @@ pub fn skill_usage(args: SkillUsageArgs) -> Result<Vec<SkillUsage>, String> {
     pipi_venv::skills::skill_usage(&args.name)
 }
 
+// ============ 论坛 ============
+
+/// `forum_read` 的返回：主题元数据 + 本次读取的帖子。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForumThread {
+    pub thread: Thread,
+    pub posts: Vec<Post>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForumThreadsArgs {
+    pub status: Option<String>,
+    pub tag: Option<String>,
+    pub archived: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+/// 列论坛主题（人在 UI / 命令里浏览）。
+pub fn forum_threads(args: ForumThreadsArgs) -> Result<Vec<ThreadSummary>, String> {
+    let repo = crate::forum::command_repo()?;
+    let status = match args.status.as_deref() {
+        None => None,
+        Some("open") => Some(ThreadStatus::Open),
+        Some("closed") => Some(ThreadStatus::Closed),
+        Some(other) => return Err(format!("status 只能是 open 或 closed（得到 {other:?}）")),
+    };
+    let filter = ThreadFilter {
+        status,
+        tag: args.tag,
+        include_archived: args.archived.unwrap_or(false),
+    };
+    repo.list_threads(&filter, args.limit.unwrap_or(20).clamp(1, 200))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForumReadArgs {
+    pub thread_id: String,
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+/// 读一个主题（元数据 + 帖子，分页）。
+pub fn forum_read(args: ForumReadArgs) -> Result<ForumThread, String> {
+    let repo = crate::forum::command_repo()?;
+    let thread = repo.thread(&args.thread_id)?;
+    let posts = repo.posts(
+        &args.thread_id,
+        PostRange {
+            offset: args.offset.unwrap_or(0),
+            limit: args.limit,
+        },
+    )?;
+    Ok(ForumThread { thread, posts })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForumSearchArgs {
+    pub query: String,
+    pub archived: Option<bool>,
+    pub limit: Option<usize>,
+}
+
+/// 检索论坛（标题 + 正文）。
+pub fn forum_search(args: ForumSearchArgs) -> Result<Vec<SearchHit>, String> {
+    let repo = crate::forum::command_repo()?;
+    repo.search(
+        &args.query,
+        SearchOptions {
+            limit: args.limit.unwrap_or(10).clamp(1, 100),
+            include_archived: args.archived.unwrap_or(false),
+        },
+    )
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForumPostArgs {
+    pub title: String,
+    pub body: String,
+    pub tags: Option<Vec<String>>,
+    pub mentions: Option<Vec<String>>,
+    pub author: Option<String>,
+}
+
+/// 人在 UI / 命令里发新主题（作者自报，`via = web`）。
+pub fn forum_post(args: ForumPostArgs) -> Result<Thread, String> {
+    let repo = crate::forum::command_repo()?;
+    repo.create_thread(&NewThread {
+        title: args.title,
+        author: args.author.unwrap_or_else(|| "human".into()),
+        body: args.body,
+        tags: args.tags.unwrap_or_default(),
+        mentions: args.mentions.unwrap_or_default(),
+        via: PostVia::Web,
+        origin: None,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForumReplyArgs {
+    pub thread_id: String,
+    pub body: String,
+    pub reply_to: Option<String>,
+    pub mentions: Option<Vec<String>>,
+    pub author: Option<String>,
+}
+
+/// 人在 UI / 命令里回帖。
+pub fn forum_reply(args: ForumReplyArgs) -> Result<Post, String> {
+    let repo = crate::forum::command_repo()?;
+    repo.append_post(
+        &args.thread_id,
+        &NewPost {
+            author: args.author.unwrap_or_else(|| "human".into()),
+            body: args.body,
+            via: PostVia::Web,
+            reply_to: args.reply_to,
+            mentions: args.mentions.unwrap_or_default(),
+            origin: None,
+        },
+    )
+}
+
 // ============ Web / JSON transport 入口 ============
 
 /// Web 宿主（以及任何 JSON transport）的唯一入口：按命令名解析参数并调用对应函数。
@@ -735,6 +872,11 @@ pub async fn dispatch(
         "remove_store_skill" => to_value(remove_store_skill(parse(args)?)?),
         "sync_agent_skills" => to_value(sync_agent_skills(parse(args)?).await?),
         "skill_usage" => to_value(skill_usage(parse(args)?)?),
+        "forum_threads" => to_value(forum_threads(parse(args)?)?),
+        "forum_read" => to_value(forum_read(parse(args)?)?),
+        "forum_search" => to_value(forum_search(parse(args)?)?),
+        "forum_post" => to_value(forum_post(parse(args)?)?),
+        "forum_reply" => to_value(forum_reply(parse(args)?)?),
         other => Err(format!("未知命令：{other}")),
     }
 }
@@ -765,8 +907,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            41,
-            "宿主命令数应为 41（前端 CommandMap 同步）"
+            46,
+            "宿主命令数应为 46（前端 CommandMap 同步）"
         );
     }
 

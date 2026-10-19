@@ -180,6 +180,15 @@ export function IconSubagent() {
 }
 
 /** 搜索（搜索分区 / 输入框内放大镜） */
+/** 论坛（对话气泡） */
+export function IconForum() {
+  return (
+    <IconBase>
+      <path d="M20 15a3 3 0 0 1-3 3H9l-4 3v-3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z" />
+    </IconBase>
+  );
+}
+
 export function IconSearch() {
   return (
     <IconBase>

@@ -22,12 +22,14 @@ required-features = ["server"]
 # （工作区条目里写的 default-features = false 就是为这条服务）
 pipi-agent = { workspace = true }
 pipi-context = { workspace = true }
+pipi-forum = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-provider = { workspace = true }
 pipi-session = { workspace = true }
 pipi-tools = { workspace = true }
 pipi-venv = { workspace = true }
 async-trait = { workspace = true }
+dirs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # fs：background 的落盘与扫描用 `tokio::fs`，显式声明（此前靠 pipi-tools 传递开启）

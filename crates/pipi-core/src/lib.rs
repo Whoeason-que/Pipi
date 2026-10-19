@@ -28,6 +28,7 @@ pub mod approval;
 pub mod background;
 pub mod commands;
 pub mod events;
+pub mod forum;
 pub mod runtime;
 pub mod settings;
 pub mod tools;

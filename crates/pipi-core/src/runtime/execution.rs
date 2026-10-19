@@ -111,6 +111,25 @@ impl RuntimeState {
         // running / model 都已确定，失败也发生在新消息落盘之前。
         let info = self.session_info_of(session)?;
 
+        // 论坛：仅在启用任一 forum_* 工具时才解析根目录（避免无代价地创建目录），
+        // 并把根目录加入受信任读取根，让 read/grep 也能直接看论坛文件。
+        // 仓库只开一次，供工具与 run 启动时的未读摘要共用。
+        // **论坛不可用不应让主 run 失败**（根目录被换成符号链接、权限不足等）：
+        // 当作「本轮没有论坛能力」降级处理。
+        let forum = if crate::forum::enabled(&tool_context.permissions) {
+            let root = crate::forum::resolve_root(&tool_context.workspace);
+            tool_context.read_roots.push(root.clone());
+            match pipi_forum::FileForumRepo::open(root.clone()) {
+                Ok(repo) => Some((
+                    root,
+                    Arc::new(repo) as Arc<dyn pipi_protocol::forum::ForumRepo>,
+                )),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
         let mut registry = pipi_tools::builtin_registry(&tool_context);
         let background_owner =
             BackgroundTaskOwner::new(def.name.clone(), session_id.clone(), run_id);
@@ -175,13 +194,38 @@ impl RuntimeState {
                 background_owner,
             )));
         }
+        if let Some((root, repo)) = &forum {
+            crate::forum::register_tools(
+                &mut registry,
+                repo.clone(),
+                root,
+                &tool_context.permissions,
+                &def.name,
+                format!("run:{session_id}:{run_id}"),
+            );
+        }
         let registry = Arc::new(registry);
         let wire_tools = registry.wire_tools();
         // 压缩设置与重试策略在同步段取好，move 进任务（会话仓库在更早处已取）
         let runtime_settings = load_settings();
         let compaction_settings = runtime_settings.compaction;
         let retry_policy = runtime_settings.retry.policy();
-        let system_prompt = agents::build_system_prompt_with_tools(&def, &prepared, &wire_tools)?;
+        let mut system_prompt =
+            agents::build_system_prompt_with_tools(&def, &prepared, &wire_tools)?;
+        // 拉式通知：把该 Agent 的未读摘要拼进系统提示（不推进游标 —— 读取才推进）。
+        // `systemPrompt: none` 的 Agent 不发 system，也就不拼摘要；摘要计算失败只跳过
+        // （不因论坛而让整个 run 失败）。
+        if let Some((root, repo)) = &forum
+            && !matches!(def.system_prompt, pipi_venv::agents::PromptScope::None)
+            && let Ok(Some(digest)) = crate::forum::digest(repo.as_ref(), root, &def.name)
+        {
+            if system_prompt.is_empty() {
+                system_prompt = digest;
+            } else {
+                system_prompt.push_str("\n\n");
+                system_prompt.push_str(&digest);
+            }
+        }
 
         // 交互审批通道：桌面 / Web 的交互运行才接入；子 Agent 运行不注入，
         // 白名单未命中一律拒绝（fail-closed）。

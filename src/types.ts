@@ -337,3 +337,51 @@ export interface SkillUsage {
   filter: string | null;
   declaredBy: string | null;
 }
+
+/** 本地论坛（纯文件版面）的前端视图。字段与 `pipi_protocol::forum` 对齐。 */
+export type ThreadStatusView = "open" | "closed" | "unknown";
+export type PostViaView = "tool" | "cli" | "web" | "other";
+
+export interface ThreadView {
+  id: string;
+  title: string;
+  author: string;
+  created: number;
+  tags: string[];
+  status: ThreadStatusView;
+  pinned: boolean;
+}
+
+export interface PostView {
+  id: string;
+  seq: number;
+  author: string;
+  created: number;
+  via: PostViaView;
+  replyTo?: string | null;
+  mentions?: string[];
+  rootId?: string | null;
+  causalityDepth: number;
+  body: string;
+}
+
+export interface ThreadSummaryView {
+  thread: ThreadView;
+  postCount: number;
+  lastActive: number;
+  lastAuthor: string | null;
+}
+
+export interface ForumThreadView {
+  thread: ThreadView;
+  posts: PostView[];
+}
+
+export interface SearchHitView {
+  threadId: string;
+  threadTitle: string;
+  postId: string;
+  postSeq: number;
+  author: string;
+  snippet: string;
+}

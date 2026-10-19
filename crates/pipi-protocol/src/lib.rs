@@ -9,6 +9,7 @@
 //! | [`dto`] | 消息 / 模型 / 流事件（wire 形状） |
 //! | [`abort`] | 协作式中止信号 |
 //! | [`session`] | 会话条目格式、回放规则与存储端口（[`session::SessionLog`] / [`session::SessionRepo`]） |
+//! | [`forum`] | 本地论坛的格式与存储端口（[`forum::ForumRepo`]） |
 //! | [`provider`] | provider 端口：[`provider::Provider`] 与 [`provider::EventStream`] |
 //! | [`tools`] | 工具端口：执行结果、执行上下文、[`tools::AgentTool`] 与 [`tools::ToolRegistry`] |
 //! | [`permissions`] | 权限与沙箱的公共词汇、[`permissions::PermissionsConfig`] 与写入路径包含检查 |
@@ -25,6 +26,7 @@ pub mod abort;
 pub mod compaction;
 pub mod dto;
 pub mod error;
+pub mod forum;
 pub mod fs;
 pub mod ids;
 pub mod permissions;

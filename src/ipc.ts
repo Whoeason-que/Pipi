@@ -1,7 +1,7 @@
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, ApprovalRequestPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
-import type { AgentDefinition, AgentEditableFiles, AgentSkills, ModelConfig, PermissionsConfig, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify } from "./types";
+import type { AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
 
 export interface BackgroundTaskSnapshot {
   task: {
@@ -57,6 +57,11 @@ export interface CommandMap {
   remove_store_skill: { args: { name: string }; result: number };
   sync_agent_skills: { args: { agentName: string; repair: boolean }; result: SkillSyncReport };
   skill_usage: { args: { name: string }; result: SkillUsage[] };
+  forum_threads: { args: { status?: string | null; tag?: string | null; archived?: boolean | null; limit?: number | null }; result: ThreadSummaryView[] };
+  forum_read: { args: { threadId: string; offset?: number | null; limit?: number | null }; result: ForumThreadView };
+  forum_search: { args: { query: string; archived?: boolean | null; limit?: number | null }; result: SearchHitView[] };
+  forum_post: { args: { title: string; body: string; tags?: string[] | null; mentions?: string[] | null; author?: string | null }; result: ThreadView };
+  forum_reply: { args: { threadId: string; body: string; replyTo?: string | null; mentions?: string[] | null; author?: string | null }; result: PostView };
 }
 
 export type CommandName = keyof CommandMap;

@@ -53,6 +53,11 @@ pub fn run() {
             commands::remove_store_skill,
             commands::sync_agent_skills,
             commands::skill_usage,
+            commands::forum_threads,
+            commands::forum_read,
+            commands::forum_search,
+            commands::forum_post,
+            commands::forum_reply,
         ])
         .run(tauri::generate_context!())
         .expect("Pipi 启动失败");

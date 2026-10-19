@@ -2,6 +2,7 @@ import { useContext } from "react";
 import { useI18n } from "../i18n";
 import {
   IconAgent,
+  IconForum,
   IconGear,
   IconPanel,
   IconSearch,
@@ -44,6 +45,7 @@ export default function AppNavigation({
             ["subagents", t("nav.subagents"), IconSubagent],
             ["search", t("common.search"), IconSearch],
             ["skills", t("nav.skills"), IconSkill],
+            ["forum", "论坛", IconForum],
           ] as const
         ).map(([section, label, Icon]) => (
           <button

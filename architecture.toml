@@ -41,6 +41,12 @@ dev-may-depend-on = ["pipi-session"]
 may-depend-on = ["pipi-protocol"]
 dev-may-depend-on = ["pipi-test-support"]
 
+# 论坛载体：纯文件的本地论坛（一个主题一个目录、一条帖子一个文件），
+# 以及供人与脚本用的 pipi-forum CLI。只实现契约层的 ForumRepo 端口。
+[crates.pipi-forum]
+may-depend-on = ["pipi-protocol"]
+dev-may-depend-on = ["pipi-test-support"]
+
 # 内置工具实现与 bash 权限策略（端口与权限数据在契约层）。
 [crates.pipi-tools]
 may-depend-on = ["pipi-protocol"]
@@ -63,6 +69,7 @@ forbid = ["reqwest", "rig", "tauri"]
 may-depend-on = [
     "pipi-agent",
     "pipi-context",
+    "pipi-forum",
     "pipi-protocol",
     "pipi-provider",
     "pipi-session",

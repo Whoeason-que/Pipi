@@ -13,6 +13,8 @@ import { useSessionList } from "./app/use-session-list";
 import { useSessionNavigation } from "./app/use-session-navigation";
 import { useSettings } from "./app/use-settings";
 import ChatView from "./chat/ChatView";
+import { ForumSidebar } from "./forum/ForumSidebar";
+import ForumView from "./forum/ForumView";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
 import { useDialogFocus } from "./components/use-dialog-focus";
@@ -111,6 +113,7 @@ export default function App() {
       void invoke("new_session", { agentName: previous.agentName }).catch(() => {});
     }
     if (next.kind === "skills") setNavSection("skills");
+    else if (next.kind === "forum") setNavSection("forum");
     else if (next.kind === "home") setNavSection(next.section ?? "agents");
     else if (next.kind === "create") setNavSection("agents");
     else if ("agentName" in next) setNavSection(agentSection(agents.find(agent => agent.name === next.agentName)));
@@ -193,7 +196,7 @@ export default function App() {
     if (current && (view.kind === "agent" || view.kind === "chat" || view.kind === "workbench")) setNavSection(agentSection(current));
   }, [current?.name, current?.subagent, view.kind]);
   const title = view.kind === "home" ? t(collection === "subagents" ? "nav.subagents" : "nav.workspace") : view.kind === "settings" ? t("nav.settings") : view.kind === "create" ? t("nav.newAgent")
-    : view.kind === "skills" ? t("nav.skills") : current?.name ?? "Pipi";
+    : view.kind === "skills" ? t("nav.skills") : view.kind === "forum" ? "论坛" : current?.name ?? "Pipi";
   const sessionTitle = view.kind === "chat" ? (sessionsByAgent[view.agentName] ?? []).find(session => session.id === view.sessionId)?.title : undefined;
   const overviewProps = { section: collection, agents: visibleAgents, sessions: sessionsByAgent, running: runningSessions, onAgent: selectAgent, onSession: openSession,
     onNewSession: (name: string) => { void navigation.startNewSession(name); }, onConfigure: configureAgent, onCreate: startCreating };
@@ -211,6 +214,7 @@ export default function App() {
           subagents: agentsInSection(agents, "subagents").some(agent => agentHasRunning(agent.name)) }}
         onOpenSection={section => {
           if (section === "skills") navigate({ kind: "skills" });
+          else if (section === "forum") navigate({ kind: "forum" });
           else if (section === "agents" || section === "subagents") navigate({ kind: "home", section });
           setNavSection(section); setSidebarCollapsed(false); setSidebarOpen(true);
         }} />
@@ -225,6 +229,7 @@ export default function App() {
           sessionsByAgent={sessionsByAgent} isRunning={isConversationRunning} onSelectAgent={selectAgent} onOpenSession={openSession} />
           : navSection === "skills" ? <SkillsSidebar library={skillLibrary} selected={skillSelected} error={skillLoadError}
             onSelect={name => { setSkillSelected(name); setSidebarOpen(false); }} onRefresh={() => void loadSkillLibrary()} />
+          : navSection === "forum" ? <ForumSidebar />
           : <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
             viewSessionId={view.kind === "chat" ? view.sessionId : null} expandedAgents={expandedAgents}
             archivedSessions={archivedSessions} archivedSessionsExpanded={archivedSessionsExpanded} archivedOpen={archivedOpen}
@@ -262,6 +267,7 @@ export default function App() {
             onCreated={async name => { await refresh(); selectAgent(name); }} onCancel={() => navigate({ kind: "home" })} onError={safeSetError} />
           : view.kind === "skills" ? <SkillsView library={skillLibrary} loadError={skillLoadError} selected={skillSelected}
             onSelect={setSkillSelected} onRefresh={loadSkillLibrary} onError={safeSetError} />
+          : view.kind === "forum" ? <ForumView />
           : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
             title={sessionTitle || t("chat.newSessionTitle")} sessionId={view.sessionId} sessions={sessionRuntime}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} onBack={() => selectAgent(current.name)} onError={safeSetError}

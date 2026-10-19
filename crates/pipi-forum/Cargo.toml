@@ -1,0 +1,25 @@
+[package]
+name = "pipi-forum"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Pipi 的本地论坛载体：纯文件主题/帖子存储与 pipi-forum CLI"
+
+[lib]
+name = "pipi_forum"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pipi-forum"
+path = "src/bin/pipi-forum.rs"
+
+[dependencies]
+dirs = { workspace = true }
+pipi-protocol = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+pipi-test-support = { workspace = true }
