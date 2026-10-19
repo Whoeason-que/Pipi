@@ -64,7 +64,8 @@ dev-may-depend-on = ["pipi-provider"]
 forbid = ["reqwest", "rig", "tauri"]
 
 # 宿主层：命令表、多会话索引、能力装配与调度、后台任务、设置、Agent 组合工具，以及
-# `--features server` 的 Web 宿主（只做 transport 与鉴权）。
+# `--features server` 的 Web 宿主（只做 transport 与鉴权）。桌面内嵌它时
+# 复用同一个 RuntimeState / 事件中心；生命周期与远程设置仍由此层拥有。
 [crates.pipi-core]
 may-depend-on = [
     "pipi-agent",

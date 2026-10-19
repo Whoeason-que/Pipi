@@ -5,7 +5,7 @@
 //! 事件，而两者之间不再有类型上的环。宿主把 [`RuntimeEvent`] 映射成自己的
 //! 传输（Tauri event 或 WebSocket frame），不做业务解释。
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use serde::Serialize;
 
@@ -102,3 +102,40 @@ pub enum RuntimeEvent {
 
 /// 运行时事件接收器。
 pub type EventEmitter = Arc<dyn Fn(RuntimeEvent) + Send + Sync>;
+
+/// 一个宿主的事件出口。桌面同步投递，浏览器独立订阅；发起命令的客户端不拥有事件。
+#[derive(Clone)]
+pub struct EventHub {
+    sender: tokio::sync::broadcast::Sender<RuntimeEvent>,
+    desktop: Arc<RwLock<Option<EventEmitter>>>,
+}
+
+impl Default for EventHub {
+    fn default() -> Self {
+        Self {
+            sender: tokio::sync::broadcast::channel(1024).0,
+            desktop: Arc::new(RwLock::new(None)),
+        }
+    }
+}
+
+impl EventHub {
+    pub fn set_desktop_sink(&self, sink: EventEmitter) {
+        *self.desktop.write().expect("事件接收器锁损坏") = Some(sink);
+    }
+
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<RuntimeEvent> {
+        self.sender.subscribe()
+    }
+
+    pub fn emitter(&self) -> EventEmitter {
+        let hub = self.clone();
+        Arc::new(move |event| {
+            let sink = hub.desktop.read().ok().and_then(|sink| sink.clone());
+            if let Some(sink) = sink {
+                sink(event.clone());
+            }
+            let _ = hub.sender.send(event);
+        })
+    }
+}

@@ -13,10 +13,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { workspace = true }
 
 [dependencies]
-tauri = { workspace = true }
+tauri = { workspace = true, features = ["tray-icon"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 pipi-agent = { workspace = true }
-pipi-core = { workspace = true }
+pipi-core = { workspace = true, features = ["server"] }
 pipi-provider = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-venv = { workspace = true }

@@ -26,6 +26,12 @@ const webListeners = new Map<string, Set<WebEventListener>>();
 let webSocket: WebSocket | null = null;
 let webReconnectTimer: number | null = null;
 let webReconnectAttempt = 0;
+const hostReconnectListeners = new Set<() => void>();
+
+export function onHostReconnect(listener: () => void): () => void {
+  hostReconnectListeners.add(listener);
+  return () => { hostReconnectListeners.delete(listener); };
+}
 
 const TOKEN_STORAGE_KEY = "pipi_web_token";
 
@@ -226,6 +232,7 @@ function ensureWebSocket(): void {
   webSocket = socket;
   socket.onopen = () => {
     webReconnectAttempt = 0;
+    hostReconnectListeners.forEach(listener => listener());
   };
   socket.onmessage = (message) => {
     if (typeof message.data !== "string") return;
@@ -246,6 +253,9 @@ function ensureWebSocket(): void {
   socket.onclose = () => {
     if (webSocket !== socket) return;
     webSocket = null;
+    void getAuthStatus().then(status => {
+      if (status.authRequired && !status.authenticated) notifyAuthRequired();
+    }).catch(() => {});
     scheduleWebSocketReconnect();
   };
 }

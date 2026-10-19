@@ -68,6 +68,14 @@ export class SessionRuntime {
     // 断开的是宿主事件订阅，后台运行仍归 Rust RuntimeState 所有。
   }
 
+  async resynchronize(): Promise<void> {
+    // 重连后不能信任断线期间的旧帧；从宿主恢复正在展示或运行中的会话。
+    this.replay.clear();
+    const controllers = [...new Set([...this.sessions.values(), ...this.drafts])]
+      .filter(controller => controller.getSnapshot().sessionId !== null && (controller.observed || controller.getSnapshot().chat.running));
+    await Promise.allSettled(controllers.map(controller => controller.reconnect()));
+  }
+
   subscribe(listener: (frame: RuntimeFrame) => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };

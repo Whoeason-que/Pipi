@@ -1,6 +1,6 @@
 // 仅开发环境生效：在普通浏览器（无 Tauri 后端）里提供最小 invoke 桩，
 // 让前端 UI 可以脱离桌面壳独立开发调试。Tauri 生产构建不受影响。
-import type { AgentDefinition, Settings } from "./types";
+import type { AgentDefinition, Settings, RemoteAccessStatus } from "./types";
 import type { ModelCatalog } from "./catalog";
 
 const demoAgent: AgentDefinition = {
@@ -655,6 +655,10 @@ function listDemoSessions(agentName: string): Array<Record<string, unknown>> {
     }));
 }
 
+const remoteDemo: RemoteAccessStatus = {
+  config: { port: 1421, startWithApp: false, publicUrl: "" }, running: false,
+  localUrl: null, connectedClients: 0, lastError: null,
+};
 export function installDevMock(): void {
   if (!import.meta.env.DEV) return;
   const w = window as unknown as {
@@ -664,6 +668,16 @@ export function installDevMock(): void {
   if (w.__TAURI_INTERNALS__) return;
   const invoke = (cmd: string, args: Record<string, unknown> = {}) => {
       switch (cmd) {
+        case "remote_access_status": return Promise.resolve(structuredClone(remoteDemo));
+        case "configure_remote_access":
+          remoteDemo.config = args.config as RemoteAccessStatus["config"];
+          if (remoteDemo.running) remoteDemo.localUrl = `http://127.0.0.1:${remoteDemo.config.port}`;
+          return Promise.resolve(structuredClone(remoteDemo));
+        case "set_remote_access_enabled":
+          remoteDemo.running = Boolean(args.enabled);
+          remoteDemo.localUrl = remoteDemo.running ? `http://127.0.0.1:${remoteDemo.config.port}` : null;
+          return Promise.resolve(structuredClone(remoteDemo));
+        case "remote_access_token": return Promise.resolve("preview-only-token-not-a-real-credential");
         case "get_settings":
           return Promise.resolve(structuredClone(settings));
         case "save_settings":

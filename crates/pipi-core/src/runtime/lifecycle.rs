@@ -12,7 +12,33 @@ impl RuntimeState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             approval: Arc::new(ApprovalGate::default()),
             background,
+            events: crate::events::EventHub::default(),
+            remote: std::sync::OnceLock::new(),
         }
+    }
+
+    pub fn events(&self) -> &crate::events::EventHub {
+        &self.events
+    }
+
+    pub fn pending_approvals(&self) -> Vec<crate::events::ApprovalRequestEnvelope> {
+        self.approval.pending_requests()
+    }
+
+    pub fn attach_remote_access(
+        &self,
+        remote: Arc<dyn crate::remote::RemoteAccessControl>,
+    ) -> Result<(), String> {
+        self.remote
+            .set(remote)
+            .map_err(|_| "远程访问控制器已装配".to_string())
+    }
+
+    pub fn remote_access(&self) -> Result<&dyn crate::remote::RemoteAccessControl, String> {
+        self.remote
+            .get()
+            .map(Arc::as_ref)
+            .ok_or_else(|| "当前宿主未启用桌面远程访问管理".into())
     }
 
     /// 把一轮运行交给注入的运行时执行（不依赖调用线程的 reactor 上下文）。
@@ -36,8 +62,7 @@ impl RuntimeState {
     // 注意：占用检查、从会话槽脱离与载体操作必须在同一把 sessions 锁内完成，
     // 否则检查与移动之间可能被并发 open_session 抢跑。空闲的当前会话可以由
     // 归档/删除操作自动脱离；正在运行或仍有托管后台任务的会话必须先停止。
-    // （跨进程限制：桌面壳与 Web 服务同时跑时各有 RuntimeState，进程间的
-    // 并发打开不在本锁覆盖范围内 —— 产品形态是二选一，已知限制。）
+    // 桌面和内嵌 Web 共用本锁。进程间由宿主启动时的 HostLease 排他保护。
 
     /// 归档会话。
     ///

@@ -59,7 +59,7 @@ impl SessionKey {
 /// 对象：运行守卫 / abort / writer 跟着走）。运行任务里调用的回调，所以要 `'static`。
 pub type SessionRekey = Arc<dyn Fn(&SessionKey, &str) + Send + Sync>;
 
-/// 共享会话状态。Tauri 与 Web 服务各自持有一个实例。
+/// 共享会话状态。同一个宿主中的 Tauri 与 Web transport 持有同一个实例。
 pub struct RuntimeState {
     /// 跑 Agent 循环用的 Tokio 运行时句柄，由宿主注入（桌面壳用 Tauri 的运行时，
     /// Web 服务用自己的运行时）。核心不依赖宿主框架，也不能假设「调用线程已在
@@ -74,6 +74,8 @@ pub struct RuntimeState {
     sessions: Arc<Mutex<HashMap<SessionKey, HostSession>>>,
     approval: Arc<ApprovalGate>,
     background: BackgroundTaskManager,
+    events: crate::events::EventHub,
+    remote: std::sync::OnceLock<Arc<dyn crate::remote::RemoteAccessControl>>,
 }
 
 mod child;

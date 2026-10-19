@@ -29,6 +29,7 @@ pub mod background;
 pub mod commands;
 pub mod events;
 pub mod forum;
+pub mod remote;
 pub mod runtime;
 pub mod settings;
 pub mod tools;

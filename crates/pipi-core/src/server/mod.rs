@@ -19,11 +19,17 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 
-use crate::events::{EventEmitter, RuntimeEvent};
+use crate::events::{EventHub, RuntimeEvent};
 use crate::runtime::RuntimeState;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::net::TcpListener;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::watch;
+
+mod assets;
+mod lifecycle;
+pub use assets::{AssetResolver, WebAsset, WebAssets};
+pub use lifecycle::{ServerHandle, start};
 use tokio::sync::broadcast;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -33,8 +39,10 @@ const PIPI_TOKEN_HEADER: &str = "x-pipi-token";
 #[derive(Clone)]
 struct AppState {
     runtime: Arc<RuntimeState>,
-    events: broadcast::Sender<RuntimeEvent>,
-    web_root: PathBuf,
+    events: EventHub,
+    assets: WebAssets,
+    shutdown: watch::Receiver<bool>,
+    clients: Arc<AtomicUsize>,
     auth_token: Option<String>,
 }
 
@@ -84,10 +92,6 @@ fn check_request_authorized(
 }
 
 fn build_app(state: AppState) -> Router {
-    let index_file = state.web_root.join("index.html");
-    let static_service =
-        ServeDir::new(&state.web_root).not_found_service(ServeFile::new(index_file));
-
     let protected_api_routes = Router::new()
         .route("/events", get(ws_events))
         .route("/invoke", post(invoke_handler))
@@ -106,20 +110,15 @@ fn build_app(state: AppState) -> Router {
         .merge(protected_api_routes)
         .merge(public_api_routes);
 
-    let cors = tower_http::cors::CorsLayer::new()
-        .allow_methods([
-            axum::http::Method::GET,
-            axum::http::Method::POST,
-            axum::http::Method::OPTIONS,
-        ])
-        .allow_headers(tower_http::cors::AllowHeaders::mirror_request())
-        .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
-        .allow_credentials(true);
-
-    Router::new()
-        .nest("/api", api_routes)
-        .fallback_service(static_service)
-        .layer(cors)
+    let router = Router::new().nest("/api", api_routes);
+    let router = match &state.assets {
+        WebAssets::Directory(root) => router.fallback_service(
+            ServeDir::new(root).not_found_service(ServeFile::new(root.join("index.html"))),
+        ),
+        WebAssets::Embedded(_) => router.fallback(assets::embedded_asset),
+    };
+    router
+        .layer(axum::middleware::from_fn(same_origin))
         .with_state(state)
 }
 
@@ -141,29 +140,39 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("PIPI_AUTH_TOKEN 不能包含控制字符或分号".into());
     }
 
-    let (events, _) = broadcast::channel(256);
-    let state = AppState {
-        runtime: Arc::new(RuntimeState::new(tokio::runtime::Handle::current())),
-        events,
-        web_root: web_root.clone(),
-        auth_token,
-    };
-
-    let app = build_app(state.clone());
-
-    let listener = TcpListener::bind(addr).await?;
-    println!(
-        "Pipi Web server listening on http://{addr}; web root: {}",
-        state.web_root.display()
-    );
-    if state.auth_token.is_some() {
-        println!("Pipi Web server authentication: PIPI_AUTH_TOKEN enabled");
-    } else {
-        println!("Pipi Web server authentication: disabled (keep the listener on localhost)");
-    }
-
-    axum::serve(listener, app).await?;
+    let _lease = crate::remote::HostLease::acquire()?;
+    let runtime = Arc::new(RuntimeState::new(tokio::runtime::Handle::current()));
+    let mut server = start(runtime, addr, auth_token, WebAssets::Directory(web_root)).await?;
+    println!("Pipi Web server listening on http://{}", server.address());
+    server.wait().await?;
     Ok(())
+}
+
+// 浏览器 Origin 与 Host 必须相同。无 Origin 的 CLI/代理仍须通过令牌鉴权。
+async fn same_origin(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    if let Some(origin) = req.headers().get(header::ORIGIN) {
+        let origin = origin
+            .to_str()
+            .ok()
+            .and_then(|s| s.parse::<axum::http::Uri>().ok());
+        let host = req
+            .headers()
+            .get(header::HOST)
+            .and_then(|s| s.to_str().ok());
+        let allowed = origin.as_ref().is_some_and(|origin| {
+            origin.scheme_str()
+                == Some(if is_https_request(req.headers()) {
+                    "https"
+                } else {
+                    "http"
+                })
+                && origin.authority().map(|a| a.as_str()) == host
+        });
+        if !allowed {
+            return (StatusCode::FORBIDDEN, "拒绝跨站请求").into_response();
+        }
+    }
+    next.run(req).await
 }
 
 async fn auth_status_handler(
@@ -297,15 +306,44 @@ async fn auth_middleware(
 }
 
 async fn ws_events(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| stream_events(socket, state.events.subscribe()))
+    let receiver = state.events.subscribe();
+    let pending = state.runtime.pending_approvals();
+    ws.on_upgrade(move |socket| {
+        stream_events(socket, receiver, state.shutdown, state.clients, pending)
+    })
 }
 
-async fn stream_events(mut socket: WebSocket, mut receiver: broadcast::Receiver<RuntimeEvent>) {
+async fn stream_events(
+    mut socket: WebSocket,
+    mut receiver: broadcast::Receiver<RuntimeEvent>,
+    mut shutdown: watch::Receiver<bool>,
+    clients: Arc<AtomicUsize>,
+    pending: Vec<crate::events::ApprovalRequestEnvelope>,
+) {
+    struct ClientCount(Arc<AtomicUsize>);
+    impl Drop for ClientCount {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+    clients.fetch_add(1, Ordering::Relaxed);
+    let _count = ClientCount(clients);
+    if *shutdown.borrow() {
+        return;
+    }
+    for envelope in pending {
+        if let Ok(text) = serde_json::to_string(&RuntimeEvent::ApprovalRequest(envelope)) {
+            if !send_frame(&mut socket, WsMessage::Text(text.into()), &mut shutdown).await {
+                return;
+            }
+        }
+    }
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
     loop {
         tokio::select! {
+            _ = shutdown.changed() => break,
             _ = ticker.tick() => {
-                if socket.send(WsMessage::Ping(Default::default())).await.is_err() {
+                if !send_frame(&mut socket, WsMessage::Ping(Default::default()), &mut shutdown).await {
                     break;
                 }
             }
@@ -316,12 +354,13 @@ async fn stream_events(mut socket: WebSocket, mut receiver: broadcast::Receiver<
                             Ok(text) => text,
                             Err(_) => continue,
                         };
-                        if socket.send(WsMessage::Text(text.into())).await.is_err() {
+                        if !send_frame(&mut socket, WsMessage::Text(text.into()), &mut shutdown).await {
                             break;
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        eprintln!("pipi-server: websocket receiver lagged by {n} events");
+                        eprintln!("pipi-server: websocket receiver lagged by {n} events; reconnect required");
+                        break;
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
@@ -336,6 +375,20 @@ async fn stream_events(mut socket: WebSocket, mut receiver: broadcast::Receiver<
     }
 }
 
+async fn send_frame(
+    socket: &mut WebSocket,
+    frame: WsMessage,
+    shutdown: &mut watch::Receiver<bool>,
+) -> bool {
+    if *shutdown.borrow() {
+        return false;
+    }
+    tokio::select! {
+        _ = shutdown.changed() => false,
+        result = tokio::time::timeout(std::time::Duration::from_secs(5), socket.send(frame)) => matches!(result, Ok(Ok(()))),
+    }
+}
+
 async fn invoke_handler(
     State(state): State<AppState>,
     Json(request): Json<InvokeRequest>,
@@ -347,10 +400,7 @@ async fn invoke_handler(
 }
 
 async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Value, String> {
-    let events = state.events.clone();
-    let emitter: EventEmitter = Arc::new(move |event| {
-        let _ = events.send(event);
-    });
+    let emitter = state.events.emitter();
     crate::commands::dispatch(
         &state.runtime,
         emitter,
@@ -368,11 +418,13 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_state(token: Option<String>) -> AppState {
-        let (events, _) = broadcast::channel(16);
+        let events = EventHub::default();
         AppState {
             runtime: Arc::new(RuntimeState::new(tokio::runtime::Handle::current())),
             events,
-            web_root: PathBuf::from("target/test-web-root"),
+            assets: WebAssets::Directory(PathBuf::from("target/test-web-root")),
+            shutdown: watch::channel(false).1,
+            clients: Arc::new(AtomicUsize::new(0)),
             auth_token: token,
         }
     }

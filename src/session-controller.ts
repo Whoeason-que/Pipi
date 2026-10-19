@@ -184,6 +184,11 @@ export class SessionController {
   }
 
   /** 先订阅，再取快照；加载期间的所有事件按到达顺序合并。 */
+  async reconnect(): Promise<void> {
+    this.patch({ approval: null });
+    await this.hydrate();
+  }
+
   async hydrate(): Promise<void> {
     const epoch = ++this.loadEpoch;
     const id = this.value.sessionId;

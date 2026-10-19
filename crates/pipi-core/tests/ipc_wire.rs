@@ -26,6 +26,7 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
     roundtrip::<pipi_venv::agents::AgentEditableFiles>(&wire["agentFiles"]);
     roundtrip::<Model>(&wire["model"]);
     roundtrip::<Settings>(&wire["settings"]);
+    roundtrip::<pipi_core::remote::RemoteAccessStatus>(&wire["remoteAccess"]);
     roundtrip::<Vec<Message>>(&wire["messages"]);
     roundtrip::<BackgroundTaskSnapshot>(&wire["background"]);
     roundtrip::<SkillLibrary>(&wire["skillLibrary"]);

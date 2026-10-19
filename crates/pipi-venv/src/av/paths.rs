@@ -71,6 +71,18 @@ pub fn settings_path() -> Option<PathBuf> {
     pipi_home().map(|home| home.join("settings.json"))
 }
 
+pub fn remote_settings_path() -> Option<PathBuf> {
+    pipi_home().map(|home| home.join("remote.json"))
+}
+
+pub fn remote_token_path() -> Option<PathBuf> {
+    pipi_home().map(|home| home.join("remote-token"))
+}
+
+pub fn host_lock_path() -> Option<PathBuf> {
+    pipi_home().map(|home| home.join("host.lock"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,7 +1,7 @@
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, ApprovalRequestPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
-import type { AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
+import type { RemoteAccessConfig, RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
 
 export interface BackgroundTaskSnapshot {
   task: {
@@ -25,6 +25,10 @@ export interface CommandMap {
   write_agent_file: { args: { agentName: string; relPath: string; content: string }; result: void };
   get_settings: { args: {  }; result: Settings };
   save_settings: { args: { settings: Settings }; result: void };
+  remote_access_status: { args: { }; result: RemoteAccessStatus };
+  configure_remote_access: { args: { config: RemoteAccessConfig }; result: RemoteAccessStatus };
+  set_remote_access_enabled: { args: { enabled: boolean }; result: RemoteAccessStatus };
+  remote_access_token: { args: { rotate: boolean }; result: string };
   list_sessions: { args: { agentName: string; archived?: boolean | null }; result: SessionSummaryView[] };
   open_session: { args: { agentName: string; sessionId: string }; result: SessionSnapshotView };
   session_info: { args: { agentName: string; sessionId: string }; result: SessionInfoView | null };

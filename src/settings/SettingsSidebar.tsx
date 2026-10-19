@@ -1,4 +1,5 @@
 import { formatRetryDelay } from "../chat-runtime";
+import { isTauriRuntime } from "../platform";
 import { useI18n } from "../i18n";
 import { resolveTheme } from "../theme";
 import type { Settings } from "../types";
@@ -26,6 +27,7 @@ export default function SettingsSidebar({
     "retry",
     "providers",
   ];
+  if (isTauriRuntime()) sections.push("remote");
   if (showLogout) sections.push("account");
 
   const sectionMeta = (id: SettingsSection): string => {
@@ -44,6 +46,8 @@ export default function SettingsSidebar({
         );
         return `${settings.providers.length} 家 · 默认 ${fallback?.name ?? "未设置"}`;
       }
+      case "remote":
+        return t("remoteAccess.navHint");
       case "account":
         return "Web 访问保护";
     }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatRuntimeError } from "../chat-runtime";
-import { invoke } from "../platform";
+import { invoke, onHostReconnect } from "../platform";
 import type { SessionRuntime } from "../session-runtime";
 import type { SessionInfoView } from "../types";
 
@@ -93,8 +93,14 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
     };
     syncRunningRef.current = sync;
     sync();
+    const unsubscribe = onHostReconnect(() => {
+      sync();
+      void sessionRuntime.resynchronize();
+      if (selectedRef.current) void refreshSessions([selectedRef.current]);
+    });
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [runningSessions.size]);
 

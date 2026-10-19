@@ -1,4 +1,12 @@
 mod chat;
+mod desktop;
+
+use pipi_core::remote::RemoteAccessControl;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use tauri::Manager;
 mod commands;
 mod invoke_args;
 
@@ -9,8 +17,12 @@ fn runtime_handle() -> tokio::runtime::Handle {
 }
 
 pub fn run() {
-    tauri::Builder::default()
-        .manage(pipi_core::runtime::RuntimeState::new(runtime_handle()))
+    let app = tauri::Builder::default()
+        .manage(Arc::new(pipi_core::runtime::RuntimeState::new(
+            runtime_handle(),
+        )))
+        .setup(desktop::setup)
+        .on_window_event(desktop::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::model_catalog,
             commands::list_agents,
@@ -18,6 +30,10 @@ pub fn run() {
             commands::save_agent,
             commands::get_settings,
             commands::save_settings,
+            commands::remote_access_status,
+            commands::configure_remote_access,
+            commands::set_remote_access_enabled,
+            commands::remote_access_token,
             chat::send_prompt,
             chat::compact_now,
             chat::steer,
@@ -59,6 +75,23 @@ pub fn run() {
             commands::forum_post,
             commands::forum_reply,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("Pipi 启动失败");
+    let exiting = Arc::new(AtomicBool::new(false));
+    app.run(move |app, event| {
+        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            if !exiting.swap(true, Ordering::SeqCst) {
+                api.prevent_exit();
+                let app = app.clone();
+                let remote = app
+                    .state::<Arc<pipi_core::remote::RemoteAccess>>()
+                    .inner()
+                    .clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = remote.set_enabled(false).await;
+                    app.exit(0);
+                });
+            }
+        }
+    });
 }

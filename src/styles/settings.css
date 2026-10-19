@@ -1,5 +1,22 @@
 /* 全局设置：分组导航、外观预览与提供商表单。 */
 
+.remote-access-panel { display: flex; flex-direction: column; gap: 20px; min-width: 0; max-width: 760px; margin: 0 auto; }
+.remote-access-panel .settings-block { width: 100%; margin: 0; }
+.remote-access-panel .badge.ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-border); }
+.remote-status-row, .remote-address-row, .remote-actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.remote-address-row { padding: 12px 0; min-width: 0; }
+.remote-address-row .mono { overflow-wrap: anywhere; font-size: 12px; }
+.remote-config { display: flex; flex-direction: column; gap: 16px; }
+.remote-checkbox { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.remote-checkbox input { width: 15px; height: 15px; accent-color: var(--accent); }
+.remote-actions { justify-content: flex-start; margin-top: 10px; }
+.remote-token { width: 100%; font-size: 12px; }
+.remote-rotate-confirm { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r); }
+.remote-rotate-confirm p { margin: 0; font-size: 13px; }
+.remote-error { color: var(--danger); overflow-wrap: anywhere; font-size: 13px; }
+
 .settings-autosave {
   display: inline-flex;
   align-items: center;

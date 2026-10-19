@@ -11,6 +11,7 @@ export type SettingsSection =
   | "context"
   | "retry"
   | "providers"
+  | "remote"
   | "account";
 
 export function getSettingsSectionInfo(
@@ -29,6 +30,7 @@ const SECTION_ICONS = {
   retry: IconArrowRepeat,
   providers: IconGrid,
   account: IconKey,
+  remote: IconArrowRepeat,
 };
 
 export function SettingsSectionIcon({ section }: { section: SettingsSection }) {

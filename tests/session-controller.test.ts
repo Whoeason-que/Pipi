@@ -83,6 +83,24 @@ async function fixture() {
   return { host, runtime, controller: runtime.get(agent, "s") };
 }
 
+test("transport recovery hydrates missed completion and clears obsolete approvals without stopping runs", async () => {
+  const { host, runtime, controller } = await fixture();
+  const unsubscribe = controller.subscribe(() => {});
+  host.infos.set("s", info("s", 2, true));
+  await controller.hydrate();
+  host.emit("approval-request", { agentName: agent.name, sessionId: "s", runId: 2,
+    requestId: "pending", command: "pwd", missing: [] });
+  assert.ok(controller.getSnapshot().approval);
+  host.infos.set("s", info("s", 2, false));
+  host.history = [message("completed while disconnected")];
+  await runtime.resynchronize();
+  assert.equal(controller.getSnapshot().chat.running, false);
+  assert.equal(controller.getSnapshot().approval, null);
+  assert.ok(controller.getSnapshot().chat.entries.some(entry => entry.text === "completed while disconnected"));
+  assert.equal(host.calls.some(call => call.command === "stop_run"), false);
+  unsubscribe(); runtime.disconnect();
+});
+
 test("loading merges events that arrive before history and does not resurrect a completed run", async () => {
   const { host, controller, runtime } = await fixture();
   const history = deferred<MessageView[]>();

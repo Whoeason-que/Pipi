@@ -14,7 +14,7 @@ function rustType(input: string): string {
   if (value.startsWith("Option<")) return rustType(value.slice(7, -1)) + "|null";
   if (value.startsWith("Vec<")) return rustType(value.slice(4, -1)) + "[]";
   if (value.startsWith("Result<")) return rustType(value.slice(7, -1).replace(/,\s*String$/, ""));
-  const aliases: Record<string, string> = { String: "string", bool: "boolean", u64: "number", usize: "number", "()": "void", AgentDefinition: "AgentDefinition", Settings: "Settings", Model: "ModelConfig", PermissionsConfig: "PermissionsConfig", SessionInfo: "SessionInfoView", SessionSnapshot: "SessionSnapshotView", Message: "MessageView", SessionSummary: "SessionSummaryView", SessionImportReport: "SessionImportReportView", SessionStats: "SessionStatsView", BackgroundTaskSnapshot: "BackgroundTaskSnapshot", ModelCatalog: "ModelCatalog", SkillLibrary: "SkillLibrary", AgentSkills: "AgentSkills", AgentEditableFiles: "AgentEditableFiles", SkillVerify: "SkillVerify", SkillInstallReport: "SkillInstallReport", SkillSyncReport: "SkillSyncReport", SkillUsage: "SkillUsage", Thread: "ThreadView", ThreadSummary: "ThreadSummaryView", Post: "PostView", SearchHit: "SearchHitView", ForumThread: "ForumThreadView" };
+  const aliases: Record<string, string> = { RemoteAccessConfig: "RemoteAccessConfig", RemoteAccessStatus: "RemoteAccessStatus", String: "string", bool: "boolean", u64: "number", usize: "number", "()": "void", AgentDefinition: "AgentDefinition", Settings: "Settings", Model: "ModelConfig", PermissionsConfig: "PermissionsConfig", SessionInfo: "SessionInfoView", SessionSnapshot: "SessionSnapshotView", Message: "MessageView", SessionSummary: "SessionSummaryView", SessionImportReport: "SessionImportReportView", SessionStats: "SessionStatsView", BackgroundTaskSnapshot: "BackgroundTaskSnapshot", ModelCatalog: "ModelCatalog", SkillLibrary: "SkillLibrary", AgentSkills: "AgentSkills", AgentEditableFiles: "AgentEditableFiles", SkillVerify: "SkillVerify", SkillInstallReport: "SkillInstallReport", SkillSyncReport: "SkillSyncReport", SkillUsage: "SkillUsage", Thread: "ThreadView", ThreadSummary: "ThreadSummaryView", Post: "PostView", SearchHit: "SearchHitView", ForumThread: "ForumThreadView" };
   assert.ok(aliases[value], `unsupported command wire type: ${value}`);
   return aliases[value];
 }
@@ -163,11 +163,11 @@ test("Rust wire fixtures fit frontend DTOs and typed invoke rejects misspelled c
   const fixture = read("tests/fixtures/ipc-wire.json");
   const filename = path.join(root, "tests/fixtures/wire-check.ts");
   const code = `
-import type { AgentDefinition, AgentEditableFiles, AgentSkills, ModelConfig, Settings, SessionStatsView, SessionInfoView, SkillLibrary } from "../../src/types";
+import type { RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, ModelConfig, Settings, SessionStatsView, SessionInfoView, SkillLibrary } from "../../src/types";
 import type { MessageView } from "../../src/chat-runtime";
 import type { BackgroundTaskSnapshot, EventMap, Invoke } from "../../src/ipc";
 type Frame = { [K in keyof EventMap]: { type: K; payload: EventMap[K] } }[keyof EventMap];
-const wire: { agent: AgentDefinition; agentFiles: AgentEditableFiles; model: ModelConfig; settings: Settings; messages: MessageView[]; stats: SessionStatsView; session: SessionInfoView; background: BackgroundTaskSnapshot; skillLibrary: SkillLibrary; agentSkills: AgentSkills; events: Frame[] } = ${fixture};
+const wire: { remoteAccess: RemoteAccessStatus; agent: AgentDefinition; agentFiles: AgentEditableFiles; model: ModelConfig; settings: Settings; messages: MessageView[]; stats: SessionStatsView; session: SessionInfoView; background: BackgroundTaskSnapshot; skillLibrary: SkillLibrary; agentSkills: AgentSkills; events: Frame[] } = ${fixture};
 declare const invoke: Invoke;
 invoke("session_info", {agentName:"fixture",sessionId:"session-1"});
 invoke("list_agents");

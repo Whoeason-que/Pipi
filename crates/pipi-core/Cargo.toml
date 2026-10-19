@@ -7,7 +7,7 @@ description = "Pipi 宿主层：命令表、运行编排、后台任务、设置
 
 [features]
 default = []
-# Web/远程宿主（axum transport + 鉴权 + 静态资源）；桌面壳不需要它。
+# Web/远程宿主（axum transport + 鉴权 + 静态资源）；桌面壳也使用同一个宿主。
 # tokio/net 显式声明（`server/mod.rs` 用 `tokio::net::TcpListener`），
 # 不靠 axum 的默认特性顺带打开。
 server = ["dep:axum", "dep:tower-http", "tokio/net"]
@@ -32,6 +32,7 @@ async-trait = { workspace = true }
 dirs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+uuid = { workspace = true }
 # fs：background 的落盘与扫描用 `tokio::fs`，显式声明（此前靠 pipi-tools 传递开启）
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util", "fs"] }
 

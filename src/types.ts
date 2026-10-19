@@ -385,3 +385,16 @@ export interface SearchHitView {
   author: string;
   snippet: string;
 }
+export interface RemoteAccessConfig {
+  port: number;
+  startWithApp: boolean;
+  publicUrl: string;
+}
+
+export interface RemoteAccessStatus {
+  config: RemoteAccessConfig;
+  running: boolean;
+  localUrl: string | null;
+  connectedClients: number;
+  lastError: string | null;
+}

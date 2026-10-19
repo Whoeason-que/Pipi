@@ -1,6 +1,6 @@
 //! 宿主命令的单一事实来源。
 //!
-//! 47 个命令的名称（[`COMMANDS`]）、参数结构体、逻辑与 JSON 分发表都在这里；
+//! 全部命令的名称（[`COMMANDS`]）、参数结构体、逻辑与 JSON 分发表都在这里；
 //! `crates/pipi`（桌面壳）与 `server` 特性里的 Web 宿主只做 transport：前者把
 //! 每个命令转发成 `#[tauri::command]` 薄壳，后者调用 [`dispatch`]。两边不再各自
 //! 复制命令表，也不再手写 JSON 参数解析。
@@ -8,6 +8,7 @@
 //! 参数结构体统一 `#[serde(rename_all = "camelCase")]`，字段名、类型与可选性
 //! 就是前端 `src/ipc.ts` 的宿主命令契约（由 `tests/ipc-contract.test.ts` 核对）。
 
+use crate::remote::{CommandSource, RemoteAccessConfig, RemoteAccessStatus};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -42,6 +43,10 @@ pub const COMMANDS: &[&str] = &[
     "write_agent_file",
     "get_settings",
     "save_settings",
+    "remote_access_status",
+    "configure_remote_access",
+    "set_remote_access_enabled",
+    "remote_access_token",
     "list_sessions",
     "open_session",
     "session_info",
@@ -202,6 +207,61 @@ pub struct SaveSettingsArgs {
 
 pub fn save_settings(args: SaveSettingsArgs) -> Result<(), String> {
     settings::save_settings(&args.settings)
+}
+
+// ============ 桌面远程访问管理 ============
+
+pub async fn remote_access_status(
+    runtime: &RuntimeState,
+    source: CommandSource,
+) -> Result<RemoteAccessStatus, String> {
+    source.require_desktop()?;
+    Ok(runtime.remote_access()?.status().await)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigureRemoteAccessArgs {
+    pub config: RemoteAccessConfig,
+}
+
+pub async fn configure_remote_access(
+    runtime: &RuntimeState,
+    source: CommandSource,
+    args: ConfigureRemoteAccessArgs,
+) -> Result<RemoteAccessStatus, String> {
+    source.require_desktop()?;
+    runtime.remote_access()?.configure(args.config).await
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRemoteAccessEnabledArgs {
+    pub enabled: bool,
+}
+
+pub async fn set_remote_access_enabled(
+    runtime: &RuntimeState,
+    source: CommandSource,
+    args: SetRemoteAccessEnabledArgs,
+) -> Result<RemoteAccessStatus, String> {
+    source.require_desktop()?;
+    runtime.remote_access()?.set_enabled(args.enabled).await
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAccessTokenArgs {
+    pub rotate: bool,
+}
+
+pub async fn remote_access_token(
+    runtime: &RuntimeState,
+    source: CommandSource,
+    args: RemoteAccessTokenArgs,
+) -> Result<String, String> {
+    source.require_desktop()?;
+    runtime.remote_access()?.token(args.rotate).await
 }
 
 // ============ 会话 ============
@@ -840,6 +900,18 @@ pub async fn dispatch(
         "write_agent_file" => to_value(write_agent_file(runtime, parse(args)?)?),
         "get_settings" => to_value(get_settings()),
         "save_settings" => to_value(save_settings(parse(args)?)?),
+        "remote_access_status" => {
+            to_value(remote_access_status(runtime, CommandSource::Web).await?)
+        }
+        "configure_remote_access" => {
+            to_value(configure_remote_access(runtime, CommandSource::Web, parse(args)?).await?)
+        }
+        "set_remote_access_enabled" => {
+            to_value(set_remote_access_enabled(runtime, CommandSource::Web, parse(args)?).await?)
+        }
+        "remote_access_token" => {
+            to_value(remote_access_token(runtime, CommandSource::Web, parse(args)?).await?)
+        }
         "list_sessions" => to_value(list_sessions(runtime, parse(args)?)?),
         "open_session" => to_value(open_session(runtime, parse(args)?)?),
         "session_info" => to_value(session_info(runtime, parse(args)?)?),
@@ -907,8 +979,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            46,
-            "宿主命令数应为 46（前端 CommandMap 同步）"
+            50,
+            "宿主命令数应为 50（前端 CommandMap 同步）"
         );
     }
 

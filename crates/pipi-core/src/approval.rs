@@ -48,8 +48,13 @@ impl std::str::FromStr for ApprovalDecision {
 /// 审批请求登记表：request_id → 决议回传端。
 #[derive(Default)]
 pub struct ApprovalGate {
-    pending: Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>,
+    pending: Mutex<HashMap<String, PendingApproval>>,
     next_id: AtomicU64,
+}
+
+struct PendingApproval {
+    sender: oneshot::Sender<ApprovalDecision>,
+    envelope: Option<ApprovalRequestEnvelope>,
 }
 
 impl ApprovalGate {
@@ -64,10 +69,13 @@ impl ApprovalGate {
                 .unwrap_or_default(),
             self.next_id.fetch_add(1, Ordering::AcqRel),
         );
-        self.pending
-            .lock()
-            .expect("审批登记表锁中毒")
-            .insert(id.clone(), tx);
+        self.pending.lock().expect("审批登记表锁中毒").insert(
+            id.clone(),
+            PendingApproval {
+                sender: tx,
+                envelope: None,
+            },
+        );
         (id, rx)
     }
 
@@ -80,7 +88,7 @@ impl ApprovalGate {
             .expect("审批登记表锁中毒")
             .remove(request_id)
             .ok_or_else(|| "审批请求不存在或已过期".to_string())?;
-        let _ = sender.send(decision);
+        let _ = sender.sender.send(decision);
         Ok(())
     }
 
@@ -90,6 +98,26 @@ impl ApprovalGate {
             .lock()
             .expect("审批登记表锁中毒")
             .remove(request_id);
+    }
+
+    fn describe(&self, envelope: ApprovalRequestEnvelope) {
+        if let Some(request) = self
+            .pending
+            .lock()
+            .expect("审批登记表锁中毒")
+            .get_mut(&envelope.request_id)
+        {
+            request.envelope = Some(envelope);
+        }
+    }
+
+    pub fn pending_requests(&self) -> Vec<ApprovalRequestEnvelope> {
+        self.pending
+            .lock()
+            .expect("审批登记表锁中毒")
+            .values()
+            .filter_map(|request| request.envelope.clone())
+            .collect()
     }
 }
 
@@ -152,14 +180,16 @@ impl CommandApprover for InteractiveApprover {
         }
 
         let (request_id, rx) = self.gate.register();
-        (self.emit)(RuntimeEvent::ApprovalRequest(ApprovalRequestEnvelope {
+        let envelope = ApprovalRequestEnvelope {
             request_id: request_id.clone(),
             agent_name: self.agent_name.clone(),
             session_id: self.session_id.clone(),
             run_id: self.run_id,
             command: command.to_string(),
             missing: Vec::new(),
-        }));
+        };
+        self.gate.describe(envelope.clone());
+        (self.emit)(RuntimeEvent::ApprovalRequest(envelope));
 
         let result = tokio::select! {
             decision = rx => match decision {
@@ -270,6 +300,9 @@ mod tests {
             tokio::spawn(async move { approver.approve("npm install").await })
         };
         wait_for_requests(&sink, 1).await;
+        let replay = gate.pending_requests();
+        assert_eq!(replay.len(), 1);
+        assert_eq!(replay[0].command, "npm install");
         {
             let requests = sink.lock().unwrap();
             assert_eq!(requests[0].command, "npm install");
@@ -279,6 +312,10 @@ mod tests {
             gate.resolve(&request_id, ApprovalDecision::Allow).unwrap();
         }
         pending.await.unwrap().unwrap();
+        assert!(
+            gate.pending_requests().is_empty(),
+            "已决审批不能在重连时重发"
+        );
 
         // 同命令第二次不再询问（会话内记忆）
         let before = sink.lock().unwrap().len();

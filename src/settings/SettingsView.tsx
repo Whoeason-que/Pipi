@@ -4,7 +4,8 @@ import { NavigationToggle } from "../app/AppNavigation";
 import { catalogSourceLabel, type CatalogProvider } from "../catalog";
 import { loadCatalog, resetCatalog } from "../catalog-client";
 import { IconBack, IconLayers, IconPlus, IconRefresh } from "../icons";
-import { logout } from "../platform";
+import RemoteAccessPanel from "./RemoteAccessPanel";
+import { isTauriRuntime, logout } from "../platform";
 import {
   API_LABELS,
   API_MODE_LABELS,
@@ -140,10 +141,10 @@ export default function SettingsView({
           {t("settings.title")} · <b>{sectionInfo.label}</b>
         </span>
         <span className="spacer" />
-        <span className="settings-autosave">
+        {section !== "remote" && <span className="settings-autosave">
           <span aria-hidden="true" />
           {t("common.saveAuto")}
-        </span>
+        </span>}
       </div>
 
       <div
@@ -500,6 +501,8 @@ export default function SettingsView({
               )}
             </section>
           )}
+
+          {section === "remote" && isTauriRuntime() && <RemoteAccessPanel />}
 
           {section === "account" && showLogout && (
             <section className="settings-block">

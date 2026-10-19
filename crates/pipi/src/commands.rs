@@ -2,11 +2,12 @@
 //! 逻辑与参数结构体在 `pipi_core::commands`（宿主命令的单一事实来源）。
 
 use pipi_core::commands::{
-    AgentSkillsArgs, CreateAgentArgs, ForumPostArgs, ForumReadArgs, ForumReplyArgs,
-    ForumSearchArgs, ForumThread, ForumThreadsArgs, InstallSkillArgs, ListAgentFilesArgs,
-    ListAgentsArgs, ModelCatalogArgs, ReadAgentFileArgs, RemoveStoreSkillArgs, SaveAgentArgs,
-    SaveSettingsArgs, SetSkillEnabledArgs, SkillUsageArgs, SyncAgentSkillsArgs,
-    VerifyStoreSkillsArgs, WriteAgentFileArgs,
+    AgentSkillsArgs, ConfigureRemoteAccessArgs, CreateAgentArgs, ForumPostArgs, ForumReadArgs,
+    ForumReplyArgs, ForumSearchArgs, ForumThread, ForumThreadsArgs, InstallSkillArgs,
+    ListAgentFilesArgs, ListAgentsArgs, ModelCatalogArgs, ReadAgentFileArgs, RemoteAccessTokenArgs,
+    RemoveStoreSkillArgs, SaveAgentArgs, SaveSettingsArgs, SetRemoteAccessEnabledArgs,
+    SetSkillEnabledArgs, SkillUsageArgs, SyncAgentSkillsArgs, VerifyStoreSkillsArgs,
+    WriteAgentFileArgs,
 };
 use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::Settings;
@@ -16,6 +17,7 @@ use pipi_venv::agents::AgentDefinition;
 use pipi_venv::skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
 };
+use std::sync::Arc;
 use tauri::State;
 
 use crate::invoke_args::InvokeArgs;
@@ -39,7 +41,7 @@ pub fn create_agent(args: InvokeArgs<CreateAgentArgs>) -> Result<AgentDefinition
 
 #[tauri::command]
 pub fn save_agent(
-    state: State<'_, RuntimeState>,
+    state: State<'_, Arc<RuntimeState>>,
     args: InvokeArgs<SaveAgentArgs>,
 ) -> Result<(), String> {
     pipi_core::commands::save_agent(&state, args.0)
@@ -62,7 +64,7 @@ pub fn read_agent_file(args: InvokeArgs<ReadAgentFileArgs>) -> Result<String, St
 /// 写入 Agent 目录内的可编辑 Markdown（harness/AGENTS.md / harness/memory/*.md）。
 #[tauri::command]
 pub fn write_agent_file(
-    state: State<'_, RuntimeState>,
+    state: State<'_, Arc<RuntimeState>>,
     args: InvokeArgs<WriteAgentFileArgs>,
 ) -> Result<(), String> {
     pipi_core::commands::write_agent_file(&state, args.0)
@@ -157,4 +159,51 @@ pub fn forum_post(args: InvokeArgs<ForumPostArgs>) -> Result<Thread, String> {
 #[tauri::command]
 pub fn forum_reply(args: InvokeArgs<ForumReplyArgs>) -> Result<Post, String> {
     pipi_core::commands::forum_reply(args.0)
+}
+
+#[tauri::command]
+pub async fn remote_access_status(
+    state: State<'_, Arc<RuntimeState>>,
+) -> Result<pipi_core::remote::RemoteAccessStatus, String> {
+    pipi_core::commands::remote_access_status(&state, pipi_core::remote::CommandSource::Desktop)
+        .await
+}
+
+#[tauri::command]
+pub async fn configure_remote_access(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<ConfigureRemoteAccessArgs>,
+) -> Result<pipi_core::remote::RemoteAccessStatus, String> {
+    pipi_core::commands::configure_remote_access(
+        &state,
+        pipi_core::remote::CommandSource::Desktop,
+        args.0,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn set_remote_access_enabled(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<SetRemoteAccessEnabledArgs>,
+) -> Result<pipi_core::remote::RemoteAccessStatus, String> {
+    pipi_core::commands::set_remote_access_enabled(
+        &state,
+        pipi_core::remote::CommandSource::Desktop,
+        args.0,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_access_token(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<RemoteAccessTokenArgs>,
+) -> Result<String, String> {
+    pipi_core::commands::remote_access_token(
+        &state,
+        pipi_core::remote::CommandSource::Desktop,
+        args.0,
+    )
+    .await
 }
