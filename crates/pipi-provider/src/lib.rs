@@ -1089,8 +1089,11 @@ mod tests {
                 .and_then(|v| v.to_str().ok()),
             Some("1789230239133-abc"),
         );
-        let headers_inf = extra_headers("https://opencode.ai/inference/go/v1", Some("1789230239133-abc"))
-            .expect("opencode-go inference 端点应带额外请求头");
+        let headers_inf = extra_headers(
+            "https://opencode.ai/inference/go/v1",
+            Some("1789230239133-abc"),
+        )
+        .expect("opencode-go inference 端点应带额外请求头");
         assert_eq!(
             headers_inf
                 .get("x-opencode-session")

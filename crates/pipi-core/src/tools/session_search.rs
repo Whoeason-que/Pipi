@@ -128,7 +128,11 @@ impl SessionSearchTool {
             .map(|summary| Candidate::new(summary, false))
             .collect();
         if let Ok(archived) = self.repo.list_archived() {
-            out.extend(archived.into_iter().map(|summary| Candidate::new(summary, true)));
+            out.extend(
+                archived
+                    .into_iter()
+                    .map(|summary| Candidate::new(summary, true)),
+            );
         }
         out.retain(|c| self.current_session_id.as_deref() != Some(c.summary.id.as_str()));
         out.sort_by(|a, b| b.summary.last_active.cmp(&a.summary.last_active));
@@ -164,7 +168,10 @@ fn list(candidates: &[Candidate], limit: usize) -> String {
         lines.push(format_meta(candidate));
     }
     if candidates.len() > limit {
-        lines.push(format!("（还有 {} 个未列出，可加大 limit 或用 query 缩小）", candidates.len() - limit));
+        lines.push(format!(
+            "（还有 {} 个未列出，可加大 limit 或用 query 缩小）",
+            candidates.len() - limit
+        ));
     }
     lines.join("\n")
 }
@@ -174,7 +181,11 @@ fn format_meta(candidate: &Candidate) -> String {
     format!(
         "- {}{}：{}（{} 条消息）",
         s.id,
-        if candidate.archived { "［归档］" } else { "" },
+        if candidate.archived {
+            "［归档］"
+        } else {
+            ""
+        },
         s.title,
         s.message_count
     )
@@ -244,7 +255,10 @@ fn read_session(repo: &dyn SessionRepo, session_id: &str, offset: usize) -> Resu
             messages.len()
         ));
     }
-    let mut out = vec![format!("会话 {session_id}（第 {offset} 条起，共 {} 条）：", messages.len())];
+    let mut out = vec![format!(
+        "会话 {session_id}（第 {offset} 条起，共 {} 条）：",
+        messages.len()
+    )];
     let mut total = out[0].chars().count();
     let mut next = offset;
     for (index, message) in messages.iter().enumerate().skip(offset) {
@@ -369,7 +383,9 @@ mod tests {
         let tool = Message::ToolResult {
             tool_call_id: "t".into(),
             tool_name: "bash".into(),
-            content: vec![ToolResultContent::Text { text: "x".repeat(9_000) }],
+            content: vec![ToolResultContent::Text {
+                text: "x".repeat(9_000),
+            }],
             is_error: false,
             details: None,
             timestamp: 0,
