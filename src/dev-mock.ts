@@ -656,7 +656,7 @@ function listDemoSessions(agentName: string): Array<Record<string, unknown>> {
 }
 
 const remoteDemo: RemoteAccessStatus = {
-  config: { port: 1421, startWithApp: false, publicUrl: "", tunnelTokenFile: "" }, running: false,
+  config: { port: 1421, startWithApp: false, publicUrl: "", tunnelTokenFile: "" },
   localRunning: false, tunnelRunning: false, tunnelConnected: false,
   localUrl: null, connectedClients: 0, lastError: null,
 };
@@ -678,7 +678,6 @@ export function installDevMock(): void {
           remoteDemo.localRunning = Boolean(args.enabled);
           remoteDemo.tunnelRunning = remoteDemo.localRunning && Boolean(remoteDemo.config.tunnelTokenFile);
           remoteDemo.tunnelConnected = remoteDemo.tunnelRunning;
-          remoteDemo.running = remoteDemo.localRunning && remoteDemo.tunnelConnected;
           remoteDemo.localUrl = remoteDemo.localRunning ? `http://127.0.0.1:${remoteDemo.config.port}` : null;
           return Promise.resolve(structuredClone(remoteDemo));
         case "remote_access_token": return Promise.resolve("preview-only-token-not-a-real-credential");

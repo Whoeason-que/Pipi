@@ -47,9 +47,12 @@ assert 'fixture-secret-never-in-argv' not in str(args)
 (root / 'pid').write_text(str(os.getpid()))
 if (root / 'exit').exists(): sys.exit(23)
 host, port = args[args.index('--metrics') + 1].rsplit(':', 1)
+(root / 'metrics').write_text(f'{host}:{port}')
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         assert self.path == '/ready'
+        counter = root / 'probes'
+        counter.write_text(str(int(counter.read_text()) + 1 if counter.exists() else 1))
         self.send_response(200 if (root / 'connected').exists() else 503)
         self.end_headers()
     def log_message(self, *args): pass

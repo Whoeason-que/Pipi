@@ -18,6 +18,32 @@ struct State {
     error: Option<String>,
 }
 
+impl State {
+    async fn stop_all(&mut self) -> Result<(), String> {
+        // 即使一项停止失败，也继续关闭另一项。
+        let tunnel = match self.tunnel.take() {
+            Some(tunnel) => tunnel.stop().await,
+            None => Ok(()),
+        };
+        let server = match self.server.take() {
+            Some(server) => server.stop().await,
+            None => Ok(()),
+        };
+        tunnel.and(server)
+    }
+
+    /// 启停与令牌轮换共用失败回收、错误记录，避免留下半开的远程入口。
+    async fn finish_transition(&mut self, result: Result<(), String>) -> Result<(), String> {
+        if let Err(error) = result {
+            let _ = self.stop_all().await;
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        self.error = None;
+        Ok(())
+    }
+}
+
 pub struct RemoteAccess {
     runtime: Weak<RuntimeState>,
     assets: WebAssets,
@@ -72,7 +98,6 @@ impl RemoteAccess {
         };
         RemoteAccessStatus {
             config: state.config.clone(),
-            running: local_running && tunnel_connected,
             local_running,
             tunnel_running,
             tunnel_connected,
@@ -106,6 +131,20 @@ impl RemoteAccess {
             self.assets.clone(),
         )
         .await
+    }
+
+    /// 仅重启 HTTP/WS；令牌轮换无需重启现有 Tunnel。
+    async fn restart_server(&self, state: &mut State, token: String) -> Result<(), String> {
+        if let Some(server) = state.server.take() {
+            let was_running = server.running();
+            let stopped = server.stop().await;
+            // 已异常结束的旧句柄不能阻止用户一次点击重新开启。
+            if was_running {
+                stopped?;
+            }
+        }
+        state.server = Some(self.start(&state.config, token).await?);
+        Ok(())
     }
 }
 
@@ -161,32 +200,19 @@ impl RemoteAccessControl for RemoteAccess {
 
     async fn set_enabled(&self, enabled: bool) -> Result<RemoteAccessStatus, String> {
         let mut state = self.state.lock().await;
-        if !enabled {
-            // 即使一项停止失败，也继续关闭另一项。
-            let tunnel_result = if let Some(tunnel) = state.tunnel.take() {
-                tunnel.stop().await
-            } else {
-                Ok(())
-            };
-            let mut server_result = Ok(());
-            if let Some(server) = state.server.take() {
-                server_result = server.stop().await;
-            }
-            tunnel_result.and(server_result)?;
-            state.error = None;
+        let result = if !enabled {
+            state.stop_all().await
         } else {
             if !state.valid {
                 return Err(state.error.clone().unwrap_or("请先保存有效配置".into()));
             }
-            let result = async {
+            async {
                 if !state.server.as_ref().is_some_and(ServerHandle::running) {
-                    if let Some(old) = state.server.take() {
-                        let _ = old.stop().await;
-                    }
-                    state.server = Some(self.start(&state.config, storage::load_token()?).await?);
+                    self.restart_server(&mut state, storage::load_token()?)
+                        .await?;
                 }
                 let alive = if let Some(tunnel) = &mut state.tunnel {
-                    tunnel.status().await.0
+                    tunnel.running()
                 } else {
                     false
                 };
@@ -205,19 +231,9 @@ impl RemoteAccessControl for RemoteAccess {
                 }
                 Ok(())
             }
-            .await;
-            if let Err(error) = result {
-                if let Some(tunnel) = state.tunnel.take() {
-                    let _ = tunnel.stop().await;
-                }
-                if let Some(server) = state.server.take() {
-                    let _ = server.stop().await;
-                }
-                state.error = Some(error.clone());
-                return Err(error);
-            }
-            state.error = None;
-        }
+            .await
+        };
+        state.finish_transition(result).await?;
         Ok(Self::snapshot(&mut state).await)
     }
 
@@ -229,24 +245,12 @@ impl RemoteAccessControl for RemoteAccess {
         let token = storage::new_token();
         storage::save_token(&token)?;
         let restart = state.server.as_ref().is_some_and(ServerHandle::running);
-        if let Some(server) = state.server.take() {
-            server.stop().await?;
-        }
-        if restart {
-            match self.start(&state.config, token.clone()).await {
-                Ok(server) => {
-                    state.server = Some(server);
-                    state.error = None;
-                }
-                Err(error) => {
-                    if let Some(tunnel) = state.tunnel.take() {
-                        let _ = tunnel.stop().await;
-                    }
-                    state.error = Some(error.clone());
-                    return Err(error);
-                }
-            }
-        }
+        let result = if restart {
+            self.restart_server(&mut state, token.clone()).await
+        } else {
+            state.stop_all().await
+        };
+        state.finish_transition(result).await?;
         Ok(token)
     }
 }
@@ -258,18 +262,22 @@ mod tests {
     use crate::server::WebAsset;
     use std::{fs, time::Duration};
 
+    fn assets() -> WebAssets {
+        WebAssets::Embedded(Arc::new(|_| {
+            Some(WebAsset {
+                bytes: b"<html>Pipi</html>".to_vec(),
+                content_type: "text/html".into(),
+            })
+        }))
+    }
+
     #[tokio::test]
     async fn app_restore_toggle_rotation_and_tunnel_failure_share_one_lifecycle() {
         let _lock = pipi_test_support::HOME_LOCK.lock().unwrap();
         let (root, _, token) = tunnel_fixture();
         let _env = Environment::new(&root);
         let runtime = Arc::new(RuntimeState::new(tokio::runtime::Handle::current()));
-        let assets = WebAssets::Embedded(Arc::new(|_| {
-            Some(WebAsset {
-                bytes: b"<html>Pipi</html>".to_vec(),
-                content_type: "text/html".into(),
-            })
-        }));
+        let assets = assets();
         let remote = RemoteAccess::new(&runtime, assets.clone());
         remote.restore().await;
         assert!(!remote.status().await.local_running);
@@ -289,17 +297,26 @@ mod tests {
         remote.restore().await;
         let connecting = remote.status().await;
         assert!(connecting.local_running && connecting.tunnel_running);
-        assert!(!connecting.running && !connecting.tunnel_connected);
+        assert!(!connecting.tunnel_connected);
         fs::write(root.join("connected"), "").unwrap();
         tokio::time::timeout(Duration::from_secs(3), async {
-            while !remote.status().await.running {
+            while !remote.status().await.tunnel_connected {
                 tokio::task::yield_now().await;
             }
         })
         .await
         .unwrap();
         let pid = fs::read_to_string(root.join("pid")).unwrap();
+        let probes: usize = fs::read_to_string(root.join("probes"))
+            .unwrap()
+            .parse()
+            .unwrap();
         remote.set_enabled(true).await.unwrap();
+        let next_probes: usize = fs::read_to_string(root.join("probes"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(next_probes, probes + 1, "启用只在返回快照时探测一次连接");
         assert_eq!(
             fs::read_to_string(root.join("pid")).unwrap(),
             pid,
@@ -307,18 +324,23 @@ mod tests {
         );
         let old_token = remote.token(false).await.unwrap();
         assert_ne!(old_token, remote.token(true).await.unwrap());
-        assert!(remote.status().await.running);
+        assert_eq!(
+            fs::read_to_string(root.join("pid")).unwrap(),
+            pid,
+            "轮换令牌保留同一个 Tunnel"
+        );
+        assert!(remote.status().await.tunnel_connected);
         let mut changed = remote.status().await.config;
         changed.port = if port == 1421 { 1422 } else { 1421 };
         assert!(remote.configure(changed).await.is_err());
         assert_eq!(remote.status().await.config.port, port);
         fs::remove_file(root.join("connected")).unwrap();
         let disconnected = remote.status().await;
-        assert!(!disconnected.running && !disconnected.tunnel_connected);
+        assert!(!disconnected.tunnel_connected);
         assert!(disconnected.local_running && disconnected.tunnel_running);
         remote.set_enabled(false).await.unwrap();
         let stopped = remote.status().await;
-        assert!(!stopped.local_running && !stopped.tunnel_running && !stopped.running);
+        assert!(!stopped.local_running && !stopped.tunnel_running && !stopped.tunnel_connected);
         assert!(
             tokio::net::TcpStream::connect(("127.0.0.1", port))
                 .await
@@ -333,7 +355,7 @@ mod tests {
             loop {
                 let status = restored.status().await;
                 if status.last_error.is_some() {
-                    assert!(!status.running && !status.tunnel_running);
+                    assert!(!status.tunnel_connected && !status.tunnel_running);
                     break;
                 }
                 tokio::task::yield_now().await;
@@ -348,6 +370,57 @@ mod tests {
         let off = RemoteAccess::new(&runtime, assets);
         off.restore().await;
         assert!(!off.status().await.local_running);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rotation_restart_failure_reclaims_both_transports_and_keeps_error() {
+        let _lock = pipi_test_support::HOME_LOCK.lock().unwrap();
+        let (root, _, token) = tunnel_fixture();
+        let _env = Environment::new(&root);
+        let runtime = Arc::new(RuntimeState::new(tokio::runtime::Handle::current()));
+        let remote = RemoteAccess::new(&runtime, assets());
+        let reservation = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = reservation.local_addr().unwrap().port();
+        drop(reservation);
+        remote
+            .configure(RemoteAccessConfig {
+                port,
+                public_url: "https://pipi.example.com".into(),
+                tunnel_token_file: token.to_str().unwrap().into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        fs::write(root.join("connected"), "").unwrap();
+        remote.set_enabled(true).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !remote.status().await.tunnel_connected {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let metrics = fs::read_to_string(root.join("metrics")).unwrap();
+        let blocker = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        // 注入重启绑定失败，验证正常运行中的 Tunnel 也被回收。
+        remote.state.lock().await.config.port = blocker.local_addr().unwrap().port();
+        let error = remote.token(true).await.unwrap_err();
+        let status = remote.status().await;
+        assert!(!status.local_running && !status.tunnel_running && !status.tunnel_connected);
+        assert_eq!(status.last_error.as_deref(), Some(error.as_str()));
+        assert!(
+            tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .is_err()
+        );
+        assert!(tokio::net::TcpStream::connect(metrics).await.is_err());
+        assert!(
+            serde_json::to_value(status)
+                .unwrap()
+                .get("running")
+                .is_none()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

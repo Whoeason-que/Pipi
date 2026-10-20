@@ -278,22 +278,10 @@ function extractCompactionSummary(message: MessageView): string | null {
   return summary ? summary : null;
 }
 
-export function entryFromMessage(message: MessageView, key: string, transient = false): ChatEntry {
-  const summary = extractCompactionSummary(message);
-  if (summary !== null) {
-    return {
-      key,
-      role: "assistant",
-      kind: "compaction",
-      text: "♻ 已压缩上下文",
-      summary,
-      timestamp: message.timestamp,
-      transient,
-    };
-  }
+/** 消息到界面的基础字段投影；流式与终态更新共用。 */
+function messageFields(message: MessageView) {
   const status = messageStatus(message);
   return {
-    key,
     role: message.role,
     text: messageText(message),
     thinking: messageThinking(message),
@@ -307,8 +295,23 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
     usage: message.usage,
     durationMs: message.durationMs ?? undefined,
     timestamp: message.timestamp,
-    transient,
   };
+}
+
+export function entryFromMessage(message: MessageView, key: string, transient = false): ChatEntry {
+  const summary = extractCompactionSummary(message);
+  if (summary !== null) {
+    return {
+      key,
+      role: "assistant",
+      kind: "compaction",
+      text: "♻ 已压缩上下文",
+      summary,
+      timestamp: message.timestamp,
+      transient,
+    };
+  }
+  return { ...messageFields(message), key, transient };
 }
 
 /** 重试退避时长的可读显示（850 毫秒 / 2 秒 / 1 分 5 秒）。 */
@@ -386,20 +389,14 @@ function sameMessage(left: ChatEntry, message: MessageView): boolean {
 }
 
 function updateAssistantEntry(entry: ChatEntry, message: MessageView, streaming: boolean): ChatEntry {
-  const status = messageStatus(message);
+  const fields = messageFields(message);
   return {
     ...entry,
-    text: messageText(message),
+    ...fields,
     // 完成消息是权威快照，不能把已丢弃的 thinking / 半截工具身份带进终态。
-    thinking: messageThinking(message) ?? (streaming ? entry.thinking : undefined),
-    toolCallId: firstToolCallId(message) ?? (streaming ? entry.toolCallId : undefined),
-    timestamp: streaming ? entry.timestamp ?? message.timestamp : message.timestamp ?? entry.timestamp,
-    errorMessage: message.errorMessage ?? undefined,
-    stopReason: message.stopReason,
-    status,
-    isError: message.isError || status !== undefined,
-    usage: message.usage,
-    durationMs: message.durationMs ?? undefined,
+    thinking: fields.thinking ?? (streaming ? entry.thinking : undefined),
+    toolCallId: fields.toolCallId ?? (streaming ? entry.toolCallId : undefined),
+    timestamp: streaming ? entry.timestamp ?? fields.timestamp : fields.timestamp ?? entry.timestamp,
     streaming,
     transient: true,
   };

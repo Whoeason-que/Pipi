@@ -394,7 +394,6 @@ export interface RemoteAccessConfig {
 
 export interface RemoteAccessStatus {
   config: RemoteAccessConfig;
-  running: boolean;
   localRunning: boolean;
   tunnelRunning: boolean;
   tunnelConnected: boolean;

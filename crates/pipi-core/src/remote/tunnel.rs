@@ -92,6 +92,11 @@ impl TunnelHandle {
         })
     }
 
+    /// 只查子进程，不进行连接探测；启用操作只需要这一项。
+    pub fn running(&mut self) -> bool {
+        self.child.try_wait().is_ok_and(|status| status.is_none())
+    }
+
     pub async fn status(&mut self) -> (bool, bool, Option<String>) {
         match self.child.try_wait() {
             Ok(None) => {}

@@ -73,7 +73,6 @@ impl RemoteAccessConfig {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessStatus {
     pub config: RemoteAccessConfig,
-    pub running: bool,
     pub local_running: bool,
     pub tunnel_running: bool,
     pub tunnel_connected: bool,

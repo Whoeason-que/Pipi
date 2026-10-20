@@ -39,8 +39,9 @@ cloudflared 子进程，不注册系统服务，也不修改 DNS 或 Access 策�
 - “随应用启动远程”恢复本机 Web 服务和 cloudflared；“启动远程/关闭远程”同时
   管理两者。退出应用时关闭子进程，停止远程不会停止 Agent。关闭自动启动只影响
   下次启动，不隐式停止当前连接；保存配置也不隐式启动远程。
-- `running` 只在本机服务运行且 Tunnel `/ready` 返回 200 时为真；`localRunning`、
-  `tunnelRunning` 和 `tunnelConnected` 分别报告本机监听、子进程及 Cloudflare 连接。
+- `localRunning`、`tunnelRunning` 和 `tunnelConnected` 分别报告本机监听、子进程
+  及 Cloudflare 连接（`/ready` 返回 200）；不额外传递可派生的聚合 `running` 字段。
+  展示层统一根据本机监听与 Tunnel 就绪状态判断是否已连接。
   本机监听不再显示为公网已连接。Tunnel 连接状态不保证域名路由或 Access 登录正确。
 - cloudflared 只接受凭据文件路径，Unix 文件权限不得向组或其他用户开放；应用不
   传令牌命令行、不转发原始客户端日志，并清除继承的 `TUNNEL_*` / `CF_*` 配置。

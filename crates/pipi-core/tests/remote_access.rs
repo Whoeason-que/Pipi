@@ -142,7 +142,7 @@ async fn management_is_local_only_rotation_disconnects_clients_and_conflicts_pre
     let runtime = Arc::new(RuntimeState::new(tokio::runtime::Handle::current()));
     let remote = RemoteAccess::new(&runtime, assets());
     runtime.attach_remote_access(remote.clone()).unwrap();
-    assert!(!remote.status().await.running);
+    assert!(!remote.status().await.local_running);
     let reservation = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = reservation.local_addr().unwrap().port();
     drop(reservation);
@@ -155,7 +155,7 @@ async fn management_is_local_only_rotation_disconnects_clients_and_conflicts_pre
         .unwrap();
     let local = remote.set_enabled(true).await.unwrap();
     assert!(local.local_running);
-    assert!(!local.running, "本地监听不代表公网 Tunnel 已连接");
+    assert!(!local.tunnel_connected, "本地监听不代表公网 Tunnel 已连接");
     assert!(!local.tunnel_running);
     let addr = ([127, 0, 0, 1], port).into();
     let token = remote.token(false).await.unwrap();
@@ -288,7 +288,7 @@ async fn management_is_local_only_rotation_disconnects_clients_and_conflicts_pre
     std::fs::write(home.path.join("remote.json"), "{broken").unwrap();
     let broken = RemoteAccess::new(&runtime, assets());
     broken.restore().await;
-    assert!(!broken.status().await.running);
+    assert!(!broken.status().await.local_running);
     assert!(broken.status().await.last_error.is_some());
     assert!(broken.set_enabled(true).await.is_err());
     assert!(

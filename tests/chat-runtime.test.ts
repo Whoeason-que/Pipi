@@ -154,6 +154,40 @@ test("identical errors in separate timestamped messages remain distinct", () => 
   assert.deepEqual(state.entries.map(entry => entry.timestamp), [1, 2]);
 });
 
+test("live completion and replay preserve the same final assistant fields", () => {
+  for (const stopReason of ["stop", "error"]) {
+    const final: MessageView = {
+      role: "assistant", timestamp: 4, stopReason,
+      content: [{ type: "thinking", thinking: "最终思考" }, { type: "text", text: "最终正文" }],
+      errorMessage: stopReason === "error" ? "上游中断" : null,
+      usage: { input: 8, output: 5, cacheRead: 3, cacheWrite: 1, totalTokens: 17 },
+      durationMs: 73,
+    };
+    let live = event(INITIAL_CHAT_STATE, {
+      type: "message_start", message: {
+        role: "assistant", timestamp: 1,
+        content: [{ type: "toolCall", id: "incomplete", name: "bash", arguments: "{" }],
+      },
+    });
+    const key = live.entries[0]?.key;
+    live = event(live, { type: "message_end", message: final });
+    const replay = chatReducer(INITIAL_CHAT_STATE, {
+      type: "hydrate", messages: [final], stats: null, running: false,
+    });
+    for (const entry of [live.entries[0]!, replay.entries[0]!]) {
+      assert.equal(entry.text, "最终正文");
+      assert.equal(entry.thinking, "最终思考");
+      assert.equal(entry.toolCallId, undefined);
+      assert.equal(entry.timestamp, 4);
+      assert.equal(entry.durationMs, 73);
+      assert.deepEqual(entry.usage, final.usage);
+      assert.equal(entry.errorMessage, final.errorMessage ?? undefined);
+      assert.equal(entry.status, stopReason === "error" ? "error" : undefined);
+    }
+    assert.equal(live.entries[0]?.key, key);
+  }
+});
+
 test("agent end recovers a missed completion without consuming an earlier assistant", () => {
   const earlier: MessageView = { ...assistantMessage("先前回复", "stop"), timestamp: 1 };
   const final: MessageView = { ...assistantMessage("最终回复", "stop"), timestamp: 2 };

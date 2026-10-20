@@ -4,21 +4,38 @@ use std::path::Path;
 
 use super::RemoteAccessConfig;
 use pipi_venv::av::paths;
+use serde::{Deserialize, Deserializer};
+
+/// 仅保留磁盘字段的“缺席”信息；其余字段仍由同一份配置契约解析、校验。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredConfig {
+    #[serde(default, deserialize_with = "present_tunnel_token_file")]
+    tunnel_token_file: Option<String>,
+    #[serde(flatten)]
+    config: RemoteAccessConfig,
+}
+
+fn present_tunnel_token_file<'de, D: Deserializer<'de>>(
+    value: D,
+) -> Result<Option<String>, D::Error> {
+    // 字段存在时必须是字符串，不能把 null 当成旧配置缺字段。
+    String::deserialize(value).map(Some)
+}
 
 pub(super) fn load_config() -> Result<RemoteAccessConfig, String> {
     let path = paths::remote_settings_path().ok_or("无法定位 Pipi 数据目录")?;
     match fs::read_to_string(path) {
         Ok(text) => {
-            let mut config: RemoteAccessConfig =
+            let stored: StoredConfig =
                 serde_json::from_str(&text).map_err(|e| format!("远程访问配置无效：{e}"))?;
+            let mut config = stored.config;
             // 兼容此前由 systemd 托管的部署，只复用凭据路径，不恢复系统服务。
             // 显式保存的空路径表示用户不让应用管理 Tunnel，不能再次自动补回。
             let legacy = dirs::config_dir().map(|root| root.join("pipi-web/tunnel.token"));
-            if !config.public_url.is_empty()
-                && !serde_json::from_str::<serde_json::Value>(&text)
-                    .map_err(|e| e.to_string())?
-                    .as_object()
-                    .is_some_and(|value| value.contains_key("tunnelTokenFile"))
+            if let Some(path) = stored.tunnel_token_file {
+                config.tunnel_token_file = path;
+            } else if !config.public_url.is_empty()
                 && let Some(path) = legacy.filter(|path| path.is_file())
             {
                 config.tunnel_token_file = path.to_string_lossy().into_owned();
@@ -138,10 +155,21 @@ mod tests {
         save_config(&config).unwrap();
         assert!(load_config().unwrap().tunnel_token_file.is_empty());
         assert!(
-            !fs::read_to_string(config_path)
+            !fs::read_to_string(&config_path)
                 .unwrap()
                 .contains("secret-never-read")
         );
+        // 一次反序列化仍拒绝未知键、重复键和错误类型；迁移不能放宽契约。
+        for text in [
+            "{broken",
+            r#"{"port":1421,"startWithApp":false,"publicUrl":"","unknown":1}"#,
+            r#"{"port":1421,"port":1422,"startWithApp":false,"publicUrl":""}"#,
+            r#"{"port":1421,"startWithApp":false,"publicUrl":"","tunnelTokenFile":null}"#,
+            r#"{"port":1421,"startWithApp":false,"publicUrl":"","tunnelTokenFile":"","tunnelTokenFile":""}"#,
+        ] {
+            fs::write(&config_path, text).unwrap();
+            assert!(load_config().is_err(), "应拒绝无效配置：{text}");
+        }
         fs::remove_dir_all(root).unwrap();
     }
 }
