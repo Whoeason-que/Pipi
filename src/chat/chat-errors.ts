@@ -70,10 +70,9 @@ export function classifyChatError(
   if (
     status === "aborted" ||
     stopReason === "aborted" ||
-    raw === "已中止" ||
-    raw.includes("用户中止") ||
-    raw.includes("已中止") ||
-    lower.includes("aborted")
+    (status !== "error" && stopReason !== "error"
+      && !raw.includes("超时") && !lower.includes("timeout") && !lower.includes("timed out")
+      && (raw === "已中止" || raw.includes("用户中止") || lower.includes("aborted")))
   ) {
     return {
       category: "aborted",
@@ -209,7 +208,11 @@ export function classifyChatError(
     lower.includes("connect") ||
     lower.includes("econnrefused") ||
     lower.includes("etimedout") ||
+    lower.includes("ended before the provider ended it") ||
+    lower.includes("stream ended") ||
+    lower.includes("stream closed") ||
     lower.includes("流提前结束") ||
+    lower.includes("请求超时") ||
     lower.includes("连接被中断") ||
     lower.includes("连接重置") ||
     lower.includes("socket") ||
@@ -275,7 +278,8 @@ export function extractAssistantContentAndError(
   }
 
   // 处理纯错误占位符
-  if (cleanText.startsWith("⚠ ")) {
+  if (cleanText === `⚠ ${entry.errorMessage}` || cleanText === "⚠ Agent 返回错误"
+    || (!entry.errorMessage && cleanText.startsWith("⚠ "))) {
     // 纯错误消息不作为正文
     cleanText = "";
   }

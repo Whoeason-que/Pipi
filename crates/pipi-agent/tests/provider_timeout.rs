@@ -140,3 +140,80 @@ async fn stalled_stream_times_out_after_partial_output() {
     let message = error.expect("流中静默必须产生可见错误");
     assert!(message.contains("超时"), "错误信息应说明超时：{message}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dropping_the_event_receiver_closes_the_upstream_connection() {
+    let (listener, addr) = bind_endpoint();
+    let (closed_tx, closed_rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        drain_request(&mut stream);
+        let chunk = r#"{"id":"c1","object":"chat.completion.chunk","model":"mock","choices":[{"index":0,"delta":{"content":"开头"},"finish_reason":null}]}"#;
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+        stream
+            .write_all(format!("data: {chunk}\n\n").as_bytes())
+            .unwrap();
+        stream.flush().unwrap();
+        let closed = match stream.read(&mut [0u8; 1]) {
+            Ok(0) => true,
+            Err(error) => matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+            ),
+            _ => false,
+        };
+        let _ = closed_tx.send(closed);
+    });
+    let model = Model {
+        id: "mock".into(),
+        name: "Mock".into(),
+        api: Api::OpenAICompletions,
+        base_url: format!("http://{addr}/v1"),
+        max_tokens: 64,
+        context_window: 0,
+    };
+    let context = Context {
+        system_prompt: None,
+        messages: vec![Message::user_text("hi")],
+        tools: vec![],
+    };
+    let options = StreamOptions {
+        timeout_secs: 60,
+        ..Default::default()
+    };
+    let abort = AbortSignal::new();
+    let mut events = provider_for()
+        .stream(&model, &context, &options, abort.clone())
+        .await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match events.recv().await {
+                Some(StreamEvent::TextDelta { .. }) => break,
+                Some(StreamEvent::Error { message, .. }) => panic!("unexpected error: {message}"),
+                Some(_) => {}
+                None => panic!("stream ended before text"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    drop(events);
+    assert!(
+        !abort.is_aborted(),
+        "验证接收方丢弃自身即可取消，不依赖共享 abort 状态"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(3), closed_rx)
+            .await
+            .unwrap()
+            .unwrap(),
+        "不能等满 60 秒 idle timeout；接收方消失后上游连接应立刻关闭"
+    );
+}

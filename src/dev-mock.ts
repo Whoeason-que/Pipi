@@ -656,7 +656,8 @@ function listDemoSessions(agentName: string): Array<Record<string, unknown>> {
 }
 
 const remoteDemo: RemoteAccessStatus = {
-  config: { port: 1421, startWithApp: false, publicUrl: "" }, running: false,
+  config: { port: 1421, startWithApp: false, publicUrl: "", tunnelTokenFile: "" }, running: false,
+  localRunning: false, tunnelRunning: false, tunnelConnected: false,
   localUrl: null, connectedClients: 0, lastError: null,
 };
 export function installDevMock(): void {
@@ -671,11 +672,14 @@ export function installDevMock(): void {
         case "remote_access_status": return Promise.resolve(structuredClone(remoteDemo));
         case "configure_remote_access":
           remoteDemo.config = args.config as RemoteAccessStatus["config"];
-          if (remoteDemo.running) remoteDemo.localUrl = `http://127.0.0.1:${remoteDemo.config.port}`;
+          if (remoteDemo.localRunning) remoteDemo.localUrl = `http://127.0.0.1:${remoteDemo.config.port}`;
           return Promise.resolve(structuredClone(remoteDemo));
         case "set_remote_access_enabled":
-          remoteDemo.running = Boolean(args.enabled);
-          remoteDemo.localUrl = remoteDemo.running ? `http://127.0.0.1:${remoteDemo.config.port}` : null;
+          remoteDemo.localRunning = Boolean(args.enabled);
+          remoteDemo.tunnelRunning = remoteDemo.localRunning && Boolean(remoteDemo.config.tunnelTokenFile);
+          remoteDemo.tunnelConnected = remoteDemo.tunnelRunning;
+          remoteDemo.running = remoteDemo.localRunning && remoteDemo.tunnelConnected;
+          remoteDemo.localUrl = remoteDemo.localRunning ? `http://127.0.0.1:${remoteDemo.config.port}` : null;
           return Promise.resolve(structuredClone(remoteDemo));
         case "remote_access_token": return Promise.resolve("preview-only-token-not-a-real-credential");
         case "get_settings":

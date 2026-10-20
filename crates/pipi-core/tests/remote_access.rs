@@ -153,7 +153,10 @@ async fn management_is_local_only_rotation_disconnects_clients_and_conflicts_pre
         })
         .await
         .unwrap();
-    remote.set_enabled(true).await.unwrap();
+    let local = remote.set_enabled(true).await.unwrap();
+    assert!(local.local_running);
+    assert!(!local.running, "本地监听不代表公网 Tunnel 已连接");
+    assert!(!local.tunnel_running);
     let addr = ([127, 0, 0, 1], port).into();
     let token = remote.token(false).await.unwrap();
     assert_eq!(token.len(), 64);
@@ -267,6 +270,19 @@ async fn management_is_local_only_rotation_disconnects_clients_and_conflicts_pre
         );
     }
     remote.set_enabled(false).await.unwrap();
+    assert!(TcpStream::connect(addr).await.is_err());
+    assert!(!remote.status().await.local_running);
+    // 只填域名不会建立公网连接，失败必须回收已启动的本机服务。
+    remote
+        .configure(RemoteAccessConfig {
+            port,
+            public_url: "https://pipi.example.com".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(remote.set_enabled(true).await.unwrap_err().contains("凭据"));
+    assert!(!remote.status().await.local_running);
     assert!(TcpStream::connect(addr).await.is_err());
     // 无效配置不自动监听；显式保存可修复。
     std::fs::write(home.path.join("remote.json"), "{broken").unwrap();

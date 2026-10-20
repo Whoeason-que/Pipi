@@ -7,6 +7,10 @@ pub use host::HostLease;
 mod service;
 #[cfg(feature = "server")]
 mod storage;
+#[cfg(all(test, feature = "server", unix))]
+mod test_support;
+#[cfg(feature = "server")]
+mod tunnel;
 #[cfg(feature = "server")]
 pub use service::RemoteAccess;
 
@@ -16,6 +20,9 @@ pub struct RemoteAccessConfig {
     pub port: u16,
     pub start_with_app: bool,
     pub public_url: String,
+    /// 只保存凭据文件路径，秘密值不进入 DTO。
+    #[serde(default)]
+    pub tunnel_token_file: String,
 }
 
 impl Default for RemoteAccessConfig {
@@ -24,6 +31,7 @@ impl Default for RemoteAccessConfig {
             port: 1421,
             start_with_app: false,
             public_url: String::new(),
+            tunnel_token_file: String::new(),
         }
     }
 }
@@ -32,6 +40,16 @@ impl RemoteAccessConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.port == 0 {
             return Err("端口必须在 1–65535 之间".into());
+        }
+        if !self.tunnel_token_file.is_empty() {
+            if !std::path::Path::new(&self.tunnel_token_file).is_absolute()
+                || self.tunnel_token_file.chars().any(char::is_control)
+            {
+                return Err("Tunnel 凭据文件必须使用绝对路径".into());
+            }
+            if self.public_url.is_empty() {
+                return Err("使用 Cloudflare Tunnel 时请填写公开访问地址".into());
+            }
         }
         if !self.public_url.is_empty() {
             let authority = self
@@ -56,6 +74,9 @@ impl RemoteAccessConfig {
 pub struct RemoteAccessStatus {
     pub config: RemoteAccessConfig,
     pub running: bool,
+    pub local_running: bool,
+    pub tunnel_running: bool,
+    pub tunnel_connected: bool,
     pub local_url: Option<String>,
     pub connected_clients: usize,
     pub last_error: Option<String>,

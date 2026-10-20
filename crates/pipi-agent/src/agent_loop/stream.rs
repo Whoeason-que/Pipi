@@ -21,10 +21,21 @@ pub(super) async fn stream_assistant_response(
 ) -> Message {
     // transformContext 钩子（pi）：LLM 边界前对历史做变换（裁剪等）。
     // 会话内的 messages 不动 —— 只影响本次请求。
-    let effective_messages = match &config.transform_context {
+    let mut effective_messages = match &config.transform_context {
         Some(hook) => hook(context.messages.clone()),
         None => context.messages.clone(),
     };
+    // 对齐 pi transform-messages：失败/中止的部分输出只留在账本与界面，
+    // 不重放半截推理或工具调用。必须在配对修复前过滤，避免制造孤儿结果。
+    effective_messages.retain(|message| {
+        !matches!(
+            message,
+            Message::Assistant {
+                stop_reason: StopReason::Error | StopReason::Aborted,
+                ..
+            }
+        )
+    });
     // 发送前最后一道闸：修复工具配对（缺失结果补合成错误、孤儿结果丢弃）。
     // 破损历史无论来自进程中断、批次中止还是手工编辑，都会让端点按协议 400。
     let effective_messages = pipi_context::context::repair_tool_pairing(effective_messages);
@@ -40,19 +51,6 @@ pub(super) async fn stream_assistant_response(
         });
         message
     };
-    let aborted = |emit: &Emitter| -> Message {
-        finish(
-            emit,
-            Message::assistant_error("已中止", config.model.display_name(), StopReason::Aborted),
-        )
-    };
-    let failed = |emit: &Emitter, message: String| -> Message {
-        finish(
-            emit,
-            Message::assistant_error(message, config.model.display_name(), StopReason::Error),
-        )
-    };
-
     let mut failures: u32 = 0;
     // 本轮请求用的模型副本：协议协商会换协议（`attempt_model.api`），其余字段与
     // 声明一致。`config` 不可变，协商态只活在这个函数里。
@@ -61,6 +59,8 @@ pub(super) async fn stream_assistant_response(
     // 进程内记忆直接命中，不再试探）
     let mut switched_protocol = false;
     loop {
+        let timestamp = pipi_protocol::now_millis();
+        let started = std::time::Instant::now();
         let mut rx = config
             .provider
             .stream(&attempt_model, &wire, &config.options, abort.clone())
@@ -83,16 +83,23 @@ pub(super) async fn stream_assistant_response(
                 usage: Default::default(),
                 stop_reason: StopReason::Pending,
                 error_message: None,
-                timestamp: pipi_protocol::now_millis(),
+                timestamp,
                 duration_ms: None,
             }
+        };
+        let interrupted = |blocks: &[ContentBlock], message: String, reason: StopReason| {
+            let mut terminal = interrupted_message(partial(blocks), message, reason);
+            if let Message::Assistant { duration_ms, .. } = &mut terminal {
+                *duration_ms = Some(started.elapsed().as_millis() as u64);
+            }
+            finish(emit, terminal)
         };
 
         let failure: (String, Option<pipi_protocol::RetryHint>, bool) = loop {
             match rx.recv().await {
                 None => {
                     if abort.is_aborted() {
-                        return aborted(emit);
+                        return interrupted(&blocks, "已中止".into(), StopReason::Aborted);
                     }
                     // channel 关闭且用户没中止：流被截断（provider 侧的
                     // `流提前结束` 会走上面的 Error 分支，这里是兜底）
@@ -108,6 +115,9 @@ pub(super) async fn stream_assistant_response(
                     });
                 }
                 Some(StreamEvent::TextDelta { delta }) => {
+                    if delta.is_empty() {
+                        continue;
+                    }
                     match blocks.last_mut() {
                         Some(ContentBlock::Text { text }) => text.push_str(&delta),
                         _ => blocks.push(ContentBlock::Text { text: delta }),
@@ -118,6 +128,9 @@ pub(super) async fn stream_assistant_response(
                     });
                 }
                 Some(StreamEvent::ThinkingDelta { delta }) => {
+                    if delta.is_empty() {
+                        continue;
+                    }
                     match blocks.last_mut() {
                         Some(ContentBlock::Thinking { thinking, .. }) => thinking.push_str(&delta),
                         _ => blocks.push(ContentBlock::Thinking {
@@ -159,7 +172,16 @@ pub(super) async fn stream_assistant_response(
                         message: partial(&blocks),
                     });
                 }
-                Some(StreamEvent::Done { message, .. }) => {
+                Some(StreamEvent::Done { mut message, .. }) => {
+                    if let Message::Assistant {
+                        timestamp: final_timestamp,
+                        api,
+                        ..
+                    } = &mut *message
+                    {
+                        *final_timestamp = timestamp;
+                        *api = attempt_api.clone();
+                    }
                     return finish(emit, *message);
                 }
                 Some(StreamEvent::Error {
@@ -172,16 +194,20 @@ pub(super) async fn stream_assistant_response(
 
         // —— 失败收尾：协议协商 → 终态 → 能不能重放 ——
         let (message, hint, protocol_mismatch) = failure;
+        if abort.is_aborted() {
+            return interrupted(&blocks, "已中止".into(), StopReason::Aborted);
+        }
 
         // 协议协商（仅 auto）：端点说这个模型不支持当前协议 —— 换另一种协议再试
         // 一次。不占重试预算、不发 RetryStart（这不是故障重试）；已中止或已输出
         // 正文时按既有不变量收尾。
         if protocol_mismatch && config.options.auto_protocol && !switched_protocol {
-            if abort.is_aborted() {
-                return aborted(emit);
-            }
             if prose_visible {
-                return failed(emit, format!("{message}（已输出部分内容，未自动重试）"));
+                return interrupted(
+                    &blocks,
+                    format!("{message}（已输出部分内容，未自动重试）"),
+                    StopReason::Error,
+                );
             }
             switched_protocol = true;
             attempt_model.api = alternate_api(attempt_model.api);
@@ -189,8 +215,8 @@ pub(super) async fn stream_assistant_response(
         }
 
         let Some(hint) = hint else {
-            return failed(
-                emit,
+            return interrupted(
+                &blocks,
                 if protocol_mismatch {
                     if switched_protocol {
                         format!("{message}（Anthropic / OpenAI 两种协议均已尝试）")
@@ -203,14 +229,16 @@ pub(super) async fn stream_assistant_response(
                 } else {
                     message
                 },
+                StopReason::Error,
             );
         };
-        if abort.is_aborted() {
-            return aborted(emit);
-        }
         if prose_visible {
             // 已经输出过正文：重放会让用户看到重复内容，按终态报错（用户可手动继续）
-            return failed(emit, format!("{message}（已输出部分内容，未自动重试）"));
+            return interrupted(
+                &blocks,
+                format!("{message}（已输出部分内容，未自动重试）"),
+                StopReason::Error,
+            );
         }
 
         failures += 1;
@@ -223,14 +251,45 @@ pub(super) async fn stream_assistant_response(
                     cause: message,
                 });
                 if sleep_or_abort(delay, abort).await {
-                    return aborted(emit);
+                    return interrupted(&blocks, "已中止".into(), StopReason::Aborted);
                 }
             }
             pipi_context::retry::RetryDecision::GiveUp(reason) => {
-                return failed(emit, give_up_message(&message, failures, reason));
+                return interrupted(
+                    &blocks,
+                    give_up_message(&message, failures, reason),
+                    StopReason::Error,
+                );
             }
         }
     }
+}
+
+/// 失败/中止/整轮超时共用同一收尾：保留可显示内容，丢弃未经完整确认的工具调用。
+pub(crate) fn interrupted_message(
+    mut partial: Message,
+    text: String,
+    reason: StopReason,
+) -> Message {
+    if let Message::Assistant {
+        content,
+        provider,
+        stop_reason,
+        error_message,
+        ..
+    } = &mut partial
+    {
+        content.retain(|block| {
+            matches!(
+                block,
+                ContentBlock::Text { .. } | ContentBlock::Thinking { .. }
+            )
+        });
+        provider.clear();
+        *stop_reason = reason;
+        *error_message = Some(text);
+    }
+    partial
 }
 
 /// 流被截断（没等到结束帧）时的兜底说明。

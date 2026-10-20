@@ -204,6 +204,215 @@ fn request(hang: bool, panic: bool) -> RunRequest {
     }
 }
 
+struct InterruptedProvider {
+    seen: Mutex<Vec<Context>>,
+    abort_first: bool,
+}
+
+struct StallingPartialProvider;
+
+#[async_trait]
+impl Provider for StallingPartialProvider {
+    async fn stream(
+        &self,
+        _: &Model,
+        _: &Context,
+        _: &StreamOptions,
+        _: AbortSignal,
+    ) -> EventStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        tokio::spawn(async move {
+            for event in [
+                StreamEvent::Start,
+                StreamEvent::TextDelta {
+                    delta: "超时前的正文".into(),
+                },
+                StreamEvent::ToolCallStart {
+                    id: "unfinished".into(),
+                    name: "write".into(),
+                },
+            ] {
+                if tx.send(event).await.is_err() {
+                    return;
+                }
+            }
+            tx.closed().await;
+        });
+        rx
+    }
+}
+
+#[tokio::test]
+async fn whole_run_timeout_preserves_the_current_partial_message() {
+    let data = Arc::new(Ledger::default());
+    let session = session(data.clone());
+    let initial_commits = data.commits.load(Ordering::SeqCst);
+    let mut req = request(false, false);
+    req.provider = Arc::new(StallingPartialProvider);
+    req.timeout = Some(RunTimeout {
+        duration: std::time::Duration::from_millis(50),
+        message: "子任务运行超时".into(),
+    });
+    let outcome = session
+        .reserve_run(AbortPolicy::Reset)
+        .unwrap()
+        .prepare(req, SessionHooks::default())
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+    let expected = session.messages().await;
+    assert_eq!(expected.len(), 2);
+    assert!(
+        session.abort_signal().is_aborted(),
+        "整轮超时必须取消仍在后台运行的任务"
+    );
+    let final_message = expected.last().unwrap();
+    assert!(
+        matches!(final_message, Message::Assistant { content, stop_reason: StopReason::Error, error_message, .. }
+        if content == &vec![ContentBlock::Text { text: "超时前的正文".into() }]
+        && error_message.as_deref() == Some("子任务运行超时"))
+    );
+    assert_eq!(outcome.messages.last(), Some(final_message));
+    assert_eq!(data.commits.load(Ordering::SeqCst), initial_commits + 1);
+    drop(session);
+    let entries = data.entries.lock().unwrap().clone();
+    let restored =
+        AgentSession::restore(storage(data), entries, Some(model()), AbortSignal::new()).unwrap();
+    assert_eq!(restored.messages().await, expected);
+}
+
+#[async_trait]
+impl Provider for InterruptedProvider {
+    async fn stream(
+        &self,
+        _: &Model,
+        context: &Context,
+        _: &StreamOptions,
+        abort: AbortSignal,
+    ) -> EventStream {
+        let first = {
+            let mut seen = self.seen.lock().unwrap();
+            seen.push(context.clone());
+            seen.len() == 1
+        };
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        if first {
+            for event in [
+                StreamEvent::Start,
+                StreamEvent::ThinkingDelta {
+                    delta: "保留思考".into(),
+                },
+                StreamEvent::TextDelta {
+                    delta: "保留正文".into(),
+                },
+                StreamEvent::ToolCallStart {
+                    id: "unfinished".into(),
+                    name: "write".into(),
+                },
+                StreamEvent::ToolCallDelta { delta: "{".into() },
+                StreamEvent::Error {
+                    message: "流提前结束".into(),
+                    retry: None,
+                    protocol_mismatch: false,
+                },
+            ] {
+                tx.send(event).await.unwrap();
+            }
+            if self.abort_first {
+                abort.abort();
+            }
+        } else {
+            tx.send(StreamEvent::Done {
+                reason: StopReason::Stop,
+                usage: Usage::default(),
+                message: Box::new(Message::assistant_text("恢复后的回复", "mock")),
+            })
+            .await
+            .unwrap();
+        }
+        rx
+    }
+}
+
+#[tokio::test]
+async fn interrupted_content_survives_restore_without_replaying_incomplete_turns() {
+    for abort_first in [false, true] {
+        let data = Arc::new(Ledger::default());
+        let session = session(data.clone());
+        let initial_commits = data.commits.load(Ordering::SeqCst);
+        let provider = Arc::new(InterruptedProvider {
+            seen: Mutex::new(Vec::new()),
+            abort_first,
+        });
+        let mut req = request(false, false);
+        req.provider = provider.clone();
+        session
+            .reserve_run(AbortPolicy::Reset)
+            .unwrap()
+            .prepare(req, SessionHooks::default())
+            .unwrap()
+            .run()
+            .await
+            .unwrap();
+        let expected = session.messages().await;
+        let Message::Assistant {
+            content,
+            stop_reason,
+            ..
+        } = expected.last().unwrap()
+        else {
+            panic!("expected interrupted assistant");
+        };
+        assert_eq!(
+            *stop_reason,
+            if abort_first {
+                StopReason::Aborted
+            } else {
+                StopReason::Error
+            }
+        );
+        assert_eq!(
+            content,
+            &vec![
+                ContentBlock::Thinking {
+                    thinking: "保留思考".into(),
+                    thinking_signature: None
+                },
+                ContentBlock::Text {
+                    text: "保留正文".into()
+                },
+            ]
+        );
+        assert_eq!(data.commits.load(Ordering::SeqCst), initial_commits + 1);
+        drop(session);
+        let entries = data.entries.lock().unwrap().clone();
+        let restored =
+            AgentSession::restore(storage(data), entries, Some(model()), AbortSignal::new())
+                .unwrap();
+        assert_eq!(restored.messages().await, expected);
+        let mut req = request(false, false);
+        req.provider = provider.clone();
+        restored
+            .reserve_run(AbortPolicy::Reset)
+            .unwrap()
+            .prepare(req, SessionHooks::default())
+            .unwrap()
+            .run()
+            .await
+            .unwrap();
+        let seen = provider.seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(
+            seen[1]
+                .messages
+                .iter()
+                .all(|message| matches!(message, Message::User { .. })),
+            "失败的部分输出/工具调用只供查看，不得污染下一次模型请求"
+        );
+    }
+}
+
 #[tokio::test]
 async fn input_is_durable_before_poll_and_history_replays_once() {
     let data = Arc::new(Ledger::default());

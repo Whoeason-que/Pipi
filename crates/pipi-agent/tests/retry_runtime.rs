@@ -340,3 +340,169 @@ async fn terminal_400_is_not_resent() {
         "终态错误不该有 retry_start"
     );
 }
+
+/// 复现真实故障：推理/正文/半截工具参数已到达，但没有 finish_reason 或 [DONE]。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn truncated_response_preserves_prose_without_replaying_or_executing_tools() {
+    let chunk = json!({
+        "id":"partial", "object":"chat.completion.chunk", "model":"mock",
+        "choices":[{"index":0,"delta":{
+            "role":"assistant", "reasoning_content":"部分思考", "content":"部分正文",
+            "tool_calls":[{"index":0,"id":"unfinished","type":"function",
+                "function":{"name":"write","arguments":"{\"path\":"}}]
+        },"finish_reason":null}]
+    });
+    let (addr, requests) = spawn_http_script(vec![http_response(
+        "200 OK",
+        &[("Content-Type", "text/event-stream")],
+        &format!("data: {chunk}\n\n"),
+    )]);
+    let (sink, emit) = sink_and_emit();
+    let messages = run_agent_loop(
+        vec![Message::user_text("hi")],
+        AgentContext::default(),
+        test_config(addr, RetryPolicy::default()),
+        emit,
+        AbortSignal::new(),
+    )
+    .await;
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+    let final_message = messages.last().unwrap();
+    let Message::Assistant {
+        content,
+        stop_reason,
+        error_message,
+        api,
+        timestamp,
+        ..
+    } = final_message
+    else {
+        panic!("expected assistant");
+    };
+    assert_eq!(*stop_reason, StopReason::Error);
+    assert_eq!(api, "openai-completions");
+    assert_eq!(content.len(), 2);
+    assert!(
+        matches!(&content[0], pipi_protocol::ContentBlock::Thinking { thinking, .. } if thinking == "部分思考")
+    );
+    assert!(
+        matches!(&content[1], pipi_protocol::ContentBlock::Text { text } if text == "部分正文")
+    );
+    assert!(
+        error_message
+            .as_deref()
+            .unwrap()
+            .contains("已输出部分内容，未自动重试")
+    );
+    let events = sink.lock().unwrap();
+    for event in events.iter() {
+        match event {
+            AgentEvent::RetryStart { .. } | AgentEvent::ToolExecutionStart { .. } => {
+                panic!("不得重放或执行半截工具")
+            }
+            AgentEvent::MessageStart { message }
+            | AgentEvent::MessageUpdate { message }
+            | AgentEvent::MessageEnd { message }
+                if matches!(message, Message::Assistant { .. }) =>
+            {
+                assert_eq!(message.timestamp(), *timestamp);
+            }
+            AgentEvent::AgentEnd { messages } => assert_eq!(messages.last(), Some(final_message)),
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn eof_before_prose_retries_but_never_executes_partial_tools() {
+    for delta in [
+        json!({"role":"assistant","content":"","reasoning_content":""}),
+        json!({"role":"assistant","tool_calls":[{"index":0,"id":"unfinished","type":"function",
+            "function":{"name":"write","arguments":"{\"path\":"}}]}),
+    ] {
+        let chunk = json!({"id":"partial","object":"chat.completion.chunk","model":"mock",
+            "choices":[{"index":0,"delta":delta,"finish_reason":null}]});
+        let (addr, requests) = spawn_http_script(vec![
+            http_response(
+                "200 OK",
+                &[("Content-Type", "text/event-stream")],
+                &format!("data: {chunk}\n\n"),
+            ),
+            http_response(
+                "200 OK",
+                &[("Content-Type", "text/event-stream")],
+                &sse_text("恢复"),
+            ),
+        ]);
+        let (sink, emit) = sink_and_emit();
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            test_config(
+                addr,
+                RetryPolicy {
+                    max_attempts: 3,
+                    base_delay_ms: 1,
+                    max_delay_ms: 5,
+                },
+            ),
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        assert!(matches!(
+            messages.last(),
+            Some(Message::Assistant {
+                stop_reason: StopReason::Stop,
+                ..
+            })
+        ));
+        let events = sink.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, AgentEvent::RetryStart { .. }))
+                .count(),
+            1
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::ToolExecutionStart { .. }))
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatible_openai_stream_terminators_are_not_reported_as_truncation() {
+    let normal = sse_text("完整回复");
+    let first_chunk = normal.split("\n\n").next().unwrap();
+    for body in [
+        normal.replace("data: [DONE]\n\n", ""),
+        format!("{first_chunk}\n\ndata: [DONE]\n\n"),
+    ] {
+        let (addr, requests) = spawn_http_script(vec![http_response(
+            "200 OK",
+            &[("Content-Type", "text/event-stream")],
+            &body,
+        )]);
+        let (_sink, emit) = sink_and_emit();
+        let messages = run_agent_loop(
+            vec![Message::user_text("hi")],
+            AgentContext::default(),
+            test_config(addr, RetryPolicy::default()),
+            emit,
+            AbortSignal::new(),
+        )
+        .await;
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            messages.last(),
+            Some(Message::Assistant {
+                stop_reason: StopReason::Stop,
+                ..
+            })
+        ));
+    }
+}

@@ -7,8 +7,9 @@
 重键都沿用原入口。关闭 HTTP 服务不取消 Agent 运行；退出宿主才结束进程。
 
 默认不监听网络。启用后只绑定 `127.0.0.1:<port>`，以访问令牌保护 API，公开访问
-继续由 Cloudflare Tunnel + Access 提供。公开地址只是显示/复制入口，不自动修改
-DNS、Access 策略或启动 cloudflared。独立 `pipi-server` 保留给无桌面环境。
+继续由 Cloudflare Tunnel + Access 提供。桌面应用使用已有的 Tunnel 凭据文件启动
+cloudflared 子进程，不注册系统服务，也不修改 DNS 或 Access 策略。公开地址仍是
+显示/复制入口，本身不能建立连接。独立 `pipi-server` 保留给无桌面环境。
 
 ## 实施顺序
 
@@ -16,7 +17,8 @@ DNS、Access 策略或启动 cloudflared。独立 `pipi-server` 保留给无桌�
    Web 订阅同一广播；宿主启动取得数据根目录的进程锁，避免两个新宿主同时写入。
 2. **可管理的 transport**：将环境变量启动拆为可注入运行时、资源与令牌的启动 API；
    返回服务句柄，支持关闭监听和现有 WebSocket，并有界等待在途 HTTP 请求。
-3. **本地配置与凭据**：`remote.json` 保存端口、自动启动和公开地址；`remote-token`
+3. **本地配置与凭据**：`remote.json` 保存端口、自动启动、公开地址及 Tunnel 凭据
+   文件路径（`tunnelTokenFile`，不含凭据内容）；`remote-token`
    单独保存随机令牌。文件原子替换，Unix 凭据权限 0600。管理命令显式区分桌面与
    Web 来源，Web 不能读取/轮换令牌或启停服务；普通 settings 不包含这些数据。
 4. **桌面装配**：启用 server feature、注入 Tauri 打包资源、恢复自动启动设置，
@@ -32,6 +34,21 @@ DNS、Access 策略或启动 cloudflared。独立 `pipi-server` 保留给无桌�
 
 - 启停/配置/轮换由一把异步锁串行化。端口冲突清楚报错，不扫描或偷偷换端口。
 - 修改端口时先绑定新端口成功，再停止旧服务；失败保留旧入口和已保存配置。
+  托管 Tunnel 时须先关闭远程才能修改端口或凭据路径，并在 Cloudflare 同步服务
+  路由端口；应用不推测或自动改写云端路由。
+- “随应用启动远程”恢复本机 Web 服务和 cloudflared；“启动远程/关闭远程”同时
+  管理两者。退出应用时关闭子进程，停止远程不会停止 Agent。关闭自动启动只影响
+  下次启动，不隐式停止当前连接；保存配置也不隐式启动远程。
+- `running` 只在本机服务运行且 Tunnel `/ready` 返回 200 时为真；`localRunning`、
+  `tunnelRunning` 和 `tunnelConnected` 分别报告本机监听、子进程及 Cloudflare 连接。
+  本机监听不再显示为公网已连接。Tunnel 连接状态不保证域名路由或 Access 登录正确。
+- cloudflared 只接受凭据文件路径，Unix 文件权限不得向组或其他用户开放；应用不
+  传令牌命令行、不转发原始客户端日志，并清除继承的 `TUNNEL_*` / `CF_*` 配置。
+  指标端口只绑定随机回环端口；超时/断线显示连接中并由 cloudflared 自行重连。
+  进程退出显示错误，由用户关闭后重新启动。启动失败会回收本机服务，避免半开状态。
+- 兼容旧 `remote.json`：缺少 `tunnelTokenFile` 且有公开地址时，若旧配置目录存在
+  `pipi-web/tunnel.token` 则复用其路径。显式保存的空路径不会自动补回。地址与凭据
+  都留空时允许仅启动本机 Web 服务，界面会明确提示公网未连接。
 - 停止/轮换断开已有 WebSocket，防止旧授权会话在令牌变更后继续收事件。
 - 浏览器重连通过现有 session_infos 和水合恢复视图。广播积压时断开连接，促使
   客户端重新水合，不能静默丢失审批/终态后继续展示陈旧状态。

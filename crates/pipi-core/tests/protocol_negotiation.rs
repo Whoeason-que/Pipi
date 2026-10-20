@@ -12,7 +12,7 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use pipi_core::events::{EventEmitter, RuntimeEvent};
@@ -46,6 +46,8 @@ struct MockEndpoint {
     base_url: String,
     chat_hits: Arc<AtomicUsize>,
     messages_hits: Arc<AtomicUsize>,
+    chat_ok: Arc<AtomicBool>,
+    messages_ok: Arc<AtomicBool>,
 }
 
 impl MockEndpoint {
@@ -55,6 +57,12 @@ impl MockEndpoint {
 
     fn messages_hits(&self) -> usize {
         self.messages_hits.load(Ordering::SeqCst)
+    }
+
+    fn set_replies(&self, chat: Reply, messages: Reply) {
+        self.chat_ok.store(chat == Reply::Ok, Ordering::SeqCst);
+        self.messages_ok
+            .store(messages == Reply::Ok, Ordering::SeqCst);
     }
 }
 
@@ -158,12 +166,20 @@ fn spawn_protocol_endpoint(chat: Reply, messages: Reply) -> MockEndpoint {
     let messages_hits = Arc::new(AtomicUsize::new(0));
     let chat_counter = chat_hits.clone();
     let messages_counter = messages_hits.clone();
+    let chat_ok = Arc::new(AtomicBool::new(chat == Reply::Ok));
+    let messages_ok = Arc::new(AtomicBool::new(messages == Reply::Ok));
+    let chat_reply = chat_ok.clone();
+    let messages_reply = messages_ok.clone();
     std::thread::spawn(move || {
         for mut stream in listener.incoming().flatten() {
             let path = read_request(&mut stream);
             if path.ends_with("/chat/completions") {
                 chat_counter.fetch_add(1, Ordering::SeqCst);
-                match chat {
+                match if chat_reply.load(Ordering::SeqCst) {
+                    Reply::Ok
+                } else {
+                    Reply::ProtocolUnsupported
+                } {
                     Reply::Ok => respond(
                         &mut stream,
                         "200 OK",
@@ -179,7 +195,11 @@ fn spawn_protocol_endpoint(chat: Reply, messages: Reply) -> MockEndpoint {
                 }
             } else if path.ends_with("/messages") {
                 messages_counter.fetch_add(1, Ordering::SeqCst);
-                match messages {
+                match if messages_reply.load(Ordering::SeqCst) {
+                    Reply::Ok
+                } else {
+                    Reply::ProtocolUnsupported
+                } {
                     Reply::Ok => respond(
                         &mut stream,
                         "200 OK",
@@ -202,6 +222,8 @@ fn spawn_protocol_endpoint(chat: Reply, messages: Reply) -> MockEndpoint {
         base_url: format!("http://{addr}/v1"),
         chat_hits,
         messages_hits,
+        chat_ok,
+        messages_ok,
     }
 }
 
@@ -412,6 +434,37 @@ fn runtime_negotiation_switches_once_and_remembers() {
     assert_eq!(endpoint.chat_hits(), 1);
     assert_eq!(endpoint.messages_hits(), 3, "auto 摘要直接采用已学协议");
     assert_ne!(open_session_id(&state, "negotiation-agent"), session_id);
+}
+
+#[test]
+fn a_previously_learned_protocol_does_not_override_a_new_negotiation() {
+    let _guard = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _home = isolated_home("pipi-protocol-stale-memory");
+    let endpoint = spawn_protocol_endpoint(Reply::Ok, Reply::ProtocolUnsupported);
+    fixture_agent("stale-protocol-agent", &endpoint.base_url);
+    write_settings(&endpoint.base_url, ApiMode::Auto);
+    let runtime = runtime();
+    let state = RuntimeState::new(runtime.handle().clone());
+    let first = run_prompt(&state, "stale-protocol-agent", None, "first");
+    assert!(first.contains("来自 OpenAI 协议的回复"), "{first}");
+    let id = open_session_id(&state, "stale-protocol-agent");
+    endpoint.set_replies(Reply::ProtocolUnsupported, Reply::Ok);
+    let second = run_prompt(
+        &state,
+        "stale-protocol-agent",
+        Some(&id),
+        "changed upstream",
+    );
+    assert!(second.contains("来自 Anthropic 协议的回复"), "{second}");
+    assert_eq!(
+        endpoint.chat_hits(),
+        2,
+        "旧协议只尝试一次，不能覆盖协商的新协议"
+    );
+    assert_eq!(endpoint.messages_hits(), 1);
+    run_prompt(&state, "stale-protocol-agent", Some(&id), "third");
+    assert_eq!(endpoint.chat_hits(), 2);
+    assert_eq!(endpoint.messages_hits(), 2, "后续运行直接采用新学到的协议");
 }
 
 #[test]

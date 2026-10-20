@@ -376,6 +376,8 @@ export function isAuthSilentError(error: unknown): boolean {
 
 function sameMessage(left: ChatEntry, message: MessageView): boolean {
   return left.role === message.role
+    && (message.role !== "assistant" || left.timestamp == null || message.timestamp == null
+      || left.timestamp === message.timestamp)
     && left.toolCallId === (message.toolCallId ?? firstToolCallId(message))
     && left.text === messageText(message)
     && left.thinking === messageThinking(message)
@@ -388,10 +390,10 @@ function updateAssistantEntry(entry: ChatEntry, message: MessageView, streaming:
   return {
     ...entry,
     text: messageText(message),
-    thinking: messageThinking(message) ?? entry.thinking,
-    toolCallId: entry.toolCallId ?? firstToolCallId(message),
-    // 首帧可能没带时间戳：后续帧补上（消息行的时间显示依赖它）
-    timestamp: entry.timestamp ?? message.timestamp,
+    // 完成消息是权威快照，不能把已丢弃的 thinking / 半截工具身份带进终态。
+    thinking: messageThinking(message) ?? (streaming ? entry.thinking : undefined),
+    toolCallId: firstToolCallId(message) ?? (streaming ? entry.toolCallId : undefined),
+    timestamp: streaming ? entry.timestamp ?? message.timestamp : message.timestamp ?? entry.timestamp,
     errorMessage: message.errorMessage ?? undefined,
     stopReason: message.stopReason,
     status,
@@ -479,6 +481,8 @@ function mergeHydratedEntries(state: ChatState, messages: MessageView[]): ChatEn
 
 function hydratedEntryMatches(left: ChatEntry, right: ChatEntry): boolean {
   if (left.role !== right.role) return false;
+  if (left.role === "assistant" && left.timestamp != null && right.timestamp != null
+    && left.timestamp !== right.timestamp) return false;
   if (left.toolCallId !== undefined || right.toolCallId !== undefined) {
     return left.toolCallId !== undefined && left.toolCallId === right.toolCallId;
   }
@@ -623,7 +627,7 @@ function finishRunningEntries(entries: ChatEntry[]): ChatEntry[] {
  */
 function applyCompletedMessage(state: ChatState, message: MessageView, key: string): ChatState {
   if (message.role === "assistant") {
-    if (!state.activeAssistantKey && state.entries.some((entry) => sameMessage(entry, message))) {
+    if (state.entries.some((entry) => entry.key !== state.activeAssistantKey && sameMessage(entry, message))) {
       return state;
     }
     const assistantKey = state.activeAssistantKey ?? key;
@@ -695,11 +699,24 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         case "agent_end": {
           // 切换会话期间可能只收到 agent_end，不能让它把一个空时间线直接
           // 结算掉；把运行循环带回来的完整消息先合并，再结束 transient 状态。
-          const recovered = (event.messages ?? []).reduce(
-            (current, message, index) =>
-              applyCompletedMessage(current, message, `${action.key}-rec-${index}`),
-            state,
-          );
+          const messages = event.messages ?? [];
+          const lastAssistant = messages.map(message => message.role).lastIndexOf("assistant");
+          const recovered = messages.reduce((current, message, index) => {
+            const activeIndex = current.entries.findIndex(entry => entry.key === current.activeAssistantKey);
+            const active = current.entries[activeIndex];
+            // 补回漏掉的早期消息时，不能把正在流式显示的末条回复槽位消耗掉。
+            // 新宿主时间戳贯穿消息生命周期；旧宿主无稳定时间戳时由末条助手兜底。
+            if (active && index !== lastAssistant
+              && (active.timestamp == null || message.timestamp !== active.timestamp)) {
+              const next = applyCompletedMessage({ ...current, activeAssistantKey: null }, message, `${action.key}-rec-${index}`);
+              const entries = next.entries.length > current.entries.length
+                ? [...next.entries.slice(0, activeIndex), ...next.entries.slice(current.entries.length),
+                    ...next.entries.slice(activeIndex, current.entries.length)]
+                : next.entries;
+              return { ...next, entries, activeAssistantKey: current.activeAssistantKey };
+            }
+            return applyCompletedMessage(current, message, `${action.key}-rec-${index}`);
+          }, state);
           return {
             ...recovered,
             entries: finishRunningEntries(recovered.entries),

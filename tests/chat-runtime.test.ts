@@ -111,6 +111,76 @@ test("streaming assistant messages update in place and duplicate completion is i
   assert.equal(state.entries[0]?.status, undefined);
 });
 
+test("interrupted streams settle and rehydrate once with authoritative content", () => {
+  for (const content of [[], [{ type: "thinking", thinking: "部分思考" }, { type: "text", text: "部分正文" }]] as MessageView["content"][]) {
+    const final: MessageView = {
+      role: "assistant", content, timestamp: 2, stopReason: "error",
+      errorMessage: "流错误: ResponseError: the reply ended before the provider ended it",
+    };
+    let state = event(INITIAL_CHAT_STATE, {
+      type: "message_start", message: { role: "assistant", content: [], timestamp: 1 },
+    });
+    state = event(state, {
+      type: "message_update", message: {
+        role: "assistant", timestamp: 1, content: [
+          { type: "thinking", thinking: "部分思考" },
+          { type: "text", text: "部分正文" },
+          { type: "toolCall", id: "incomplete", name: "bash", arguments: "{" },
+        ],
+      },
+    });
+    state = event(state, { type: "message_end", message: final });
+    const key = state.entries[0]?.key;
+    state = event(state, { type: "agent_end", messages: [final] });
+    state = event(state, { type: "agent_end", messages: [final] });
+    state = chatReducer(state, { type: "hydrate", messages: [final], stats: null, running: false });
+    assert.equal(state.entries.length, 1);
+    assert.equal(state.entries[0]?.key, key);
+    assert.equal(state.entries[0]?.timestamp, 2);
+    assert.equal(state.entries[0]?.toolCallId, undefined);
+    assert.equal(state.entries[0]?.thinking, Array.isArray(content) && content.length ? "部分思考" : undefined);
+    assert.equal(state.running, false);
+  }
+});
+
+test("identical errors in separate timestamped messages remain distinct", () => {
+  const messages: MessageView[] = [1, 2].map(timestamp => ({
+    role: "assistant", content: [], timestamp, stopReason: "error", errorMessage: "相同错误",
+  }));
+  let state = INITIAL_CHAT_STATE;
+  for (const message of messages) state = event(state, { type: "message_end", message });
+  state = event(state, { type: "agent_end", messages });
+  state = chatReducer(state, { type: "hydrate", messages, stats: null, running: false });
+  assert.deepEqual(state.entries.map(entry => entry.timestamp), [1, 2]);
+});
+
+test("agent end recovers a missed completion without consuming an earlier assistant", () => {
+  const earlier: MessageView = { ...assistantMessage("先前回复", "stop"), timestamp: 1 };
+  const final: MessageView = { ...assistantMessage("最终回复", "stop"), timestamp: 2 };
+  let state = event(INITIAL_CHAT_STATE, { type: "message_end", message: earlier });
+  state = event(state, { type: "message_start", message: { ...final, stopReason: "pending" } });
+  const activeKey = state.activeAssistantKey;
+  state = event(state, { type: "agent_end", messages: [earlier, final] });
+  assert.deepEqual(state.entries.map(entry => entry.text), ["先前回复", "最终回复"]);
+  assert.equal(state.entries[1]?.key, activeKey);
+  assert.equal(state.entries[1]?.streaming, false);
+});
+
+test("agent end restores missing earlier replies without stealing the active message key", () => {
+  const first: MessageView = { ...assistantMessage("早期回复", "stop"), timestamp: 1 };
+  const last: MessageView = { ...assistantMessage("最后回复", "stop"), timestamp: 2 };
+  for (const active of [first, last]) {
+    let state = event(INITIAL_CHAT_STATE, {
+      type: "message_start", message: { ...active, stopReason: "pending" },
+    });
+    const key = state.activeAssistantKey;
+    state = event(state, { type: "agent_end", messages: [first, last] });
+    assert.deepEqual(state.entries.map(entry => entry.text), ["早期回复", "最后回复"]);
+    assert.equal(state.entries.find(entry => entry.timestamp === active.timestamp)?.key, key);
+    assert.ok(state.entries.every(entry => !entry.streaming));
+  }
+});
+
 test("tool execution is idempotent by tool call id", () => {
   let state = event(INITIAL_CHAT_STATE, {
     type: "tool_execution_start",
@@ -468,6 +538,20 @@ test("classifyChatError correctly identifies all error categories with actionabl
   assert.equal(generic.badge, "运行错误");
 });
 
+test("rig stream truncation and Chinese idle timeout are classified as transport errors", async () => {
+  const { classifyChatError } = await import("../src/chat/chat-errors.ts");
+  for (const errorMessage of [
+    "流错误: ResponseError: the reply ended before the provider ended it（已输出部分内容，未自动重试）",
+    "请求超时：300 秒内没有新的响应数据，已中止本轮请求（已输出部分内容，未自动重试）",
+  ]) {
+    for (const locale of ["zh", "en"] as const) {
+      const info = classifyChatError({ errorMessage, stopReason: "error" }, locale);
+      assert.equal(info.category, "network");
+      assert.ok(info.suggestion);
+    }
+  }
+});
+
 test("extractAssistantContentAndError separates prose and error states cleanly", async () => {
   const { extractAssistantContentAndError } = await import("../src/chat/chat-errors.ts");
 
@@ -512,6 +596,11 @@ test("extractAssistantContentAndError separates prose and error states cleanly",
   });
   assert.equal(partialNetworkError.cleanText, "第一步先解析 AST：");
   assert.equal(partialNetworkError.errorInfo?.category, "network");
+
+  const warningProse = extractAssistantContentAndError({
+    text: "⚠ 这里是已经生成的警告正文", status: "error", errorMessage: "流提前结束",
+  });
+  assert.equal(warningProse.cleanText, "⚠ 这里是已经生成的警告正文");
 });
 
 

@@ -389,11 +389,15 @@ export interface RemoteAccessConfig {
   port: number;
   startWithApp: boolean;
   publicUrl: string;
+  tunnelTokenFile: string;
 }
 
 export interface RemoteAccessStatus {
   config: RemoteAccessConfig;
   running: boolean;
+  localRunning: boolean;
+  tunnelRunning: boolean;
+  tunnelConnected: boolean;
   localUrl: string | null;
   connectedClients: number;
   lastError: string | null;

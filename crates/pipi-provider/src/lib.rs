@@ -11,9 +11,9 @@
 //! 除 rig 适配外，这一层还带 [`catalog`]（models.dev 模型目录）：两者都是
 //! 「模型面」的服务，且都直连 HTTP；契约层的 `Provider` 端口不属于这里。
 //!
-//! 协议（`Api`）是**按请求**决定的：绑定里的 `Model.api` 只是声明，真正发出去用
-//! 哪种协议 = 运行期学到的（[`learned_protocol`]，端点实证过的）→ 声明。模型级
-//! 覆盖在目录层（[`catalog::model_api_override`]），宿主在 run 前写进 `Model.api`。
+//! 协议（`Api`）是**按请求的 `Model.api`** 分派的：宿主在 run 前解析运行期记忆与
+//! 目录覆盖（[`effective_api`]），agent loop 在协商时替换本次尝试的协议。
+//! provider 不得再次用旧记忆覆盖它，否则协商永远切不到另一套 wire。
 //! 端点明确回报「不支持这个协议」时事件带 `protocol_mismatch` 标记，**是否换协议
 //! 重发由 agent loop 决定**（这一层只管分类与记录，不重发）。
 //!
@@ -51,6 +51,7 @@ use tokio::sync::mpsc::{self, Sender};
 pub mod catalog;
 pub use catalog::normalize_endpoint;
 mod classify;
+mod diagnostics;
 
 use classify::{RetryVerdict, classify_rig_error};
 use pipi_protocol::RetryHint;
@@ -607,8 +608,9 @@ async fn consume_rig_stream(
     model: &Model,
     options: &StreamOptions,
     api: Api,
-    started: Instant,
+    trace: &diagnostics::RequestTrace,
 ) -> Result<(), StreamError> {
+    let started = Instant::now();
     // 请求级时限（无进展超时）：首个事件、以及相邻事件之间超过时限没有
     // 任何数据即中止 —— 挂死的连接变成可见错误，而不是让会话无限期停在
     // 「运行中」。持续有增量的长响应不受影响。
@@ -624,6 +626,8 @@ async fn consume_rig_stream(
 
     loop {
         let item = tokio::select! {
+            // 消费方可能被整轮超时直接丢弃；此时不能继续读流、消耗模型输出。
+            _ = tx.closed() => return Ok(()),
             _ = abort.wait_aborted() => None,
             item = stream.next() => item,
             // 每个事件到达都会重开计时：这是「无进展」超时，不是总时长超时
@@ -631,6 +635,7 @@ async fn consume_rig_stream(
         };
         let Some(item) = item else { break };
         let event = item.map_err(|e| classify_with("流错误", &e))?;
+        trace.event(&event);
         match event {
             RigItem::Event(RigStreamEvent::Text { part, text }) => {
                 acc.text_delta(part.index(), &text);
@@ -734,19 +739,16 @@ impl Provider for RigProvider {
                 options: StreamOptions,
                 abort: AbortSignal,
                 tx: &Sender<StreamEvent>,
+                trace: &diagnostics::RequestTrace,
             ) -> Result<(), StreamError> {
-                // 协议按请求决定：auto 采用运行期记忆，manual 严格使用声明。
-                let api = if options.auto_protocol {
-                    learned_protocol(&model.base_url, &model.id).unwrap_or(model.api)
-                } else {
-                    model.api
-                };
+                let api = model.api;
                 let key = options.api_key.clone().unwrap_or_default();
+                trace.set_api(api);
                 let transport = rig_transport(extra_headers(
                     &model.base_url,
                     options.session_id.as_deref(),
-                ));
-                let started = Instant::now();
+                ))
+                .with_middleware(trace.clone());
                 let request = build_completion_request(&context, &options, api)?;
                 let stream = match api {
                     Api::AnthropicMessages => {
@@ -777,9 +779,12 @@ impl Provider for RigProvider {
                             .map_err(|e| classify_with("请求失败", &e))?
                     }
                 };
-                consume_rig_stream(stream, tx, &abort, &model, &options, api, started).await
+                consume_rig_stream(stream, tx, &abort, &model, &options, api, trace).await
             }
-            if let Err(e) = stream_impl(model, context, options, abort, &tx).await {
+            let started = Instant::now();
+            let trace = diagnostics::RequestTrace::default();
+            if let Err(e) = stream_impl(model.clone(), context, options, abort, &tx, &trace).await {
+                trace.report(&model, &e, started);
                 send_error(&tx, e);
             }
         });

@@ -161,6 +161,7 @@ async fn drive_run(
 ) -> Result<RunOutcome, String> {
     let mut id = session.session_id()?;
     let observed = Arc::new(Mutex::new(Vec::<Message>::new()));
+    let partial = Arc::new(Mutex::new(None::<Message>));
     let ledger_emitter = events::make_emitter(
         hooks.clone(),
         session.writer.clone(),
@@ -170,7 +171,27 @@ async fn drive_run(
     );
     let emitter: Emitter = {
         let observed = observed.clone();
+        let partial = partial.clone();
+        let capture_partial = request.timeout.is_some();
         Arc::new(move |event| {
+            // 只有整轮超时会直接丢弃循环 future，需要额外保留最后的流快照。
+            // 普通会话由流循环收尾，避免每个增量都额外复制一次完整回复。
+            if capture_partial {
+                match &event {
+                    AgentEvent::MessageStart { message }
+                    | AgentEvent::MessageUpdate { message }
+                        if matches!(message, Message::Assistant { .. }) =>
+                    {
+                        *partial.lock().unwrap() = Some(message.clone());
+                    }
+                    AgentEvent::MessageEnd {
+                        message: Message::Assistant { .. },
+                    } => {
+                        *partial.lock().unwrap() = None;
+                    }
+                    _ => {}
+                }
+            }
             if let AgentEvent::MessageEnd { message } = &event {
                 observed.lock().unwrap().push(message.clone());
             }
@@ -203,6 +224,8 @@ async fn drive_run(
         match tokio::time::timeout(timeout.duration, drive).await {
             Ok(messages) => messages,
             Err(_) => {
+                // 驱动 future 被超时丢弃并不会自动通知已 spawn 的 provider/工具任务。
+                session.abort.abort();
                 session
                     .messages
                     .lock()
@@ -213,6 +236,7 @@ async fn drive_run(
                     &request.model,
                     timeout.message,
                     StopReason::Error,
+                    partial.lock().unwrap().take(),
                 )?;
                 let result = terminal.last().cloned().into_iter().collect();
                 session
@@ -250,6 +274,7 @@ async fn drive_run(
             &request.model,
             "已中止".into(),
             StopReason::Aborted,
+            None,
         )?;
         session
             .messages
@@ -269,7 +294,7 @@ async fn drive_run(
     }
     if let (Some(budget), Some(policy)) = (request.budget, request.compaction) {
         let compact = CompactionRequest {
-            model: request.model,
+            model: compaction_model(request.model, request.options.auto_protocol, &messages),
             provider: request.provider,
             options: request.options,
             retry: request.retry,
@@ -286,6 +311,28 @@ async fn drive_run(
         session_id: id,
         messages,
     })
+}
+
+/// 自动摘要紧接本轮运行，不能继续使用协商前的旧协议；manual 保持声明值。
+fn compaction_model(mut model: Model, auto_protocol: bool, messages: &[Message]) -> Model {
+    if auto_protocol
+        && let Some(api) = messages.iter().rev().find_map(|message| match message {
+            Message::Assistant {
+                api, stop_reason, ..
+            } if !matches!(
+                stop_reason,
+                StopReason::Error | StopReason::Aborted | StopReason::Pending
+            ) =>
+            {
+                // 由 DTO 的同一份 serde 定义识别 wire 名，不另维护字符串映射表。
+                serde_json::from_value(serde_json::Value::String(api.clone())).ok()
+            }
+            _ => None,
+        })
+    {
+        model.api = api;
+    }
+    model
 }
 
 async fn harvest(
@@ -328,4 +375,47 @@ async fn harvest(
         prompts = leftover;
     }
     completion
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pipi_protocol::Api;
+
+    #[test]
+    fn auto_summary_uses_the_last_successful_protocol_without_overriding_manual() {
+        let model = Model {
+            id: "m".into(),
+            name: "m".into(),
+            api: Api::OpenAICompletions,
+            base_url: String::new(),
+            context_window: 0,
+            max_tokens: 64,
+        };
+        let mut success = Message::assistant_text("answer", "m");
+        if let Message::Assistant { api, .. } = &mut success {
+            *api = "anthropic-messages".into();
+        }
+        let mut failed = Message::assistant_error("interrupted", "m", StopReason::Error);
+        if let Message::Assistant { api, .. } = &mut failed {
+            *api = "openai-completions".into();
+        }
+        let messages = vec![success, failed];
+        assert_eq!(
+            compaction_model(model.clone(), true, &messages).api,
+            Api::AnthropicMessages
+        );
+        assert_eq!(
+            compaction_model(model.clone(), false, &messages).api,
+            Api::OpenAICompletions
+        );
+        assert_eq!(
+            compaction_model(model.clone(), true, &[]).api,
+            Api::OpenAICompletions
+        );
+        assert_eq!(
+            compaction_model(model.clone(), true, &messages[1..]).api,
+            Api::OpenAICompletions
+        );
+    }
 }

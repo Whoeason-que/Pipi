@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { invoke } from "../platform";
 import type { RemoteAccessConfig, RemoteAccessStatus } from "../types";
+import { remoteAccessPresentation } from "./remote-status";
 
 export default function RemoteAccessPanel() {
   const { t } = useI18n();
@@ -52,23 +53,28 @@ export default function RemoteAccessPanel() {
   </section>;
 
   const dirty = port !== String(status.config.port)
-    || config.startWithApp !== status.config.startWithApp || config.publicUrl !== status.config.publicUrl;
+    || config.startWithApp !== status.config.startWithApp || config.publicUrl !== status.config.publicUrl
+    || config.tunnelTokenFile !== status.config.tunnelTokenFile;
+  const presentation = remoteAccessPresentation(status);
 
   return <div className="remote-access-panel">
     <section className="settings-block">
       <div className="remote-status-row">
         <div>
-          <span className={`badge ${status.running ? "ok" : "neutral"}`}>
-            {t(status.running ? "remoteAccess.running" : "remoteAccess.stopped")}
+          <span className={`badge ${presentation.state === "running" ? "ok" : "neutral"}`}>
+            {t(`remoteAccess.${presentation.state}`)}
           </span>
-          <p className="hint">{status.running
+          <p className="hint">{status.localRunning
             ? `${status.connectedClients} ${t("remoteAccess.clients")}` : t("remoteAccess.offHint")}</p>
+          <p className="hint">{t("remoteAccess.localService")}: {t(status.localRunning ? "remoteAccess.on" : "remoteAccess.stopped")}
+            {" · "}Cloudflare Tunnel: {t(status.tunnelConnected ? "remoteAccess.connected"
+              : status.tunnelRunning ? "remoteAccess.connecting" : "remoteAccess.stopped")}</p>
         </div>
-        <button className={status.running ? "btn" : "btn primary"} disabled={busy}
+        <button className={presentation.active ? "btn" : "btn primary"} disabled={busy || (dirty && !presentation.active)}
           onClick={() => void act(async () => {
-            setStatus(await invoke("set_remote_access_enabled", { enabled: !status.running }));
+            setStatus(await invoke("set_remote_access_enabled", { enabled: !presentation.active }));
           })}>
-          {t(status.running ? "remoteAccess.stop" : "remoteAccess.start")}
+          {t(presentation.active ? "remoteAccess.stop" : "remoteAccess.start")}
         </button>
       </div>
       {status.localUrl && <div className="remote-address-row">
@@ -76,6 +82,7 @@ export default function RemoteAccessPanel() {
         <button className="link" disabled={busy} onClick={() => copy(status.localUrl!)}>{t("common.copy")}</button>
       </div>}
       <p className="hint">{t("remoteAccess.lifecycle")}</p>
+      {dirty && <p className="hint">{t("remoteAccess.saveFirst")}</p>}
     </section>
 
     <form className="settings-block remote-config" onSubmit={(event) => {
@@ -85,7 +92,7 @@ export default function RemoteAccessPanel() {
         if (!/^\d+$/.test(port) || !Number.isInteger(parsed) || parsed < 1 || parsed > 65535)
           throw new Error(t("remoteAccess.invalidPort"));
         const next = await invoke("configure_remote_access", { config: {
-          ...config, port: parsed, publicUrl: config.publicUrl.trim().replace(/\/$/, ""),
+          ...config, port: parsed, tunnelTokenFile: config.tunnelTokenFile.trim(), publicUrl: config.publicUrl.trim().replace(/\/$/, ""),
         } });
         setStatus(next); setConfig(next.config); setPort(String(next.config.port));
         setNotice(t("remoteAccess.saved"));
@@ -102,6 +109,10 @@ export default function RemoteAccessPanel() {
       <label className="field"><span className="label">{t("remoteAccess.publicUrl")}</span>
         <input type="url" placeholder="https://pipi.example.com" value={config.publicUrl}
           disabled={busy} onChange={(event) => setConfig({ ...config, publicUrl: event.target.value })} />
+      </label>
+      <label className="field"><span className="label">{t("remoteAccess.tunnelTokenFile")}</span>
+        <input type="text" placeholder="/path/to/tunnel.token" value={config.tunnelTokenFile}
+          disabled={busy} onChange={(event) => setConfig({ ...config, tunnelTokenFile: event.target.value })} />
       </label>
       <p className="hint">{t("remoteAccess.tunnelHint")}</p>
       <div className="remote-actions">

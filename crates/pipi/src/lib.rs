@@ -79,19 +79,19 @@ pub fn run() {
         .expect("Pipi 启动失败");
     let exiting = Arc::new(AtomicBool::new(false));
     app.run(move |app, event| {
-        if let tauri::RunEvent::ExitRequested { api, .. } = event {
-            if !exiting.swap(true, Ordering::SeqCst) {
-                api.prevent_exit();
-                let app = app.clone();
-                let remote = app
-                    .state::<Arc<pipi_core::remote::RemoteAccess>>()
-                    .inner()
-                    .clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = remote.set_enabled(false).await;
-                    app.exit(0);
-                });
-            }
+        if let tauri::RunEvent::ExitRequested { api, .. } = event
+            && !exiting.swap(true, Ordering::SeqCst)
+        {
+            api.prevent_exit();
+            let app = app.clone();
+            let remote = app
+                .state::<Arc<pipi_core::remote::RemoteAccess>>()
+                .inner()
+                .clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = remote.set_enabled(false).await;
+                app.exit(0);
+            });
         }
     });
 }

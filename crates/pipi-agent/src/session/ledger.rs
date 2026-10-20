@@ -62,8 +62,12 @@ pub(super) fn append_terminal(
     model: &Model,
     text: String,
     reason: StopReason,
+    partial: Option<Message>,
 ) -> Result<Vec<Message>, String> {
-    let terminal = Message::assistant_error(text, model.display_name(), reason);
+    let terminal = match partial {
+        Some(partial) => crate::agent_loop::interrupted_message(partial, text, reason),
+        None => Message::assistant_error(text, model.display_name(), reason),
+    };
     let history = session
         .messages
         .lock()

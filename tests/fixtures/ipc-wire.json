@@ -1,5 +1,5 @@
 {
-  "remoteAccess": {"config":{"port":1421,"startWithApp":false,"publicUrl":""},"running":false,"localUrl":null,"connectedClients":0,"lastError":null},
+  "remoteAccess": {"config":{"port":1421,"startWithApp":false,"publicUrl":"","tunnelTokenFile":""},"running":false,"localRunning":false,"tunnelRunning":false,"tunnelConnected":false,"localUrl":null,"connectedClients":0,"lastError":null},
   "model": {"id":"fixture-model","name":"Fixture","api":"openai-completions","baseUrl":"http://127.0.0.1:1/v1","maxTokens":8192,"contextWindow":128000},
   "agent": {"name":"fixture","description":"contract","model":"","workspace":null,"permissions":{"tools":["read"],"bash":{"mode":"allowlist","commands":[]},"sandbox":"workspace-write"},"mcpServers":[],"subagent":false,"compactThresholdPercent":75,"systemPrompt":"both"},
   "agentFiles": {"instructions":["harness/AGENTS.md"],"memory":["harness/memory/user-prefs.md"],"memoryPrefix":"harness/memory"},

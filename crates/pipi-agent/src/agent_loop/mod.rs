@@ -29,6 +29,7 @@ mod stream;
 mod tools;
 mod types;
 pub use drive::run_agent_loop;
+pub(crate) use stream::interrupted_message;
 use stream::stream_assistant_response;
 use tools::{execute_tool_calls, fail_truncated_tool_calls};
 pub use types::{

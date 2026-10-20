@@ -332,10 +332,10 @@ async fn stream_events(
         return;
     }
     for envelope in pending {
-        if let Ok(text) = serde_json::to_string(&RuntimeEvent::ApprovalRequest(envelope)) {
-            if !send_frame(&mut socket, WsMessage::Text(text.into()), &mut shutdown).await {
-                return;
-            }
+        if let Ok(text) = serde_json::to_string(&RuntimeEvent::ApprovalRequest(envelope))
+            && !send_frame(&mut socket, WsMessage::Text(text.into()), &mut shutdown).await
+        {
+            return;
         }
     }
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
