@@ -107,7 +107,7 @@ export const zh = {
     detail: "调用详情",
     stats: "会话统计",
     state: "当前状态",
-    files: "文件变更",
+    files: "会话文件",
     search: "搜索",
     noDetail: "悬浮或点击会话内的工具调用与 thinking 芯片查看详情",
     args: "参数",

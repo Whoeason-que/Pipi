@@ -6,7 +6,7 @@ export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "detail", label: "调用详情" },
   { id: "stats", label: "会话统计" },
   { id: "state", label: "当前状态" },
-  { id: "files", label: "文件变更" },
+  { id: "files", label: "会话文件" },
   { id: "search", label: "会话搜索" },
 ];
 

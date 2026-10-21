@@ -1,4 +1,8 @@
 {
+  "workspaceListing": {"workspace":"/workspace","path":"","entries":[{"path":"a.txt","name":"a.txt","kind":"file","size":5}],"truncated":false},
+  "workspaceFile": {"workspace":"/workspace","path":"a.txt","size":5,"version":"sha256-fixture","kind":"text","mime":"text/plain","content":"hello","base64":null,"truncated":false},
+  "workspaceChanges": {"workspace":"/workspace","isRepo":true,"files":[{"path":"a.txt","status":" M"}]},
+  "workspaceDiff": {"path":"a.txt","base":"HEAD","patch":"+hello","truncated":false},
   "remoteAccess": {"config":{"port":1421,"startWithApp":false,"publicUrl":"","tunnelTokenFile":""},"localRunning":false,"tunnelRunning":false,"tunnelConnected":false,"localUrl":null,"connectedClients":0,"lastError":null},
   "model": {"id":"fixture-model","name":"Fixture","api":"openai-completions","baseUrl":"http://127.0.0.1:1/v1","maxTokens":8192,"contextWindow":128000},
   "agent": {"name":"fixture","description":"contract","model":"","workspace":null,"permissions":{"tools":["read"],"bash":{"mode":"allowlist","commands":[]},"sandbox":"workspace-write"},"mcpServers":[],"subagent":false,"compactThresholdPercent":75,"systemPrompt":"both"},

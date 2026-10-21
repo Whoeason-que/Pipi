@@ -9,8 +9,12 @@ use pipi_core::commands::{
     SetSkillEnabledArgs, SkillUsageArgs, SyncAgentSkillsArgs, VerifyStoreSkillsArgs,
     WriteAgentFileArgs,
 };
+use pipi_core::commands::{
+    ListWorkspaceFilesArgs, PreviewWorkspaceFileArgs, WorkspaceChangesArgs, WorkspaceDiffArgs,
+};
 use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::Settings;
+use pipi_core::workspace::{WorkspaceChanges, WorkspaceDiff, WorkspaceFile, WorkspaceListing};
 use pipi_protocol::forum::{Post, SearchHit, Thread, ThreadSummary};
 use pipi_provider::catalog::ModelCatalog;
 use pipi_venv::agents::AgentDefinition;
@@ -68,6 +72,32 @@ pub fn write_agent_file(
     args: InvokeArgs<WriteAgentFileArgs>,
 ) -> Result<(), String> {
     pipi_core::commands::write_agent_file(&state, args.0)
+}
+
+#[tauri::command]
+pub async fn list_workspace_files(
+    args: InvokeArgs<ListWorkspaceFilesArgs>,
+) -> Result<WorkspaceListing, String> {
+    pipi_core::commands::list_workspace_files(args.0).await
+}
+
+#[tauri::command]
+pub async fn preview_workspace_file(
+    args: InvokeArgs<PreviewWorkspaceFileArgs>,
+) -> Result<WorkspaceFile, String> {
+    pipi_core::commands::preview_workspace_file(args.0).await
+}
+
+#[tauri::command]
+pub async fn workspace_changes(
+    args: InvokeArgs<WorkspaceChangesArgs>,
+) -> Result<WorkspaceChanges, String> {
+    pipi_core::commands::workspace_changes(args.0).await
+}
+
+#[tauri::command]
+pub async fn workspace_diff(args: InvokeArgs<WorkspaceDiffArgs>) -> Result<WorkspaceDiff, String> {
+    pipi_core::commands::workspace_diff(args.0).await
 }
 
 #[tauri::command]

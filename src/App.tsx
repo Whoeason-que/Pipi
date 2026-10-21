@@ -13,6 +13,10 @@ import { useSessionList } from "./app/use-session-list";
 import { useSessionNavigation } from "./app/use-session-navigation";
 import { useSettings } from "./app/use-settings";
 import ChatView from "./chat/ChatView";
+import { useWorkspaceFiles } from "./files/use-workspace-files";
+import { WorkspaceSidebar } from "./files/WorkspaceSidebar";
+import { WorkspaceView } from "./files/WorkspaceView";
+import { WorkspaceViewStore } from "./files/workspace-view";
 import { ForumSidebar } from "./forum/ForumSidebar";
 import ForumView from "./forum/ForumView";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
@@ -62,6 +66,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmRequest | null>(null);
   const selected = "agentName" in view ? view.agentName : null;
+  const lastWorkspaceAgent = useRef<string | null>(null);
+  const lastViewedSessions = useRef(new Map<string, string | null>());
   const selectedRef = useRef<string | null>(selected);
   const activeSessionRef = useRef(activeSession);
   viewRef.current = view;
@@ -72,6 +78,8 @@ export default function App() {
   const commitView = useCallback((next: AppView) => {
     viewRef.current = next;
     selectedRef.current = "agentName" in next ? next.agentName : null;
+    if ("agentName" in next) lastWorkspaceAgent.current = next.agentName;
+    if (next.kind === "chat") lastViewedSessions.current.set(next.agentName, next.sessionId);
     setView(next);
     setSidebarOpen(false);
   }, []);
@@ -112,7 +120,8 @@ export default function App() {
       || !("agentName" in next) || next.agentName !== previous.agentName)) {
       void invoke("new_session", { agentName: previous.agentName }).catch(() => {});
     }
-    if (next.kind === "skills") setNavSection("skills");
+    if (next.kind === "files" || next.kind === "git") setNavSection(next.kind);
+    else if (next.kind === "skills") setNavSection("skills");
     else if (next.kind === "forum") setNavSection("forum");
     else if (next.kind === "home") setNavSection(next.section ?? "agents");
     else if (next.kind === "create") setNavSection("agents");
@@ -188,6 +197,7 @@ export default function App() {
     if (target.kind === "agent") selectAgent(target.agentName);
     else if (target.kind === "chat") openSession(target.agentName, target.sessionId);
     else if (target.action === "new-session") { if (selected) void navigation.startNewSession(selected); }
+    else if (target.action === "files" || target.action === "git") navigate({ kind: target.action, agentName: current?.name ?? lastWorkspaceAgent.current });
     else navigate({ kind: target.action });
   };
   const visibleAgents = agentsInSection(agents, collection);
@@ -195,6 +205,26 @@ export default function App() {
   useEffect(() => {
     if (current && (view.kind === "agent" || view.kind === "chat" || view.kind === "workbench")) setNavSection(agentSection(current));
   }, [current?.name, current?.subagent, view.kind]);
+  const workspaceActive = (view.kind === "files" || view.kind === "git") && !authStatus.checking && authStatus.authenticated;
+  const workspace = useWorkspaceFiles(current ?? null, view.kind === "git" ? "git" : "files", workspaceActive, current ? agentHasRunning(current.name) : false);
+  const openWorkspaceFile = (agentName: string, path: string) => {
+    const agent = agents.find(item => item.name === agentName);
+    if (!agent) { safeSetError("目标 Agent 已不可用"); return; }
+    const store = workspace.agent?.name === agentName && workspace.mode === "files" ? workspace.store : null;
+    (store ?? new WorkspaceViewStore(agent, "files")).open(path);
+    navigate({ kind: "files", agentName });
+  };
+  const referenceToSession = (text: string, sessionId: string | null) => {
+    if (!current || (sessionId !== null && !(sessionsByAgent[current.name] ?? []).some(session => session.id === sessionId))) {
+      throw new Error("目标会话已不可用，请重新选择");
+    }
+    // 引用的写入目标由当前工作区与显式选项决定，不读取上一个活动会话。
+    const draft = sessionRuntime.composerDrafts.get(current.name, sessionId);
+    const previous = draft.getSnapshot().text;
+    draft.write(previous ? `${previous}\n\n${text}` : text);
+    if (sessionId === null) void navigation.startNewSession(current.name);
+    else void navigation.openSession(current.name, sessionId);
+  };
   const title = view.kind === "home" ? t(collection === "subagents" ? "nav.subagents" : "nav.workspace") : view.kind === "settings" ? t("nav.settings") : view.kind === "create" ? t("nav.newAgent")
     : view.kind === "skills" ? t("nav.skills") : view.kind === "forum" ? "论坛" : current?.name ?? "Pipi";
   const sessionTitle = view.kind === "chat" ? (sessionsByAgent[view.agentName] ?? []).find(session => session.id === view.sessionId)?.title : undefined;
@@ -213,18 +243,21 @@ export default function App() {
         running={{ agents: agentsInSection(agents, "agents").some(agent => agentHasRunning(agent.name)),
           subagents: agentsInSection(agents, "subagents").some(agent => agentHasRunning(agent.name)) }}
         onOpenSection={section => {
-          if (section === "skills") navigate({ kind: "skills" });
+          if (section === "files" || section === "git") navigate({ kind: section, agentName: current?.name ?? lastWorkspaceAgent.current });
+          else if (section === "skills") navigate({ kind: "skills" });
           else if (section === "forum") navigate({ kind: "forum" });
           else if (section === "agents" || section === "subagents") navigate({ kind: "home", section });
           setNavSection(section); setSidebarCollapsed(false); setSidebarOpen(true);
         }} />
-      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : "Agent 与会话列表"}>
+      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "files" || navSection === "git" ? "工作区文件与 Git 改动" : "Agent 与会话列表"}>
         <div className="sb-head"><button type="button" className="sidebar-home" aria-label={t("nav.home")} onClick={() => navigate({ kind: "home" })}><b>Pipi</b><span>{t("nav.workspace")}</span></button>
           <span className="spacer" /><button type="button" className="icon-btn" title={t("nav.collapseSidebar")} aria-label={t("nav.collapseSidebar")} onClick={toggleNavigation}><IconPanel /></button></div>
         <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
         {view.kind === "settings" ? settings && <SettingsSidebar settings={settings} section={settingsSection}
           showLogout={!isTauriRuntime() && authStatus.authRequired}
           onSelect={section => { setSettingsSection(section); setSidebarOpen(false); }} />
+          : (navSection === "files" || navSection === "git") && (view.kind === "files" || view.kind === "git") ? <WorkspaceSidebar key={workspace.store?.key ?? "no-workspace"} state={workspace} agents={agents}
+            onSelectAgent={agentName => { navigate({ kind: view.kind, agentName }); if (mobile) setSidebarOpen(true); }} />
           : navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={agents}
           sessionsByAgent={sessionsByAgent} isRunning={isConversationRunning} onSelectAgent={selectAgent} onOpenSession={openSession} />
           : navSection === "skills" ? <SkillsSidebar library={skillLibrary} selected={skillSelected} error={skillLoadError}
@@ -268,7 +301,11 @@ export default function App() {
           : view.kind === "skills" ? <SkillsView library={skillLibrary} loadError={skillLoadError} selected={skillSelected}
             onSelect={setSkillSelected} onRefresh={loadSkillLibrary} onError={safeSetError} />
           : view.kind === "forum" ? <ForumView />
+          : (view.kind === "files" || view.kind === "git") ? <WorkspaceView key={workspace.store?.key ?? "no-workspace"} state={workspace}
+            sessions={current ? sessionsByAgent[current.name] ?? [] : []} defaultSession={current ? lastViewedSessions.current.get(current.name) ?? null : null}
+            onOpenFile={path => { if (current) openWorkspaceFile(current.name, path); }} onReference={referenceToSession} />
           : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
+            onOpenFile={path => openWorkspaceFile(current.name, path)}
             title={sessionTitle || t("chat.newSessionTitle")} sessionId={view.sessionId} sessions={sessionRuntime}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} onBack={() => selectAgent(current.name)} onError={safeSetError}
             onNewSession={navigation.createSessionFromChat} onRunningChange={handleRunningChange} onSessionReset={info => {
@@ -279,7 +316,7 @@ export default function App() {
               if (archivedSessionsExpanded[current.name]) void invoke("list_sessions", { agentName: current.name, archived: true })
                 .then(list => setArchivedSessions(previous => ({ ...previous, [current.name]: list }))).catch(() => {});
             }} />
-          : current && view.kind === "workbench" && settings ? <AgentWorkbench key={current.name} agent={current} providers={settings.providers}
+          : current && view.kind === "workbench" && settings ? <AgentWorkbench onOpenFile={path => openWorkspaceFile(current.name, path)} key={current.name} agent={current} providers={settings.providers}
             onSaved={async () => { await refresh(); }} onBack={() => selectAgent(current.name)} onError={safeSetError}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} sessions={sessionRuntime} onRunningChange={handleRunningChange} />
           : <WorkspaceOverview {...overviewProps} agent={view.kind === "agent" ? current : undefined} />}

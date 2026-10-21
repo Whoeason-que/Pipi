@@ -286,6 +286,7 @@ function messageFields(message: MessageView) {
     text: messageText(message),
     thinking: messageThinking(message),
     toolName: message.toolName,
+    toolDetails: message.role === "toolResult" ? message.details : undefined,
     // 纯工具调用的助手消息正文为空，用首个调用 ID 充当去重/水合匹配的判别符
     toolCallId: message.toolCallId ?? firstToolCallId(message),
     isError: message.isError || status !== undefined,
@@ -410,7 +411,7 @@ function mergeToolMessageEntry(entry: ChatEntry, message: MessageView): ChatEntr
     toolName: next.toolName ?? entry.toolName,
     toolCallId: next.toolCallId ?? entry.toolCallId,
     toolArgs: entry.toolArgs,
-    toolDetails: entry.toolDetails,
+    toolDetails: next.toolDetails ?? entry.toolDetails,
     toolRunning: false,
     transient: true,
   };
@@ -418,14 +419,25 @@ function mergeToolMessageEntry(entry: ChatEntry, message: MessageView): ChatEntr
 
 
 function mergeHydratedEntries(state: ChatState, messages: MessageView[]): ChatEntry[] {
-  const merged = messages.map((message, index) => entryFromMessage(message, `restored-${index}`));
+  const calls = new Map<string, { name: string; args: unknown }>();
+  const merged = messages.map((message, index) => {
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const block of message.content) {
+        if (block.type === "toolCall") calls.set(block.id, { name: block.name, args: block.arguments });
+      }
+    }
+    const entry = entryFromMessage(message, `restored-${index}`);
+    const call = message.toolCallId ? calls.get(message.toolCallId) : undefined;
+    if (entry.role === "toolResult" && call && call.name === message.toolName) entry.toolArgs = call.args;
+    return entry;
+  });
   const established = state.entries.filter((entry) => !entry.transient);
   const anchors = new Map<string, number>();
   function acknowledge(index: number, entry: ChatEntry): void {
     merged[index] = {
       ...merged[index],
       key: entry.key,
-      toolArgs: entry.toolArgs,
+      toolArgs: merged[index].toolArgs ?? entry.toolArgs,
       toolDetails: merged[index].toolDetails ?? entry.toolDetails,
     };
   }

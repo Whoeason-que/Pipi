@@ -33,6 +33,7 @@ pub mod remote;
 pub mod runtime;
 pub mod settings;
 pub mod tools;
+pub mod workspace;
 
 #[cfg(feature = "server")]
 pub mod server;

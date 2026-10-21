@@ -46,6 +46,7 @@ pipi-venv = { path = "crates/pipi-venv", default-features = false }
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
 base64 = "0.23"
+libc = "0.2"
 # 只用于解析用户 HOME（`~/.pipi` / `~/.av` 的数据根）：换 std 的同名函数在
 # Windows 上走另一套 API，而 tauri 自身也依赖 dirs，留着它零成本
 dirs = "7"

@@ -3,6 +3,8 @@ import { useI18n } from "../i18n";
 import {
   IconAgent,
   IconForum,
+  IconFolder,
+  IconGit,
   IconGear,
   IconPanel,
   IconSearch,
@@ -43,6 +45,8 @@ export default function AppNavigation({
           [
             ["agents", t("nav.agents"), IconAgent],
             ["subagents", t("nav.subagents"), IconSubagent],
+            ["files", "File · 文件", IconFolder],
+            ["git", "Git · 改动", IconGit],
             ["search", t("common.search"), IconSearch],
             ["skills", t("nav.skills"), IconSkill],
             ["forum", "论坛", IconForum],

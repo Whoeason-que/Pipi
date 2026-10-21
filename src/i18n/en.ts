@@ -109,7 +109,7 @@ export const en: I18nSchema = {
     detail: "Details",
     stats: "Stats",
     state: "State",
-    files: "Files",
+    files: "Session files",
     search: "Find",
     noDetail: "Hover or click tool calls / thinking chips to inspect details",
     args: "Arguments",

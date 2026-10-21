@@ -5830,7 +5830,9 @@ version = "26.10.1"
 dependencies = [
  "async-trait",
  "axum",
+ "base64 0.23.1",
  "dirs 7.0.0",
+ "libc",
  "pipi-agent",
  "pipi-context",
  "pipi-forum",
@@ -5842,6 +5844,7 @@ dependencies = [
  "pipi-venv",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
  "tower",
  "tower-http 0.7.1",

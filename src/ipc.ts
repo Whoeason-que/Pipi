@@ -1,3 +1,4 @@
+import type { WorkspaceListing, WorkspaceFile, WorkspaceChanges, WorkspaceDiff } from "./files/types";
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, ApprovalRequestPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
@@ -23,6 +24,10 @@ export interface CommandMap {
   list_agent_files: { args: { agentName: string }; result: AgentEditableFiles };
   read_agent_file: { args: { agentName: string; relPath: string }; result: string };
   write_agent_file: { args: { agentName: string; relPath: string; content: string }; result: void };
+  list_workspace_files: { args: { agentName: string; path: string }; result: WorkspaceListing };
+  preview_workspace_file: { args: { agentName: string; path: string }; result: WorkspaceFile };
+  workspace_changes: { args: { agentName: string }; result: WorkspaceChanges };
+  workspace_diff: { args: { agentName: string; path: string }; result: WorkspaceDiff };
   get_settings: { args: {  }; result: Settings };
   save_settings: { args: { settings: Settings }; result: void };
   remote_access_status: { args: { }; result: RemoteAccessStatus };

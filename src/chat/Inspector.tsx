@@ -13,7 +13,7 @@ import {
   getInspectorTabLabel,
   type InspectorTab,
 } from "./inspector-tabs";
-const WRITE_TOOLS = new Set(["write", "edit"]);
+import { SessionFilesPanel } from "../files/SessionFilesPanel";
 // ============ 右侧检查器 ============
 
 export interface InspectorProps {
@@ -23,6 +23,7 @@ export interface InspectorProps {
   context: ChatInspectorContext;
   /** 手动压缩当前会话（「状态」tab 的「立即压缩」按钮）。 */
   onCompact: () => void;
+  onOpenFile?: (path: string) => void;
   embedded?: boolean;
   allowCompact?: boolean;
   temporary?: boolean;
@@ -43,6 +44,7 @@ export interface InspectorProps {
 export default function Inspector({
   context,
   onCompact,
+  onOpenFile,
   embedded = false,
   allowCompact = true,
   temporary = false,
@@ -182,47 +184,6 @@ export default function Inspector({
       .sort((left, right) => right.count - left.count);
   }, [entries]);
 
-  const fileChanges = useMemo(() => {
-    const map = new Map<
-      string,
-      { path: string; add: number; del: number; calls: number; errors: number }
-    >();
-    for (const entry of entries) {
-      if (entry.role !== "toolResult") continue;
-      const name = entry.toolName ?? "";
-      if (!WRITE_TOOLS.has(name)) continue;
-      const args = (entry.toolArgs ?? {}) as { path?: unknown };
-      const path =
-        typeof args.path === "string" && args.path.trim()
-          ? args.path
-          : `（未记录路径的 ${name} 调用）`;
-      const diff = (entry.toolDetails as { diff?: unknown } | undefined)?.diff;
-      let add = 0;
-      let del = 0;
-      if (typeof diff === "string") {
-        for (const line of diff.split("\n")) {
-          if (line.startsWith("+++") || line.startsWith("---")) continue;
-          if (line.startsWith("+")) add += 1;
-          else if (line.startsWith("-")) del += 1;
-        }
-      }
-      const item = map.get(path) ?? {
-        path,
-        add: 0,
-        del: 0,
-        calls: 0,
-        errors: 0,
-      };
-      item.calls += 1;
-      item.add += add;
-      item.del += del;
-      if (entry.isError) item.errors += 1;
-      map.set(path, item);
-    }
-    return [...map.values()].reverse();
-  }, [entries]);
-
-  const writeCalls = fileChanges.reduce((total, item) => total + item.calls, 0);
   const maxToolCount = toolSummary.reduce(
     (max, item) => Math.max(max, item.count),
     0,
@@ -603,47 +564,7 @@ export default function Inspector({
             hideHeaderTabs ? "inspector-heading-files" : "itab-files"
           }
         >
-          <div className="ip">
-            <h4>本次会话改动</h4>
-            {fileChanges.length > 0 ? (
-              <div className="chg">
-                {fileChanges.map((item) => (
-                  <div className="chg-row" key={item.path} title={item.path}>
-                    <span className="p">{item.path}</span>
-                    <span className="add">+{item.add}</span>
-                    <span className="del">−{item.del}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="inspector-empty">
-                <span className="inspector-empty-icon">
-                  <InspectorTabIcon tab="files" />
-                </span>
-                <strong>暂无文件变更</strong>
-                <p>会话中的 write / edit 调用会显示在这里。</p>
-              </div>
-            )}
-          </div>
-
-          <div className="ip">
-            <h4>变更统计</h4>
-            <div className="metric">
-              <span className="m-k">文件</span>
-              <span className="m-v">{fileChanges.length}</span>
-            </div>
-            <div className="metric">
-              <span className="m-k">新增 / 删除</span>
-              <span className="m-v dim">
-                +{fileChanges.reduce((total, item) => total + item.add, 0)} / −
-                {fileChanges.reduce((total, item) => total + item.del, 0)}
-              </span>
-            </div>
-            <div className="metric">
-              <span className="m-k">写入调用</span>
-              <span className="m-v dim">{writeCalls}</span>
-            </div>
-          </div>
+          <SessionFilesPanel key={JSON.stringify([agent.name, sessionId])} entries={entries} onOpenFile={onOpenFile} />
         </div>
 
         <div

@@ -410,3 +410,8 @@ export function IconArrowRepeat({ size }: { size?: number }) {
     </IconBase>
   );
 }
+
+/** 工作区源码管理 */
+export function IconGit() {
+  return <IconBase><circle cx="6" cy="5" r="3" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="19" r="3" /><path d="M6 8v8m12-7c0 5-12 1-12 7" /></IconBase>;
+}

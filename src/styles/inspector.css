@@ -758,37 +758,6 @@
   overflow-wrap: anywhere;
 }
 
-.chg {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-size: 12.5px;
-}
-
-.chg-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-}
-
-.chg-row .p {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-}
-
-.chg-row .add {
-  color: var(--ok);
-}
-
-.chg-row .del {
-  color: var(--danger);
-}
-
 /* ============ 检查器：会话搜索面板 ============ */
 
 #ipanel-search.active {

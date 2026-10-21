@@ -22,6 +22,10 @@ fn roundtrip<T: DeserializeOwned + Serialize>(value: &Value) {
 fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_envelopes() {
     let wire: Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/ipc-wire.json")).unwrap();
+    roundtrip::<pipi_core::workspace::WorkspaceListing>(&wire["workspaceListing"]);
+    roundtrip::<pipi_core::workspace::WorkspaceFile>(&wire["workspaceFile"]);
+    roundtrip::<pipi_core::workspace::WorkspaceChanges>(&wire["workspaceChanges"]);
+    roundtrip::<pipi_core::workspace::WorkspaceDiff>(&wire["workspaceDiff"]);
     roundtrip::<AgentDefinition>(&wire["agent"]);
     roundtrip::<pipi_venv::agents::AgentEditableFiles>(&wire["agentFiles"]);
     roundtrip::<Model>(&wire["model"]);

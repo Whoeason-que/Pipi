@@ -44,6 +44,7 @@ interface ChatViewProps {
   sessions: SessionRuntime;
   blockedSessionIds: string[];
   onBack?: () => void;
+  onOpenFile?: (path: string) => void;
   onError: (msg: string) => void;
   onNewSession?: (previousSessionId?: string) => Promise<boolean>;
   onRunningChange: () => void;
@@ -67,6 +68,7 @@ export default function ChatView({
   sessions,
   blockedSessionIds,
   onBack,
+  onOpenFile,
   onError,
   onNewSession,
   onRunningChange,
@@ -529,6 +531,7 @@ export default function ChatView({
           <Inspector
             context={inspectorContext}
             onCompact={compactNow}
+            onOpenFile={onOpenFile}
             hidden={!inspectorOpen}
             rootRef={inspectorRef}
             activeTab={activeInspectorTab}

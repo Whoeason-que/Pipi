@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::settings::{self, Settings};
+use crate::workspace::{WorkspaceChanges, WorkspaceDiff, WorkspaceFile, WorkspaceListing};
 use pipi_agent::stats::SessionStats;
 use pipi_protocol::forum::{
     ForumRepo, NewPost, NewThread, Post, PostRange, PostVia, SearchHit, SearchOptions, Thread,
@@ -41,6 +42,10 @@ pub const COMMANDS: &[&str] = &[
     "list_agent_files",
     "read_agent_file",
     "write_agent_file",
+    "list_workspace_files",
+    "preview_workspace_file",
+    "workspace_changes",
+    "workspace_diff",
     "get_settings",
     "save_settings",
     "remote_access_status",
@@ -193,6 +198,61 @@ pub struct WriteAgentFileArgs {
 /// 写入 Agent 目录内的可编辑 Markdown（harness/AGENTS.md / harness/memory/*.md）。
 pub fn write_agent_file(runtime: &RuntimeState, args: WriteAgentFileArgs) -> Result<(), String> {
     runtime.write_agent_file(&args.agent_name, &args.rel_path, &args.content)
+}
+
+// ============ 工作区只读预览 ============
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListWorkspaceFilesArgs {
+    pub agent_name: String,
+    pub path: String,
+}
+
+pub async fn list_workspace_files(
+    args: ListWorkspaceFilesArgs,
+) -> Result<WorkspaceListing, String> {
+    tokio::task::spawn_blocking(move || crate::workspace::list_files(&args.agent_name, &args.path))
+        .await
+        .map_err(|e| format!("读取目录失败：{e}"))?
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewWorkspaceFileArgs {
+    pub agent_name: String,
+    pub path: String,
+}
+
+pub async fn preview_workspace_file(
+    args: PreviewWorkspaceFileArgs,
+) -> Result<WorkspaceFile, String> {
+    tokio::task::spawn_blocking(move || {
+        crate::workspace::preview_file(&args.agent_name, &args.path)
+    })
+    .await
+    .map_err(|e| format!("读取文件失败：{e}"))?
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChangesArgs {
+    pub agent_name: String,
+}
+
+pub async fn workspace_changes(args: WorkspaceChangesArgs) -> Result<WorkspaceChanges, String> {
+    crate::workspace::changes(&args.agent_name).await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceDiffArgs {
+    pub agent_name: String,
+    pub path: String,
+}
+
+pub async fn workspace_diff(args: WorkspaceDiffArgs) -> Result<WorkspaceDiff, String> {
+    crate::workspace::diff(&args.agent_name, &args.path).await
 }
 
 pub fn get_settings() -> Settings {
@@ -898,6 +958,10 @@ pub async fn dispatch(
         "list_agent_files" => to_value(list_agent_files(parse(args)?)?),
         "read_agent_file" => to_value(read_agent_file(parse(args)?)?),
         "write_agent_file" => to_value(write_agent_file(runtime, parse(args)?)?),
+        "list_workspace_files" => to_value(list_workspace_files(parse(args)?).await?),
+        "preview_workspace_file" => to_value(preview_workspace_file(parse(args)?).await?),
+        "workspace_changes" => to_value(workspace_changes(parse(args)?).await?),
+        "workspace_diff" => to_value(workspace_diff(parse(args)?).await?),
         "get_settings" => to_value(get_settings()),
         "save_settings" => to_value(save_settings(parse(args)?)?),
         "remote_access_status" => {
@@ -979,8 +1043,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            50,
-            "宿主命令数应为 50（前端 CommandMap 同步）"
+            54,
+            "宿主命令数应为 54（前端 CommandMap 同步）"
         );
     }
 

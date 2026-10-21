@@ -33,6 +33,7 @@ interface AgentWorkbenchProps {
   providers: ProviderConfig[];
   onSaved: (subagent?: boolean) => void | Promise<void>;
   onBack: () => void;
+  onOpenFile?: (path: string) => void;
   onError: (msg: string) => void;
   blockedSessionIds: string[];
   sessions: SessionRuntime;
@@ -46,6 +47,7 @@ export default function AgentWorkbench({
   providers,
   onSaved,
   onBack,
+  onOpenFile,
   onError,
   blockedSessionIds,
   sessions,
@@ -634,6 +636,7 @@ export default function AgentWorkbench({
               <Inspector
                 context={context}
                 onCompact={() => {}}
+                onOpenFile={onOpenFile}
                 embedded
                 allowCompact={false}
                 temporary
