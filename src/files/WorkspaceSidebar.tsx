@@ -22,15 +22,15 @@ export function WorkspaceSidebar({ state, agents, onSelectAgent }: {
     { name: "未跟踪", files: changeFiles.filter(file => file.status === "??") },
   ];
   return <div className="file-workbench workspace-files-sidebar">
-    <div className="file-workbench-header"><strong>{mode === "files" ? "File · 文件" : "Git · 改动"}</strong><button type="button" onClick={state.refresh} disabled={!agent}>刷新</button></div>
+    <div className="file-workbench-header"><strong>{mode === "files" ? "File · 文件" : "Git · 改动"}</strong><button type="button" className="btn small ghost" onClick={state.refresh} disabled={!agent}>刷新</button></div>
     <label className="workspace-agent-picker">Agent 工作区
-      <select aria-label="选择 Agent 工作区" value={agent?.name ?? ""} onChange={event => onSelectAgent(event.target.value || null)}>
+      <select className="text-input" aria-label="选择 Agent 工作区" value={agent?.name ?? ""} onChange={event => onSelectAgent(event.target.value || null)}>
         <option value="">请选择 Agent</option>
         {agents.map(item => <option value={item.name} key={item.name}>{item.name}{item.subagent ? " · Subagent" : ""}</option>)}
       </select>
     </label>
     {!agent ? <p className="file-notice">选择 Agent 后浏览它的工作目录，无需先打开会话。</p> : <>
-      <input className="file-filter" aria-label="筛选文件名" value={view.query} placeholder={mode === "files" ? "筛选已展开的文件…" : "筛选改动文件…"} onChange={event => store?.setQuery(event.target.value)} />
+      <input className="text-input file-filter" aria-label="筛选文件名" value={view.query} placeholder={mode === "files" ? "筛选已展开的文件…" : "筛选改动文件…"} onChange={event => store?.setQuery(event.target.value)} />
       {mode === "files" && <label className="file-hidden"><input type="checkbox" checked={view.showHidden} onChange={event => store?.setHidden(event.target.checked)} />显示隐藏文件</label>}
       <div className="workspace-file-list" aria-label={mode === "files" ? "工作区文件树" : "Git 改动列表"}>
         {mode === "files" ? <Directory key={store?.key} path="" depth={0} state={state} onOpen={open} />
@@ -44,7 +44,7 @@ export function WorkspaceSidebar({ state, agents, onSelectAgent }: {
           </section>)}
       </div>
       {mode === "files" ? <form className="file-open-path" onSubmit={event => { event.preventDefault(); if (path) open(path); }}>
-        <input aria-label="打开工作区文件路径" placeholder="输入文件路径…" value={path} onChange={event => setPath(event.target.value)} /><button type="submit" disabled={!path}>打开</button>
+        <input className="text-input" aria-label="打开工作区文件路径" placeholder="输入文件路径…" value={path} onChange={event => setPath(event.target.value)} /><button type="submit" className="btn" disabled={!path}>打开</button>
       </form> : <p className="file-notice">预览以 HEAD 对比当前工作树，合并展示已暂存和未暂存差异。</p>}
     </>}
   </div>;

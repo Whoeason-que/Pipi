@@ -67,10 +67,34 @@
   --composer-shadow: 0 6px 28px rgba(0, 6, 18, 0.16);
   --bg-fade: rgba(20, 26, 36, 0);
 
-  --r-sm: 8px;
-  --r: 10px;
-  --r-lg: 14px;
-  --r-xl: 20px;
+  /* 结构尺度不随主题改变；所有页面共用同一字号、间距与控件高度。 */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-body: 14px;
+  --text-prose: 15px;
+  --text-title: 24px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --control-sm: 30px;
+  --control: 36px;
+  --control-lg: 40px;
+  --touch-target: 44px;
+  --icon-sm: 14px;
+  --icon: 16px;
+  --toolbar-height: 60px;
+  --motion-fast: 140ms;
+  --focus-ring: 0 0 0 3px var(--accent-soft);
+
+  --r-sm: 6px;
+  --r: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
   --r-full: 999px;
   --rail-width: 60px;
   --safe-top: env(safe-area-inset-top, 0px);

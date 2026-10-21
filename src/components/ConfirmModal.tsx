@@ -29,6 +29,7 @@ export default function ConfirmModal({
         className="modal confirm-modal"
         role="alertdialog"
         aria-modal="true"
+        aria-busy={busy}
         aria-labelledby="confirm-title"
         onClick={(event) => event.stopPropagation()}
       >
@@ -48,6 +49,7 @@ export default function ConfirmModal({
           <button
             type="button"
             className="btn danger"
+            aria-busy={busy}
             disabled={busy}
             onClick={async () => {
               setBusy(true);

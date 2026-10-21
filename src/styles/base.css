@@ -24,7 +24,7 @@ body {
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--text-body);
 }
 
 button,
@@ -37,8 +37,14 @@ select {
 
 button {
   touch-action: manipulation;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
+
+button:disabled { cursor: not-allowed; }
+input::placeholder, textarea::placeholder { color: var(--faint); opacity: 1; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+[aria-busy="true"] { cursor: progress; }
 
 .mono {
   font-family: var(--font-mono);
@@ -50,7 +56,7 @@ button {
 
 /* 小号等宽提示文字（composer / 表单 / 消息脚注共用） */
 .hint {
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   color: var(--faint);
   font-family: inherit;
   line-height: 1.7;
@@ -76,7 +82,7 @@ button {
 
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
 #root {
@@ -88,7 +94,7 @@ kbd {
   color: var(--faint);
   border: 1px solid var(--line);
   white-space: nowrap;
-  font-size: 10px;
+  font-size: var(--text-xs);
   border-radius: 5px;
   padding: 1px 5px;
   background: var(--stripe);

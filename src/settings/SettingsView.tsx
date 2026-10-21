@@ -272,7 +272,7 @@ export default function SettingsView({
                 <div className="inline-value">
                   <input
                     id="retry-max-attempts"
-                    className="mono"
+                    className="text-input mono"
                     type="number"
                     min={1}
                     max={5}
@@ -297,7 +297,7 @@ export default function SettingsView({
                 <div className="inline-value">
                   <input
                     id="retry-base-delay"
-                    className="mono"
+                    className="text-input mono"
                     type="number"
                     min={100}
                     step={100}
@@ -324,7 +324,7 @@ export default function SettingsView({
                 <div className="inline-value">
                   <input
                     id="retry-max-delay"
-                    className="mono"
+                    className="text-input mono"
                     type="number"
                     min={1000}
                     step={1000}

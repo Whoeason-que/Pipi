@@ -53,17 +53,17 @@ export const FileContent = memo(function FileContent({ file, lines, onLines, onO
 
   return <>
     <div className="file-content-toolbar">
-      {file.kind === "markdown" && <button type="button" onClick={() => setRendered(!rendered)}>{rendered ? "查看源码" : "渲染预览"}</button>}
+      {file.kind === "markdown" && <button type="button" className="btn small" onClick={() => setRendered(!rendered)}>{rendered ? "查看源码" : "渲染预览"}</button>}
       {!rendered && <>
-        <input aria-label="查找文件内容" placeholder="查找内容…" value={query} onChange={e => { setQuery(e.target.value); setMatchIndex(0); }}
+        <input className="text-input" aria-label="查找文件内容" placeholder="查找内容…" value={query} onChange={e => { setQuery(e.target.value); setMatchIndex(0); }}
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setMatchIndex(i => i + (e.shiftKey ? Math.max(1, matches.length - 1) : 1)); } }} />
-        <button type="button" disabled={!matches.length} onClick={() => setMatchIndex(i => i + 1)}>{matches.length ? `${matchIndex % matches.length + 1}/${matches.length}` : "0"} ↓</button>
+        <button type="button" className="btn small ghost" disabled={!matches.length} onClick={() => setMatchIndex(i => i + 1)}>{matches.length ? `${matchIndex % matches.length + 1}/${matches.length}` : "0"} ↓</button>
       </>}
     </div>
     {file.truncated && <p className="file-notice">仅展示前 256 KiB；截断内容不能作为完整文件版本或选区引用。</p>}
     {rendered ? <div className="md file-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}
       components={{
-        img: ({ alt, src }) => { const path = linkedPath(file.path, src ?? ""); return path ? <button type="button" onClick={() => onOpen(path)}>打开图片：{alt || path}</button> : <span>[外部图片：{alt || "未自动加载"}]</span>; },
+        img: ({ alt, src }) => { const path = linkedPath(file.path, src ?? ""); return path ? <button type="button" className="btn small" onClick={() => onOpen(path)}>打开图片：{alt || path}</button> : <span>[外部图片：{alt || "未自动加载"}]</span>; },
         a: ({ href, children }) => { const path = linkedPath(file.path, href ?? ""); return path ? <button type="button" className="file-link" onClick={() => onOpen(path)}>{children}</button> : /^https?:\/\//i.test(href ?? "") ? <a href={href} target="_blank" rel="noreferrer noopener">{children}</a> : <span>{children}</span>; },
       }}>{content}</ReactMarkdown></div> : <>
       <p className="file-selection-hint">点击行号选择一行，Shift + 点击选择范围。</p>

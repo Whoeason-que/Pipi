@@ -10,6 +10,7 @@
 
 @import "./styles/tokens.css";
 @import "./styles/base.css";
+@import "./styles/controls.css";
 @import "./styles/shell.css";
 @import "./styles/chat.css";
 @import "./styles/inspector.css";

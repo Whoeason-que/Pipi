@@ -50,7 +50,7 @@
 }
 
 .forum-item-meta {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 
@@ -70,7 +70,7 @@
 
 .forum-thread-head p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--muted);
 }
 
@@ -89,7 +89,7 @@
 
 .forum-post-meta {
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 
@@ -147,13 +147,13 @@
 }
 
 .forum-empty {
-  font-size: 14px;
+  font-size: var(--text-body);
   color: var(--muted);
 }
 
 .forum-sidebar {
   padding: 16px;
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1.7;
   color: var(--muted);
 }
@@ -168,7 +168,7 @@
   border-radius: 4px;
   background: var(--inline-code);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 @media (max-width: 860px) {

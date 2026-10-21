@@ -422,7 +422,7 @@ export default function AgentWorkbench({
                   <label htmlFor="agent-description">描述</label>
                   <textarea
                     id="agent-description"
-                    className="meta-editor"
+                    className="text-input meta-editor"
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
                     placeholder="这个 Agent 是做什么的？"
@@ -452,7 +452,7 @@ export default function AgentWorkbench({
                   <label htmlFor="agent-workspace">工作目录</label>
                   <input
                     id="agent-workspace"
-                    className="mono"
+                    className="text-input mono"
                     value={workspace}
                     onChange={(event) => setWorkspace(event.target.value)}
                     placeholder={`~/.pipi/agents/${agent.name}/workspace（默认）`}
@@ -476,7 +476,7 @@ export default function AgentWorkbench({
                   <div className="inline-value">
                     <input
                       id="agent-compact-threshold"
-                      className="mono"
+                      className="text-input mono"
                       type="number"
                       min={1}
                       max={100}
@@ -496,7 +496,7 @@ export default function AgentWorkbench({
                   <div className="inline-value">
                     <input
                       id="agent-compact-target"
-                      className="mono"
+                      className="text-input mono"
                       type="number"
                       min={1}
                       max={99}
@@ -539,6 +539,7 @@ export default function AgentWorkbench({
                   {bashMode !== "allowAll" && (
                     <div className="perm-editor">
                       <textarea
+                        className="text-input"
                         value={commands}
                         onChange={(event) => setCommands(event.target.value)}
                         placeholder={

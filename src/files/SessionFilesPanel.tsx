@@ -19,7 +19,7 @@ export function SessionFilesPanel({ entries, onOpenFile }: { entries: ChatEntry[
     {files.map(file => <div className="file-tool" key={file.path}>
       {onOpenFile ? <button type="button" className="file-row" title={file.path} onClick={() => onOpenFile(file.path)}><span>{file.path}</span><small>在 File 打开</small></button> : <div className="file-row"><span>{file.path}</span></div>}
       <p className="file-notice">{file.calls} 次操作{file.errors ? ` · ${file.errors} 次失败` : ""}</p>
-      {file.operations.filter(operation => operation.patch).map((operation, index) => <button type="button" className="file-operation" key={operation.id} aria-pressed={operation.id === operationId}
+      {file.operations.filter(operation => operation.patch).map((operation, index) => <button type="button" className="btn small file-operation" key={operation.id} aria-pressed={operation.id === operationId}
         onClick={() => setOperationId(operation.id === operationId ? null : operation.id)}>{operation.name} 差异 {index + 1}{operation.error ? "（失败）" : ""}</button>)}
     </div>)}
     {source && <FilePreview path={source.type === "tool" ? source.path : null} source={source} onOpenFile={onOpenFile} />}

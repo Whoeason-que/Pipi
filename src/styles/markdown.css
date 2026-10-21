@@ -5,7 +5,7 @@
    ============================================================ */
 
 .md {
-  font-size: 15px;
+  font-size: var(--text-prose);
   line-height: 1.7;
   color: var(--fg);
   user-select: text;
@@ -97,7 +97,7 @@
 
 .codeblock-lang {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: #b4b4b4;
 }
 
@@ -105,7 +105,7 @@
   background: transparent;
   border: 0;
   color: #b4b4b4;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-family: inherit;
   cursor: pointer;
   padding: 3px 8px;
@@ -131,7 +131,7 @@
   background: none;
   border: none;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.6;
   color: #ececec;
 }
@@ -146,7 +146,7 @@
 .md table {
   border-collapse: collapse;
   margin: 10px 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   display: block;
   overflow-x: auto;
 }
