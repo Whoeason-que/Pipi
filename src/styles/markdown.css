@@ -1,12 +1,12 @@
 /* ============================================================
    Markdown 渲染 + 代码高亮
-   - 正文 15px/1.7（比 ChatGPT 的 16px 密一档，给工具日志留密度）
+   - 正文 16px/1.8，工具日志保留独立的紧凑字号
    - 代码块两个主题都是深底（ChatGPT 做法），hljs 只需一套配色
    ============================================================ */
 
 .md {
   font-size: var(--text-prose);
-  line-height: 1.7;
+  line-height: 1.8;
   color: var(--fg);
   user-select: text;
   overflow-wrap: anywhere;
@@ -21,7 +21,7 @@
 }
 
 .md p {
-  margin: 8px 0;
+  margin: 12px 0;
 }
 
 .md h1,
@@ -37,16 +37,16 @@
 }
 
 .md h1 {
-  font-size: 18px;
+  font-size: 22px;
 }
 .md h2 {
-  font-size: 16px;
+  font-size: 19px;
 }
 .md h3,
 .md h4,
 .md h5,
 .md h6 {
-  font-size: 14.5px;
+  font-size: 17px;
 }
 
 .md ul,

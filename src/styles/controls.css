@@ -9,7 +9,7 @@
   height: var(--control);
   padding: 0 var(--space-3);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-full);
   background: var(--card);
   color: var(--fg);
   font-size: var(--text-sm);

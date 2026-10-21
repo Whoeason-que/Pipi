@@ -2,16 +2,16 @@ import type { ThemeDefinition } from "../types.ts";
 
 export const lightTheme: ThemeDefinition = {
   id: "light",
-  label: "浅蓝日间",
-  description: "清爽透亮的明亮主题，适合日间光照环境使用。",
+  label: "极简浅色",
+  description: "纯白内容区与柔和灰阶，让阅读和对话更专注。",
   mode: "light",
   preview: {
-    bg: "#f8faff",
-    nav: "#f0f4fa",
-    rail: "#e9eef8",
+    bg: "#ffffff",
+    nav: "#f9f9f9",
+    rail: "#eeeeee",
     card: "#ffffff",
-    line: "#cbd6e8",
-    accent: "#365edc",
+    line: "#dedede",
+    accent: "#303030",
   },
   tokens: {}, // 全量使用 BASE_LIGHT_TOKENS
 };

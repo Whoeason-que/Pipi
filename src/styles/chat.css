@@ -37,7 +37,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: var(--space-6) 0 var(--space-5);
+  padding: var(--space-8) 0 var(--space-5);
 }
 
 /* 会话内容列：居中窄列（ChatGPT thread 宽度） */
@@ -45,8 +45,8 @@
 .row {
   display: flex;
   margin: 0 auto;
-  max-width: 860px;
-  padding: var(--space-4) var(--space-8);
+  max-width: var(--thread-width);
+  padding: var(--space-5) var(--space-6);
 }
 
 .row-inner {
@@ -67,15 +67,15 @@
 
 .user-bubble {
   max-width: 70%;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-border);
-  border-radius: var(--r-xl) var(--r-xl) var(--r-sm) var(--r-xl);
+  background: var(--hover-2);
+  border: 0;
+  border-radius: var(--r-xl);
   padding: var(--space-3) var(--space-4);
 }
 
 .user-text {
   font-size: var(--text-prose);
-  line-height: 1.7;
+  line-height: 1.8;
   color: var(--fg);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -164,6 +164,26 @@
   text-align: center;
   max-width: 100%;
   margin: 0;
+}
+
+/* 空会话把目标与输入放在同一个视觉中心；已有消息仍沿用底部输入。 */
+.empty-chat {
+  justify-content: center;
+  padding-bottom: clamp(24px, 10vh, 100px);
+}
+
+.empty-chat .log {
+  flex: 0 1 auto;
+  padding: 0;
+  scrollbar-gutter: auto;
+}
+
+.empty-chat .chat-welcome {
+  padding: 24px 24px 28px;
+}
+
+.empty-chat .composer {
+  margin: 0 auto;
 }
 
 /* 流式光标：ChatGPT 式脉动圆点 */
@@ -750,22 +770,21 @@ pre.code {
   color: var(--accent-text);
 }
 
-/* ============ 输入区：浮动圆角容器，上方渐变把滚动内容淡出 ============ */
+/* ============ 输入区：与正文同宽的浮动圆角容器 ============ */
 
 .composer {
-  padding-bottom: calc(12px + var(--safe-bottom));
   position: relative;
   width: 100%;
-  max-width: 880px;
+  max-width: var(--thread-width);
   margin: 0 auto;
-  padding: 14px 30px calc(15px + var(--safe-bottom));
+  padding: 14px 24px calc(14px + var(--safe-bottom));
 }
 
 .composer-box {
   position: relative;
   margin: 0 auto;
-  border: 1px solid var(--line);
-  border-radius: var(--r-xl);
+  border: 1px solid var(--line-soft);
+  border-radius: 28px;
   background: var(--chat-surface);
   box-shadow: var(--composer-shadow);
   transition:
@@ -774,10 +793,8 @@ pre.code {
 }
 
 .composer-box:focus-within {
-  border-color: var(--accent-border);
-  box-shadow:
-    0 0 0 3px var(--accent-soft),
-    var(--composer-shadow);
+  border-color: var(--line-2);
+  box-shadow: var(--composer-shadow);
 }
 
 .composer textarea {
@@ -790,9 +807,9 @@ pre.code {
   line-height: 1.6;
   color: var(--fg);
   display: block;
-  min-height: 76px;
-  font-size: var(--text-body);
-  padding: 17px 18px 8px;
+  min-height: 68px;
+  font-size: var(--text-prose);
+  padding: 19px 20px 8px;
 }
 
 .composer textarea::placeholder {
@@ -807,11 +824,11 @@ pre.code {
   display: flex;
   align-items: center;
   min-height: 46px;
-  gap: 10px;
-  padding: 2px 12px 11px 14px;
+  gap: 8px;
+  padding: 2px 12px 12px 14px;
 }
 
-/* 发送 / 停止：36px 圆形主按钮（ChatGPT 形态）。
+/* 发送 / 停止：40px 圆形主按钮（ChatGPT 形态）。
    hover 用 brightness 而不是通用 .btn:hover 的透明底，保持实心圆形态 */
 
 .btn.send,
@@ -820,9 +837,9 @@ pre.code {
   flex-shrink: 0;
   background: var(--primary-bg);
   color: var(--primary-fg);
-  border-radius: var(--r);
-  width: var(--control);
-  height: var(--control);
+  border-radius: var(--r-full);
+  width: var(--control-lg);
+  height: var(--control-lg);
 }
 
 .btn.send:hover:not(:disabled),
@@ -995,13 +1012,13 @@ pre.code {
 .chat-toolbar {
   flex-shrink: 0;
   gap: 12px;
-  border-bottom: 1px solid var(--line-soft);
+  border-bottom: 0;
   display: flex;
   align-items: center;
   position: relative;
   height: var(--toolbar-height);
   min-height: var(--toolbar-height);
-  padding: 0 var(--space-5);
+  padding: 0 var(--space-6);
   background: var(--bg);
 }
 
@@ -1024,8 +1041,8 @@ pre.code {
   text-overflow: ellipsis;
   color: var(--fg);
   white-space: nowrap;
-  font-size: var(--text-md);
-  font-weight: 600;
+  font-size: var(--text-body);
+  font-weight: 550;
   line-height: 1.5;
 }
 
@@ -1065,7 +1082,7 @@ pre.code {
   flex-shrink: 0;
   align-items: center;
   align-self: center;
-  height: 34px;
+  height: 40px;
   margin-bottom: 0;
   gap: 3px;
   padding: 3px;
@@ -1090,11 +1107,13 @@ pre.code {
     color 0.12s,
     background-color 0.12s,
     border-color 0.12s;
-  height: 27px;
-  padding: 0 9px;
+  height: 36px;
+  width: 36px;
+  padding: 0;
+  justify-content: center;
   gap: 5px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--r-full);
   font-size: var(--text-xs);
 }
 
@@ -1104,19 +1123,18 @@ pre.code {
   transition:
     opacity 0.12s,
     color 0.12s;
-  width: 13px;
-  height: 13px;
+  width: 17px;
+  height: 17px;
 }
 
 .bar-tab-title {
-  font-size: var(--text-xs);
-  letter-spacing: 0;
+  display: none;
 }
 
 .bar-tab:hover:not(.active) {
   color: var(--fg);
   background: var(--hover);
-  border-radius: 6px;
+  border-radius: var(--r-full);
 }
 
 .bar-tab:hover .bar-tab-icon {
@@ -1127,16 +1145,16 @@ pre.code {
   font-weight: 550;
   border-bottom: 1px solid var(--panel);
   z-index: 2;
-  background: var(--accent-soft);
-  color: var(--accent-text);
+  background: var(--hover-2);
+  color: var(--fg);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--r-full);
   box-shadow: none;
 }
 
 .bar-tab.active .bar-tab-icon {
   opacity: 1;
-  color: var(--accent-text);
+  color: var(--fg);
 }
 
 .bar-tab .tab-dot {
@@ -1159,10 +1177,10 @@ pre.code {
     border-color 0.13s,
     color 0.13s;
   border: 1px solid transparent;
-  border-radius: 7px;
-  height: 29px;
+  border-radius: var(--r-full);
+  height: 32px;
   padding: 0 7px;
-  background: var(--stripe);
+  background: transparent;
   font-size: var(--text-xs);
   max-width: 30ch;
   min-width: 0;
@@ -1219,9 +1237,9 @@ pre.code {
 
 .chat-welcome h2 {
   color: var(--fg);
-  margin: 12px 0 10px;
-  font-size: 28px;
-  font-weight: 600;
+  margin: 12px 0 8px;
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 550;
   letter-spacing: -0.7px;
 }
 
@@ -1278,10 +1296,10 @@ pre.code {
 }
 
 .chat-welcome .welcome-avatar {
-  width: 55px;
-  height: 55px;
-  border-radius: 17px;
-  margin-bottom: 19px;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  margin-bottom: 12px;
 }
 
 .welcome-kicker {
@@ -1293,8 +1311,8 @@ pre.code {
 .model-indicator {
   width: 6px;
   height: 6px;
-  border-radius: 2px;
-  background: var(--accent);
+  border-radius: var(--r-full);
+  background: var(--muted);
   flex-shrink: 0;
 }
 

@@ -405,7 +405,7 @@ export default function ChatView({
       />
 
       <div className="chat-body">
-        <div className="chat">
+        <div className={`chat${!isTest && entries.length === 0 ? " empty-chat" : ""}`}>
           <div
             className="log"
             ref={listRef}

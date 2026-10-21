@@ -454,27 +454,32 @@
     width: 100%;
     min-width: 0;
     max-width: 100%;
-    height: var(--touch-target);
+    height: 50px;
     justify-content: space-between;
-    padding: 4px 0;
+    padding: 2px 0;
     margin: 3px 0 0;
     border: 0;
-    border-top: 1px solid var(--line-soft);
     border-radius: 0;
     background: transparent;
     overflow-x: auto;
   }
 
   .chat-toolbar .bar-tab {
-    flex-shrink: 0;
-    min-height: var(--control);
-    height: var(--control);
-    gap: 5px;
-    padding: 0 7px;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-width: 0;
+    min-height: var(--touch-target);
+    height: var(--touch-target);
+    width: auto;
+    gap: 3px;
+    padding: 3px 2px;
+    border-radius: var(--r);
   }
 
   .chat-toolbar .bar-tab-title {
-    font-size: var(--text-xs);
+    display: block;
+    font-size: 11px;
+    line-height: 1.2;
   }
 
   .chat-toolbar .running-pill {
@@ -530,6 +535,14 @@
 
   .chat-welcome {
     padding-inline: 18px;
+  }
+
+  .empty-chat {
+    padding-bottom: 24px;
+  }
+
+  .empty-chat .chat-welcome {
+    padding: 20px 18px;
   }
 
   .agent-settings-footer {
@@ -929,12 +942,21 @@
     font-size: var(--text-sm);
   }
 
-  .chat-toolbar .bar-tab {
-    padding-inline: 6px;
+}
+
+/* 软键盘或横屏缩短可用高度时，优先给输入区留空间。 */
+@media (max-height: 600px) {
+  .empty-chat {
+    padding-bottom: 0;
   }
 
-  .chat-toolbar .bar-tab-title {
-    font-size: var(--text-xs);
+  .empty-chat .chat-welcome {
+    padding-block: 12px;
+  }
+
+  .empty-chat .welcome-avatar,
+  .empty-chat .chat-welcome p {
+    display: none;
   }
 }
 

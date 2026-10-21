@@ -73,7 +73,7 @@ export default function App() {
   viewRef.current = view;
   selectedRef.current = selected;
   activeSessionRef.current = activeSession;
-  const sidebarResize = useResizableWidth({ storageKey: "sidebar-width", initial: 272, min: 200, max: 460, edge: "right" });
+  const sidebarResize = useResizableWidth({ storageKey: "sidebar-width", initial: 248, min: 200, max: 460, edge: "right" });
 
   const commitView = useCallback((next: AppView) => {
     viewRef.current = next;
@@ -250,8 +250,7 @@ export default function App() {
           setNavSection(section); setSidebarCollapsed(false); setSidebarOpen(true);
         }} />
       <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "files" || navSection === "git" ? "工作区文件与 Git 改动" : "Agent 与会话列表"}>
-        <div className="sb-head"><button type="button" className="sidebar-home" aria-label={t("nav.home")} onClick={() => navigate({ kind: "home" })}><b>Pipi</b><span>{t("nav.workspace")}</span></button>
-          <span className="spacer" /><button type="button" className="icon-btn" title={t("nav.collapseSidebar")} aria-label={t("nav.collapseSidebar")} onClick={toggleNavigation}><IconPanel /></button></div>
+        <div className="sb-head"><span className="spacer" /><button type="button" className="icon-btn" title={t("nav.collapseSidebar")} aria-label={t("nav.collapseSidebar")} onClick={toggleNavigation}><IconPanel /></button></div>
         <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
         {view.kind === "settings" ? settings && <SettingsSidebar settings={settings} section={settingsSection}
           showLogout={!isTauriRuntime() && authStatus.authRequired}
@@ -275,7 +274,6 @@ export default function App() {
             onDeleteSession={(name, id) => void archive.deleteSession(name, id)} onToggleArchivedSessions={name => void archive.toggleArchivedSessions(name)}
             onRestoreSession={(name, id) => void archive.restoreSession(name, id)} onDeleteArchivedSession={(name, id) => void archive.deleteArchivedSession(name, id)}
             onToggleArchivedOpen={() => setArchivedOpen(open => !open)} />}
-        <div className="sidebar-footer"><span><i className="activity-dot" />{t("workspace.localWorkspace")}</span><span>v{__PIPI_VERSION__}</span></div>
       </aside>
       <div className="resize-handle sidebar-resize" title="拖动调整侧栏宽度" aria-label="调整侧栏宽度" {...sidebarResize.handleProps} />
       {sidebarOpen && <button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={closeNavigation} />}

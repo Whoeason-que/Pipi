@@ -20,7 +20,7 @@ export const DEFAULT_THEME_ID = "ink-blue";
 
 /**
  * 解析主题标识符，内置向下兼容逻辑：
- * 历史的 "dark" 映射到默认墨蓝，"light" 映射到默认浅蓝。
+ * 历史的 "dark" 映射到默认墨蓝，"light" 映射到极简浅色。
  */
 export function resolveTheme(themeId: string | null | undefined): ThemeDefinition {
   if (!themeId) return inkBlueTheme;
