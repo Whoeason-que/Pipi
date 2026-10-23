@@ -17,7 +17,7 @@ pub(super) fn append_declared_env(
         .collect();
     engine
         .record_env(declared)
-        .map_err(|error| format!("无法写入环境记账: {error}"))
+        .map_err(|error| format!("Cannot record environment ledger: {error}"))
 }
 
 pub(super) fn run_stream_options(
@@ -55,7 +55,7 @@ pub(super) fn resolve_model(
         .cloned()
         .or_else(|| def.provider.clone())
         .ok_or_else(|| {
-            "该 Agent 还未配置默认模型，且当前会话未选择模型（请在 Agent 详情页绑定，或在会话顶部选择模型）".to_string()
+            "Agent has no default model configured and no model is selected for current session (please bind in Agent details or select a model at the top of session)".to_string()
         })?;
     let settings = load_settings();
     // 同一端点可能被声明成两种协议（模型级覆盖 / 网关双协议）：先精确匹配
@@ -78,7 +78,7 @@ pub(super) fn resolve_model(
         })
         .ok_or_else(|| {
             format!(
-                "提供商 {} 未配置 API 密钥（设置 → 模型提供商）",
+                "Provider {} has no API key configured (Settings -> Model Providers)",
                 target.base_url
             )
         })?;
@@ -162,7 +162,7 @@ mod tests {
 
         // 回退默认模型
         let err = super::resolve_model(&def, None, None).unwrap_err();
-        assert!(err.contains("未配置 API 密钥"));
+        assert!(err.contains("no API key configured"));
 
         // 优先会话覆盖模型
         let err = super::resolve_model(&def, Some(&session_model), None).unwrap_err();

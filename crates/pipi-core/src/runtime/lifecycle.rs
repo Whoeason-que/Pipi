@@ -31,14 +31,14 @@ impl RuntimeState {
     ) -> Result<(), String> {
         self.remote
             .set(remote)
-            .map_err(|_| "远程访问控制器已装配".to_string())
+            .map_err(|_| "Remote access controller is already mounted".to_string())
     }
 
     pub fn remote_access(&self) -> Result<&dyn crate::remote::RemoteAccessControl, String> {
         self.remote
             .get()
             .map(Arc::as_ref)
-            .ok_or_else(|| "当前宿主未启用桌面远程访问管理".into())
+            .ok_or_else(|| "Desktop remote access management is not enabled on current host".into())
     }
 
     /// 把一轮运行交给注入的运行时执行（不依赖调用线程的 reactor 上下文）。
@@ -73,9 +73,9 @@ impl RuntimeState {
         let repo = Self::session_repo_for(agent_name)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         if !repo.exists(session_id)? {
-            return Err("会话不存在".into());
+            return Err("Session does not exist".into());
         }
-        self.detach_idle_session(&mut sessions, agent_name, session_id, "归档")?;
+        self.detach_idle_session(&mut sessions, agent_name, session_id, "archiving")?;
         repo.archive(session_id)
     }
 
@@ -92,9 +92,9 @@ impl RuntimeState {
         let repo = Self::session_repo_for(agent_name)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         if !repo.exists(session_id)? {
-            return Err("会话不存在".into());
+            return Err("Session does not exist".into());
         }
-        self.detach_idle_session(&mut sessions, agent_name, session_id, "删除")?;
+        self.detach_idle_session(&mut sessions, agent_name, session_id, "deleting")?;
         repo.delete(session_id)
     }
 
@@ -125,7 +125,7 @@ impl RuntimeState {
             .any(|(key, session)| key.agent_name == agent_name && self.session_occupied(session))
         {
             return Err(format!(
-                "Agent「{agent_name}」仍有会话正在运行或托管后台任务未结束，请先停止/终止后再导入"
+                "Agent \"{agent_name}\" still has sessions running or uncompleted managed background tasks; please stop or terminate them before importing"
             ));
         }
         sessions.retain(|key, _session| key.agent_name != agent_name);
@@ -144,7 +144,7 @@ impl RuntimeState {
             .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
         {
             return Err(format!(
-                "Agent「{name}」仍有会话正在运行或托管后台任务未结束，请先停止/终止后再归档"
+                "Agent \"{name}\" still has sessions running or uncompleted managed background tasks; please stop or terminate them before archiving"
             ));
         }
         // 空闲正式会话的 writer 也在这里释放，避免归档后仍有打开的文件句柄；
@@ -165,7 +165,7 @@ impl RuntimeState {
             .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
         {
             return Err(format!(
-                "Agent「{name}」仍有会话正在运行或托管后台任务未结束，请先停止/终止后再删除"
+                "Agent \"{name}\" still has sessions running or uncompleted managed background tasks; please stop or terminate them before deleting"
             ));
         }
         // 与归档相同：先释放所有空闲会话槽，再做不可逆删除。
@@ -182,7 +182,7 @@ impl RuntimeState {
         if sessions.iter().any(|(key, session)| {
             key.agent_name == def.name && session.temporary && self.session_occupied(session)
         }) {
-            return Err("临时测试仍在运行或托管后台任务未结束，请先停止/终止后再保存设置".into());
+            return Err("Temporary test is still running or has uncompleted managed background tasks; please stop or terminate them before saving settings".into());
         }
         agents::save_agent(def)?;
         // 已打开的正式会话持有 Agent 快照；只刷新压缩控制项，让用户保存后
@@ -209,7 +209,7 @@ impl RuntimeState {
         if sessions.iter().any(|(key, session)| {
             key.agent_name == agent_name && session.temporary && self.session_occupied(session)
         }) {
-            return Err("临时测试仍在运行或托管后台任务未结束，请先停止/终止后再保存文件".into());
+            return Err("Temporary test is still running or has uncompleted managed background tasks; please stop or terminate them before saving files".into());
         }
         agents::write_agent_file(agent_name, rel_path, content)?;
         sessions.retain(|key, session| !(key.agent_name == agent_name && session.temporary));

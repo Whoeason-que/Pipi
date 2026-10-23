@@ -12,10 +12,10 @@ impl RuntimeState {
         let key = SessionKey::new(agent_name, session_id);
         let session = sessions
             .get(&key)
-            .ok_or_else(|| format!("会话「{session_id}」没有打开"))?;
+            .ok_or_else(|| format!("Session \"{session_id}\" is not open"))?;
         let snapshot = session.engine.snapshot()?;
         if snapshot.running {
-            return Err("会话正在运行，请先停止再压缩".into());
+            return Err("Session is running, please stop it before compacting".into());
         }
         let def = &session.agent;
         let ResolvedModel {
@@ -51,7 +51,7 @@ impl RuntimeState {
             .prepare_compaction(request, hooks);
         self.spawn_run(async move {
             if let Err(error) = prepared.run().await {
-                eprintln!("pipi: 手动压缩失败: {error}");
+                eprintln!("pipi: manual compaction failed: {error}");
             }
         });
         Ok(())

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { codeFence, formatReference, linkedPath, makeReference, toolFiles } from "../src/files/model.ts";
+import { codeFence, formatReference, linkedPath, makeReference, markdownImagePath, toolFiles } from "../src/files/model.ts";
 import type { WorkspaceFile } from "../src/files/types.ts";
 import { WorkspaceViewStore } from "../src/files/workspace-view.ts";
 import { chatReducer, INITIAL_CHAT_STATE, type MessageView } from "../src/chat-runtime.ts";
@@ -29,6 +29,18 @@ test("Markdown 本地链接正确解析，网络和越界链接不作为工作�
   assert.equal(linkedPath("docs/readme.md", "../src/%E4%BD%A0%E5%A5%BD.ts#L2"), "src/你好.ts");
   assert.equal(linkedPath("docs/readme.md", "../../secret"), null);
   for (const url of ["https://example.com/a", "javascript:alert(1)", "//example.com/a", "data:text/html,a", "%ZZ", "#section"]) assert.equal(linkedPath("docs/readme.md", url), null);
+});
+
+test("聊天图片支持工作区相对路径、绝对路径和本地 file URL，不把网络地址当成本地文件", () => {
+  assert.equal(markdownImagePath("./.agents/report%20one.png"), ".agents/report one.png");
+  assert.equal(markdownImagePath("/project/%E5%9B%BE%E7%89%87.png#preview"), "/project/图片.png");
+  assert.equal(markdownImagePath("file:///project/report%20one.png"), "/project/report one.png");
+  assert.equal(markdownImagePath("file://localhost/project/chart.png"), "/project/chart.png");
+  assert.equal(markdownImagePath("file:///C:/project/chart.png"), "C:/project/chart.png");
+  assert.equal(markdownImagePath("C:\\project\\chart.png"), "C:/project/chart.png");
+  for (const path of ["https://example.com/a.png", "//example.com/a.png", "file://remote/project/a.png", "data:image/svg+xml,test", "javascript:alert(1)", "blob:other", "../outside.png", "%ZZ", ""]) {
+    assert.equal(markdownImagePath(path), null, path);
+  }
 });
 
 test("会话文件保留多次操作与失败标记，不把它们合成为工作区历史 diff", () => {

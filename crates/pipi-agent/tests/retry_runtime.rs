@@ -392,7 +392,11 @@ async fn truncated_response_preserves_prose_without_replaying_or_executing_tools
         error_message
             .as_deref()
             .unwrap()
-            .contains("已输出部分内容，未自动重试")
+            .contains("partial content already emitted")
+            || error_message
+                .as_deref()
+                .unwrap()
+                .contains("已输出部分内容，未自动重试")
     );
     let events = sink.lock().unwrap();
     for event in events.iter() {

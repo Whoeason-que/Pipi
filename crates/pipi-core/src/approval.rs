@@ -39,7 +39,7 @@ impl std::str::FromStr for ApprovalDecision {
             "always" => Ok(Self::Always),
             "deny" => Ok(Self::Deny),
             other => Err(format!(
-                "未知审批决定「{other}」（可选：allow / always / deny）"
+                "Unknown approval decision \"{other}\" (expected: allow / always / deny)"
             )),
         }
     }
@@ -87,7 +87,7 @@ impl ApprovalGate {
             .lock()
             .expect("审批登记表锁中毒")
             .remove(request_id)
-            .ok_or_else(|| "审批请求不存在或已过期".to_string())?;
+            .ok_or_else(|| "Approval request does not exist or has expired".to_string())?;
         let _ = sender.sender.send(decision);
         Ok(())
     }
@@ -195,13 +195,13 @@ impl CommandApprover for InteractiveApprover {
             decision = rx => match decision {
                 Ok(ApprovalDecision::Allow) => Ok(()),
                 Ok(ApprovalDecision::Always) => self.persist_allowlist(command),
-                Ok(ApprovalDecision::Deny) => Err("用户拒绝了该命令".into()),
+                Ok(ApprovalDecision::Deny) => Err("Command rejected by user".into()),
                 // 发送端已被移除（登记表被清理）——按失败处理，不放行
-                Err(_) => Err("审批通道已断开".into()),
+                Err(_) => Err("Approval channel disconnected".into()),
             },
-            _ = self.abort.wait_aborted() => Err("已中止".into()),
+            _ = self.abort.wait_aborted() => Err("Aborted".into()),
             _ = tokio::time::sleep(self.timeout) => Err(format!(
-                "审批超时（{APPROVAL_TIMEOUT_SECS} 秒未响应），命令未执行"
+                "Approval timed out ({APPROVAL_TIMEOUT_SECS}s without response), command not executed"
             )),
         };
 
@@ -337,7 +337,7 @@ mod tests {
         let request_id = sink.lock().unwrap()[0].request_id.clone();
         gate.resolve(&request_id, ApprovalDecision::Deny).unwrap();
         let error = pending.await.unwrap().unwrap_err();
-        assert!(error.contains("拒绝"));
+        assert!(error.contains("rejected"));
 
         // 已决请求不可再次决议；未知 ID 同样拒绝
         assert!(gate.resolve(&request_id, ApprovalDecision::Allow).is_err());
@@ -367,7 +367,7 @@ mod tests {
             .approve("wget http://example.com")
             .await
             .unwrap_err();
-        assert!(error.contains("超时"));
+        assert!(error.contains("timed out"));
         // 登记表已清理：迟到决议报「不存在」
         assert!(gate.resolve("anything", ApprovalDecision::Allow).is_err());
     }
@@ -393,6 +393,6 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(20)).await;
         abort.abort();
         let error = pending.await.unwrap().unwrap_err();
-        assert!(error.contains("中止"));
+        assert!(error.contains("Aborted"));
     }
 }

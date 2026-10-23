@@ -66,19 +66,19 @@ pub async fn start(
     assets: WebAssets,
 ) -> Result<ServerHandle, String> {
     if !addr.ip().is_loopback() && token.is_none() {
-        return Err("监听非回环地址必须配置访问令牌".into());
+        return Err("Access token must be configured when listening on non-loopback addresses".into());
     }
     if token.as_deref().is_some_and(|token| {
         token.is_empty() || token.chars().any(|c| c.is_ascii_control() || c == ';')
     }) {
-        return Err("访问令牌不能为空或包含控制字符、分号".into());
+        return Err("Access token cannot be empty or contain control characters or semicolons".into());
     }
     if !assets.has_index() {
-        return Err("远程网页资源缺失，请先运行 npm run build 或重新安装完整应用".into());
+        return Err("Remote web assets missing, please run npm run build or reinstall full application".into());
     }
     let listener = TcpListener::bind(addr)
         .await
-        .map_err(|e| format!("无法监听 {addr}：{e}。请检查端口是否被独立服务占用"))?;
+        .map_err(|e| format!("Cannot listen on {addr}: {e}. Please check if port is occupied by another service"))?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
     let clients = Arc::new(AtomicUsize::new(0));
     let (shutdown, receiver) = watch::channel(false);
@@ -99,7 +99,7 @@ pub async fn start(
                 }
             })
             .await
-            .map_err(|e| format!("远程服务异常结束：{e}"))
+            .map_err(|e| format!("Remote service exited abnormally: {e}"))
     });
     Ok(ServerHandle {
         addr,

@@ -14,7 +14,7 @@ pub fn kill_process_group(pid: u32) -> Result<(), String> {
     match killpg(Pid::from_raw(pid as i32), Signal::SIGKILL) {
         Ok(()) => Ok(()),
         Err(nix::errno::Errno::ESRCH) => Ok(()),
-        Err(error) => Err(format!("终止进程组 {pid} 失败: {error}")),
+        Err(error) => Err(format!("Failed to terminate process group {pid}: {error}")),
     }
 }
 
@@ -27,7 +27,7 @@ pub fn terminate_process_group(pid: u32) -> Result<(), String> {
     match killpg(Pid::from_raw(pid as i32), Signal::SIGTERM) {
         Ok(()) => Ok(()),
         Err(nix::errno::Errno::ESRCH) => Ok(()),
-        Err(error) => Err(format!("终止进程组 {pid} 失败: {error}")),
+        Err(error) => Err(format!("Failed to terminate process group {pid}: {error}")),
     }
 }
 

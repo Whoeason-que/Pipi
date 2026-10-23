@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,6 +14,7 @@ import { useDialogFocus } from "../components/use-dialog-focus";
 import {
   formatRuntimeError,
   groupChatBlocks,
+  isAwaitingResponse,
   type ApprovalDecisionValue,
   type Chip,
 } from "../chat-runtime";
@@ -105,6 +107,7 @@ export default function ChatView({
   const sessionModel = snapshot.model;
   const isCustomModel = snapshot.isCustomModel;
   const pendingApproval = snapshot.approval;
+  const connecting = ready && !stopping && !pendingApproval && isAwaitingResponse(snapshot.chat);
   const [atTail, setAtTail] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [pinnedFindKey, setPinnedFindKey] = useState<string | null>(null);
@@ -133,6 +136,8 @@ export default function ChatView({
     () => typeof window !== "undefined" && window.innerWidth <= 1100,
   );
   const listRef = useRef<HTMLDivElement>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const inspectorRef = useRef<HTMLElement>(null);
   useDialogFocus(
     inspectorRef,
@@ -188,6 +193,25 @@ export default function ChatView({
   const composingRef = useRef(false);
   const lastErrorRef = useRef(0);
   const lastChangeRef = useRef(snapshot.change?.revision ?? 0);
+
+  // 输入区覆盖在消息上方；按实际高度预留滚动空间，包含多行草稿、审批与安全提示。
+  useLayoutEffect(() => {
+    const chat = chatRef.current;
+    const composer = composerRef.current;
+    const list = listRef.current;
+    if (!chat || !composer || !list) return;
+    const update = () => {
+      chat.style.setProperty("--composer-height", `${composer.offsetHeight}px`);
+      if (followTailRef.current) {
+        list.scrollTo({ top: list.scrollHeight, behavior: "auto" });
+      }
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(composer);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     controller.updateAgent(agent);
@@ -405,7 +429,10 @@ export default function ChatView({
       />
 
       <div className="chat-body">
-        <div className={`chat${!isTest && entries.length === 0 ? " empty-chat" : ""}`}>
+        <div
+          className={`chat${!isTest && entries.length === 0 ? " empty-chat" : ""}`}
+          ref={chatRef}
+        >
           <div
             className="log"
             ref={listRef}
@@ -443,6 +470,8 @@ export default function ChatView({
               </div>
             )}
             <ChatTimeline
+              agent={agent}
+              connecting={connecting}
               blocks={blocks}
               activeChipId={activeChipId}
               pinnedChip={pinnedChip}
@@ -473,6 +502,7 @@ export default function ChatView({
           </div>
 
           <ChatComposer
+            containerRef={composerRef}
             draft={draft}
             ready={ready}
             running={running}

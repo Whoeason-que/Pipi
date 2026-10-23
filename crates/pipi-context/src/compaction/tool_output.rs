@@ -12,7 +12,7 @@ use super::{Plan, Preparation};
 use pipi_protocol::{Message, ToolResultContent};
 
 /// 占位符前缀：既是给模型看的说明，也是「已清理」的幂等标记。
-pub const CLEARED_TOOL_RESULT_PREFIX: &str = "[工具输出已清理";
+pub const CLEARED_TOOL_RESULT_PREFIX: &str = "[Tool output cleared";
 
 pub struct ToolOutputPrune;
 
@@ -117,11 +117,11 @@ fn cleared_message(
     else {
         return original.clone();
     };
-    let mut note = format!("{CLEARED_TOOL_RESULT_PREFIX}：{tool_name}，原文 {chars} 字符");
+    let mut note = format!("{CLEARED_TOOL_RESULT_PREFIX}: {tool_name}, original {chars} characters");
     if images > 0 {
-        note.push_str(&format!("、{images} 张图片"));
+        note.push_str(&format!(", {images} images"));
     }
-    note.push_str("。需要时重新执行该调用]");
+    note.push_str(". Re-execute this call if needed]");
     Message::ToolResult {
         tool_call_id: tool_call_id.clone(),
         tool_name: tool_name.to_string(),

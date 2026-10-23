@@ -277,7 +277,7 @@ pub fn load_settings() -> Settings {
         Ok(text) => match serde_json::from_str(&text) {
             Ok(settings) => settings,
             Err(e) => {
-                eprintln!("pipi: settings.json 格式错误，使用默认设置: {e}");
+                eprintln!("pipi: settings.json format error, using default settings: {e}");
                 Settings::default()
             }
         },
@@ -290,7 +290,7 @@ pub fn load_settings() -> Settings {
 /// （坏文件会被 `load_settings` 当成默认值，用户的配置就此静默丢失）。
 pub fn save_settings(settings: &Settings) -> Result<(), String> {
     let path =
-        pipi_venv::av::paths::settings_path().ok_or_else(|| "无法定位用户主目录".to_string())?;
+        pipi_venv::av::paths::settings_path().ok_or_else(|| "Cannot locate user home directory".to_string())?;
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     pipi_protocol::fs::write_atomic(&path, text + "\n").map_err(|e| e.to_string())
 }

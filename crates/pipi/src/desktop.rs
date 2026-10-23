@@ -29,11 +29,11 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     runtime.attach_remote_access(remote.clone())?;
     app.manage(remote.clone());
 
-    let show = MenuItem::with_id(app, "show", "显示 Pipi", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出 Pipi", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Pipi", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Pipi", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
     let mut tray = TrayIconBuilder::with_id("pipi")
-        .tooltip("Pipi · 远程访问运行时可在后台驻留")
+        .tooltip("Pipi · Remote access runtime can run in background")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_window(app),
@@ -49,7 +49,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         tray = tray.icon(icon.clone());
     }
     if let Err(error) = tray.build(app) {
-        eprintln!("无法创建托盘，关闭窗口将退出：{error}");
+        eprintln!("Failed to create system tray, closing window will exit: {error}");
     }
     tauri::async_runtime::spawn(async move {
         remote.restore().await;

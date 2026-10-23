@@ -120,14 +120,14 @@ impl FileForumRepo {
         {
             return Ok((dir, true));
         }
-        Err(format!("主题「{thread_id}」不存在"))
+        Err(format!("Thread \"{thread_id}\" does not exist"))
     }
 
     /// 枚举一个区里的主题目录 id（`file_type()` 不跟随符号链接，链接条目被跳过）。
     fn thread_ids_in(&self, dir: &Path) -> Result<Vec<String>, String> {
         let mut ids = Vec::new();
         let entries = fs::read_dir(dir)
-            .map_err(|error| format!("无法读取论坛目录 {}: {error}", dir.display()))?;
+            .map_err(|error| format!("Cannot read forum directory {}: {error}", dir.display()))?;
         for entry in entries {
             let entry = entry.map_err(|error| format!("枚举论坛目录失败: {error}"))?;
             let is_real_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
@@ -182,7 +182,7 @@ impl FileForumRepo {
     /// 在指定主题目录追一条帖子（**调用方必须已持有写锁**）。
     fn append_post_in(&self, thread_dir: &Path, draft: &NewPost) -> Result<Post, String> {
         if draft.body.trim().is_empty() {
-            return Err("帖子正文不能为空".into());
+            return Err("Post body cannot be empty".into());
         }
         let author = draft.author.trim().to_string();
         validate_author(&author)?;
@@ -192,7 +192,7 @@ impl FileForumRepo {
         for mention in &mentions {
             pipi_protocol::forum::validate_mention(mention)?;
         }
-        let posts_dir = self.ensured_real_dir(&thread_dir.join("posts"), "帖子目录")?;
+        let posts_dir = self.ensured_real_dir(&thread_dir.join("posts"), "posts directory")?;
         let existing = self.read_posts_in(thread_dir)?;
         let content_hash = content_hash(&draft.body);
 
@@ -203,7 +203,7 @@ impl FileForumRepo {
                 let parent = existing
                     .iter()
                     .find(|post| post.id == parent_id)
-                    .ok_or_else(|| format!("reply_to 指向本主题内不存在的帖子: {parent_id}"))?;
+                    .ok_or_else(|| format!("reply_to points to non-existent post in this thread: {parent_id}"))?;
                 let root = parent.root_id.clone().unwrap_or_else(|| parent.id.clone());
                 (
                     Some(parent_id.to_string()),
@@ -261,7 +261,7 @@ impl FileForumRepo {
                     seq += 1;
                     continue;
                 }
-                Err(error) => return Err(format!("创建帖子文件失败: {error}")),
+                Err(error) => return Err(format!("Failed to create post file: {error}")),
             }
         }
     }
@@ -269,11 +269,11 @@ impl FileForumRepo {
     /// 读一个主题目录的元数据（`thread.toml` 必须是真实普通文件）。
     fn read_thread_in(&self, thread_dir: &Path) -> Result<Thread, String> {
         let path = thread_dir.join("thread.toml");
-        if !pipi_protocol::fs::ensure_real_file(&path, "主题元数据")? {
-            return Err(format!("主题缺少 thread.toml: {}", path.display()));
+        if !pipi_protocol::fs::ensure_real_file(&path, "thread metadata")? {
+            return Err(format!("Thread is missing thread.toml: {}", path.display()));
         }
         let content = fs::read_to_string(&path)
-            .map_err(|error| format!("无法读取 {}: {error}", path.display()))?;
+            .map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
         decode_thread(&content)
     }
 
@@ -281,7 +281,7 @@ impl FileForumRepo {
     fn write_thread_in(&self, thread_dir: &Path, thread: &Thread) -> Result<(), String> {
         let path = thread_dir.join("thread.toml");
         pipi_protocol::fs::write_atomic(&path, encode_thread(thread))
-            .map_err(|error| format!("写入 {} 失败: {error}", path.display()))
+            .map_err(|error| format!("Failed to write {}: {error}", path.display()))
     }
 
     /// 在 TOML 表上原地更新 `thread.toml`（保留未知字段），用于改状态 / 置顶。
@@ -291,18 +291,18 @@ impl FileForumRepo {
         patch: impl FnOnce(&mut toml::Table),
     ) -> Result<(), String> {
         let path = thread_dir.join("thread.toml");
-        if !pipi_protocol::fs::ensure_real_file(&path, "主题元数据")? {
-            return Err(format!("主题缺少 thread.toml: {}", path.display()));
+        if !pipi_protocol::fs::ensure_real_file(&path, "thread metadata")? {
+            return Err(format!("Thread is missing thread.toml: {}", path.display()));
         }
         let content = fs::read_to_string(&path)
-            .map_err(|error| format!("无法读取 {}: {error}", path.display()))?;
+            .map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
         let mut table: toml::Table =
-            toml::from_str(&content).map_err(|error| format!("主题元数据解析失败: {error}"))?;
+            toml::from_str(&content).map_err(|error| format!("Failed to parse thread metadata: {error}"))?;
         patch(&mut table);
         let text =
-            toml::to_string(&table).map_err(|error| format!("序列化主题元数据失败: {error}"))?;
+            toml::to_string(&table).map_err(|error| format!("Failed to serialize thread metadata: {error}"))?;
         pipi_protocol::fs::write_atomic(&path, text)
-            .map_err(|error| format!("写入 {} 失败: {error}", path.display()))
+            .map_err(|error| format!("Failed to write {}: {error}", path.display()))
     }
 
     /// 找一个「同作者 + 同标题 + 首帖内容相同」的已有主题（新建时的幂等判据）。
@@ -482,11 +482,11 @@ impl ForumRepo for FileForumRepo {
         let _guard = self.lock()?;
         let (dir, archived) = self.locate(thread_id)?;
         if archived {
-            return Err(format!("主题「{thread_id}」已归档，不能回帖"));
+            return Err(format!("Thread \"{thread_id}\" is archived, cannot reply"));
         }
         let thread = self.read_thread_in(&dir)?;
         if thread.status == ThreadStatus::Closed {
-            return Err(format!("主题「{thread_id}」已关闭，不能回帖"));
+            return Err(format!("Thread \"{thread_id}\" is closed, cannot reply"));
         }
         self.append_post_in(&dir, draft)
     }
@@ -494,16 +494,16 @@ impl ForumRepo for FileForumRepo {
     fn search(&self, query: &str, options: SearchOptions) -> Result<Vec<SearchHit>, String> {
         let needle = query.trim().to_lowercase();
         if needle.is_empty() {
-            return Err("检索词不能为空".into());
+            return Err("Search query cannot be empty".into());
         }
         let needle_chars = needle.chars().count();
         // 活跃区，以及（可选）归档区依次扫描。
         let mut regions: Vec<PathBuf> = Vec::new();
-        if let Some(dir) = self.existing_real_dir(&self.threads_path(), "论坛主题目录")? {
+        if let Some(dir) = self.existing_real_dir(&self.threads_path(), "forum threads directory")? {
             regions.push(dir);
         }
         if options.include_archived
-            && let Some(dir) = self.existing_real_dir(&self.archive_path(), "归档目录")?
+            && let Some(dir) = self.existing_real_dir(&self.archive_path(), "archive directory")?
         {
             regions.push(dir);
         }
@@ -564,7 +564,7 @@ impl ForumRepo for FileForumRepo {
         let _guard = self.lock()?;
         let (dir, archived) = self.locate(thread_id)?;
         if archived {
-            return Err(format!("主题「{thread_id}」已归档"));
+            return Err(format!("Thread \"{thread_id}\" is archived"));
         }
         self.patch_thread_in(&dir, |table| {
             table.insert("status".into(), toml::Value::String(status.as_str().into()));
@@ -575,7 +575,7 @@ impl ForumRepo for FileForumRepo {
         let _guard = self.lock()?;
         let (dir, archived) = self.locate(thread_id)?;
         if archived {
-            return Err(format!("主题「{thread_id}」已归档"));
+            return Err(format!("Thread \"{thread_id}\" is archived"));
         }
         self.patch_thread_in(&dir, |table| {
             table.insert("pinned".into(), toml::Value::Boolean(pinned));
@@ -586,30 +586,30 @@ impl ForumRepo for FileForumRepo {
         let _guard = self.lock()?;
         let (dir, archived) = self.locate(thread_id)?;
         if archived {
-            return Err(format!("主题「{thread_id}」已在归档区"));
+            return Err(format!("Thread \"{thread_id}\" is already archived"));
         }
         let target = self
-            .ensured_real_dir(&self.archive_path(), "归档目录")?
+            .ensured_real_dir(&self.archive_path(), "archive directory")?
             .join(thread_id);
-        if self.existing_real_dir(&target, "归档主题目录")?.is_some() {
-            return Err(format!("归档区已存在主题「{thread_id}」"));
+        if self.existing_real_dir(&target, "archived thread directory")?.is_some() {
+            return Err(format!("Thread \"{thread_id}\" already exists in archive"));
         }
-        fs::rename(&dir, &target).map_err(|error| format!("归档主题失败: {error}"))
+        fs::rename(&dir, &target).map_err(|error| format!("Failed to archive thread: {error}"))
     }
 
     fn restore(&self, thread_id: &str) -> Result<(), String> {
         let _guard = self.lock()?;
         let (dir, archived) = self.locate(thread_id)?;
         if !archived {
-            return Err(format!("主题「{thread_id}」不在归档区"));
+            return Err(format!("Thread \"{thread_id}\" is not in archive"));
         }
         let target = self
-            .ensured_real_dir(&self.threads_path(), "论坛主题目录")?
+            .ensured_real_dir(&self.threads_path(), "forum threads directory")?
             .join(thread_id);
-        if self.existing_real_dir(&target, "主题目录")?.is_some() {
-            return Err(format!("活跃区已存在主题「{thread_id}」"));
+        if self.existing_real_dir(&target, "thread directory")?.is_some() {
+            return Err(format!("Thread \"{thread_id}\" already exists in active region"));
         }
-        fs::rename(&dir, &target).map_err(|error| format!("恢复主题失败: {error}"))
+        fs::rename(&dir, &target).map_err(|error| format!("Failed to restore thread: {error}"))
     }
 }
 
@@ -622,13 +622,13 @@ const MAX_AUTHOR_CHARS: usize = 100;
 fn validate_title(title: &str) -> Result<(), String> {
     let title = title.trim();
     if title.is_empty() {
-        return Err("主题标题不能为空".into());
+        return Err("Thread title cannot be empty".into());
     }
     if title.chars().count() > MAX_TITLE_CHARS {
-        return Err(format!("主题标题过长（最多 {MAX_TITLE_CHARS} 字符）"));
+        return Err(format!("Thread title too long (maximum {MAX_TITLE_CHARS} characters)"));
     }
     if title.chars().any(char::is_control) {
-        return Err("主题标题不能包含控制字符或换行".into());
+        return Err("Thread title cannot contain control characters or newlines".into());
     }
     Ok(())
 }
@@ -637,13 +637,13 @@ fn validate_title(title: &str) -> Result<(), String> {
 fn validate_author(author: &str) -> Result<(), String> {
     let author = author.trim();
     if author.is_empty() {
-        return Err("帖子作者不能为空".into());
+        return Err("Post author cannot be empty".into());
     }
     if author.chars().count() > MAX_AUTHOR_CHARS {
-        return Err(format!("作者名过长（最多 {MAX_AUTHOR_CHARS} 字符）"));
+        return Err(format!("Author name too long (maximum {MAX_AUTHOR_CHARS} characters)"));
     }
     if author.chars().any(char::is_control) {
-        return Err("作者名不能包含控制字符或换行".into());
+        return Err("Author name cannot contain control characters or newlines".into());
     }
     Ok(())
 }

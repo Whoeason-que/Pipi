@@ -28,11 +28,11 @@ pub fn branch_at(exec: &GitExec, ref_name: &str, commit: &str) -> Result<(), Str
 pub fn archive(exec: &GitExec, session_id: &str) -> Result<(), String> {
     let source = session_ref(session_id);
     let Some(tip) = exec.resolve_ref(&source)? else {
-        return Err("会话不存在".into());
+        return Err("Session does not exist".into());
     };
     let target = archive_ref(session_id);
     if exec.resolve_ref(&target)?.is_some() {
-        return Err("归档区已存在同名会话".into());
+        return Err("Session with the same ID already exists in archive".into());
     }
     branch_at(exec, &target, &tip)?;
     exec.run(&["update-ref", "-d", &source]).map(|_| ())
@@ -42,11 +42,11 @@ pub fn archive(exec: &GitExec, session_id: &str) -> Result<(), String> {
 pub fn restore(exec: &GitExec, session_id: &str) -> Result<(), String> {
     let source = archive_ref(session_id);
     let Some(tip) = exec.resolve_ref(&source)? else {
-        return Err("归档区没有该会话".into());
+        return Err("Session does not exist in archive".into());
     };
     let target = session_ref(session_id);
     if exec.resolve_ref(&target)?.is_some() {
-        return Err("活跃区已存在同名会话".into());
+        return Err("Session with the same ID already exists in active region".into());
     }
     branch_at(exec, &target, &tip)?;
     exec.run(&["update-ref", "-d", &source]).map(|_| ())
@@ -95,8 +95,8 @@ mod tests {
         let tip = exec.resolve_ref("refs/heads/main").unwrap().unwrap();
 
         // 空仓库里归档/恢复报「不存在」；删不存在的 ref 是幂等空操作
-        assert_eq!(archive(&exec, "s1").unwrap_err(), "会话不存在");
-        assert_eq!(restore(&exec, "s1").unwrap_err(), "归档区没有该会话");
+        assert_eq!(archive(&exec, "s1").unwrap_err(), "Session does not exist");
+        assert_eq!(restore(&exec, "s1").unwrap_err(), "Session does not exist in archive");
         assert!(delete_branch(&exec, &session_ref("s1")).is_ok());
 
         branch_at(&exec, &session_ref("s1"), &tip).unwrap();
@@ -109,9 +109,9 @@ mod tests {
         assert_eq!(list_ids(&exec, ARCHIVE_PREFIX).unwrap(), vec!["s1"]);
         // 归档区已有同名会话时拒绝再归档
         branch_at(&exec, &session_ref("s1"), &tip).unwrap();
-        assert_eq!(archive(&exec, "s1").unwrap_err(), "归档区已存在同名会话");
+        assert_eq!(archive(&exec, "s1").unwrap_err(), "Session with the same ID already exists in archive");
         // 活跃区已有同名会话时拒绝恢复
-        assert_eq!(restore(&exec, "s1").unwrap_err(), "活跃区已存在同名会话");
+        assert_eq!(restore(&exec, "s1").unwrap_err(), "Session with the same ID already exists in active region");
 
         delete_branch(&exec, &session_ref("s1")).unwrap();
         assert!(!exec.ref_exists(&session_ref("s1")).unwrap());

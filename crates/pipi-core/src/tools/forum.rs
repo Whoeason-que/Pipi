@@ -226,7 +226,7 @@ impl AgentTool for ForumPostTool {
             origin: Some(self.origin.clone()),
         };
         let thread = self.repo.create_thread(&draft)?;
-        let text = format!("已创建主题 {}：《{}》", thread.id, thread.title);
+        let text = format!("Created thread {}: \"{}\"", thread.id, thread.title);
         Ok(text_output(
             text,
             serde_json::to_value(&thread).map_err(|e| e.to_string())?,
@@ -297,7 +297,7 @@ impl AgentTool for ForumReplyTool {
             origin: Some(self.origin.clone()),
         };
         let post = self.repo.append_post(thread_id, &draft)?;
-        let text = format!("已回帖 #{} 到主题 {thread_id}", post.seq);
+        let text = format!("Replied post #{} to thread {thread_id}", post.seq);
         Ok(text_output(
             text,
             serde_json::to_value(&post).map_err(|e| e.to_string())?,
@@ -318,7 +318,7 @@ fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("缺少 {key}"))
+        .ok_or_else(|| format!("Missing {key}"))
 }
 
 fn parse_status(value: Option<&Value>) -> Result<Option<ThreadStatus>, String> {
@@ -326,7 +326,7 @@ fn parse_status(value: Option<&Value>) -> Result<Option<ThreadStatus>, String> {
         None => Ok(None),
         Some("open") => Ok(Some(ThreadStatus::Open)),
         Some("closed") => Ok(Some(ThreadStatus::Closed)),
-        Some(other) => Err(format!("status 只能是 open 或 closed（得到 {other:?}）")),
+        Some(other) => Err(format!("status must be open or closed (got {other:?})")),
     }
 }
 
@@ -338,18 +338,18 @@ fn string_array(value: Option<&Value>) -> Result<Vec<String>, String> {
             .map(|item| {
                 item.as_str()
                     .map(str::to_string)
-                    .ok_or_else(|| "数组元素必须是字符串".to_string())
+                    .ok_or_else(|| "Array element must be a string".to_string())
             })
             .collect(),
-        Some(_) => Err("必须是字符串数组".into()),
+        Some(_) => Err("Must be an array of strings".into()),
     }
 }
 
 fn render_list(threads: &[pipi_protocol::forum::ThreadSummary]) -> String {
     if threads.is_empty() {
-        return "论坛还没有主题。".into();
+        return "Forum has no threads yet.".into();
     }
-    let mut lines = vec![format!("论坛主题（{} 个）：", threads.len())];
+    let mut lines = vec![format!("Forum threads ({}):", threads.len())];
     for summary in threads {
         let thread = &summary.thread;
         let tags = if thread.tags.is_empty() {
@@ -360,7 +360,7 @@ fn render_list(threads: &[pipi_protocol::forum::ThreadSummary]) -> String {
         let pin = if thread.pinned { "📌 " } else { "" };
         let author = summary.last_author.as_deref().unwrap_or(&thread.author);
         lines.push(format!(
-            "- {pin}{}  [{}]  {}{}  （{} 帖，最后 {} 由 {}）",
+            "- {pin}{}  [{}]  {}{}  ({} posts, last {} by {})",
             thread.id,
             thread.status.as_str(),
             thread.title,
@@ -378,7 +378,7 @@ fn render_list(threads: &[pipi_protocol::forum::ThreadSummary]) -> String {
 /// 第二个值用于「读取即消费」：只有出现在模型可见输出里的帖子才算已读。
 fn render_read(thread: &Thread, posts: &[Post]) -> (String, Option<String>) {
     let mut out = format!(
-        "# {}  [{}]  {}\n起帖 {} @ {}\n",
+        "# {}  [{}]  {}\nStarted by {} @ {}\n",
         thread.title,
         thread.status.as_str(),
         thread.id,
@@ -387,7 +387,7 @@ fn render_read(thread: &Thread, posts: &[Post]) -> (String, Option<String>) {
     );
     let mut used = out.chars().count();
     if posts.is_empty() {
-        out.push_str("（该主题还没有帖子）\n");
+        out.push_str("(This thread has no posts yet)\n");
         return (out, None);
     }
     let mut last_visible: Option<String> = None;
@@ -411,7 +411,7 @@ fn render_read(thread: &Thread, posts: &[Post]) -> (String, Option<String>) {
     }
     if omitted > 0 {
         out.push_str(&format!(
-            "（输出已达预算，{omitted} 条帖子未显示；用 offset 继续读取）\n"
+            "(Output reached budget, {omitted} posts omitted; use offset to continue reading)\n"
         ));
     }
     (out, last_visible)
@@ -523,7 +523,7 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(err.contains("不存在"), "{err}");
+        assert!(err.contains("non-existent") || err.contains("not exist"), "{err}");
         assert!(
             ForumListTool::new(repo.clone())
                 .execute(&ctx, &json!({ "status": "bogus" }), &noop)

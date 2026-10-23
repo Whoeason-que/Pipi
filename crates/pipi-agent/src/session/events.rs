@@ -16,10 +16,10 @@ pub(super) fn make_emitter(
         if let AgentEvent::MessageEnd { message } = &event {
             let result = writer
                 .lock()
-                .map_err(|e| format!("无法锁定会话写入器: {e}"))
+                .map_err(|e| format!("Cannot lock session writer: {e}"))
                 .and_then(|mut w| {
                     w.append_message(message)
-                        .map_err(|e| format!("会话消息落盘失败: {e}"))
+                        .map_err(|e| format!("Failed to persist session message: {e}"))
                 });
             if let Err(error) = result {
                 hooks.error(&session_id, run_id, error);
@@ -27,7 +27,7 @@ pub(super) fn make_emitter(
             if message.role() == "assistant" {
                 let snapshot = stats
                     .lock()
-                    .map_err(|e| format!("无法更新会话统计: {e}"))
+                    .map_err(|e| format!("Cannot update session stats: {e}"))
                     .map(|mut tracker| {
                         tracker.record(message);
                         tracker.snapshot()

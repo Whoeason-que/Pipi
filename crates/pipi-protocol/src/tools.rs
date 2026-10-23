@@ -64,13 +64,13 @@ impl ToolContext {
     pub fn ensure_writable(&self, path: &Path) -> Result<(), String> {
         match self.sandbox {
             SandboxMode::DangerFullAccess => Ok(()),
-            SandboxMode::ReadOnly => Err("沙箱策略为 read-only：禁止写入文件".into()),
+            SandboxMode::ReadOnly => Err("Sandbox policy is read-only: file writing is prohibited".into()),
             SandboxMode::WorkspaceWrite => {
                 crate::permissions::resolve_write_target(&self.workspace, path)
                     .map(|_| ())
                     .map_err(|_| {
                         format!(
-                            "沙箱策略为 workspace-write：{} 在工作目录 {} 之外",
+                            "Sandbox policy is workspace-write: {} is outside workspace {}",
                             path.display(),
                             self.workspace.display()
                         )
@@ -119,9 +119,9 @@ pub fn resolve_read_path(
 ) -> Result<PathBuf, String> {
     let requested = resolve_path(workspace, path)?;
     let target = std::fs::canonicalize(&requested)
-        .map_err(|e| format!("无法读取文件 {path}：无法解析路径（文件不存在或链接无效）：{e}"))?;
+        .map_err(|e| format!("Cannot read file {path}: failed to resolve path (file does not exist or link is invalid): {e}"))?;
     std::fs::metadata(&target)
-        .map_err(|e| format!("无法读取文件 {path}：无法确认目标文件状态：{e}"))?;
+        .map_err(|e| format!("Cannot read file {path}: failed to verify target file status: {e}"))?;
 
     let mut roots = Vec::with_capacity(read_roots.len() + 1);
     roots.push(workspace.to_path_buf());
@@ -129,19 +129,19 @@ pub fn resolve_read_path(
     for root in roots {
         let canonical_root = std::fs::canonicalize(&root).map_err(|e| {
             format!(
-                "无法读取文件 {path}：无法验证受信任读取目录 {}：{e}",
+                "Cannot read file {path}: failed to verify trusted read directory {}: {e}",
                 root.display()
             )
         })?;
         let metadata = std::fs::metadata(&canonical_root).map_err(|e| {
             format!(
-                "无法读取文件 {path}：无法确认受信任读取目录 {}：{e}",
+                "Cannot read file {path}: failed to verify trusted read directory {}: {e}",
                 canonical_root.display()
             )
         })?;
         if !metadata.is_dir() {
             return Err(format!(
-                "无法读取文件 {path}：读取根 {} 不是目录",
+                "Cannot read file {path}: read root {} is not a directory",
                 canonical_root.display()
             ));
         }
@@ -151,7 +151,7 @@ pub fn resolve_read_path(
     }
 
     Err(format!(
-        "拒绝读取 {path}：路径不在工作目录或受信任 skill 目录内"
+        "Reading {path} is rejected: path is not within workspace or trusted skill directories"
     ))
 }
 
@@ -159,14 +159,14 @@ pub fn resolve_read_path(
 /// 是后续项，见 lib.rs「尚未移植」）。
 pub fn validate_args(parameters: &Value, args: &Value) -> Result<(), String> {
     if !args.is_object() {
-        return Err("工具参数必须是 JSON 对象".into());
+        return Err("Tool arguments must be a JSON object".into());
     }
     if let Some(required) = parameters["required"].as_array() {
         for name in required {
             if let Some(name) = name.as_str()
                 && args.get(name).is_none()
             {
-                return Err(format!("缺少必需参数: {name}"));
+                return Err(format!("Missing required parameter: {name}"));
             }
         }
     }

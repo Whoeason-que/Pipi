@@ -434,7 +434,9 @@ function startDemoRun(conversation: DemoConversation, prompt: string): void {
     }
     steps[stepIndex]();
     stepIndex += 1;
-    conversation.runTimer = setTimeout(runNextStep, 240);
+    // 显式首响应延迟演示；仅开发模式，不调用真实模型。
+    const delay = stepIndex === 1 && prompt.startsWith("[延迟演示]") ? 10_000 : 240;
+    conversation.runTimer = setTimeout(runNextStep, delay);
   };
   conversation.runTimer = setTimeout(runNextStep, 120);
 }

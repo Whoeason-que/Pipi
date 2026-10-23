@@ -83,7 +83,7 @@ pub(crate) async fn run_agent_once_with_sink(
 ) -> Result<AgentRunResult, String> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
-        return Err("空消息".into());
+        return Err("Message cannot be empty".into());
     }
     let definition = agents::load_agent(agent_name)?;
     let repo = session_repo(&definition)?;
@@ -154,13 +154,13 @@ pub(crate) async fn run_agent_once_with_sink(
             match envelope.event {
                 AgentEvent::ToolExecutionStart { tool_name, .. } => {
                     let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
-                        "子 Agent 正在调用工具 {tool_name}"
+                        "Subagent is calling tool {tool_name}"
                     )));
                 }
                 AgentEvent::MessageEnd { message } if message.role() == "assistant" => {
                     let turn = turns.fetch_add(1, Ordering::AcqRel) + 1;
                     let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
-                        "子 Agent 完成第 {turn} 轮回复"
+                        "Subagent completed turn {turn}"
                     )));
                 }
                 _ => {}
@@ -186,7 +186,7 @@ pub(crate) async fn run_agent_once_with_sink(
         compaction: None,
         timeout: Some(RunTimeout {
             duration: timeout,
-            message: format!("子任务运行超时（{} 秒），已终止", timeout.as_secs()),
+            message: format!("Subtask run timed out ({} seconds), terminated", timeout.as_secs()),
         }),
     };
     let outcome = reservation
@@ -284,8 +284,8 @@ mod tests {
         .unwrap();
         assert_eq!(result.status, AgentRunStatus::Failed);
         assert!(
-            result.response.contains("超时"),
-            "应报超时: {}",
+            result.response.contains("timed out"),
+            "should report timeout: {}",
             result.response
         );
 

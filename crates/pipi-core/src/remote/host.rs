@@ -10,20 +10,20 @@ pub struct HostLease {
 
 impl HostLease {
     pub fn acquire() -> Result<Self, String> {
-        Self::at(&paths::host_lock_path().ok_or("无法定位 Pipi 数据目录")?)
+        Self::at(&paths::host_lock_path().ok_or("Cannot locate Pipi data directory")?)
     }
 
     fn at(path: &Path) -> Result<Self, String> {
-        fs::create_dir_all(path.parent().ok_or("无效锁路径")?).map_err(|e| e.to_string())?;
+        fs::create_dir_all(path.parent().ok_or("Invalid lock path")?).map_err(|e| e.to_string())?;
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
             .open(path)
-            .map_err(|e| format!("打开宿主锁失败：{e}"))?;
+            .map_err(|e| format!("Failed to open host lock: {e}"))?;
         file.try_lock().map_err(|_| {
-            "此数据目录已有 Pipi 宿主运行，请先退出另一个桌面应用或独立服务".to_string()
+            "Another Pipi host is already running in this data directory, please exit the other desktop app or standalone service first".to_string()
         })?;
         file.set_len(0).map_err(|e| e.to_string())?;
         write!(file, "{}", std::process::id()).map_err(|e| e.to_string())?;

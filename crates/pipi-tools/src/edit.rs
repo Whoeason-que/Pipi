@@ -116,19 +116,19 @@ pub fn diff_summary(base: &str, new: &str) -> (String, Option<usize>) {
 }
 
 fn parse_edits(value: &Value) -> Result<Vec<Edit>, String> {
-    let arr = value["edits"].as_array().ok_or("缺少 edits 数组")?;
+    let arr = value["edits"].as_array().ok_or("Missing edits array")?;
     arr.iter()
         .map(|e| {
             Ok(Edit {
                 old_text: e["oldText"]
                     .as_str()
                     .or_else(|| e["old_text"].as_str())
-                    .ok_or("edits[] 缺少 oldText")?
+                    .ok_or("edits[] missing oldText")?
                     .to_string(),
                 new_text: e["newText"]
                     .as_str()
                     .or_else(|| e["new_text"].as_str())
-                    .ok_or("edits[] 缺少 newText")?
+                    .ok_or("edits[] missing newText")?
                     .to_string(),
             })
         })
@@ -176,7 +176,7 @@ impl AgentTool for EditTool {
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());
         }
-        let path = args["path"].as_str().ok_or("缺少 path")?;
+        let path = args["path"].as_str().ok_or("Missing path")?;
         let edits = parse_edits(args)?;
 
         let abs = if matches!(

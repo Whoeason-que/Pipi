@@ -1,7 +1,7 @@
 import type { AgentDefinition, SessionSummaryView } from "../types.ts";
 
 export type AgentSection = "agents" | "subagents";
-export type NavSection = AgentSection | "search" | "skills" | "forum" | "files" | "git";
+export type NavSection = AgentSection | "workspaces" | "search" | "skills" | "forum" | "files" | "git";
 
 export function agentSection(agent: Pick<AgentDefinition, "subagent"> | undefined): AgentSection {
   return agent?.subagent ? "subagents" : "agents";
@@ -13,7 +13,7 @@ export function agentsInSection(agents: AgentDefinition[], section: AgentSection
 
 export type AppView =
   | { kind: "home"; section?: AgentSection }
-  | { kind: "create" | "skills" | "settings" | "forum" }
+  | { kind: "create" | "skills" | "settings" | "forum" | "workspaces" }
   | { kind: "agent" | "workbench"; agentName: string }
   | { kind: "files" | "git"; agentName: string | null }
   | { kind: "chat"; agentName: string; sessionId: string | null };
@@ -21,12 +21,13 @@ export type AppView =
 export type QuickTarget =
   | { kind: "agent"; agentName: string }
   | { kind: "chat"; agentName: string; sessionId: string }
-  | { kind: "action"; action: "home" | "create" | "skills" | "settings" | "new-session" | "files" | "git" };
+  | { kind: "action"; action: "home" | "create" | "skills" | "settings" | "new-session" | "files" | "git" | "workspaces" };
 export interface QuickItem { id: string; label: string; detail: string; target: QuickTarget }
 
 export function quickItems(agents: AgentDefinition[], sessions: Record<string, SessionSummaryView[]>, current: string | null): QuickItem[] {
   const actions: QuickItem[] = [
     { id: "home", label: "回到首页", detail: "浏览全部 Agent", target: { kind: "action", action: "home" } },
+    { id: "workspaces", label: "工作区管理", detail: "切换与管理工作区", target: { kind: "action", action: "workspaces" } },
     { id: "create", label: "新建 Agent", detail: "创建一个持久的助手", target: { kind: "action", action: "create" } },
     { id: "files", label: "打开 File 文件", detail: current || "选择 Agent 工作区", target: { kind: "action", action: "files" } },
     { id: "git", label: "打开 Git 改动", detail: current || "选择 Agent 工作区", target: { kind: "action", action: "git" } },

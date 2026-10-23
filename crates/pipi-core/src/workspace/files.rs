@@ -52,8 +52,8 @@ fn list_at(root: &Path, input: &str) -> Result<WorkspaceListing, String> {
     let dir = resolve(root, input, false)?;
     let mut entries = Vec::new();
     let mut truncated = false;
-    for entry in std::fs::read_dir(&dir).map_err(|e| format!("无法读取目录：{e}"))? {
-        let entry = entry.map_err(|e| format!("无法读取目录项：{e}"))?;
+    for entry in std::fs::read_dir(&dir).map_err(|e| format!("Cannot read directory: {e}"))? {
+        let entry = entry.map_err(|e| format!("Cannot read directory entry: {e}"))?;
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
             continue;
         };
@@ -104,7 +104,7 @@ pub(super) fn preview_at(root: &Path, input: &str) -> Result<WorkspaceFile, Stri
         .map_err(|e| e.to_string())?
         .is_file()
     {
-        return Err("只能预览普通文件".into());
+        return Err("Only regular files can be previewed".into());
     }
     let mut options = File::options();
     options.read(true);
@@ -116,10 +116,10 @@ pub(super) fn preview_at(root: &Path, input: &str) -> Result<WorkspaceFile, Stri
     }
     let file = options
         .open(&path)
-        .map_err(|e| format!("无法打开文件：{e}"))?;
+        .map_err(|e| format!("Cannot open file: {e}"))?;
     let before = file.metadata().map_err(|e| e.to_string())?;
     if !before.is_file() {
-        return Err("只能预览普通文件".into());
+        return Err("Only regular files can be previewed".into());
     }
     #[cfg(target_os = "linux")]
     {
@@ -127,7 +127,7 @@ pub(super) fn preview_at(root: &Path, input: &str) -> Result<WorkspaceFile, Stri
         let opened = std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
             .map_err(|e| e.to_string())?;
         if !opened.starts_with(root) {
-            return Err("打开的文件已逃出工作目录".into());
+            return Err("File has escaped the workspace directory".into());
         }
     }
     let mut bytes = Vec::new();
@@ -152,11 +152,11 @@ pub(super) fn preview_at(root: &Path, input: &str) -> Result<WorkspaceFile, Stri
     {
         use std::os::unix::fs::MetadataExt;
         if before.dev() != after.dev() || before.ino() != after.ino() {
-            return Err("文件在读取时被替换，请刷新预览".into());
+            return Err("File was replaced while reading, please refresh preview".into());
         }
     }
     if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
-        return Err("文件在读取时发生变化，请刷新预览".into());
+        return Err("File changed while reading, please refresh preview".into());
     }
     let truncated = bytes.len() > limit || before.len() > limit as u64;
     bytes.truncate(limit);
@@ -308,7 +308,7 @@ mod tests {
         assert!(
             preview_at(&root, "socket")
                 .unwrap_err()
-                .contains("普通文件")
+                .contains("regular files")
         );
         drop(socket);
         std::fs::remove_dir_all(root).unwrap();

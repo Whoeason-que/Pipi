@@ -99,7 +99,7 @@ pub(super) async fn stream_assistant_response(
             match rx.recv().await {
                 None => {
                     if abort.is_aborted() {
-                        return interrupted(&blocks, "已中止".into(), StopReason::Aborted);
+                        return interrupted(&blocks, "Aborted".into(), StopReason::Aborted);
                     }
                     // channel 关闭且用户没中止：流被截断（provider 侧的
                     // `流提前结束` 会走上面的 Error 分支，这里是兜底）
@@ -195,7 +195,7 @@ pub(super) async fn stream_assistant_response(
         // —— 失败收尾：协议协商 → 终态 → 能不能重放 ——
         let (message, hint, protocol_mismatch) = failure;
         if abort.is_aborted() {
-            return interrupted(&blocks, "已中止".into(), StopReason::Aborted);
+            return interrupted(&blocks, "Aborted".into(), StopReason::Aborted);
         }
 
         // 协议协商（仅 auto）：端点说这个模型不支持当前协议 —— 换另一种协议再试
@@ -205,7 +205,7 @@ pub(super) async fn stream_assistant_response(
             if prose_visible {
                 return interrupted(
                     &blocks,
-                    format!("{message}（已输出部分内容，未自动重试）"),
+                    format!("{message} (partial content already emitted, not retrying automatically)"),
                     StopReason::Error,
                 );
             }
@@ -219,11 +219,11 @@ pub(super) async fn stream_assistant_response(
                 &blocks,
                 if protocol_mismatch {
                     if switched_protocol {
-                        format!("{message}（Anthropic / OpenAI 两种协议均已尝试）")
+                        format!("{message} (both Anthropic and OpenAI protocols have been attempted)")
                     } else {
                         // 协议被用户钉死：不改写，只提示「自动」模式能逐模型选协议
                         format!(
-                            "{message}（该提供商的协议已固定；改为「自动」模式可按模型选择协议）"
+                            "{message} (protocol for this provider is fixed; switch to 'auto' mode to select protocol per model)"
                         )
                     }
                 } else {
@@ -236,7 +236,7 @@ pub(super) async fn stream_assistant_response(
             // 已经输出过正文：重放会让用户看到重复内容，按终态报错（用户可手动继续）
             return interrupted(
                 &blocks,
-                format!("{message}（已输出部分内容，未自动重试）"),
+                format!("{message} (partial content already emitted, not retrying automatically)"),
                 StopReason::Error,
             );
         }
@@ -251,7 +251,7 @@ pub(super) async fn stream_assistant_response(
                     cause: message,
                 });
                 if sleep_or_abort(delay, abort).await {
-                    return interrupted(&blocks, "已中止".into(), StopReason::Aborted);
+                    return interrupted(&blocks, "Aborted".into(), StopReason::Aborted);
                 }
             }
             pipi_context::retry::RetryDecision::GiveUp(reason) => {
@@ -293,7 +293,7 @@ pub(crate) fn interrupted_message(
 }
 
 /// 流被截断（没等到结束帧）时的兜底说明。
-const STREAM_TRUNCATED: &str = "流提前结束：未收到结束帧（连接被中断或代理截断）";
+const STREAM_TRUNCATED: &str = "Stream ended prematurely: no end frame received (connection interrupted or proxy truncated)";
 
 /// 协议协商的另一半：Pipi 只支持这两种 wire，换协议就是它们互切。
 fn alternate_api(api: Api) -> Api {
@@ -319,13 +319,13 @@ fn give_up_message(
 ) -> String {
     match reason {
         pipi_context::retry::GiveUpReason::PolicyExhausted => {
-            format!("已重试 {failures} 次仍失败：{cause}")
+            format!("Failed after {failures} retries: {cause}")
         }
         pipi_context::retry::GiveUpReason::TimeoutBudget => {
-            format!("请求连续超时（{failures} 次），不再重试：{cause}")
+            format!("Request timed out consecutively ({failures} times), giving up: {cause}")
         }
         pipi_context::retry::GiveUpReason::ServerDelayTooLong(after_ms) => format!(
-            "服务端要求 {} 秒后再试，超过重试上限，已停止：{cause}",
+            "Server requested retry after {}s, exceeding retry limit, giving up: {cause}",
             after_ms / 1_000
         ),
     }

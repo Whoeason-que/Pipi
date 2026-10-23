@@ -113,7 +113,7 @@ impl RemoteAccess {
                 .map_or(0, ServerHandle::connected_clients),
             last_error: state.error.clone().or(tunnel_error).or_else(|| {
                 (state.server.is_some() && !local_running)
-                    .then(|| "远程服务已意外停止，请重新启动".into())
+                    .then(|| "Remote service stopped unexpectedly, please restart".into())
             }),
         }
     }
@@ -123,7 +123,7 @@ impl RemoteAccess {
         config: &RemoteAccessConfig,
         token: String,
     ) -> Result<ServerHandle, String> {
-        let runtime = self.runtime.upgrade().ok_or("宿主已退出")?;
+        let runtime = self.runtime.upgrade().ok_or("Host has exited")?;
         server::start(
             runtime,
             ([127, 0, 0, 1], config.port).into(),
@@ -162,7 +162,7 @@ impl RemoteAccessControl for RemoteAccess {
                 || (state.config.port != config.port && !state.config.tunnel_token_file.is_empty()))
         {
             return Err(
-                "请先关闭远程访问再修改端口或 Tunnel 凭据；Cloudflare 的服务地址需与本机端口一致"
+                "Please disable remote access before modifying port or Tunnel credentials; Cloudflare service URL must match local port"
                     .into(),
             );
         }
@@ -204,7 +204,7 @@ impl RemoteAccessControl for RemoteAccess {
             state.stop_all().await
         } else {
             if !state.valid {
-                return Err(state.error.clone().unwrap_or("请先保存有效配置".into()));
+                return Err(state.error.clone().unwrap_or("Please save valid configuration first".into()));
             }
             async {
                 if !state.server.as_ref().is_some_and(ServerHandle::running) {
@@ -226,7 +226,7 @@ impl RemoteAccessControl for RemoteAccess {
                     && !state.config.public_url.is_empty()
                 {
                     return Err(
-                        "请配置 Tunnel 凭据文件；只填写公开地址不会建立公网连接".to_string()
+                        "Please configure Tunnel credentials file; specifying only a public URL will not establish a public connection".to_string()
                     );
                 }
                 Ok(())

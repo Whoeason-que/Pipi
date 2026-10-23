@@ -180,9 +180,9 @@ fn string_list_field(table: &toml::Table, key: &str) -> Vec<String> {
 fn split_frontmatter(content: &str) -> Result<(toml::Table, String), String> {
     let content = content.strip_prefix('\u{feff}').unwrap_or(content);
     let mut lines = content.split_inclusive('\n');
-    let first = lines.next().ok_or_else(|| "帖子为空".to_string())?;
+    let first = lines.next().ok_or_else(|| "Post is empty".to_string())?;
     if trim_line_end(first) != FRONTMATTER_FENCE {
-        return Err("帖子缺少 frontmatter 起始围栏 `+++`".into());
+        return Err("Post is missing frontmatter opening fence `+++`".into());
     }
     let frontmatter_start = first.len();
     let mut cursor = frontmatter_start;
@@ -203,8 +203,8 @@ fn split_frontmatter(content: &str) -> Result<(toml::Table, String), String> {
         }
     }
     match last_error {
-        Some(error) => Err(format!("帖子 frontmatter 解析失败: {error}")),
-        None => Err("帖子缺少 frontmatter 结束围栏 `+++`".into()),
+        Some(error) => Err(format!("Failed to parse post frontmatter: {error}")),
+        None => Err("Post is missing frontmatter closing fence `+++`".into()),
     }
 }
 

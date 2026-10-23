@@ -34,7 +34,7 @@ impl RunReservation {
     ) -> Result<PreparedRun, String> {
         request.prompt = request.prompt.trim().into();
         if request.prompt.is_empty() {
-            return Err("空消息".into());
+            return Err("Message cannot be empty".into());
         }
         request.options.session_id = Some(self.session_id()?);
         request.tool_context.abort = self.session.abort.clone();
@@ -43,9 +43,9 @@ impl RunReservation {
         self.session
             .writer
             .lock()
-            .map_err(|e| format!("无法锁定会话写入器: {e}"))?
+            .map_err(|e| format!("Cannot lock session writer: {e}"))?
             .append_message(&message)
-            .map_err(|e| format!("无法写入用户消息: {e}"))?;
+            .map_err(|e| format!("Cannot write user message: {e}"))?;
         history.push(message.clone());
         drop(history);
         Ok(PreparedRun {
@@ -145,7 +145,7 @@ async fn drive_compaction(
     if let Err(error) =
         compaction::run_compaction(&session, &mut id, run_id, &request, &hooks, true).await
     {
-        hooks.error(&id, run_id, format!("压缩未执行：{error}"));
+        hooks.error(&id, run_id, format!("Compaction not executed: {error}"));
     }
     Ok(RunOutcome {
         session_id: id,
@@ -272,7 +272,7 @@ async fn drive_run(
         let terminal = ledger::append_terminal(
             &session,
             &request.model,
-            "已中止".into(),
+            "Aborted".into(),
             StopReason::Aborted,
             None,
         )?;
@@ -289,8 +289,8 @@ async fn drive_run(
     // 收到 AgentEnd 后立刻发的新一轮会与提交竞争同一分支）。提交失败不失败本轮：
     // 条目留在缓冲里，随下一轮再提交（自愈）。
     if let Err(error) = commit::commit_log(&session).await {
-        eprintln!("pipi: 会话提交失败（条目留在缓冲，随下一轮再提交）: {error}");
-        hooks.error(&id, run_id, format!("会话提交失败：{error}"));
+        eprintln!("pipi: session commit failed (entries remain in buffer, will retry next turn): {error}");
+        hooks.error(&id, run_id, format!("Session commit failed: {error}"));
     }
     if let (Some(budget), Some(policy)) = (request.budget, request.compaction) {
         let compact = CompactionRequest {

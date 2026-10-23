@@ -1,19 +1,26 @@
 import { useContext, useState } from "react";
 import { LayoutContext } from "../app/layout-context";
+import { IconFolder } from "../icons";
+import { getWorkspaceBasename, type WorkspaceInfo } from "../app/workspaces";
 import { invoke } from "../platform";
-import type { AgentDefinition } from "../types";
 import { formatSize } from "./FilePreview";
 import { useFileResource, type WorkspaceFilesState } from "./use-workspace-files";
 import type { WorkspaceListing } from "./types";
 
-export function WorkspaceSidebar({ state, agents, onSelectAgent }: {
+export function WorkspaceSidebar({
+  state,
+  workspaces = [],
+  activeWorkspace = "all",
+  onSelectWorkspace,
+}: {
   state: WorkspaceFilesState;
-  agents: AgentDefinition[];
-  onSelectAgent: (name: string | null) => void;
+  workspaces?: WorkspaceInfo[];
+  activeWorkspace?: string;
+  onSelectWorkspace?: (path: string) => void;
 }) {
   const { closeNavigation } = useContext(LayoutContext);
   const [path, setPath] = useState("");
-  const { agent, mode, store, view, changes } = state;
+  const { target, mode, store, view, changes } = state;
   const open = (path: string) => { store?.open(path); closeNavigation(); };
   const changeFiles = changes.value?.files.filter(item => item.path.toLowerCase().includes(view.query.toLowerCase())) ?? [];
   const groups = [
@@ -21,15 +28,42 @@ export function WorkspaceSidebar({ state, agents, onSelectAgent }: {
     { name: "未暂存", files: changeFiles.filter(file => file.status !== "??" && file.status[1] !== " ") },
     { name: "未跟踪", files: changeFiles.filter(file => file.status === "??") },
   ];
+
+  const currentWorkspacePath = target?.workspace || "";
+  const currentWorkspaceName = target?.name || getWorkspaceBasename(currentWorkspacePath);
+
   return <div className="file-workbench workspace-files-sidebar">
-    <div className="file-workbench-header"><strong>{mode === "files" ? "File · 文件" : "Git · 改动"}</strong><button type="button" className="btn small ghost" onClick={state.refresh} disabled={!agent}>刷新</button></div>
-    <label className="workspace-agent-picker">Agent 工作区
-      <select className="text-input" aria-label="选择 Agent 工作区" value={agent?.name ?? ""} onChange={event => onSelectAgent(event.target.value || null)}>
-        <option value="">请选择 Agent</option>
-        {agents.map(item => <option value={item.name} key={item.name}>{item.name}{item.subagent ? " · Subagent" : ""}</option>)}
-      </select>
-    </label>
-    {!agent ? <p className="file-notice">选择 Agent 后浏览它的工作目录，无需先打开会话。</p> : <>
+    <div className="file-workbench-header">
+      <strong>{mode === "files" ? "File · 文件" : "Git · 改动"}</strong>
+      <button type="button" className="btn small ghost" onClick={state.refresh} disabled={!target}>刷新</button>
+    </div>
+
+    {workspaces.length > 1 && activeWorkspace === "all" ? (
+      <label className="workspace-agent-picker">工作区
+        <select
+          className="text-input"
+          aria-label="选择工作区"
+          value={currentWorkspacePath}
+          onChange={event => onSelectWorkspace?.(event.target.value)}
+        >
+          {workspaces.map(w => {
+            const name = w.name || getWorkspaceBasename(w.path);
+            return (
+              <option value={w.path} key={w.path}>
+                {name}
+              </option>
+            );
+          })}
+        </select>
+      </label>
+    ) : currentWorkspacePath ? (
+      <div className="workspace-current-badge" title={currentWorkspacePath}>
+        <IconFolder />
+        <span className="workspace-current-name">{currentWorkspaceName}</span>
+      </div>
+    ) : null}
+
+    {!target ? <p className="file-notice">暂无可预览的工作区，请先在工作区列表创建或关联工作区。</p> : <>
       <input className="text-input file-filter" aria-label="筛选文件名" value={view.query} placeholder={mode === "files" ? "筛选已展开的文件…" : "筛选改动文件…"} onChange={event => store?.setQuery(event.target.value)} />
       {mode === "files" && <label className="file-hidden"><input type="checkbox" checked={view.showHidden} onChange={event => store?.setHidden(event.target.checked)} />显示隐藏文件</label>}
       <div className="workspace-file-list" aria-label={mode === "files" ? "工作区文件树" : "Git 改动列表"}>
@@ -51,9 +85,10 @@ export function WorkspaceSidebar({ state, agents, onSelectAgent }: {
 }
 
 function Directory({ path, depth, state, onOpen }: { path: string; depth: number; state: WorkspaceFilesState; onOpen: (path: string) => void }) {
-  const { agent, store, view } = state;
+  const { target, store, view } = state;
+  const lookupTarget = target?.workspace || target?.name || "";
   const nested = useFileResource<WorkspaceListing>(path && state.active && store ? JSON.stringify([store.key, path]) : null, state.revision,
-    () => invoke("list_workspace_files", { agentName: agent!.name, path }));
+    () => invoke("list_workspace_files", { agentName: lookupTarget, path }));
   const resource = path ? nested : state.rootListing;
   if (resource.loading) return <p className="file-notice" role="status">读取目录…</p>;
   if (resource.error) return <p className="file-error" role="alert">{resource.error}</p>;

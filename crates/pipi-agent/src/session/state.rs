@@ -22,7 +22,7 @@ impl RunState {
         let mut current = self.value.load(Ordering::Acquire);
         loop {
             if current & 1 != 0 {
-                return Err("会话正在运行，请等待完成或先停止".into());
+                return Err("Session is running, please wait for completion or stop it first".into());
             }
             let next = (((current >> 1).wrapping_add(1)) << 1) | 1;
             match self
@@ -120,7 +120,7 @@ impl AgentSession {
         }
         // 提交点（会话创建）：空会话也要在列表里可见
         log.commit_point()
-            .map_err(|error| format!("无法提交新会话: {error}"))?;
+            .map_err(|error| format!("Cannot commit new session: {error}"))?;
         let context_max = selected_model
             .as_ref()
             .or(default_model.as_ref())
@@ -258,14 +258,14 @@ impl AgentSession {
         // 提交点（env 记账）：与创建同属轮外提交，让首轮之前的状态可见
         writer
             .commit_point()
-            .map_err(|error| format!("无法提交环境记账: {error}"))?;
+            .map_err(|error| format!("Cannot commit environment ledger: {error}"))?;
         Ok(())
     }
 
     pub fn set_model(&self, model: Option<Model>, effective: Option<Model>) -> Result<(), String> {
         let _control = self.state.control.lock().map_err(|e| e.to_string())?;
         if self.state.running.is_running() {
-            return Err("会话正在运行，请等待完成或先停止后再切换模型".into());
+            return Err("Session is running, please wait for completion or stop it before switching models".into());
         }
         let mut selected = self.state.model.lock().map_err(|e| e.to_string())?;
         if *selected != model {
@@ -277,7 +277,7 @@ impl AgentSession {
                 // 提交点（手动切模型）：空闲时的模型变更入史
                 writer
                     .commit_point()
-                    .map_err(|error| format!("无法提交模型变更: {error}"))?;
+                    .map_err(|error| format!("Cannot commit model change: {error}"))?;
                 drop(writer);
                 if let Ok(mut tracker) = self.state.stats.lock() {
                     tracker.set_context_max(
@@ -299,11 +299,11 @@ impl AgentSession {
     pub fn steer(&self, text: &str) -> Result<(), String> {
         let text = text.trim();
         if text.is_empty() {
-            return Err("空消息".into());
+            return Err("Message cannot be empty".into());
         }
         let _control = self.state.control.lock().map_err(|e| e.to_string())?;
         if !self.state.running.is_running() {
-            return Err("会话未在运行，请直接发送消息".into());
+            return Err("Session is not running, please send message directly".into());
         }
         self.state.steering.push(Message::user_text(text));
         Ok(())

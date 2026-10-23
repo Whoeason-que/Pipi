@@ -27,18 +27,18 @@ impl BackgroundTaskService for BackgroundTaskManager {
     async fn submit(&self, spec: BackgroundTaskSpec) -> Result<BackgroundTaskInfo, String> {
         let command = spec.command.trim();
         if command.is_empty() {
-            return Err("后台任务 command 不能为空".into());
+            return Err("Background task command cannot be empty".into());
         }
         let def = agents::load_agent(&spec.owner.agent_name)?;
         let workspace = def
             .resolve_workspace()
-            .ok_or_else(|| "无法解析 Agent 工作目录".to_string())?;
+            .ok_or_else(|| "Cannot resolve Agent working directory".to_string())?;
         let workspace = std::fs::canonicalize(&workspace)
-            .map_err(|error| format!("Agent 工作目录不可用: {error}"))?;
+            .map_err(|error| format!("Agent working directory is not available: {error}"))?;
         let cwd = std::fs::canonicalize(&spec.cwd)
-            .map_err(|error| format!("后台任务 cwd 不可用: {error}"))?;
+            .map_err(|error| format!("Background task cwd is not available: {error}"))?;
         if !cwd.starts_with(&workspace) || !cwd.is_dir() {
-            return Err("后台任务 cwd 必须位于 Agent 工作目录内".into());
+            return Err("Background task cwd must be located within Agent working directory".into());
         }
 
         let jobs_dir = Self::jobs_dir(&spec.owner.agent_name)?;
@@ -89,7 +89,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
                 let mut failed = queued.clone();
                 failed.status = BackgroundTaskStatus::Failed;
                 failed.completed_at = Some(now_millis());
-                failed.error = Some(format!("无法启动后台任务: {error}"));
+                failed.error = Some(format!("Failed to start background task: {error}"));
                 append_record(
                     &metadata_path,
                     &PersistedRecord {
@@ -100,7 +100,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
                 )
                 .await
                 .ok();
-                return Err(format!("无法启动后台任务: {error}"));
+                return Err(format!("Failed to start background task: {error}"));
             }
         };
 
@@ -134,7 +134,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
         )
         .await
         .map_err(|error| {
-            eprintln!("pipi: 后台任务运行状态落盘失败: {error}");
+            eprintln!("pipi: failed to persist background task running state: {error}");
             error
         })
         .ok();
@@ -152,26 +152,26 @@ impl BackgroundTaskService for BackgroundTaskManager {
         let target_agent = spec.target_agent.trim();
         let prompt = spec.prompt.trim();
         if target_agent.is_empty() {
-            return Err("后台 Agent 任务 targetAgent 不能为空".into());
+            return Err("Background Agent task targetAgent cannot be empty".into());
         }
         if target_agent == spec.owner.agent_name {
-            return Err("第一阶段不允许 Agent 运行自身".into());
+            return Err("Agent is not allowed to run itself".into());
         }
         if prompt.is_empty() {
-            return Err("后台 Agent 任务 prompt 不能为空".into());
+            return Err("Background Agent task prompt cannot be empty".into());
         }
         if prompt.len() > 64 * 1024 {
-            return Err("后台 Agent 任务 prompt 不能超过 65536 字节".into());
+            return Err("Background Agent task prompt cannot exceed 65536 bytes".into());
         }
 
         let target = agents::load_agent(target_agent)?;
         let cwd = target
             .resolve_workspace()
-            .ok_or_else(|| "无法解析目标 Agent 工作目录".to_string())?;
+            .ok_or_else(|| "Cannot resolve target Agent working directory".to_string())?;
         let cwd = std::fs::canonicalize(&cwd)
-            .map_err(|error| format!("目标 Agent 工作目录不可用: {error}"))?;
+            .map_err(|error| format!("Target Agent working directory is not available: {error}"))?;
         if !cwd.is_dir() {
-            return Err("目标 Agent 工作目录不是目录".into());
+            return Err("Target Agent working directory is not a directory".into());
         }
 
         let jobs_dir = Self::jobs_dir(&spec.owner.agent_name)?;
@@ -225,7 +225,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
         )
         .await
         .map_err(|error| {
-            eprintln!("pipi: 后台 Agent 任务运行状态落盘失败: {error}");
+            eprintln!("pipi: failed to persist background agent task running state: {error}");
             error
         })
         .ok();
@@ -247,12 +247,12 @@ impl BackgroundTaskService for BackgroundTaskManager {
         query: BackgroundTaskQuery,
     ) -> Result<Vec<BackgroundTaskSnapshot>, String> {
         if query.limit == 0 || query.limit > 100 {
-            return Err("后台任务查询 limit 必须在 1 到 100 之间".into());
+            return Err("Background task query limit must be between 1 and 100".into());
         }
         if let Some(job_id) = &query.job_id {
             if let Some(handle) = self.find_job(job_id)? {
                 if !handle.belongs_to(owner) {
-                    return Err("后台任务不属于当前 Agent session".into());
+                    return Err("Background task does not belong to current Agent session".into());
                 }
                 return Ok(vec![self.query_live_job(handle, &query).await?]);
             }
@@ -268,7 +268,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
             .inner
             .jobs
             .lock()
-            .map_err(|error| format!("后台任务表不可用: {error}"))?
+            .map_err(|error| format!("Background task table is unavailable: {error}"))?
             .values()
             .filter(|handle| handle.belongs_to(owner))
             .cloned()
@@ -312,12 +312,12 @@ impl BackgroundTaskService for BackgroundTaskManager {
             return self.query_persisted_job(owner, job_id, 0).await;
         };
         if !handle.belongs_to(owner) {
-            return Err("后台任务不属于当前 Agent session".into());
+            return Err("Background task does not belong to current Agent session".into());
         }
         let label = handle.core().label();
         if !handle.is_active() {
             if matches!(command, BackgroundTaskCommand::WriteStdin(_)) {
-                return Err(format!("{label}已经结束，不能写入 stdin"));
+                return Err(format!("{label} has ended, cannot write to stdin"));
             }
             return handle.snapshot(0);
         }
@@ -336,17 +336,17 @@ impl BackgroundTaskService for BackgroundTaskManager {
                 entry
                     .control
                     .send(message)
-                    .map_err(|_| "后台任务控制通道已关闭".to_string())?;
+                    .map_err(|_| "Background task control channel is closed".to_string())?;
                 tokio::time::timeout(CONTROL_TIMEOUT, receiver)
                     .await
-                    .map_err(|_| "后台任务控制超时".to_string())?
-                    .map_err(|_| "后台任务控制通道已断开".to_string())??;
+                    .map_err(|_| "Background task control timed out".to_string())?
+                    .map_err(|_| "Background task control channel disconnected".to_string())??;
                 handle.snapshot(0)
             }
             // child Agent 任务：只支持终止（abort），没有 stdin
             JobHandle::Agent(entry) => {
                 if let BackgroundTaskCommand::WriteStdin(_) = command {
-                    return Err("后台 Agent 任务不支持写入 stdin".into());
+                    return Err("Background Agent task does not support writing to stdin".into());
                 }
                 entry.abort.abort();
                 let core = &entry.core;
@@ -642,7 +642,7 @@ mod tests {
                 .task
                 .result
                 .as_deref()
-                .is_some_and(|result| result.contains("还未配置默认模型"))
+                .is_some_and(|result| result.contains("no default model configured"))
         );
         let child_session_id = child_done.task.child_session_id.as_deref();
         assert!(child_session_events.lock().unwrap().iter().any(

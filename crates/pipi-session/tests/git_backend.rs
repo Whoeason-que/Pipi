@@ -242,7 +242,10 @@ fn unusable_repo_fails_closed_instead_of_falling_back() {
         Err(error) => error,
         Ok(_) => panic!("仓库目录是符号链接时必须拒绝建会话"),
     };
-    assert!(error.contains("不能是符号链接"), "{error}");
+    assert!(
+        error.contains("cannot be a symbolic link") || error.contains("不能是符号链接"),
+        "{error}"
+    );
     std::fs::remove_dir_all(&parent).ok();
     std::fs::remove_dir_all(&outside).ok();
 }

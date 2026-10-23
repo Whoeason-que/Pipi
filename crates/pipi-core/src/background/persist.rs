@@ -27,10 +27,10 @@ pub(super) async fn append_log(path: &Path, text: &str) -> Result<(), String> {
         .append(true)
         .open(path)
         .await
-        .map_err(|error| format!("打开后台任务日志失败: {error}"))?;
+        .map_err(|error| format!("Failed to open background task log: {error}"))?;
     file.write_all(text.as_bytes())
         .await
-        .map_err(|error| format!("写入后台任务日志失败: {error}"))
+        .map_err(|error| format!("Failed to write background task log: {error}"))
 }
 
 pub(super) async fn append_record(path: &Path, record: &PersistedRecord) -> Result<(), String> {
@@ -39,12 +39,12 @@ pub(super) async fn append_record(path: &Path, record: &PersistedRecord) -> Resu
         .append(true)
         .open(path)
         .await
-        .map_err(|error| format!("打开后台任务状态文件失败: {error}"))?;
+        .map_err(|error| format!("Failed to open background task state file: {error}"))?;
     let line = serde_json::to_string(record)
-        .map_err(|error| format!("序列化后台任务状态失败: {error}"))?;
+        .map_err(|error| format!("Failed to serialize background task state: {error}"))?;
     file.write_all(format!("{line}\n").as_bytes())
         .await
-        .map_err(|error| format!("写入后台任务状态失败: {error}"))
+        .map_err(|error| format!("Failed to write background task state: {error}"))
 }
 
 pub(super) async fn load_persisted_snapshot(
@@ -55,7 +55,7 @@ pub(super) async fn load_persisted_snapshot(
     let content = match tokio::fs::read_to_string(path).await {
         Ok(content) => content,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("读取后台任务状态失败: {error}")),
+        Err(error) => return Err(format!("Failed to read background task state: {error}")),
     };
     let mut last = None;
     let mut output = VecDeque::new();
@@ -88,7 +88,7 @@ pub(super) async fn load_persisted_snapshot(
     if task.status.is_active() {
         task.status = BackgroundTaskStatus::Orphaned;
         task.completed_at = Some(now_millis());
-        task.error = Some("Pipi 重启前任务仍处于运行态；为避免 PID 复用，未自动接管".into());
+        task.error = Some("Task was still running before Pipi restarted; not automatically taken over to prevent PID reuse".into());
     }
     task.output_truncated |= output_truncated;
     task.output_cursor = task
@@ -110,7 +110,7 @@ pub(super) fn validate_job_id(job_id: &str) -> Result<(), String> {
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
     {
-        return Err("非法后台任务 ID".into());
+        return Err("Invalid background task ID".into());
     }
     Ok(())
 }

@@ -154,7 +154,7 @@ pub(super) fn persist_compaction(
             Some(repo) => {
                 fork_and_write_compaction(writer, repo, record, settings.archive_original)
             }
-            None => Err("无法解析会话仓库".to_string()),
+            None => Err("Cannot resolve session repository".to_string()),
         };
         match outcome {
             Ok(new_id) => return Ok(Some(new_id)),
@@ -163,16 +163,16 @@ pub(super) fn persist_compaction(
     }
     let mut guard = writer
         .lock()
-        .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
+        .map_err(|error| format!("Cannot lock session writer: {error}"))?;
     guard
         .append_compaction(record)
-        .map_err(|error| format!("无法写入压缩条目: {error}"))?;
+        .map_err(|error| format!("Cannot write compaction entry: {error}"))?;
     // 提交点（原地压缩）：自动路径之后没有别的提交机会
     guard
         .commit_point()
-        .map_err(|error| format!("无法提交压缩条目: {error}"))?;
+        .map_err(|error| format!("Cannot commit compaction entry: {error}"))?;
     if let Some(error) = fork_error {
-        eprintln!("pipi: 压缩分叉失败，已改为原地压缩: {error}");
+        eprintln!("pipi: compaction fork failed, fell back to in-place: {error}");
     }
     Ok(None)
 }
@@ -201,7 +201,7 @@ fn fork_and_write_compaction(
         // 写失败就删掉半成品，别在会话列表里留下空壳
         drop(forked);
         let _ = repo.delete(&new_id);
-        return Err(format!("无法把压缩条目写入新会话: {error}"));
+        return Err(format!("Failed to write compaction entry to new session: {error}"));
     }
     // 溯源标记：回答「这个会话从哪来」（回放中性，见 EntryKind::Custom）
     let _ = forked.append_custom(&format!("compaction-fork:{source_id}"));
@@ -210,20 +210,20 @@ fn fork_and_write_compaction(
     if let Err(error) = forked.commit_point() {
         drop(forked);
         let _ = repo.delete(&new_id);
-        return Err(format!("无法提交新会话的压缩条目: {error}"));
+        return Err(format!("Cannot commit compaction entries of new session: {error}"));
     }
 
     {
         let mut guard = writer
             .lock()
-            .map_err(|error| format!("无法锁定会话写入器: {error}"))?;
+            .map_err(|error| format!("Cannot lock session writer: {error}"))?;
         let previous = std::mem::replace(&mut *guard, forked);
         drop(previous); // 关闭旧载体句柄 —— 归档前必须做到
     }
 
     if archive_original && let Err(error) = repo.archive(&source_id) {
         // 归档失败不回滚：新会话已经可用，原会话留在活跃列表里即可
-        eprintln!("pipi: 原会话归档失败（保留在活跃列表）: {error}");
+        eprintln!("pipi: failed to archive original session (remains in active list): {error}");
     }
     Ok(new_id)
 }

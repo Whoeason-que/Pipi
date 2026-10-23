@@ -48,7 +48,7 @@ pub(super) fn scan_agents(dir: &Path) -> Vec<AgentDefinition> {
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
             Err(error) => {
-                eprintln!("pipi: 跳过无法检查的 {}: {error}", entry.path().display());
+                eprintln!("pipi: skipping uncheckable {}: {error}", entry.path().display());
                 continue;
             }
         };
@@ -64,14 +64,14 @@ pub(super) fn scan_agents(dir: &Path) -> Vec<AgentDefinition> {
             Ok(true) => {}
             Ok(false) => continue,
             Err(error) => {
-                eprintln!("pipi: 跳过不安全的 {}: {error}", manifest.display());
+                eprintln!("pipi: skipping unsafe {}: {error}", manifest.display());
                 continue;
             }
         }
         let text = match fs::read_to_string(&manifest) {
             Ok(text) => text,
             Err(e) => {
-                eprintln!("pipi: 跳过无法读取的 {}: {e}", manifest.display());
+                eprintln!("pipi: skipping unreadable {}: {e}", manifest.display());
                 continue;
             }
         };
@@ -80,11 +80,11 @@ pub(super) fn scan_agents(dir: &Path) -> Vec<AgentDefinition> {
                 agents.push(def)
             }
             Ok(def) => eprintln!(
-                "pipi: 跳过 Agent 名称/目录不匹配的 {}（{}）",
+                "pipi: skipping Agent with mismatched name/directory {} ({})",
                 def.name,
                 manifest.display()
             ),
-            Err(e) => eprintln!("pipi: 跳过非法的 {}: {e}", manifest.display()),
+            Err(e) => eprintln!("pipi: skipping invalid {}: {e}", manifest.display()),
         }
     }
     agents.sort_by(|a, b| a.name.cmp(&b.name));
@@ -132,7 +132,7 @@ pub fn ensure_default_agent() -> Result<Option<AgentDefinition>, String> {
 /// 播种失败不阻断列表（用户仍可手动创建 Agent），错误只记 stderr。
 pub fn list_agents_bootstrapped() -> Result<Vec<AgentDefinition>, String> {
     if let Err(error) = ensure_default_agent() {
-        eprintln!("pipi: 播种默认 Agent 失败：{error}");
+        eprintln!("pipi: failed to bootstrap default Agent: {error}");
     }
     list_agents()
 }
@@ -187,9 +187,9 @@ pub fn create_agent_with_instructions(
             let expanded = expand_tilde(w);
             let path = PathBuf::from(&expanded);
             if !path.is_absolute() {
-                return Err(format!("工作目录必须是绝对路径: {w}"));
+                return Err(format!("Workspace must be an absolute path: {w}"));
             }
-            fs::create_dir_all(&path).map_err(|e| format!("无法创建工作目录 {expanded}: {e}"))?;
+            fs::create_dir_all(&path).map_err(|e| format!("Failed to create workspace directory {expanded}: {e}"))?;
             Some(expanded)
         }
         None => None,
@@ -216,9 +216,9 @@ pub fn create_agent_with_instructions(
     };
     // 与 save_agent 同一套校验（工具名单等）
     validate_definition(&def)?;
-    let dir = agent_dir(&name).ok_or_else(|| "无法定位用户主目录".to_string())?;
+    let dir = agent_dir(&name).ok_or_else(|| "Cannot locate user home directory".to_string())?;
     if dir.exists() {
-        return Err(format!("Agent「{name}」已存在"));
+        return Err(format!("Agent \"{name}\" already exists"));
     }
 
     // 目录骨架（与 README「Agent 的组成」一一对应）：提示词素材进
@@ -242,9 +242,9 @@ pub fn create_agent_with_instructions(
         &dir.join("agent.toml"),
         super::contract::DEFAULT_AGENT_CONTRACT,
     )
-    .map_err(|e| format!("无法写入 agent.toml: {e}"))?;
+    .map_err(|e| format!("Failed to write agent.toml: {e}"))?;
     let intro = if def.description.is_empty() {
-        "（一句话介绍这个 Agent）"
+        "(One sentence introducing this Agent)"
     } else {
         &def.description
     };
@@ -254,7 +254,7 @@ pub fn create_agent_with_instructions(
         .unwrap_or("- ");
     fs::write(
         harness.join("AGENTS.md"),
-        format!("# {name}\n\n{intro}\n\n## 指令\n\n{instructions}\n"),
+        format!("# {name}\n\n{intro}\n\n## Instructions\n\n{instructions}\n"),
     )
     .map_err(|e| e.to_string())?;
 
@@ -266,19 +266,19 @@ pub fn load_agent(name: &str) -> Result<AgentDefinition, String> {
     let dir = checked_agent_dir(name)?;
     let path = dir.join("agent.json");
     if !ensure_real_file(&path, "agent.json")? {
-        return Err(format!("Agent「{name}」的 agent.json 不存在"));
+        return Err(format!("agent.json does not exist for Agent \"{name}\""));
     }
     let text = fs::read_to_string(&path).map_err(|e| {
         format!(
-            "无法读取 {}: {e}（agent 目录就是数据库，改文件即生效）",
+            "Failed to read {}: {e}",
             path.display()
         )
     })?;
     let def: AgentDefinition =
-        serde_json::from_str(&text).map_err(|e| format!("agent.json 格式错误: {e}"))?;
+        serde_json::from_str(&text).map_err(|e| format!("agent.json format error: {e}"))?;
     if !manifest_name_matches_directory(name, &def.name) {
         return Err(format!(
-            "agent.json 名称 {} 与请求的 Agent 目录 {} 不匹配",
+            "agent.json name {} does not match requested Agent directory {}",
             def.name, name
         ));
     }
@@ -291,7 +291,7 @@ pub fn save_agent(def: &AgentDefinition) -> Result<(), String> {
     validate_definition(def)?;
     let dir = checked_agent_dir(&def.name)?;
     if !dir.is_dir() {
-        return Err(format!("Agent「{}」不存在", def.name));
+        return Err(format!("Agent \"{}\" does not exist", def.name));
     }
     let manifest = serde_json::to_string_pretty(def).map_err(|e| e.to_string())?;
     let manifest_path = dir.join("agent.json");

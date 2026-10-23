@@ -63,6 +63,21 @@
 .workspace-files-sidebar { flex: 1; min-height: 0; padding: 0 var(--space-3) var(--space-3); overflow: hidden; }
 .workspace-files-sidebar .file-workbench-header { padding: 4px 0 8px; }
 .workspace-agent-picker, .workspace-reference-target { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: var(--text-sm); }
+.workspace-current-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm, 6px);
+  background: var(--stripe);
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.workspace-current-badge svg { width: 15px; height: 15px; flex-shrink: 0; }
+.workspace-current-name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-file-list { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .workspace-files-sidebar .file-row.active { background: var(--accent-soft); color: var(--accent-text); }
 .workspace-files-sidebar .file-row { border-radius: var(--r-sm); }

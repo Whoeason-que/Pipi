@@ -16,12 +16,12 @@ pub struct MemoryTool {
 fn resolve_in_memory_dir(memory_dir: &Path, path: &str) -> Result<PathBuf, String> {
     let p = std::path::Path::new(path);
     if p.is_absolute() {
-        return Err("memory path 必须是相对 memory 目录的相对路径".into());
+        return Err("memory path must be a relative path to memory directory".into());
     }
     if p.components()
         .any(|c| matches!(c, std::path::Component::ParentDir))
     {
-        return Err("memory path 不允许包含 ..".into());
+        return Err("memory path is not allowed to contain ..".into());
     }
     Ok(memory_dir.join(p))
 }
@@ -54,7 +54,7 @@ impl AgentTool for MemoryTool {
         args: &Value,
         _on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
-        let action = args["action"].as_str().ok_or("缺少 action")?;
+        let action = args["action"].as_str().ok_or("Missing action")?;
         match action {
             "list" => {
                 let mut names: Vec<String> = Vec::new();
@@ -67,27 +67,27 @@ impl AgentTool for MemoryTool {
                 Ok(ToolOutput::text(text))
             }
             "read" => {
-                let path = args["path"].as_str().ok_or("缺少 path")?;
+                let path = args["path"].as_str().ok_or("Missing path")?;
                 let abs = resolve_in_memory_dir(&self.memory_dir, path)?;
                 let content = tokio::fs::read_to_string(&abs)
                     .await
-                    .map_err(|e| format!("无法读取记忆文件 {path}: {e}"))?;
+                    .map_err(|e| format!("Failed to read memory file {path}: {e}"))?;
                 Ok(ToolOutput::text(content))
             }
             "write" => {
-                let path = args["path"].as_str().ok_or("缺少 path")?;
-                let content = args["content"].as_str().ok_or("缺少 content")?;
+                let path = args["path"].as_str().ok_or("Missing path")?;
+                let content = args["content"].as_str().ok_or("Missing content")?;
                 let abs = resolve_in_memory_dir(&self.memory_dir, path)?;
                 let contents = content.to_string();
                 tokio::task::spawn_blocking(move || {
                     pipi_protocol::fs::write_atomic(&abs, contents)
                 })
                 .await
-                .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?
-                .map_err(|e| format!("无法写入记忆文件 {path}: {e}"))?;
+                .map_err(|e| format!("Failed to write memory file {path}: {e}"))?
+                .map_err(|e| format!("Failed to write memory file {path}: {e}"))?;
                 Ok(ToolOutput::text(format!("Saved memory to {path}")))
             }
-            other => Err(format!("未知 action: {other}")),
+            other => Err(format!("Unknown action: {other}")),
         }
     }
 }

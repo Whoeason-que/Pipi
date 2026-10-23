@@ -17,6 +17,7 @@ import { IconArrowDown, IconSend, IconStop } from "../icons";
 import type { ModelConfig } from "../types";
 
 interface ChatComposerProps {
+  containerRef: RefObject<HTMLDivElement | null>;
   draft: DraftBuffer;
   ready: boolean;
   running: boolean;
@@ -38,6 +39,7 @@ interface ChatComposerProps {
 
 /** 只拥有输入交互与提交反馈；草稿及运行状态仍由会话控制器拥有。 */
 export default function ChatComposer({
+  containerRef,
   draft,
   ready,
   running,
@@ -94,7 +96,7 @@ export default function ChatComposer({
 
   const modelName = model?.id || (locale === "en" ? "No model" : "未配置模型");
   return (
-    <div className="composer">
+    <div className="composer" ref={containerRef}>
       {!atTail && (
         <button
           type="button"
@@ -276,11 +278,6 @@ export default function ChatComposer({
             <IconSend />
           </button>
         </div>
-      </div>
-      <div className="composer-footnote">
-        {locale === "en"
-          ? "Shift + Enter for a new line. Review important results."
-          : "Shift + Enter 换行，请核实重要结果。"}
       </div>
     </div>
   );

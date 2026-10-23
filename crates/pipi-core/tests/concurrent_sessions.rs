@@ -378,7 +378,7 @@ fn multiple_agents_run_at_the_same_time_and_stop_independently() {
     assert!(rejected.is_err(), "同一条会话不允许并发两轮");
     let message = rejected.unwrap_err();
     assert!(
-        message.contains("正在运行"),
+        message.contains("is running") || message.contains("正在运行"),
         "拒绝理由应当说明在运行：{message}"
     );
 
@@ -778,17 +778,19 @@ fn archive_and_delete_idle_open_sessions_without_leaving_view() {
         .expect("启动运行中会话");
     assert!(wait_until(5_000, || state
         .session_running("agent-lifecycle", &running_id)));
+    let archive_err = state
+        .archive_session("agent-lifecycle", &running_id)
+        .expect_err("运行中会话不得归档");
     assert!(
-        state
-            .archive_session("agent-lifecycle", &running_id)
-            .expect_err("运行中会话不得归档")
-            .contains("正在运行或有托管后台任务")
+        archive_err.contains("running") || archive_err.contains("正在运行或有托管后台任务"),
+        "{archive_err}"
     );
+    let delete_err = state
+        .delete_session("agent-lifecycle", &running_id)
+        .expect_err("运行中会话不得删除");
     assert!(
-        state
-            .delete_session("agent-lifecycle", &running_id)
-            .expect_err("运行中会话不得删除")
-            .contains("正在运行或有托管后台任务")
+        delete_err.contains("running") || delete_err.contains("正在运行或有托管后台任务"),
+        "{delete_err}"
     );
     state
         .stop_run("agent-lifecycle", &running_id)

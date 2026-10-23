@@ -32,7 +32,7 @@ fn compile_pattern(pattern: &str, case_insensitive: bool) -> Result<Regex, Strin
     RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)
         .build()
-        .map_err(|e| format!("非法正则表达式 {pattern:?}：{e}"))
+        .map_err(|e| format!("Invalid regex {pattern:?}: {e}"))
 }
 
 /// 文件名是否匹配 include 模式。多模式以 `,` 分隔；支持 `*.{ts,tsx}` 式
@@ -83,7 +83,7 @@ fn expand_braces(spec: &str) -> Vec<String> {
 
 /// 在单文件中搜索，返回 `相对路径:行号: 行内容` 行列表与是否被跳过。
 fn search_file(abs: &Path, display: &str, regex: &Regex) -> Result<(Vec<String>, usize), String> {
-    let bytes = std::fs::read(abs).map_err(|e| format!("无法读取 {}: {e}", display))?;
+    let bytes = std::fs::read(abs).map_err(|e| format!("Failed to read {}: {e}", display))?;
     if looks_like_binary(&bytes) {
         return Ok((Vec::new(), 0));
     }
@@ -171,7 +171,7 @@ impl AgentTool for GrepTool {
         args: &Value,
         _on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
-        let pattern = args["pattern"].as_str().ok_or("缺少 pattern")?;
+        let pattern = args["pattern"].as_str().ok_or("Missing pattern")?;
         let case_insensitive = args["case_insensitive"].as_bool().unwrap_or(false);
         let regex = compile_pattern(pattern, case_insensitive)?;
         let include = args["include"].as_str().map(|s| s.to_string());
@@ -179,7 +179,7 @@ impl AgentTool for GrepTool {
         let root = resolve_search_root(ctx, args["path"].as_str())?;
 
         let workspace = ctx.workspace.clone();
-        let (output, searched) = run_walk("grep 搜索", move || {
+        let (output, searched) = run_walk("grep search", move || {
             search_tree(&root, &workspace, &regex, include.as_deref())
         })
         .await?;

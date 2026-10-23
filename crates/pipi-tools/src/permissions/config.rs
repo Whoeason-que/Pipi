@@ -24,7 +24,7 @@ impl BashPolicy for PermissionsConfig {
     fn assess_bash_classified(&self, command: &str, workspace: &Path) -> BashAssessment {
         if self.sandbox == SandboxMode::ReadOnly {
             return BashAssessment::HardDenied(
-                "沙箱策略为 read-only：不允许执行命令（需要执行请调整 Agent 的沙箱设置）".into(),
+                "Sandbox policy is read-only: command execution is not allowed (adjust the Agent's sandbox settings if execution is needed)".into(),
             );
         }
         if self.sandbox == SandboxMode::WorkspaceWrite {
@@ -32,19 +32,19 @@ impl BashPolicy for PermissionsConfig {
                 RedirectCheck::Ok => {}
                 RedirectCheck::Write(token) => {
                     return BashAssessment::HardDenied(format!(
-                        "沙箱策略为 workspace-write：拒绝写入重定向「{token}」；工作区内写入请用 write / edit 工具。\
-                         丢弃或合并输出可以用 2>/dev/null、2>&1，管道与 heredoc 不受限制"
+                        "Sandbox policy is workspace-write: write redirection \"{token}\" denied; use write / edit tools for workspace writes. \
+                         2>/dev/null and 2>&1 can be used to discard or merge output; pipes and heredocs are unrestricted"
                     ));
                 }
                 RedirectCheck::Read(token) => {
                     return BashAssessment::HardDenied(format!(
-                        "沙箱策略为 workspace-write：拒绝输入重定向「{token}」；读文件请用 read 工具\
-                         （带工作区包含检查），把脚本喂给 stdin 可以用 heredoc（<<EOF）"
+                        "Sandbox policy is workspace-write: input redirection \"{token}\" denied; use read tool \
+                         for file reading (with workspace containment check); heredocs (<<EOF) can be used to feed stdin"
                     ));
                 }
                 RedirectCheck::Unparseable(reason) => {
                     return BashAssessment::HardDenied(format!(
-                        "沙箱策略为 workspace-write：{reason}，无法静态分析命令中的重定向，已拒绝"
+                        "Sandbox policy is workspace-write: {reason}, unable to statically analyze redirection in command, denied"
                     ));
                 }
             }
@@ -71,7 +71,7 @@ impl BashPolicy for PermissionsConfig {
                             && dangerous_command_match(&seg.argv).is_some()
                         {
                             return BashAssessment::HardDenied(format!(
-                                "「{}」命中危险命令规则，在 {} 沙箱下被拒绝（不可审批）",
+                                "\"{}\" matches dangerous command rules, denied under {} sandbox (cannot be approved)",
                                 seg.text,
                                 self.sandbox.as_str()
                             ));
@@ -88,7 +88,7 @@ impl BashPolicy for PermissionsConfig {
                         .any(|c| matches_entry(c, &seg.text))
                     {
                         return BashAssessment::HardDenied(format!(
-                            "命令「{}」被黑名单禁止",
+                            "Command \"{}\" is forbidden by denylist",
                             seg.text
                         ));
                     }
@@ -104,14 +104,14 @@ impl BashPolicy for PermissionsConfig {
                 if !workspace_contained {
                     return BashAssessment::HardDenied(match matched {
                         DangerousCommandMatch::ForcedRm => format!(
-                            "「{}」包含强制删除（rm -f 家族），在 {} 沙箱下被拒绝（仅放行工作区内、\
-                                 非仓库根的绝对路径字面量；含变量 / 通配符的目标，以及命令内有 cd / pushd \
-                                 时的相对路径都不可审批）",
+                            "\"{}\" contains forced deletion (rm -f family), denied under {} sandbox (only literal absolute paths \
+                             inside workspace and not at repository root are allowed; targets containing variables / wildcards, and \
+                             relative paths when the command contains cd / pushd cannot be approved)",
                             seg.text,
                             self.sandbox.as_str()
                         ),
                         DangerousCommandMatch::Other => format!(
-                            "「{}」命中危险命令规则，在 {} 沙箱下被拒绝",
+                            "\"{}\" matches dangerous command rules, denied under {} sandbox",
                             seg.text,
                             self.sandbox.as_str()
                         ),
@@ -142,7 +142,7 @@ pub async fn check_bash_command(
         BashAssessment::NeedsApproval { .. } => match &ctx.approver {
             Some(approver) => approver.approve(command).await,
             None => Err(
-                "命令不在白名单中，且当前会话没有可用的交互审批通道（请在 Agent 的命令权限中加入该命令，或调整沙箱设置）"
+                "Command is not in allowlist, and no interactive approval channel is available for current session (please add this command to Agent command permissions, or adjust sandbox settings)"
                     .into(),
             ),
         },

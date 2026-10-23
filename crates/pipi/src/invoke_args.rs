@@ -34,7 +34,7 @@ where
             InvokeBody::Raw(_) => Err(tauri::Error::InvalidArgs(
                 command.name,
                 command.key,
-                serde_json::Error::custom("命令参数必须是 JSON 对象"),
+                serde_json::Error::custom("Command arguments must be a JSON object"),
             )
             .into()),
         }

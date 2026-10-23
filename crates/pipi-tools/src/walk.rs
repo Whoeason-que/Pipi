@@ -25,10 +25,10 @@ pub(crate) fn resolve_search_root(
     let root = match path {
         Some(p) if !p.is_empty() => resolve_read_path(&ctx.workspace, &ctx.read_roots, p)?,
         _ => std::fs::canonicalize(&ctx.workspace)
-            .map_err(|e| format!("无法解析工作目录 {}：{e}", ctx.workspace.display()))?,
+            .map_err(|e| format!("Cannot resolve workspace directory {}: {e}", ctx.workspace.display()))?,
     };
     if !root.is_dir() {
-        return Err(format!("搜索根 {} 不是目录", root.display()));
+        return Err(format!("Search root {} is not a directory", root.display()));
     }
     Ok(root)
 }
@@ -77,7 +77,7 @@ where
 {
     tokio::task::spawn_blocking(walk)
         .await
-        .map_err(|e| format!("{label}失败：{e}"))
+        .map_err(|e| format!("{label} failed: {e}"))
 }
 
 /// 结果截断：超限时保留头部并附「Showing first N of M matches」与调用方给的

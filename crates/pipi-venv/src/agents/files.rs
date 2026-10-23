@@ -28,7 +28,7 @@ fn agent_material_for(
     agent_name: &str,
 ) -> Result<(PathBuf, super::contract::AgentMaterial), String> {
     let dir = fs::canonicalize(checked_agent_dir(agent_name)?)
-        .map_err(|e| format!("无法规范化 Agent 目录：{e}"))?;
+        .map_err(|e| format!("Failed to canonicalize Agent directory: {e}"))?;
     let def = super::registry::load_agent(agent_name)?;
     let (agent_layer, _) = super::contract::collect_contract_layers(&def, None)?;
     let material = super::contract::agent_material(agent_layer.as_ref(), &dir)?;
@@ -40,7 +40,7 @@ fn memory_prefix(dir: &Path, material: &super::contract::AgentMaterial) -> Resul
     let relative = material
         .memory_dir
         .strip_prefix(dir)
-        .map_err(|_| "记忆目录不在 Agent 目录内（fail-closed）".to_string())?;
+        .map_err(|_| "Memory directory is not within Agent directory (fail-closed)".to_string())?;
     Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
@@ -57,20 +57,20 @@ fn resolve_agent_md_path(
 ) -> Result<PathBuf, String> {
     let relative = Path::new(rel_path);
     if relative.is_absolute() {
-        return Err(format!("必须是相对路径: {rel_path}"));
+        return Err(format!("Must be a relative path: {rel_path}"));
     }
     let components: Vec<std::ffi::OsString> = relative
         .components()
         .map(|c| c.as_os_str().to_owned())
         .collect();
     if components.is_empty() {
-        return Err("路径不能为空".into());
+        return Err("Path cannot be empty".into());
     }
     let dot_or_escape = components
         .iter()
         .any(|c| c == ".." || c.to_string_lossy().starts_with('.'));
     if dot_or_escape {
-        return Err(format!("路径不合法: {rel_path}"));
+        return Err(format!("Invalid path: {rel_path}"));
     }
     let mut target = dir.to_path_buf();
     for component in &components {
@@ -85,7 +85,7 @@ fn resolve_agent_md_path(
     if !declared {
         if !canonical_target.starts_with(&material.memory_dir) {
             return Err(format!(
-                "只允许编辑契约声明的指令文件与记忆目录（{}）下的 .md: {rel_path}",
+                "Only contract-declared instruction files and .md under memory directory ({}) can be edited: {rel_path}",
                 material.memory_dir.display()
             ));
         }
@@ -94,11 +94,11 @@ fn resolve_agent_md_path(
             depth = relative_to_memory.components().count();
         }
         if !(1..=3).contains(&depth) {
-            return Err(format!("记忆文件路径深度须为 1-3 层: {rel_path}"));
+            return Err(format!("Memory file path depth must be 1-3 levels: {rel_path}"));
         }
         let file_name = components.last().unwrap().to_string_lossy().into_owned();
         if !file_name.ends_with(".md") || file_name.len() <= 3 {
-            return Err(format!("记忆目录下只能编辑 .md 文件: {rel_path}"));
+            return Err(format!("Only .md files can be edited in memory directory: {rel_path}"));
         }
     }
 
@@ -107,9 +107,9 @@ fn resolve_agent_md_path(
     for component in &components {
         current.push(component);
         if current == target {
-            ensure_real_file(&current, "目标文件")?;
+            ensure_real_file(&current, "Target file")?;
         } else {
-            ensure_real_directory(&current, "路径目录")?;
+            ensure_real_directory(&current, "Path directory")?;
         }
     }
     Ok(target)
@@ -120,9 +120,9 @@ pub fn read_agent_file(agent_name: &str, rel_path: &str) -> Result<String, Strin
     let (dir, material) = agent_material_for(agent_name)?;
     let target = resolve_agent_md_path(&dir, &material, rel_path)?;
     if !target.is_file() {
-        return Err(format!("文件不存在: {rel_path}"));
+        return Err(format!("File does not exist: {rel_path}"));
     }
-    fs::read_to_string(&target).map_err(|e| format!("无法读取 {rel_path}: {e}"))
+    fs::read_to_string(&target).map_err(|e| format!("Failed to read {rel_path}: {e}"))
 }
 
 /// 写入 Agent 目录内可编辑的 Markdown（契约声明的指令文件 / 记忆文件）。
@@ -137,13 +137,13 @@ pub fn write_agent_file(agent_name: &str, rel_path: &str, content: &str) -> Resu
         .iter()
         .any(|instruction| instruction.path == canonical_target);
     if declared && !target.is_file() {
-        return Err("指令文件不存在（不应删除 Agent 的系统指令文件）".into());
+        return Err("Instruction file does not exist (Agent system instruction files should not be deleted)".into());
     }
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| format!("无法创建目录 {}: {e}", parent.display()))?;
+            .map_err(|e| format!("Failed to create directory {}: {e}", parent.display()))?;
     }
-    fs::write(&target, content).map_err(|e| format!("无法写入 {rel_path}: {e}"))
+    fs::write(&target, content).map_err(|e| format!("Failed to write {rel_path}: {e}"))
 }
 
 /// 列出 Agent 目录内可编辑的 Markdown 相对路径与 memory 前缀：

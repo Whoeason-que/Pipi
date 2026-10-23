@@ -19,14 +19,14 @@ pub(super) async fn commit_log(session: &SessionHandle) -> Result<(), String> {
     let writer = session.writer.clone();
     tokio::task::spawn_blocking(move || commit_shared(&writer))
         .await
-        .map_err(|error| format!("提交会话失败: {error}"))?
+        .map_err(|error| format!("Failed to commit session: {error}"))?
 }
 
 /// 提交一份账本（同步版；一次性路径直接调用）。
 pub(super) fn commit_shared(writer: &SharedLog) -> Result<(), String> {
     writer
         .lock()
-        .map_err(|error| format!("无法锁定会话写入器: {error}"))?
+        .map_err(|error| format!("Cannot lock session writer: {error}"))?
         .commit_point()
-        .map_err(|error| format!("提交会话失败: {error}"))
+        .map_err(|error| format!("Failed to commit session: {error}"))
 }

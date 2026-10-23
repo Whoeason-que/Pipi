@@ -377,6 +377,16 @@ export function IconWifiOff({ size }: { size?: number }) {
   );
 }
 
+/** 首页 / 工作区 */
+export function IconHome({ size }: { size?: number } = {}) {
+  return (
+    <IconBase size={size}>
+      <path d="M3 9.5L12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9.5z" />
+      <path d="M9 22V12h6v10" />
+    </IconBase>
+  );
+}
+
 /** 图层 / 上下文窗口 */
 export function IconLayers({ size }: { size?: number }) {
   return (
@@ -415,3 +425,24 @@ export function IconArrowRepeat({ size }: { size?: number }) {
 export function IconGit() {
   return <IconBase><circle cx="6" cy="5" r="3" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="19" r="3" /><path d="M6 8v8m12-7c0 5-12 1-12 7" /></IconBase>;
 }
+
+/** 用户 / 人类 */
+export function IconUser({ size }: { size?: number } = {}) {
+  return (
+    <IconBase size={size}>
+      <circle cx="12" cy="7.5" r="3.5" />
+      <path d="M5.5 19.5c0-3.6 3-5.5 6.5-5.5s6.5 1.9 6.5 5.5" />
+    </IconBase>
+  );
+}
+
+/** 锁定（已关闭） */
+export function IconLock({ size }: { size?: number } = {}) {
+  return (
+    <IconBase size={size}>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </IconBase>
+  );
+}
+

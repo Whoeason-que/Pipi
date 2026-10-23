@@ -107,11 +107,11 @@ impl JobCore {
         }
     }
 
-    /// 错误文案前缀（"后台任务" / "后台 Agent 任务"）：两类任务的提示语各自保持原样。
+    /// 错误文案前缀（"Background task" / "Background Agent task"）
     pub(super) fn label(&self) -> &'static str {
         match self.kind {
-            BackgroundTaskKind::Shell => "后台任务",
-            BackgroundTaskKind::Agent => "后台 Agent 任务",
+            BackgroundTaskKind::Shell => "Background task",
+            BackgroundTaskKind::Agent => "Background Agent task",
         }
     }
 
@@ -141,7 +141,7 @@ impl JobCore {
                 exit_code: None,
                 output_cursor: 0,
                 output_truncated: false,
-                error: Some(format!("{}状态锁损坏", self.label())),
+                error: Some(format!("{} state lock is poisoned", self.label())),
                 result: None,
             })
     }
@@ -172,7 +172,7 @@ impl JobCore {
         let state = self
             .state
             .lock()
-            .map_err(|error| format!("{}状态不可用: {error}", self.label()))?;
+            .map_err(|error| format!("{} state is unavailable: {error}", self.label()))?;
         Ok(state.snapshot(after_seq))
     }
 
@@ -187,7 +187,7 @@ impl JobCore {
         let chunk = self
             .state
             .lock()
-            .map_err(|error| format!("{}状态不可用: {error}", self.label()))?
+            .map_err(|error| format!("{} state is unavailable: {error}", self.label()))?
             .append_output(stream, text);
         self.notify.notify_waiters();
         Ok(Some(chunk))

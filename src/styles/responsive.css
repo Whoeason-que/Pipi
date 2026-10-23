@@ -925,11 +925,6 @@
     max-width: 60vw;
   }
 
-  .composer-footnote {
-    padding-top: 8px;
-    font-size: 9.5px;
-  }
-
   .chat-toolbar {
     padding-inline: 10px;
   }
@@ -938,7 +933,8 @@
     display: none;
   }
 
-  .chat-toolbar .chat-title b {
+  .chat-toolbar .chat-title b,
+  .chat-toolbar .chat-title > .agent-tag {
     font-size: var(--text-sm);
   }
 

@@ -27,7 +27,7 @@ impl RuntimeState {
         }
         let prompt = prompt.trim().to_string();
         if prompt.is_empty() {
-            return Err("空消息".into());
+            return Err("Message cannot be empty".into());
         }
 
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
@@ -40,7 +40,7 @@ impl RuntimeState {
             && sessions[key].engine.snapshot()?.running
         {
             return Err(format!(
-                "会话「{}」正在运行，请等待完成或先停止",
+                "Session \"{}\" is running, please wait for completion or stop it first",
                 key.session_id
             ));
         }
@@ -52,7 +52,7 @@ impl RuntimeState {
             let (key, session) = match session_id {
                 Some(id) => {
                     if !repo.exists(id)? {
-                        return Err("会话不存在".into());
+                        return Err("Session does not exist".into());
                     }
                     (
                         SessionKey::new(agent_name, id),
@@ -71,7 +71,7 @@ impl RuntimeState {
             .as_ref()
             .map(|(_, session)| session)
             .or_else(|| reuse_key.as_ref().map(|key| &sessions[key]))
-            .ok_or("无法创建会话")?;
+            .ok_or("Failed to create session")?;
         // 若复用已有会话且传入了明确的模型变更请求
         if reuse_key.is_some()
             && let Some(target) = &model
@@ -271,7 +271,7 @@ impl RuntimeState {
         )?;
         self.spawn_run(async move {
             if let Err(error) = prepared.run().await {
-                eprintln!("pipi: 会话运行失败: {error}");
+                eprintln!("pipi: session run failed: {error}");
             }
         });
 

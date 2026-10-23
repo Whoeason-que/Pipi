@@ -166,7 +166,10 @@ fn install_enable_disable_and_purge_roundtrip() {
     assert_eq!(remove_store_skill("pdf").unwrap(), 1);
     assert!(store_skills().unwrap().skills.is_empty());
     let error = remove_store_skill("pdf").unwrap_err();
-    assert!(error.contains("不在 store 索引"), "{error}");
+    assert!(
+        error.contains("not found in store index") || error.contains("不在 store 索引"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -263,7 +266,7 @@ fn sync_restores_missing_content_resolves_lock_and_repairs_drift() {
     let dir = store::entry_dir("pdf", &entry.content_hash).unwrap();
     fs::write(dir.join("SKILL.md"), "tampered").unwrap();
     let error = sync_agent_skills(&name, false).unwrap_err();
-    assert!(error.contains("漂移"), "{error}");
+    assert!(error.contains("drift") || error.contains("漂移"), "{error}");
     let report = sync_agent_skills(&name, true).unwrap();
     assert_eq!(report.repaired, vec!["pdf"]);
     assert!(
@@ -293,13 +296,22 @@ fn install_reports_git_and_name_validation_errors() {
     let _home = TestHome::new("errors");
     // 非法技能名在动网络之前拒绝
     let error = install_skill("owner/repo", Some(&["PDF".to_string()]), false, false).unwrap_err();
-    assert!(error.contains("形状非法"), "{error}");
+    assert!(
+        error.contains("Invalid skill name") || error.contains("形状非法"),
+        "{error}"
+    );
     // 选择冲突
     let error = install_skill("owner/repo", Some(&["pdf".to_string()]), true, false).unwrap_err();
-    assert!(error.contains("不能同时"), "{error}");
+    assert!(
+        error.contains("Cannot specify both") || error.contains("不能同时"),
+        "{error}"
+    );
     // 不在 store 里的技能无法启用
     let name = format!("skill-agent-{}", pipi_protocol::new_id());
     agents::create_agent(&name, "", None, None, None, None).unwrap();
     let error = set_skill_enabled(&name, "pdf", true).unwrap_err();
-    assert!(error.contains("尚未安装"), "{error}");
+    assert!(
+        error.contains("not installed") || error.contains("尚未安装"),
+        "{error}"
+    );
 }

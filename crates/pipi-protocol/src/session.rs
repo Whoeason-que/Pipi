@@ -160,7 +160,7 @@ pub fn validate_session_id(session_id: &str) -> Result<(), String> {
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || character == '-')
     {
-        return Err("非法会话 ID".into());
+        return Err("Invalid session ID".into());
     }
     Ok(())
 }
@@ -226,7 +226,7 @@ pub trait SessionRepo: Send + Sync {
     /// 没有归档区的载体直接报错，调用方据此降级而不是猜。
     fn entries_archived(&self, session_id: &str) -> Result<Vec<SessionEntry>, String> {
         let _ = session_id;
-        Err("该载体不支持读取归档会话".into())
+        Err("This backend does not support reading archived sessions".into())
     }
     /// 从源会话分叉出新会话（`up_to_entry_id` 为空则到当前 tip）。
     fn fork(

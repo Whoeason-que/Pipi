@@ -147,17 +147,17 @@ impl BackgroundTaskManager {
     fn jobs_dir(agent_name: &str) -> Result<PathBuf, String> {
         agents::validate_agent_name(agent_name)?;
         let agent_dir = agents::agent_dir(agent_name)
-            .ok_or_else(|| "无法定位用户主目录，不能创建后台任务目录".to_string())?;
-        if !pipi_protocol::fs::ensure_real_directory(&agent_dir, "Agent 目录")? {
-            return Err(format!("Agent「{agent_name}」不存在"));
+            .ok_or_else(|| "Cannot locate user home directory; cannot create background task directory".to_string())?;
+        if !pipi_protocol::fs::ensure_real_directory(&agent_dir, "Agent directory")? {
+            return Err(format!("Agent \"{agent_name}\" does not exist"));
         }
         let jobs_dir = agent_dir.join("jobs");
-        match pipi_protocol::fs::ensure_real_directory(&jobs_dir, "后台任务目录")? {
+        match pipi_protocol::fs::ensure_real_directory(&jobs_dir, "Background task directory")? {
             true => {}
             false => {
                 std::fs::create_dir_all(&jobs_dir)
-                    .map_err(|error| format!("无法创建后台任务目录: {error}"))?;
-                pipi_protocol::fs::ensure_real_directory(&jobs_dir, "后台任务目录")?;
+                    .map_err(|error| format!("Cannot create background task directory: {error}"))?;
+                pipi_protocol::fs::ensure_real_directory(&jobs_dir, "Background task directory")?;
             }
         }
         Ok(jobs_dir)
@@ -168,7 +168,7 @@ impl BackgroundTaskManager {
         self.inner
             .jobs
             .lock()
-            .map_err(|error| format!("后台任务表不可用: {error}"))?
+            .map_err(|error| format!("Background task table is unavailable: {error}"))?
             .insert(job_id, handle);
         Ok(())
     }
@@ -178,7 +178,7 @@ impl BackgroundTaskManager {
             .inner
             .jobs
             .lock()
-            .map_err(|error| format!("后台任务表不可用: {error}"))?
+            .map_err(|error| format!("Background task table is unavailable: {error}"))?
             .get(job_id)
             .cloned())
     }
@@ -204,7 +204,7 @@ impl BackgroundTaskManager {
         validate_job_id(job_id)?;
         let path = Self::jobs_dir(&owner.agent_name)?.join(format!("{job_id}.jsonl"));
         let Some(snapshot) = load_persisted_snapshot(&path, owner, after_seq).await? else {
-            return Err(format!("后台任务「{job_id}」不存在或不属于当前 session"));
+            return Err(format!("Background task \"{job_id}\" does not exist or does not belong to current session"));
         };
         Ok(snapshot)
     }
@@ -217,12 +217,12 @@ impl BackgroundTaskManager {
         let jobs_dir = Self::jobs_dir(&owner.agent_name)?;
         let mut dir = tokio::fs::read_dir(&jobs_dir)
             .await
-            .map_err(|error| format!("无法读取后台任务目录: {error}"))?;
+            .map_err(|error| format!("Cannot read background task directory: {error}"))?;
         let mut snapshots = Vec::new();
         while let Some(entry) = dir
             .next_entry()
             .await
-            .map_err(|error| format!("无法枚举后台任务目录: {error}"))?
+            .map_err(|error| format!("Cannot enumerate background task directory: {error}"))?
         {
             let path = entry.path();
             if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {

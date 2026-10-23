@@ -6,6 +6,7 @@ import {
   eventMatchesRun,
   eventMatchesSession,
   INITIAL_CHAT_STATE,
+  isAwaitingResponse,
   formatRuntimeError,
   type AgentEvent,
   type MessageView,
@@ -20,6 +21,47 @@ const assistantMessage = (text: string, stopReason?: string): MessageView => ({
 function event(state: typeof INITIAL_CHAT_STATE, value: AgentEvent) {
   return chatReducer(state, { type: "event", event: value, key: createEntryKey("test") });
 }
+
+test("Connecting survives empty stream starts and ends at the first response activity", () => {
+  assert.equal(isAwaitingResponse(INITIAL_CHAT_STATE), false);
+  assert.equal(isAwaitingResponse(event(INITIAL_CHAT_STATE, { type: "agent_start" })), false);
+  let waiting = chatReducer(INITIAL_CHAT_STATE, { type: "submit_user", key: "prompt", text: "hello" });
+  waiting = event(waiting, { type: "agent_start" });
+  waiting = event(waiting, { type: "turn_start" });
+  waiting = event(waiting, { type: "message_start", message: assistantMessage("") });
+  assert.equal(isAwaitingResponse(waiting), true);
+
+  const activities: AgentEvent[] = [
+    { type: "message_update", message: assistantMessage("hello back") },
+    { type: "message_update", message: { role: "assistant", content: [{ type: "thinking", thinking: "considering" }] } },
+    { type: "message_update", message: { role: "assistant", content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }] } },
+    { type: "tool_execution_start", toolCallId: "call", toolName: "read" },
+    { type: "retry_start", attempt: 1, maxAttempts: 3, delayMs: 1000, cause: "retry" },
+    { type: "compaction_start" },
+  ];
+  for (const activity of activities) {
+    assert.equal(isAwaitingResponse(event(waiting, activity)), false, activity.type);
+  }
+  const answered = event(waiting, { type: "message_update", message: assistantMessage("done") });
+  assert.equal(isAwaitingResponse(chatReducer(answered, { type: "submit_user", key: "next", text: "next prompt" })), true);
+});
+
+test("Connecting clears on rejection, stop, errors and completion and can be derived after hydration", () => {
+  const waiting = chatReducer(INITIAL_CHAT_STATE, { type: "submit_user", key: "prompt", text: "hello" });
+  assert.equal(isAwaitingResponse(chatReducer(waiting, { type: "reject_user", key: "prompt" })), false);
+  assert.equal(isAwaitingResponse(chatReducer(waiting, { type: "running", running: false })), false);
+  assert.equal(isAwaitingResponse(event(waiting, { type: "agent_end" })), false);
+  for (const reason of ["error", "aborted", "stop"]) {
+    assert.equal(isAwaitingResponse(event(waiting, { type: "message_end", message: assistantMessage("", reason) })), false);
+  }
+  const hydrated = chatReducer(INITIAL_CHAT_STATE, {
+    type: "hydrate", messages: [{ role: "user", content: "hello" }], stats: null, running: true,
+  });
+  assert.equal(isAwaitingResponse(hydrated), true);
+  assert.equal(isAwaitingResponse(chatReducer(hydrated, { type: "hydrate", messages: [
+    { role: "user", content: "hello" }, assistantMessage("done"),
+  ], stats: null, running: true })), false);
+});
 
 test("hydration preserves optimistic entries that arrive before the snapshot", () => {
   let state = chatReducer(INITIAL_CHAT_STATE, {

@@ -12,17 +12,17 @@ pub fn split_segments(command: &str) -> Result<Vec<Segment>, String> {
     let mut out = Vec::new();
     for raw in split_raw_on_connectors(command)? {
         let Some(argv) = shlex::split(raw.trim()) else {
-            return Err(format!("命令片段「{raw}」包含未闭合的引号或转义"));
+            return Err(format!("Command segment \"{raw}\" contains unclosed quote or escape"));
         };
         if argv.is_empty() {
             continue;
         }
         let text = shlex::try_join(argv.iter().map(String::as_str))
-            .map_err(|_| "命令片段无法重组".to_string())?;
+            .map_err(|_| "Command segments cannot be reconstructed".to_string())?;
         out.push(Segment { argv, text });
     }
     if out.is_empty() {
-        return Err("空命令".into());
+        return Err("Empty command".into());
     }
     Ok(out)
 }
@@ -86,7 +86,7 @@ fn split_raw_on_connectors(s: &str) -> Result<Vec<String>, String> {
         }
     }
     if in_single || in_double {
-        return Err("命令包含未闭合的引号".into());
+        return Err("Command contains unclosed quote".into());
     }
     push_segment(&mut cur, &mut segments);
     Ok(segments)
@@ -121,12 +121,12 @@ pub(super) fn read_word(chars: &[char], start: usize) -> Result<(String, usize),
         match c {
             ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>' | '(' | ')' => break,
             '\'' => {
-                let end = skip_quoted(chars, i + 1, '\'').ok_or("命令含未闭合的单引号")?;
+                let end = skip_quoted(chars, i + 1, '\'').ok_or("Command contains unclosed single quote")?;
                 word.extend(&chars[i + 1..end]);
                 i = end + 1;
             }
             '"' => {
-                let end = skip_quoted(chars, i + 1, '"').ok_or("命令含未闭合的双引号")?;
+                let end = skip_quoted(chars, i + 1, '"').ok_or("Command contains unclosed double quote")?;
                 word.extend(&chars[i + 1..end]);
                 i = end + 1;
             }

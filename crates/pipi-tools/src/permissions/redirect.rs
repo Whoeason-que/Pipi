@@ -77,7 +77,7 @@ pub(super) fn check_write_redirect(command: &str) -> RedirectCheck {
                         Some(next) => i = next,
                         None => {
                             return RedirectCheck::Unparseable(format!(
-                                "heredoc 缺少结束符「{delimiter}」"
+                                "heredoc missing delimiter \"{delimiter}\""
                             ));
                         }
                     }
@@ -99,7 +99,7 @@ pub(super) fn check_write_redirect(command: &str) -> RedirectCheck {
     }
 
     if let Some((delimiter, _)) = pending_heredocs.first() {
-        return RedirectCheck::Unparseable(format!("heredoc 缺少结束符「{delimiter}」"));
+        return RedirectCheck::Unparseable(format!("heredoc missing delimiter \"{delimiter}\""));
     }
     RedirectCheck::Ok
 }
@@ -119,7 +119,7 @@ fn scan_redirect(
     // 进程替换：`<(cmd)` 读、`>(cmd)` 写进管道 —— 都不落盘
     if next == Some('(') {
         let after =
-            skip_balanced_parens(chars, start + 1).ok_or("进程替换的括号不配对".to_string())?;
+            skip_balanced_parens(chars, start + 1).ok_or("Unmatched parentheses in process substitution".to_string())?;
         if op == '<' {
             return Ok((read_step(&redirect_snippet(chars, start, after)), after));
         }
@@ -140,7 +140,7 @@ fn scan_redirect(
             }
             let (delimiter, after) = read_word(chars, j)?;
             if delimiter.is_empty() {
-                return Err("heredoc 缺少结束符".into());
+                return Err("heredoc missing delimiter".into());
             }
             heredocs.push((delimiter, strip_tabs));
             return Ok((RedirectStep::Allowed, after));

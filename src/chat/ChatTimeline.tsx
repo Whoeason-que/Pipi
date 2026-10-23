@@ -5,9 +5,12 @@ import { IconFork } from "../icons";
 import { ChatErrorCard } from "./ChatErrorCard";
 import { extractAssistantContentAndError } from "./chat-errors";
 import { useI18n } from "../i18n";
+import type { ImageAgent } from "../files/MarkdownImage";
 
 export default function ChatTimeline({
   blocks,
+  connecting,
+  agent,
   activeChipId,
   pinnedChip,
   previewDetail,
@@ -21,6 +24,8 @@ export default function ChatTimeline({
   forkDisabled,
 }: {
   blocks: ChatBlock[];
+  connecting: boolean;
+  agent: ImageAgent;
   activeChipId: string | null;
   pinnedChip: string | null;
   findHits: string[];
@@ -53,7 +58,7 @@ export default function ChatTimeline({
                   <div className="row-inner">
                     <details className="compaction-fold" open={!entry.summary}>
                       <summary>{entry.text}</summary>
-                      {entry.summary ? <Markdown text={entry.summary} /> : null}
+                      {entry.summary ? <Markdown text={entry.summary} imageAgent={agent} /> : null}
                     </details>
                   </div>
                 </div>
@@ -116,7 +121,7 @@ export default function ChatTimeline({
                 <div className="row-inner">
                   {cleanText ? (
                     <div className="content">
-                      <Markdown text={cleanText} />
+                      <Markdown text={cleanText} imageAgent={agent} />
                       {entry.streaming && <span className="cursor" aria-hidden="true" />}
                     </div>
                   ) : entry.streaming ? (
@@ -154,5 +159,13 @@ export default function ChatTimeline({
               </div>
             );
           })}
+          {connecting && (
+            <div className="row connecting-row">
+              <div className="row-inner" role="status">
+                <span className="connecting-dot" aria-hidden="true" />
+                <span>{t("chat.connecting")}</span>
+              </div>
+            </div>
+          )}
   </>;
 }

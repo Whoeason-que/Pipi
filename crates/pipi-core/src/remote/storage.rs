@@ -24,11 +24,11 @@ fn present_tunnel_token_file<'de, D: Deserializer<'de>>(
 }
 
 pub(super) fn load_config() -> Result<RemoteAccessConfig, String> {
-    let path = paths::remote_settings_path().ok_or("无法定位 Pipi 数据目录")?;
+    let path = paths::remote_settings_path().ok_or("Cannot locate Pipi data directory")?;
     match fs::read_to_string(path) {
         Ok(text) => {
             let stored: StoredConfig =
-                serde_json::from_str(&text).map_err(|e| format!("远程访问配置无效：{e}"))?;
+                serde_json::from_str(&text).map_err(|e| format!("Invalid remote access configuration: {e}"))?;
             let mut config = stored.config;
             // 兼容此前由 systemd 托管的部署，只复用凭据路径，不恢复系统服务。
             // 显式保存的空路径表示用户不让应用管理 Tunnel，不能再次自动补回。
@@ -44,25 +44,25 @@ pub(super) fn load_config() -> Result<RemoteAccessConfig, String> {
             Ok(config)
         }
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(RemoteAccessConfig::default()),
-        Err(e) => Err(format!("读取远程访问配置失败：{e}")),
+        Err(e) => Err(format!("Failed to read remote access configuration: {e}")),
     }
 }
 
 pub(super) fn save_config(config: &RemoteAccessConfig) -> Result<(), String> {
-    let path = paths::remote_settings_path().ok_or("无法定位 Pipi 数据目录")?;
+    let path = paths::remote_settings_path().ok_or("Cannot locate Pipi data directory")?;
     let bytes = serde_json::to_vec_pretty(config).map_err(|e| e.to_string())?;
     private_write(&path, &bytes)
 }
 
 pub(super) fn load_token() -> Result<String, String> {
-    let path = paths::remote_token_path().ok_or("无法定位 Pipi 数据目录")?;
+    let path = paths::remote_token_path().ok_or("Cannot locate Pipi data directory")?;
     match fs::symlink_metadata(&path) {
         Ok(meta) if !meta.is_file() || meta.file_type().is_symlink() => {
-            return Err("远程访问令牌必须是普通文件".into());
+            return Err("Remote access token must be a regular file".into());
         }
         Ok(_) => {}
         Err(e) if e.kind() == ErrorKind::NotFound => return rotate_token(),
-        Err(e) => return Err(format!("读取远程访问令牌失败：{e}")),
+        Err(e) => return Err(format!("Failed to read remote access token: {e}")),
     }
     let value = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let token = value.trim();
@@ -71,7 +71,7 @@ pub(super) fn load_token() -> Result<String, String> {
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
     {
-        return Err("远程访问令牌无效，请在桌面设置中重新生成".into());
+        return Err("Remote access token is invalid, please regenerate in desktop settings".into());
     }
     #[cfg(unix)]
     {
@@ -92,7 +92,7 @@ pub(super) fn new_token() -> String {
 
 pub(super) fn save_token(token: &str) -> Result<(), String> {
     private_write(
-        &paths::remote_token_path().ok_or("无法定位 Pipi 数据目录")?,
+        &paths::remote_token_path().ok_or("Cannot locate Pipi data directory")?,
         token.as_bytes(),
     )
 }
@@ -104,7 +104,7 @@ fn rotate_token() -> Result<String, String> {
 }
 
 fn private_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path.parent().ok_or("文件路径无父目录")?;
+    let parent = path.parent().ok_or("File path has no parent directory")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let temp = parent.join(format!(".remote-{}", uuid::Uuid::new_v4().simple()));
     let result = (|| -> std::io::Result<()> {
@@ -123,7 +123,7 @@ fn private_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if result.is_err() {
         let _ = fs::remove_file(temp);
     }
-    result.map_err(|e| format!("保存远程访问配置失败：{e}"))
+    result.map_err(|e| format!("Failed to save remote access configuration: {e}"))
 }
 
 #[cfg(all(test, unix))]

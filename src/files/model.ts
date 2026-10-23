@@ -61,6 +61,23 @@ export function linkedPath(file: string, href: string): string | null {
   return parts.join("/");
 }
 
+/** 聊天图片相对 Agent 工作区解析；本地 file URL 只取路径，边界仍由宿主验证。 */
+export function markdownImagePath(src: string): string | null {
+  if (/^file:/i.test(src)) {
+    try {
+      const url = new URL(src);
+      if (url.hostname && url.hostname !== "localhost") return null;
+      const path = /^\/[a-z]:\//i.test(url.pathname) ? url.pathname.slice(1) : url.pathname;
+      if (/^[a-z]:\//i.test(path)) return decodeURIComponent(path);
+      return linkedPath("", path);
+    } catch { return null; }
+  }
+  if (/^[a-z]:[\\/]/i.test(src)) {
+    try { return decodeURIComponent(src).replace(/\\/g, "/"); } catch { return null; }
+  }
+  return linkedPath("", src);
+}
+
 export function languageFor(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return ({ ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", rs: "rust", py: "python", json: "json", css: "css", sh: "bash", toml: "ini", yml: "yaml", yaml: "yaml", html: "xml", svg: "xml", md: "markdown", sql: "sql", c: "c", cpp: "cpp", go: "go" } as Record<string, string>)[ext] ?? "text";

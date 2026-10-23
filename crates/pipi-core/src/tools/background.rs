@@ -96,7 +96,7 @@ pub trait BackgroundTaskService: Send + Sync {
         &self,
         _spec: BackgroundAgentTaskSpec,
     ) -> Result<BackgroundTaskInfo, String> {
-        Err("当前宿主不支持后台 Agent 任务".into())
+        Err("Current host does not support background Agent tasks".into())
     }
 
     async fn query(
@@ -168,7 +168,7 @@ impl AgentTool for SubmitBackgroundTaskTool {
         let command = args
             .get("command")
             .and_then(Value::as_str)
-            .ok_or("缺少 command")?
+            .ok_or("Missing command")?
             .trim();
         validate_managed_command(command)?;
 
@@ -188,7 +188,7 @@ impl AgentTool for SubmitBackgroundTaskTool {
         Ok(ToolOutput {
             content: vec![ToolResultContent::Text {
                 text: format!(
-                    "后台任务已提交：{}，状态为 {:?}。使用 query_background_tasks 查询输出或状态。",
+                    "Background task submitted: {}, status is {:?}. Use query_background_tasks to inspect output or status.",
                     info.job_id, info.status
                 ),
             }],
@@ -242,11 +242,11 @@ impl AgentTool for QueryBackgroundTasksTool {
     ) -> Result<ToolOutput, String> {
         let wait_ms = parse_u64(args, "waitMs")?.unwrap_or(0);
         if wait_ms > MAX_WAIT_MS {
-            return Err(format!("waitMs 不能超过 {MAX_WAIT_MS}"));
+            return Err(format!("waitMs cannot exceed {MAX_WAIT_MS}"));
         }
         let limit = parse_usize(args, "limit")?.unwrap_or(DEFAULT_LIST_LIMIT);
         if !(1..=MAX_LIST_LIMIT).contains(&limit) {
-            return Err(format!("limit 必须在 1 到 {MAX_LIST_LIMIT} 之间"));
+            return Err(format!("limit must be between 1 and {MAX_LIST_LIMIT}"));
         }
         let snapshots = self
             .service
@@ -322,20 +322,20 @@ impl AgentTool for ManageBackgroundTaskTool {
             .get("jobId")
             .and_then(Value::as_str)
             .filter(|value| !value.trim().is_empty())
-            .ok_or("缺少 jobId")?;
+            .ok_or("Missing jobId")?;
         let action = args
             .get("action")
             .and_then(Value::as_str)
-            .ok_or("缺少 action")?;
+            .ok_or("Missing action")?;
         let command = match action {
             "terminate" => BackgroundTaskCommand::Terminate,
             "writeStdin" => BackgroundTaskCommand::WriteStdin(
                 args.get("data")
                     .and_then(Value::as_str)
-                    .ok_or("writeStdin 需要 data")?
+                    .ok_or("writeStdin requires data")?
                     .to_string(),
             ),
-            _ => return Err("action 必须是 terminate 或 writeStdin".into()),
+            _ => return Err("action must be terminate or writeStdin".into()),
         };
         let snapshot = self.service.manage(&self.owner, job_id, command).await?;
         Ok(ToolOutput {
@@ -362,13 +362,13 @@ fn parse_u64(args: &Value, name: &str) -> Result<Option<u64>, String> {
         Some(value) => value
             .as_u64()
             .map(Some)
-            .ok_or_else(|| format!("参数 {name} 必须是非负整数")),
+            .ok_or_else(|| format!("Parameter {name} must be a non-negative integer")),
     }
 }
 
 fn parse_usize(args: &Value, name: &str) -> Result<Option<usize>, String> {
     parse_u64(args, name)?
-        .map(|value| usize::try_from(value).map_err(|_| format!("参数 {name} 超出范围")))
+        .map(|value| usize::try_from(value).map_err(|_| format!("Parameter {name} out of range")))
         .transpose()
 }
 
@@ -378,10 +378,10 @@ fn resolve_workspace_cwd(ctx: &ToolContext, requested: Option<&str>) -> Result<P
         .transpose()?
         .unwrap_or_else(|| ctx.workspace.clone());
     let canonical =
-        std::fs::canonicalize(&path).map_err(|error| format!("后台任务 cwd 不可用: {error}"))?;
+        std::fs::canonicalize(&path).map_err(|error| format!("Background task cwd is not available: {error}"))?;
     if !canonical.starts_with(&ctx.workspace) || !canonical.is_dir() {
         return Err(format!(
-            "后台任务 cwd 必须是工作目录 {} 内的现有目录",
+            "Background task cwd must be an existing directory within workspace {}",
             ctx.workspace.display()
         ));
     }
@@ -390,13 +390,13 @@ fn resolve_workspace_cwd(ctx: &ToolContext, requested: Option<&str>) -> Result<P
 
 fn validate_managed_command(command: &str) -> Result<(), String> {
     if command.is_empty() {
-        return Err("command 不能为空".into());
+        return Err("command cannot be empty".into());
     }
     if command.len() > MAX_COMMAND_BYTES {
-        return Err(format!("command 不能超过 {MAX_COMMAND_BYTES} 字节"));
+        return Err(format!("command cannot exceed {MAX_COMMAND_BYTES} bytes"));
     }
     if has_unquoted_background_operator(command) {
-        return Err("后台任务不接受 shell 的单独 '&'；请让 Pipi 托管任务生命周期".into());
+        return Err("Background tasks do not accept bare shell '&'; please let Pipi manage the task lifecycle".into());
     }
     let segments = pipi_tools::permissions::split_segments(command)?;
     if segments.iter().any(|segment| {
@@ -405,7 +405,7 @@ fn validate_managed_command(command: &str) -> Result<(), String> {
             .first()
             .is_some_and(|argv| matches!(argv.as_str(), "nohup" | "setsid" | "disown" | "daemon"))
     }) {
-        return Err("后台任务不接受 nohup、setsid、disown 或 daemon 脱离托管".into());
+        return Err("Background tasks do not accept nohup, setsid, disown, or daemon unmanaged execution".into());
     }
     Ok(())
 }
@@ -447,7 +447,7 @@ fn has_unquoted_background_operator(command: &str) -> bool {
 
 fn format_query_result(snapshots: &[BackgroundTaskSnapshot]) -> String {
     if snapshots.is_empty() {
-        return "当前 session 没有可见的后台任务。".into();
+        return "No visible background tasks for the current session.".into();
     }
     snapshots
         .iter()
@@ -459,17 +459,17 @@ fn format_query_result(snapshots: &[BackgroundTaskSnapshot]) -> String {
 fn format_snapshot(snapshot: &BackgroundTaskSnapshot) -> String {
     let task = &snapshot.task;
     let mut text = format!(
-        "任务 {}（{:?}）：{:?}，输出游标 {}，命令 `{}`",
+        "Task {} ({:?}): {:?}, output cursor {}, command `{}`",
         task.job_id, task.kind, task.status, task.output_cursor, task.command
     );
     if let Some(target) = &task.target_agent {
-        text.push_str(&format!("；目标 Agent：{target}"));
+        text.push_str(&format!("; target Agent: {target}"));
     }
     if let Some(session_id) = &task.child_session_id {
-        text.push_str(&format!("；child session：{session_id}"));
+        text.push_str(&format!("; child session: {session_id}"));
     }
     if let Some(error) = &task.error {
-        text.push_str(&format!("；错误：{error}"));
+        text.push_str(&format!("; error: {error}"));
     }
     if let Some(result) = &task.result {
         text.push_str(&format!("\n[agent result] {result}"));

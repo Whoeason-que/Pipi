@@ -161,15 +161,15 @@ fn non_empty<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
 /// 列表形态：最近的会话元数据，不读消息正文。
 fn list(candidates: &[Candidate], limit: usize) -> String {
     if candidates.is_empty() {
-        return "没有可查的历史会话。".into();
+        return "No historical sessions available.".into();
     }
-    let mut lines = vec![format!("最近的历史会话（最多 {limit} 个）：")];
+    let mut lines = vec![format!("Recent historical sessions (up to {limit}):")];
     for candidate in candidates.iter().take(limit) {
         lines.push(format_meta(candidate));
     }
     if candidates.len() > limit {
         lines.push(format!(
-            "（还有 {} 个未列出，可加大 limit 或用 query 缩小）",
+            "({} more not listed, increase limit or use query to narrow)",
             candidates.len() - limit
         ));
     }
@@ -179,10 +179,10 @@ fn list(candidates: &[Candidate], limit: usize) -> String {
 fn format_meta(candidate: &Candidate) -> String {
     let s = &candidate.summary;
     format!(
-        "- {}{}：{}（{} 条消息）",
+        "- {}{}: {} ({} messages)",
         s.id,
         if candidate.archived {
-            "［归档］"
+            " [archived]"
         } else {
             ""
         },
@@ -214,7 +214,7 @@ fn search(repo: &dyn SessionRepo, candidates: &[Candidate], query: &str, limit: 
             continue;
         };
         let block = format!(
-            "{}\n  第 {} 条消息：{}",
+            "{}\n  Message #{}: {}",
             format_meta(candidate),
             index,
             snippet
@@ -228,16 +228,16 @@ fn search(repo: &dyn SessionRepo, candidates: &[Candidate], query: &str, limit: 
     }
 
     if hits.is_empty() {
-        let mut out = format!("没有找到包含「{query}」的历史会话。");
+        let mut out = format!("No historical sessions found containing \"{query}\".");
         if scanned_failed > 0 {
-            out.push_str(&format!("（{scanned_failed} 个会话无法读取，已跳过）"));
+            out.push_str(&format!(" ({scanned_failed} sessions unreadable, skipped)"));
         }
         return out;
     }
-    let mut out = vec![format!("包含「{query}」的历史会话：")];
+    let mut out = vec![format!("Historical sessions containing \"{query}\":")];
     out.extend(hits);
     if truncated {
-        out.push("（输出已达字符预算，结果被截断；请用更具体的 query）".into());
+        out.push("(Output reached character budget, results truncated; please use a more specific query)".into());
     }
     out.join("\n")
 }
@@ -247,16 +247,16 @@ fn read_session(repo: &dyn SessionRepo, session_id: &str, offset: usize) -> Resu
     let entries = load_by_id(repo, session_id)?;
     let messages = active_messages(&entries);
     if messages.is_empty() {
-        return Ok(format!("会话 {session_id} 没有消息。"));
+        return Ok(format!("Session {session_id} has no messages."));
     }
     if offset >= messages.len() {
         return Ok(format!(
-            "会话 {session_id} 共 {} 条消息，offset {offset} 已超出范围。",
+            "Session {session_id} has {} messages in total; offset {offset} is out of range.",
             messages.len()
         ));
     }
     let mut out = vec![format!(
-        "会话 {session_id}（第 {offset} 条起，共 {} 条）：",
+        "Session {session_id} (from #{offset}, {} total):",
         messages.len()
     )];
     let mut total = out[0].chars().count();
@@ -271,7 +271,7 @@ fn read_session(repo: &dyn SessionRepo, session_id: &str, offset: usize) -> Resu
         next = index + 1;
     }
     if next < messages.len() {
-        out.push(format!("（已截断；继续读取请用 offset={next}）"));
+        out.push(format!("(Truncated; use offset={next} to continue reading)"));
     }
     Ok(out.join("\n"))
 }
@@ -347,17 +347,17 @@ fn snippet_around(text: &str, byte_at: usize, needle_len: usize) -> String {
 /// 读取形态的单条渲染：工具结果只给占位，文本按字符截断。
 fn render(message: &Message, max_chars: usize) -> String {
     let (role, text) = match message {
-        Message::User { content, .. } => ("用户", content.clone()),
-        Message::Assistant { .. } => ("助手", plain_text(message)),
+        Message::User { content, .. } => ("User", content.clone()),
+        Message::Assistant { .. } => ("Assistant", plain_text(message)),
         Message::ToolResult { tool_name, .. } => {
-            return format!("（工具 {tool_name} 的输出，已省略）");
+            return format!("(Output of tool {tool_name}, omitted)");
         }
     };
     let mut body: String = text.chars().take(max_chars).collect();
     if text.chars().count() > max_chars {
         body.push('…');
     }
-    format!("{role}：{body}")
+    format!("{role}: {body}")
 }
 
 #[cfg(test)]
@@ -378,7 +378,7 @@ mod tests {
         let long = Message::user_text("字".repeat(5_000));
         let rendered = render(&long, 100);
         assert!(rendered.ends_with('…'));
-        assert!(rendered.chars().count() <= 100 + "用户：…".chars().count());
+        assert!(rendered.chars().count() <= 100 + "User: …".chars().count());
 
         let tool = Message::ToolResult {
             tool_call_id: "t".into(),
@@ -390,6 +390,6 @@ mod tests {
             details: None,
             timestamp: 0,
         };
-        assert!(render(&tool, 100).contains("已省略"));
+        assert!(render(&tool, 100).contains("omitted"));
     }
 }

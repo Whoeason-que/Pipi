@@ -220,7 +220,10 @@ async fn management_is_local_only_rotation_disconnects_clients_and_conflicts_pre
     ] {
         let (code, body) = invoke(addr, &token, command, args).await;
         assert_eq!(code, 400);
-        assert!(body["error"].as_str().unwrap().contains("仅允许"));
+        assert!(
+            body["error"].as_str().unwrap().contains("only allowed")
+                || body["error"].as_str().unwrap().contains("仅允许")
+        );
     }
     let blocker = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let blocked_port = blocker.local_addr().unwrap().port();
@@ -281,7 +284,10 @@ async fn management_is_local_only_rotation_disconnects_clients_and_conflicts_pre
         })
         .await
         .unwrap();
-    assert!(remote.set_enabled(true).await.unwrap_err().contains("凭据"));
+    assert!(
+        remote.set_enabled(true).await.unwrap_err().contains("credentials")
+            || remote.set_enabled(true).await.unwrap_err().contains("凭据")
+    );
     assert!(!remote.status().await.local_running);
     assert!(TcpStream::connect(addr).await.is_err());
     // 无效配置不自动监听；显式保存可修复。

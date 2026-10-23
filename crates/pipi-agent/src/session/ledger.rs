@@ -75,7 +75,7 @@ pub(super) fn append_terminal(
         .clone();
     let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
     let mut appended = settle_unanswered_tail(&mut **writer, &history)
-        .map_err(|e| format!("无法修复终态前的工具调用: {e}"))?;
+        .map_err(|e| format!("Cannot repair tool calls before terminal state: {e}"))?;
     writer
         .append_message(&terminal)
         .map_err(|e| e.to_string())?;

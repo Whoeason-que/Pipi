@@ -24,7 +24,7 @@ pub fn set_skill_enabled(
     enabled: bool,
 ) -> Result<AgentSkills, String> {
     if !crate::av::skills::valid_skill_name(name) {
-        return Err(format!("技能名 {name:?} 形状非法"));
+        return Err(format!("Invalid skill name {name:?}"));
     }
     let def = agents::load_agent(agent_name)?;
     let context = declared_context(&def)?;
@@ -34,7 +34,7 @@ pub fn set_skill_enabled(
         let index = store::read_index()?;
         let entry = store::latest_index_entry(&index, name)
             .ok_or_else(|| {
-                format!("技能 {name:?} 尚未安装到全局 store；先安装再启用（装 ≠ 启用）")
+                format!("Skill {name:?} is not installed in global store; please install before enabling")
             })?
             .clone();
 
@@ -52,7 +52,7 @@ pub fn set_skill_enabled(
     } else {
         if context.contract_path.is_file() {
             let text = fs::read_to_string(&context.contract_path)
-                .map_err(|e| format!("无法读取 {}: {e}", context.contract_path.display()))?;
+                .map_err(|e| format!("Failed to read {}: {e}", context.contract_path.display()))?;
             let (edited, changed) =
                 crate::av::contract_edit::edit_use_names(&text, &[], &[name.to_string()])?;
             if changed {
@@ -64,7 +64,7 @@ pub fn set_skill_enabled(
             if lock.remove(name) {
                 if lock.skills.is_empty() {
                     fs::remove_file(&context.lock_path)
-                        .map_err(|e| format!("无法删除 {}: {e}", context.lock_path.display()))?;
+                        .map_err(|e| format!("Failed to delete {}: {e}", context.lock_path.display()))?;
                 } else {
                     lock.write(&context.lock_path)?;
                 }
@@ -79,12 +79,12 @@ pub fn set_skill_enabled(
 fn contract_text_for_edit(context: &DeclaredContext) -> Result<String, String> {
     if context.contract_path.is_file() {
         return fs::read_to_string(&context.contract_path)
-            .map_err(|e| format!("无法读取 {}: {e}", context.contract_path.display()));
+            .map_err(|e| format!("Failed to read {}: {e}", context.contract_path.display()));
     }
     if context.contract_path != context.agent_contract_path {
         // 声明层文件刚被删掉之类的竞态：明确报错，不凭空重建项目文件
         return Err(format!(
-            "契约文件不存在：{}（项目层文件不会被自动创建）",
+            "Contract file does not exist: {} (project-layer files are not created automatically)",
             context.contract_path.display()
         ));
     }

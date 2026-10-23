@@ -40,8 +40,8 @@ impl AgentTool for WriteTool {
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());
         }
-        let path = args["path"].as_str().ok_or("缺少 path")?;
-        let content = args["content"].as_str().ok_or("缺少 content")?;
+        let path = args["path"].as_str().ok_or("Missing path")?;
+        let content = args["content"].as_str().ok_or("Missing content")?;
 
         let abs = if matches!(
             ctx.sandbox,

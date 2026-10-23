@@ -80,7 +80,7 @@ pub fn run() {
             commands::forum_reply,
         ])
         .build(tauri::generate_context!())
-        .expect("Pipi 启动失败");
+        .expect("Failed to start Pipi");
     let exiting = Arc::new(AtomicBool::new(false));
     app.run(move |app, event| {
         if let tauri::RunEvent::ExitRequested { api, .. } = event

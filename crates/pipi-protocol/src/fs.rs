@@ -40,12 +40,12 @@ pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<
 pub fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(format!("{label} 不能是符号链接: {}", path.display()))
+            Err(format!("{label} cannot be a symbolic link: {}", path.display()))
         }
-        Ok(metadata) if !metadata.is_dir() => Err(format!("{label} 不是目录: {}", path.display())),
+        Ok(metadata) if !metadata.is_dir() => Err(format!("{label} is not a directory: {}", path.display())),
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!("无法检查 {label} {}: {error}", path.display())),
+        Err(error) => Err(format!("Failed to check {label} {}: {error}", path.display())),
     }
 }
 
@@ -53,14 +53,14 @@ pub fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
 pub fn ensure_real_file(path: &Path, label: &str) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(format!("{label} 不能是符号链接: {}", path.display()))
+            Err(format!("{label} cannot be a symbolic link: {}", path.display()))
         }
         Ok(metadata) if !metadata.is_file() => {
-            Err(format!("{label} 不是普通文件: {}", path.display()))
+            Err(format!("{label} is not a regular file: {}", path.display()))
         }
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!("无法检查 {label} {}: {error}", path.display())),
+        Err(error) => Err(format!("Failed to check {label} {}: {error}", path.display())),
     }
 }
 

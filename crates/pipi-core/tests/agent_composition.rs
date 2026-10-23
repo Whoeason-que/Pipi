@@ -172,7 +172,10 @@ async fn create_run_and_read_agent_output() {
             )
             .await;
         let error = result.expect_err("后台任务工具不得授予新 Agent");
-        assert!(error.contains("基础工具"), "{error}");
+        assert!(
+            error.contains("Only tools already enabled") || error.contains("基础工具"),
+            "{error}"
+        );
         assert!(pipi_venv::agents::load_agent(&name).is_err());
     }
 
@@ -236,7 +239,11 @@ async fn create_run_and_read_agent_output() {
     .await
     .unwrap();
     assert_eq!(setup_failure.status, AgentRunStatus::Failed);
-    assert!(setup_failure.response.contains("还未配置默认模型"));
+    assert!(
+        setup_failure.response.contains("no default model configured")
+            || setup_failure.response.contains("default model")
+            || setup_failure.response.contains("还未配置默认模型")
+    );
 
     let reread_setup_failure = ReadAgentTool
         .execute(

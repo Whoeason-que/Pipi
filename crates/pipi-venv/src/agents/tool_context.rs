@@ -18,10 +18,10 @@ pub fn build_tool_context(
     session_id: Option<String>,
     abort: pipi_protocol::AbortSignal,
 ) -> Result<(pipi_protocol::tools::ToolContext, crate::av::ResolvedEnv), String> {
-    let workspace = def.resolve_workspace().ok_or("无法解析工作目录")?;
-    fs::create_dir_all(&workspace).map_err(|e| format!("工作目录不可用: {e}"))?;
+    let workspace = def.resolve_workspace().ok_or("Cannot resolve workspace directory")?;
+    fs::create_dir_all(&workspace).map_err(|e| format!("Workspace directory unavailable: {e}"))?;
     let workspace =
-        fs::canonicalize(&workspace).map_err(|e| format!("工作目录不可用：无法规范化路径: {e}"))?;
+        fs::canonicalize(&workspace).map_err(|e| format!("Workspace directory unavailable: failed to canonicalize path: {e}"))?;
 
     // av 环境契约：会话启动时解析一次，本会话所有工具子进程共用同一份
     // （inherit/ignore/set/path-prepend/secrets + AV_* 运行时注入）。

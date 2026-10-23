@@ -214,7 +214,7 @@ pub async fn list_workspace_files(
 ) -> Result<WorkspaceListing, String> {
     tokio::task::spawn_blocking(move || crate::workspace::list_files(&args.agent_name, &args.path))
         .await
-        .map_err(|e| format!("读取目录失败：{e}"))?
+        .map_err(|e| format!("Failed to read directory: {e}"))?
 }
 
 #[derive(Debug, Deserialize)]
@@ -231,7 +231,7 @@ pub async fn preview_workspace_file(
         crate::workspace::preview_file(&args.agent_name, &args.path)
     })
     .await
-    .map_err(|e| format!("读取文件失败：{e}"))?
+    .map_err(|e| format!("Failed to read file: {e}"))?
 }
 
 #[derive(Debug, Deserialize)]
@@ -658,14 +658,14 @@ pub async fn import_sessions(
     let agent_name = args.agent_name.clone();
     tokio::task::spawn_blocking(move || {
         let def = agents::load_agent(&agent_name)?;
-        let legacy_dir = def.sessions_dir().ok_or("无法解析会话目录")?;
+        let legacy_dir = def.sessions_dir().ok_or("Cannot resolve session directory")?;
         Ok(pipi_session::import_legacy_sessions(
             &agent_repo(&def)?,
             &legacy_dir,
         ))
     })
     .await
-    .map_err(|error| format!("会话导入任务失败：{error}"))?
+    .map_err(|error| format!("Session import task failed: {error}"))?
 }
 
 #[derive(Debug, Deserialize)]
@@ -749,7 +749,7 @@ pub async fn verify_store_skills(args: VerifyStoreSkillsArgs) -> Result<Vec<Skil
         pipi_venv::skills::verify_store_skills(args.names.as_deref())
     })
     .await
-    .map_err(|error| format!("技能校验任务失败：{error}"))?
+    .map_err(|error| format!("Skill verification task failed: {error}"))?
 }
 
 #[derive(Debug, Deserialize)]
@@ -772,7 +772,7 @@ pub async fn install_skill(args: InstallSkillArgs) -> Result<SkillInstallReport,
         )
     })
     .await
-    .map_err(|error| format!("技能安装任务失败：{error}"))?
+    .map_err(|error| format!("Skill installation task failed: {error}"))?
 }
 
 #[derive(Debug, Deserialize)]
@@ -799,7 +799,7 @@ pub async fn sync_agent_skills(args: SyncAgentSkillsArgs) -> Result<SkillSyncRep
         pipi_venv::skills::sync_agent_skills(&args.agent_name, args.repair)
     })
     .await
-    .map_err(|error| format!("技能同步任务失败：{error}"))?
+    .map_err(|error| format!("Skill synchronization task failed: {error}"))?
 }
 
 #[derive(Debug, Deserialize)]
@@ -839,7 +839,7 @@ pub fn forum_threads(args: ForumThreadsArgs) -> Result<Vec<ThreadSummary>, Strin
         None => None,
         Some("open") => Some(ThreadStatus::Open),
         Some("closed") => Some(ThreadStatus::Closed),
-        Some(other) => return Err(format!("status 只能是 open 或 closed（得到 {other:?}）")),
+        Some(other) => return Err(format!("status must be open or closed (got {other:?})")),
     };
     let filter = ThreadFilter {
         status,
@@ -1013,7 +1013,7 @@ pub async fn dispatch(
         "forum_search" => to_value(forum_search(parse(args)?)?),
         "forum_post" => to_value(forum_post(parse(args)?)?),
         "forum_reply" => to_value(forum_reply(parse(args)?)?),
-        other => Err(format!("未知命令：{other}")),
+        other => Err(format!("Unknown command: {other}")),
     }
 }
 
@@ -1023,11 +1023,11 @@ fn parse<T: DeserializeOwned>(args: Value) -> Result<T, String> {
     } else {
         args
     };
-    serde_json::from_value(args).map_err(|error| format!("命令参数无效：{error}"))
+    serde_json::from_value(args).map_err(|error| format!("Invalid command arguments: {error}"))
 }
 
 fn to_value<T: Serialize>(value: T) -> Result<Value, String> {
-    serde_json::to_value(value).map_err(|error| format!("命令结果序列化失败：{error}"))
+    serde_json::to_value(value).map_err(|error| format!("Failed to serialize command result: {error}"))
 }
 
 #[cfg(test)]

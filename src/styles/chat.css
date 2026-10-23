@@ -40,7 +40,31 @@
   padding: var(--space-8) 0 var(--space-5);
 }
 
+/* 消息可从输入框后滚过；到底时留出完整输入区和一段阅读间距。 */
+.chat:not(.empty-chat) > .log {
+  padding-bottom: calc(var(--composer-height, 160px) + var(--space-5));
+  scroll-padding-bottom: calc(var(--composer-height, 160px) + var(--space-5));
+}
+
 /* 会话内容列：居中窄列（ChatGPT thread 宽度） */
+
+.connecting-row .row-inner {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: var(--text-body);
+  min-height: 24px;
+}
+
+.connecting-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: var(--r-full);
+  background: currentColor;
+  animation: pipi-pulse 1.5s ease-in-out infinite;
+}
 
 .row {
   display: flex;
@@ -780,21 +804,44 @@ pre.code {
   padding: 14px 24px calc(14px + var(--safe-bottom));
 }
 
+.chat:not(.empty-chat) > .composer {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* 透明的外围留白不拦截消息区的点击与滚动。 */
+.composer > * {
+  pointer-events: auto;
+}
+
 .composer-box {
   position: relative;
+  isolation: isolate;
   margin: 0 auto;
-  border: 1px solid var(--line-soft);
-  border-radius: 28px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: transparent;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  transition: border-color 0.15s;
+}
+
+/* 只让底色半透明，文字和操作按钮保持清晰；沿用各主题的表面色。 */
+.composer-box::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
   background: var(--chat-surface);
-  box-shadow: var(--composer-shadow);
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+  opacity: 0.65;
+  pointer-events: none;
 }
 
 .composer-box:focus-within {
   border-color: var(--line-2);
-  box-shadow: var(--composer-shadow);
 }
 
 .composer textarea {
@@ -807,9 +854,9 @@ pre.code {
   line-height: 1.6;
   color: var(--fg);
   display: block;
-  min-height: 68px;
+  min-height: 64px;
   font-size: var(--text-prose);
-  padding: 19px 20px 8px;
+  padding: 17px 18px 8px;
 }
 
 .composer textarea::placeholder {
@@ -1026,17 +1073,18 @@ pre.code {
   min-width: 0;
   font-family: inherit;
   flex: 0 1 auto;
-  max-width: 40ch;
+  max-width: 56ch;
 }
 
 .chat-title {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
+  align-items: center;
+  gap: 8px;
 }
 
 .chat-title b {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--fg);
@@ -1046,19 +1094,26 @@ pre.code {
   line-height: 1.5;
 }
 
-.chat-title > .agent-tag,
-.chat-title > span {
+.chat-title > .agent-tag {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   background: none;
   border: 0;
   padding: 0;
-  font-size: var(--text-xs);
+  font-size: var(--text-body);
   border-radius: 0;
-  color: var(--faint);
+  color: var(--muted);
   cursor: pointer;
   line-height: 1.6;
+}
+
+.chat-title-separator {
+  flex-shrink: 0;
+  color: var(--faint);
 }
 
 .chat-toolbar .spacer {
@@ -1320,14 +1375,6 @@ pre.code {
   color: var(--faint);
   font-size: var(--text-body);
   margin-left: 3px;
-}
-
-.composer-footnote {
-  padding-top: 11px;
-  color: var(--faint);
-  font-size: var(--text-xs);
-  line-height: 1.5;
-  text-align: center;
 }
 
 .btn.stop {

@@ -6,6 +6,7 @@ import {
   IconFolder,
   IconGit,
   IconGear,
+  IconHome,
   IconPanel,
   IconSearch,
   IconSkill,
@@ -21,14 +22,20 @@ export default function AppNavigation({
   onOpenSection,
   onToggleSettings,
   running,
+  activeWorkspace = "all",
+  activeWorkspaceName = null,
 }: {
   navSection: NavSection;
   settingsOpen: boolean;
   onOpenSection: (section: NavSection) => void;
   onToggleSettings: () => void;
   running: Record<AgentSection, boolean>;
+  activeWorkspace?: string;
+  activeWorkspaceName?: string | null;
 }) {
   const { t } = useI18n();
+  const isWorkspaceFiltered = activeWorkspace !== "all";
+
   return (
     <nav className="rail" aria-label={t("nav.primary")}>
       <button
@@ -43,6 +50,7 @@ export default function AppNavigation({
       <div className="rail-sections">
         {(
           [
+            ["workspaces", isWorkspaceFiltered ? `工作区 · ${activeWorkspaceName || "已过滤"}` : "工作区 · 全部", IconHome],
             ["agents", t("nav.agents"), IconAgent],
             ["subagents", t("nav.subagents"), IconSubagent],
             ["files", "File · 文件", IconFolder],
@@ -64,6 +72,12 @@ export default function AppNavigation({
             onClick={() => onOpenSection(section)}
           >
             <Icon />
+            {section === "workspaces" && isWorkspaceFiltered && (
+              <span
+                className="rail-filter-badge"
+                aria-label="工作区过滤中"
+              />
+            )}
             {(section === "agents" || section === "subagents") &&
               running[section] && (
                 <span

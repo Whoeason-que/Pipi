@@ -83,21 +83,21 @@ impl AgentTool for GlobTool {
     ) -> Result<ToolOutput, String> {
         let pattern = args["pattern"]
             .as_str()
-            .ok_or("缺少 pattern")?
+            .ok_or("Missing pattern")?
             .trim()
             .to_string();
         if pattern.is_empty() {
-            return Err("pattern 不能为空".into());
+            return Err("pattern cannot be empty".into());
         }
         // pattern 里的反斜杠统一按分隔符处理（Windows 路径输入也友好）
         let pattern = pattern.replace('\\', "/");
         let compiled =
-            Pattern::new(&pattern).map_err(|e| format!("非法 glob 模式 {pattern:?}：{e}"))?;
+            Pattern::new(&pattern).map_err(|e| format!("Invalid glob pattern {pattern:?}: {e}"))?;
 
         // 搜索根：显式 path 或 workspace，两者都必须在受信任根集合内
         let root = resolve_search_root(ctx, args["path"].as_str())?;
 
-        let matches = run_walk("glob 遍历", move || collect_matches(&root, &compiled)).await?;
+        let matches = run_walk("glob traversal", move || collect_matches(&root, &compiled)).await?;
 
         let total = matches.len();
         let text = if total == 0 {

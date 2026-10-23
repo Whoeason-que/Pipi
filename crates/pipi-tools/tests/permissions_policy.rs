@@ -255,7 +255,9 @@ fn classification_dangerous_and_denied_are_never_askable() {
     let cfg = allowlist_config(&["git"], SandboxMode::WorkspaceWrite);
     // 白名单未命中 + 危险命令 → 硬拒
     match cfg.assess_bash_classified("rm -rf /tmp/x", Path::new("/tmp")) {
-        BashAssessment::HardDenied(message) => assert!(message.contains("拒绝")),
+        BashAssessment::HardDenied(message) => {
+            assert!(message.contains("denied") || message.contains("拒绝"))
+        }
         other => panic!("expected HardDenied, got {other:?}"),
     }
     // denylist 命中 → 硬拒
@@ -295,7 +297,10 @@ fn assessment_reports_the_offending_redirect() {
     let BashAssessment::HardDenied(message) = denied else {
         panic!("写入重定向必须硬拒");
     };
-    assert!(message.contains("「>out.txt」"), "{message}");
+    assert!(
+        message.contains("\">out.txt\"") || message.contains("「>out.txt」"),
+        "{message}"
+    );
     // 报错要教模型怎么改：点明允许的构造
     assert!(message.contains("2>/dev/null"), "{message}");
 }

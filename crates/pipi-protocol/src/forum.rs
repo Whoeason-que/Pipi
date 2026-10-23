@@ -251,7 +251,7 @@ pub fn validate_forum_id(id: &str) -> Result<(), String> {
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || character == '-')
     {
-        return Err("非法论坛 id".into());
+        return Err("Invalid forum id".into());
     }
     Ok(())
 }
@@ -259,13 +259,13 @@ pub fn validate_forum_id(id: &str) -> Result<(), String> {
 /// 提及标名校验：trim 后非空、无控制字符、无路径分隔符（存在性由调用方另行校验）。
 pub fn validate_mention(name: &str) -> Result<(), String> {
     if name.trim().is_empty() {
-        return Err("提及不能为空".into());
+        return Err("Mention cannot be empty".into());
     }
     if name
         .chars()
         .any(|c| c.is_control() || matches!(c, '/' | '\\'))
     {
-        return Err(format!("非法提及标名: {name:?}"));
+        return Err(format!("Invalid mention name: {name:?}"));
     }
     Ok(())
 }

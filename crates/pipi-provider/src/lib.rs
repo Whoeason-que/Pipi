@@ -583,7 +583,7 @@ fn build_completion_request(
     // rig 语义：请求的 prompt 是最后一条消息，messages 是它之前的历史
     let mut msgs = to_rig_messages(context, api);
     let Some(prompt) = msgs.pop() else {
-        return Err(StreamError::terminal("空消息历史"));
+        return Err(StreamError::terminal("Empty message history"));
     };
     let mut request = CompletionRequest::new(prompt)
         .messages(msgs)
@@ -634,7 +634,7 @@ async fn consume_rig_stream(
             _ = tokio::time::sleep(idle) => { timed_out = true; None }
         };
         let Some(item) = item else { break };
-        let event = item.map_err(|e| classify_with("流错误", &e))?;
+        let event = item.map_err(|e| classify_with("Stream error", &e))?;
         trace.event(&event);
         match event {
             RigItem::Event(RigStreamEvent::Text { part, text }) => {
@@ -680,7 +680,7 @@ async fn consume_rig_stream(
         // 无进展超时：可重试，但每次尝试都要花掉整个 timeout 预算，
         // 所以带上 RetryHint::timeout()（重试层据此最多再试一次）。
         return Err(StreamError::retryable_with(
-            format!("请求超时：{idle_secs} 秒内没有新的响应数据，已中止本轮请求"),
+            format!("Request timed out: no new response data within {idle_secs} seconds, aborted current request"),
             Some(RetryHint::timeout()),
         ));
     }
@@ -695,7 +695,7 @@ async fn consume_rig_stream(
     let response = stream
         .finish()
         .await
-        .map_err(|e| classify_with("流错误", &e))?;
+        .map_err(|e| classify_with("Stream error", &e))?;
 
     let duration_ms = started.elapsed().as_millis() as u64;
     let has_tools = acc
@@ -760,7 +760,7 @@ impl Provider for RigProvider {
                             .connect(transport)
                             .completion(&model.id)
                             .stream(request)
-                            .map_err(|e| classify_with("请求失败", &e))?
+                            .map_err(|e| classify_with("Request failed", &e))?
                     }
                     Api::OpenAICompletions => {
                         let mut config = OpenAIConfig::new(key);
@@ -776,7 +776,7 @@ impl Provider for RigProvider {
                             .connect(transport)
                             .chat(&model.id)
                             .stream(request)
-                            .map_err(|e| classify_with("请求失败", &e))?
+                            .map_err(|e| classify_with("Request failed", &e))?
                     }
                 };
                 consume_rig_stream(stream, tx, &abort, &model, &options, api, trace).await

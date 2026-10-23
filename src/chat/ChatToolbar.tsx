@@ -50,13 +50,6 @@ export default function ChatToolbar({
       <NavigationToggle />
       <span className="toolbar-divider" />
       <span className="crumb chat-title" title={`${agentName} · ${title}`}>
-        <b>
-          {temporary
-            ? locale === "en"
-              ? "Agent workbench"
-              : "Agent 工作台"
-            : title}
-        </b>
         <button
           type="button"
           className="agent-tag"
@@ -66,6 +59,14 @@ export default function ChatToolbar({
         >
           {agentName}
         </button>
+        <span className="chat-title-separator" aria-hidden="true">·</span>
+        <b>
+          {temporary
+            ? locale === "en"
+              ? "Agent workbench"
+              : "Agent 工作台"
+            : title}
+        </b>
       </span>
       {running && (
         <span className="running-pill">

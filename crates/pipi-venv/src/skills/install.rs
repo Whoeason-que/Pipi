@@ -21,11 +21,11 @@ pub fn install_skill(
 ) -> Result<SkillInstallReport, String> {
     let spec = crate::av::sources::parse_spec(source)?;
     let selection = match (skills, all) {
-        (Some(_), true) => return Err("不能同时指定技能列表与「全部安装」".into()),
+        (Some(_), true) => return Err("Cannot specify both skills list and 'all'".into()),
         (Some(names), false) if !names.is_empty() => {
             for name in names {
                 if !crate::av::skills::valid_skill_name(name) {
-                    return Err(format!("技能名 {name:?} 形状非法"));
+                    return Err(format!("Invalid skill name {name:?}"));
                 }
             }
             crate::av::install::Selection::Only(names.to_vec())
@@ -67,13 +67,13 @@ pub fn install_skill(
 /// 否则会话启动会 fail-closed。返回移除的版本数。
 pub fn remove_store_skill(name: &str) -> Result<usize, String> {
     if !crate::av::skills::valid_skill_name(name) {
-        return Err(format!("技能名 {name:?} 形状非法"));
+        return Err(format!("Invalid skill name {name:?}"));
     }
     let declaring = agents_declaring(name)?;
     if !declaring.is_empty() {
         return Err(format!(
-            "技能 {name:?} 仍被这些 Agent 声明启用：{}；先在技能页禁用后再移除",
-            declaring.join("、")
+            "Skill {name:?} is still enabled by these Agent(s): {}; disable it in the skills page before removing",
+            declaring.join(", ")
         ));
     }
     let mut index = store::read_index()?;
@@ -84,7 +84,7 @@ pub fn remove_store_skill(name: &str) -> Result<usize, String> {
         .map(|entry| entry.content_hash.clone())
         .collect();
     if hashes.is_empty() {
-        return Err(format!("技能 {name:?} 不在 store 索引中"));
+        return Err(format!("Skill {name:?} not found in store index"));
     }
     for hash in &hashes {
         store::remove_version(name, hash)?;
@@ -147,16 +147,16 @@ pub fn sync_agent_skills(agent_name: &str, repair: bool) -> Result<SkillSyncRepo
                 SyncAction::Ready => report.ready.push(name.clone()),
                 SyncAction::Materialize => report
                     .log
-                    .push(format!("↓ {name}：store 内容缺失，将按锁复现")),
+                    .push(format!("↓ {name}: store content missing, reproducing from lock")),
                 SyncAction::Repair { actual } => report.log.push(format!(
-                    "! {name}：store 内容漂移（{} ≠ {}），将重装",
+                    "! {name}: store content drift ({} != {}), reinstalling",
                     short_hash(actual),
                     short_hash(&entry.content_hash)
                 )),
                 SyncAction::Drift { actual } => {
                     return Err(format!(
-                        "技能 {name:?} 的 store 内容与锁不一致（{} ≠ {}）；\
-                         确认来源可信后勾选「修复漂移」重装",
+                        "Skill {name:?} store content does not match lock ({} != {}); \
+                         verify the source is trusted and check 'repair drift' to reinstall",
                         short_hash(actual),
                         short_hash(&entry.content_hash)
                     ));
@@ -167,10 +167,10 @@ pub fn sync_agent_skills(agent_name: &str, repair: bool) -> Result<SkillSyncRepo
         }
         // 锁里没有：从 store 索引补（离线，等同于 av skill add 的锁定步）
         let entry = store::latest_index_entry(&index, name)
-            .ok_or_else(|| format!("技能 {name:?} 未在锁中解析，也不在 store 中；先安装再同步"))?
+            .ok_or_else(|| format!("Skill {name:?} is neither resolved in lock nor in store; please install before syncing"))?
             .clone();
         report.log.push(format!(
-            "＋ {name}：补解析锁 → {}",
+            "+ {name}: added lock entry -> {}",
             short_hash(&entry.content_hash)
         ));
         if content_dir(name, &entry.content_hash).is_none() {

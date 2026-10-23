@@ -110,7 +110,7 @@ impl RuntimeState {
             key.agent_name == agent_name && session.temporary && self.session_occupied(session)
         }) {
             return Err(
-                "临时测试仍在运行或托管后台任务未结束，请先停止/终止后再清空或保存设置".into(),
+                "Temporary test is still running or has uncompleted managed background tasks; please stop or terminate them before resetting or saving settings".into(),
             );
         }
         sessions.retain(|key, session| !(key.agent_name == agent_name && session.temporary));
@@ -136,12 +136,12 @@ impl RuntimeState {
             let def = agents::load_agent(agent_name)?;
             let repo = session_repo(&def)?;
             if !repo.exists(session_id)? {
-                return Err("会话不存在".into());
+                return Err("Session does not exist".into());
             }
             let session = Self::load_session_object(&def, repo, session_id)?;
             sessions.insert(key.clone(), session);
         }
-        let session = sessions.get(&key).ok_or_else(|| "会话不存在".to_string())?;
+        let session = sessions.get(&key).ok_or_else(|| "Session does not exist".to_string())?;
         let info = self.session_info_of(session)?;
         let messages = session.engine.message_history()?;
         let stats = session.engine.stats()?;
@@ -164,12 +164,12 @@ impl RuntimeState {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '-')
         {
-            return Err("非法会话 ID".into());
+            return Err("Invalid session ID".into());
         }
         let def = agents::load_agent(agent_name)?;
         let repo = session_repo(&def)?;
         if !repo.exists(session_id)? {
-            return Err("源会话不存在".into());
+            return Err("Source session does not exist".into());
         }
 
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
@@ -179,7 +179,7 @@ impl RuntimeState {
             .is_some_and(|session| self.session_occupied(session))
         {
             return Err(format!(
-                "会话「{session_id}」正在运行或有后台任务，请先停止/终止后再分叉"
+                "Session \"{session_id}\" is running or has background tasks; please stop or terminate them before forking"
             ));
         }
 
@@ -215,7 +215,7 @@ impl RuntimeState {
         let sessions = self
             .sessions
             .lock()
-            .map_err(|error| format!("无法读取会话槽: {error}"))?;
+            .map_err(|error| format!("Cannot read session slot: {error}"))?;
         match sessions.get(&SessionKey::new(agent_name, session_id)) {
             Some(session) => Ok(Some(self.session_info_of(session)?)),
             None => Ok(None),
@@ -228,7 +228,7 @@ impl RuntimeState {
         let sessions = self
             .sessions
             .lock()
-            .map_err(|error| format!("无法读取会话槽: {error}"))?;
+            .map_err(|error| format!("Cannot read session slot: {error}"))?;
         let mut infos = Vec::with_capacity(sessions.len());
         for session in sessions.values() {
             infos.push(self.session_info_of(session)?);
@@ -291,7 +291,7 @@ impl RuntimeState {
             .is_some_and(|session| self.session_occupied(session))
         {
             return Err(format!(
-                "会话「{session_id}」正在运行或有托管后台任务，请先停止/终止后再{operation}"
+                "Session \"{session_id}\" is running or has managed background tasks; please stop or terminate them before {operation}"
             ));
         }
         sessions.remove(&key);
@@ -308,10 +308,10 @@ impl RuntimeState {
     ) -> Result<(), String> {
         let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
-            return Err(format!("会话「{session_id}」没有打开"));
+            return Err(format!("Session \"{session_id}\" is not open"));
         };
         if session.engine.snapshot().map(|s| s.running).unwrap_or(true) {
-            return Err("会话正在运行，请等待完成或先停止后再切换模型".into());
+            return Err("Session is running, please wait for completion or stop it before switching models".into());
         }
 
         let effective_target = model.clone().or_else(|| session.agent.provider.clone());
@@ -359,7 +359,7 @@ impl RuntimeState {
         let run_id = {
             let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
             let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
-                return Err(format!("会话「{session_id}」没有打开"));
+                return Err(format!("Session \"{session_id}\" is not open"));
             };
             session.engine.snapshot()?.run_id
         };
@@ -390,16 +390,16 @@ impl RuntimeState {
         let run_id = {
             let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
             let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
-                return Err(format!("会话「{session_id}」没有打开"));
+                return Err(format!("Session \"{session_id}\" is not open"));
             };
             session.engine.snapshot()?.run_id
         };
         let command = match action {
             "terminate" => crate::tools::background::BackgroundTaskCommand::Terminate,
             "writeStdin" => crate::tools::background::BackgroundTaskCommand::WriteStdin(
-                data.ok_or("writeStdin 需要 data")?,
+                data.ok_or("writeStdin requires data")?,
             ),
-            _ => return Err("action 必须是 terminate 或 writeStdin".into()),
+            _ => return Err("action must be terminate or writeStdin".into()),
         };
         let owner = BackgroundTaskOwner::new(agent_name, session_id, run_id);
         self.background.manage(&owner, job_id, command).await
@@ -411,14 +411,14 @@ impl RuntimeState {
     pub fn steer(&self, agent_name: &str, session_id: &str, message: &str) -> Result<(), String> {
         let message = message.trim();
         if message.is_empty() {
-            return Err("空消息".into());
+            return Err("Message cannot be empty".into());
         }
         let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
-            return Err(format!("会话「{session_id}」没有打开"));
+            return Err(format!("Session \"{session_id}\" is not open"));
         };
         if !session.engine.snapshot().map(|s| s.running).unwrap_or(true) {
-            return Err("会话未在运行，请直接发送消息".into());
+            return Err("Session is not running, please send message directly".into());
         }
         session.engine.steer(message)
     }

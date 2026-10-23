@@ -62,7 +62,7 @@ impl GitExec {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| "会话 git 仓库锁被污染".to_string())?;
+            .map_err(|_| "Session git repository lock poisoned".to_string())?;
         self.ensure_initialized()?;
         f(self)
     }
@@ -138,7 +138,7 @@ impl GitExec {
             .command()
             .args(["rev-parse", "--verify", "--quiet", ref_name])
             .output()
-            .map_err(|error| format!("无法执行 git（需要系统 git）: {error}"))?;
+            .map_err(|error| format!("Cannot execute git (system git is required): {error}"))?;
         match output.status.code() {
             Some(0) => Ok(Some(
                 String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -146,7 +146,7 @@ impl GitExec {
             // --quiet：不存在时退出码 1、无输出
             Some(1) => Ok(None),
             _ => Err(format!(
-                "git rev-parse {ref_name} 失败: {}",
+                "git rev-parse {ref_name} failed: {}",
                 tail(&String::from_utf8_lossy(&output.stderr))
             )),
         }
@@ -202,19 +202,19 @@ impl GitExec {
             return Ok(());
         }
         if let Some(parent) = self.repo_dir.parent() {
-            pipi_protocol::fs::ensure_real_directory(parent, "Agent 目录")?;
+            pipi_protocol::fs::ensure_real_directory(parent, "Agent directory")?;
         }
-        if !pipi_protocol::fs::ensure_real_directory(&self.repo_dir, "会话 git 仓库")? {
+        if !pipi_protocol::fs::ensure_real_directory(&self.repo_dir, "Session git repository")? {
             let output = Command::new("git")
                 .args(["init", "--bare", "--quiet", "--initial-branch=main"])
                 .arg(&self.repo_dir)
                 .env("GIT_TERMINAL_PROMPT", "0")
                 .stdin(Stdio::null())
                 .output()
-                .map_err(|error| format!("无法执行 git（需要系统 git）: {error}"))?;
+                .map_err(|error| format!("Cannot execute git (system git is required): {error}"))?;
             if !output.status.success() {
                 return Err(format!(
-                    "git init 失败: {}",
+                    "git init failed: {}",
                     tail(&String::from_utf8_lossy(&output.stderr))
                 ));
             }
@@ -293,7 +293,10 @@ mod tests {
         std::os::unix::fs::symlink(&outside, &link).unwrap();
         let exec = GitExec::new(link);
         let error = exec.resolve_ref("refs/heads/main").unwrap_err();
-        assert!(error.contains("不能是符号链接"), "{error}");
+        assert!(
+            error.contains("cannot be a symbolic link") || error.contains("不能是符号链接"),
+            "{error}"
+        );
         std::fs::remove_dir_all(&parent).ok();
         std::fs::remove_dir_all(&outside).ok();
     }

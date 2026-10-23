@@ -65,11 +65,11 @@ async fn git(dir: &Path, overrides: &[String], args: &[&str]) -> Result<Vec<u8>,
         command.arg("-c").arg(value);
     }
     command.args(args);
-    let mut child = command.spawn().map_err(|e| format!("无法运行 Git：{e}"))?;
+    let mut child = command.spawn().map_err(|e| format!("Cannot run Git: {e}"))?;
     let mut stdout = child
         .stdout
         .take()
-        .ok_or("无法读取 Git 输出")?
+        .ok_or("Cannot read Git output")?
         .take(OUTPUT_LIMIT + 1);
     let operation = async {
         let mut output = Vec::new();
@@ -78,11 +78,11 @@ async fn git(dir: &Path, overrides: &[String], args: &[&str]) -> Result<Vec<u8>,
             .await
             .map_err(|e| e.to_string())?;
         if output.len() as u64 > OUTPUT_LIMIT {
-            return Err("Git 输出超过 1 MiB，请缩小工作区或使用外部 Git 工具".into());
+            return Err("Git output exceeded 1 MiB, please use an external Git tool".into());
         }
         let status = child.wait().await.map_err(|e| e.to_string())?;
         if !status.success() {
-            return Err("无法读取 Git 状态或差异".into());
+            return Err("Cannot read Git status or diff".into());
         }
         Ok(output)
     };
@@ -92,7 +92,7 @@ async fn git(dir: &Path, overrides: &[String], args: &[&str]) -> Result<Vec<u8>,
             let _ = child.kill().await;
             match result {
                 Ok(Err(error)) => Err(error),
-                _ => Err("读取 Git 超时，请使用外部 Git 工具".into()),
+                _ => Err("Git execution timed out, please use an external Git tool".into()),
             }
         }
     }
@@ -109,12 +109,12 @@ async fn repository(workspace: &Path) -> Result<Option<Repository>, String> {
     };
     let root = PathBuf::from(
         String::from_utf8(output)
-            .map_err(|_| "Git 根目录不是 UTF-8")?
+            .map_err(|_| "Git root directory is not valid UTF-8")?
             .trim_end_matches('\n'),
     );
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     if !workspace.starts_with(&root) {
-        return Err("Git 根目录与工作目录不一致".into());
+        return Err("Git root directory does not match workspace directory".into());
     }
     // Git 在判断内容是否改变时可能执行 clean/process filter；读取配置本身不运行它们。
     let mut overrides = Vec::new();
@@ -125,7 +125,7 @@ async fn repository(workspace: &Path) -> Result<Option<Repository>, String> {
     )
     .await?;
     for name in std::str::from_utf8(&config)
-        .map_err(|_| "Git 配置名不是 UTF-8")?
+        .map_err(|_| "Git config name is not valid UTF-8")?
         .split('\0')
     {
         if name.starts_with("filter.") && (name.ends_with(".clean") || name.ends_with(".process")) {
@@ -162,9 +162,9 @@ pub async fn changes(agent: &str) -> Result<WorkspaceChanges, String> {
     .await?;
     for record in output.split(|b| *b == 0).filter(|r| !r.is_empty()) {
         if record.len() < 4 {
-            return Err("Git 状态格式不完整".into());
+            return Err("Git status format is incomplete".into());
         }
-        let path = std::str::from_utf8(&record[3..]).map_err(|_| "Git 文件名不是 UTF-8")?;
+        let path = std::str::from_utf8(&record[3..]).map_err(|_| "Git file name is not valid UTF-8")?;
         let absolute = repo.root.join(path);
         let Ok(path) = relative(&root, &absolute) else {
             continue;
@@ -186,11 +186,11 @@ pub async fn diff(agent: &str, input: &str) -> Result<WorkspaceDiff, String> {
     let path = resolve(&root, input, true)?;
     let relative_path = relative(&root, &path)?;
     if relative_path.is_empty() || path.is_dir() {
-        return Err("请选择一个文件查看差异".into());
+        return Err("Please select a file to view diff".into());
     }
     let repo = repository(&root)
         .await?
-        .ok_or("当前工作目录不属于 Git 仓库")?;
+        .ok_or("Current workspace is not a Git repository")?;
     let repo_path = relative(&repo.root, &path)?;
     let common = [
         "diff",
@@ -236,16 +236,16 @@ pub async fn diff(agent: &str, input: &str) -> Result<WorkspaceDiff, String> {
         let file =
             tokio::task::spawn_blocking(move || super::files::preview_at(&read_root, &read_path))
                 .await
-                .map_err(|e| format!("读取新文件失败：{e}"))??;
+                .map_err(|e| format!("Failed to read new file: {e}"))??;
         truncated = file.truncated;
         patch = match file.content {
             Some(text) => format!(
-                "--- /dev/null\n+++ {relative_path}\n@@ 新文件 @@\n{}",
+                "--- /dev/null\n+++ {relative_path}\n@@ new file @@\n{}",
                 text.lines()
                     .map(|line| format!("+{line}\n"))
                     .collect::<String>()
             ),
-            None => "二进制文件：没有可显示的文本差异".into(),
+            None => "Binary file: no displayable text diff".into(),
         };
         "untracked"
     } else if has_head {

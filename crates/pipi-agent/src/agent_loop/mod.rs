@@ -491,7 +491,10 @@ mod tests {
         match messages.last().expect("至少一条消息") {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
-                assert!(message.contains("已重试 3 次仍失败"), "{message}");
+                assert!(
+                    message.contains("Failed after 3 retries") || message.contains("已重试 3 次仍失败"),
+                    "{message}"
+                );
             }
             other => panic!("期望错误消息，得到 {other:?}"),
         }
@@ -527,7 +530,10 @@ mod tests {
         match messages.last().expect("至少一条消息") {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
-                assert!(message.contains("已输出部分内容，未自动重试"), "{message}");
+                assert!(
+                    message.contains("partial content already emitted") || message.contains("已输出部分内容"),
+                    "{message}"
+                );
             }
             other => panic!("期望错误消息，得到 {other:?}"),
         }
@@ -599,7 +605,10 @@ mod tests {
         match messages.last().expect("至少一条消息") {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
-                assert!(message.contains("协议已固定"), "{message}");
+                assert!(
+                    message.contains("protocol for this provider is fixed") || message.contains("协议已固定"),
+                    "{message}"
+                );
             }
             other => panic!("期望错误消息，得到 {other:?}"),
         }
@@ -634,7 +643,10 @@ mod tests {
         match messages.last().expect("至少一条消息") {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
-                assert!(message.contains("已输出部分内容，未自动重试"), "{message}");
+                assert!(
+                    message.contains("partial content already emitted") || message.contains("已输出部分内容"),
+                    "{message}"
+                );
             }
             other => panic!("期望错误消息，得到 {other:?}"),
         }
@@ -669,7 +681,10 @@ mod tests {
         match messages.last().expect("至少一条消息") {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
-                assert!(message.contains("两种协议均已尝试"), "{message}");
+                assert!(
+                    message.contains("both Anthropic and OpenAI protocols have been attempted") || message.contains("两种协议均已尝试"),
+                    "{message}"
+                );
             }
             other => panic!("期望错误消息，得到 {other:?}"),
         }

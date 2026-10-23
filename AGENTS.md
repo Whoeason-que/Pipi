@@ -147,7 +147,7 @@ src/                 React + TypeScript 前端
   `agent.json` 的 `systemPrompt` 策略（`both` / `agent` / `workspace` / `none`）**只决定哪一侧
   的素材进系统提示**：env、权限、沙箱与受信任读取根一律与它无关，别把策略判断塞进
   `build_tool_context`；`none` 走「组装返回空串、`stream.rs` 的 `!is_empty()` 不发 system」。
-- 错误处理：Tauri command 返回 `Result<T, String>`，消息用用户可读的中文。
+- 错误处理：Tauri command 返回 `Result<T, String>`，消息一律用可读的英文（English）。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
   - react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，
     见 src/Markdown.tsx；不启用 rehype-raw，模型输出不可信）；

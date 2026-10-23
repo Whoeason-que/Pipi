@@ -37,22 +37,22 @@ impl TunnelHandle {
                 .map(Into::into),
             )
             .find(|path| path.is_file())
-            .ok_or("未找到 cloudflared，请先安装 Cloudflare Tunnel 客户端")?;
+            .ok_or("cloudflared not found, please install Cloudflare Tunnel client first")?;
         Self::spawn(&binary, Path::new(token_file)).await
     }
 
     async fn spawn(binary: &Path, token_file: &Path) -> Result<Self, String> {
         let meta = tokio::fs::symlink_metadata(token_file)
             .await
-            .map_err(|_| "无法读取 Tunnel 凭据文件，请检查文件路径和权限")?;
+            .map_err(|_| "Cannot read Tunnel credentials file, please check file path and permissions")?;
         if !meta.is_file() || meta.len() == 0 {
-            return Err("Tunnel 凭据必须是非空普通文件".into());
+            return Err("Tunnel credentials must be a non-empty regular file".into());
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             if meta.permissions().mode() & 0o077 != 0 {
-                return Err("Tunnel 凭据文件权限过宽，请设为 0600".into());
+                return Err("Tunnel credentials file permissions too open, please set to 0600".into());
             }
         }
         // 随机回环端口只供应用探测连接状态，不对外暴露管理接口。
@@ -84,7 +84,7 @@ impl TunnelHandle {
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| format!("无法启动 cloudflared：{e}"))?;
+            .map_err(|e| format!("Cannot start cloudflared: {e}"))?;
         Ok(Self {
             child,
             metrics,
@@ -105,15 +105,15 @@ impl TunnelHandle {
                     false,
                     false,
                     Some(format!(
-                        "Cloudflare Tunnel 已退出（{status}），请检查凭据并重新启动远程访问"
+                        "Cloudflare Tunnel exited ({status}), please check credentials and restart remote access"
                     )),
                 );
             }
-            Err(_) => return (false, false, Some("无法读取 Cloudflare Tunnel 状态".into())),
+            Err(_) => return (false, false, Some("Cannot read Cloudflare Tunnel status".into())),
         }
         let connected = ready(self.metrics).await;
         let error = (!connected && self.started.elapsed() > Duration::from_secs(30))
-            .then(|| "Tunnel 尚未连接 Cloudflare，请检查网络和凭据；客户端正在重连".into());
+            .then(|| "Tunnel not yet connected to Cloudflare, please check network and credentials; client is reconnecting".into());
         (true, connected, error)
     }
 
@@ -121,7 +121,7 @@ impl TunnelHandle {
         self.child
             .kill()
             .await
-            .map_err(|e| format!("停止 Cloudflare Tunnel 失败：{e}"))
+            .map_err(|e| format!("Failed to stop Cloudflare Tunnel: {e}"))
     }
 }
 
@@ -177,7 +177,7 @@ mod tests {
         fs::remove_file(root.join("connected")).unwrap();
         assert_eq!(handle.status().await, (true, false, None));
         handle.started = Instant::now() - Duration::from_secs(31);
-        assert!(handle.status().await.2.unwrap().contains("重连"));
+        assert!(handle.status().await.2.unwrap().contains("reconnecting"));
         handle.stop().await.unwrap();
         assert!(!ready(metrics).await);
         fs::remove_dir_all(root).unwrap();

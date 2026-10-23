@@ -200,7 +200,10 @@ fn archive_restore_and_delete_work_on_git_backed_sessions() {
 
     repo.delete(&id).unwrap();
     assert!(!repo.exists(&id).unwrap());
-    assert!(repo.entries(&id).unwrap_err().contains("不存在"));
+    assert!(
+        repo.entries(&id).unwrap_err().contains("does not exist")
+            || repo.entries(&id).unwrap_err().contains("不存在")
+    );
     std::fs::remove_dir_all(agent_dir.parent().unwrap()).ok();
 }
 

@@ -24,7 +24,7 @@ pub fn load_session(path: &Path) -> Result<Vec<SessionEntry>, String> {
         match serde_json::from_str::<SessionEntry>(line) {
             Ok(entry) => entries.push(entry),
             Err(e) => eprintln!(
-                "pipi: 会话文件 {} 第 {} 行损坏，已跳过: {e}",
+                "pipi: session file {} line {} corrupted, skipped: {e}",
                 path.display(),
                 i + 1
             ),
@@ -79,7 +79,7 @@ fn legacy_files(sessions_dir: &Path) -> Vec<(String, PathBuf, bool)> {
         (sessions_dir.join(".archive"), true),
     ] {
         if !matches!(
-            pipi_protocol::fs::ensure_real_directory(&dir, "旧会话目录"),
+            pipi_protocol::fs::ensure_real_directory(&dir, "Legacy sessions directory"),
             Ok(true)
         ) {
             continue;
@@ -108,9 +108,9 @@ fn mark_imported(path: &Path) -> Result<(), String> {
         "{}.imported",
         path.file_name()
             .and_then(|value| value.to_str())
-            .ok_or_else(|| "无法解析旧会话文件名".to_string())?
+            .ok_or_else(|| "Cannot parse legacy session file name".to_string())?
     ));
-    std::fs::rename(path, &target).map_err(|error| format!("改名旧会话文件失败: {error}"))
+    std::fs::rename(path, &target).map_err(|error| format!("Failed to rename legacy session file: {error}"))
 }
 
 #[cfg(test)]
@@ -208,7 +208,10 @@ mod tests {
         let report = import_legacy_sessions(&git, &sessions);
         assert!(report.imported.is_empty(), "{report:?}");
         assert_eq!(report.failed.len(), 1, "{report:?}");
-        assert!(report.failed[0].reason.contains("内容不同"), "{report:?}");
+        assert!(
+            report.failed[0].reason.contains("different content") || report.failed[0].reason.contains("内容不同"),
+            "{report:?}"
+        );
         // git 里的原内容未被改动
         assert_eq!(git.entries(&created_id).unwrap().len(), 1);
         std::fs::remove_dir_all(&agent_dir).ok();

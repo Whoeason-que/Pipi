@@ -129,7 +129,10 @@ async fn silent_endpoint_times_out_with_visible_error() {
     let (saw_text, error) = drain_with_deadline(addr, 1).await;
     assert!(!saw_text);
     let message = error.expect("挂死的端点必须产生可见错误，而不是无限等待");
-    assert!(message.contains("超时"), "错误信息应说明超时：{message}");
+    assert!(
+        message.contains("timed out") || message.contains("超时"),
+        "错误信息应说明超时：{message}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -138,7 +141,10 @@ async fn stalled_stream_times_out_after_partial_output() {
     let (saw_text, error) = drain_with_deadline(addr, 1).await;
     assert!(saw_text, "首个分片应当已经送达");
     let message = error.expect("流中静默必须产生可见错误");
-    assert!(message.contains("超时"), "错误信息应说明超时：{message}");
+    assert!(
+        message.contains("timed out") || message.contains("超时"),
+        "错误信息应说明超时：{message}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -39,30 +39,30 @@ impl Default for RemoteAccessConfig {
 impl RemoteAccessConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.port == 0 {
-            return Err("端口必须在 1–65535 之间".into());
+            return Err("Port must be between 1 and 65535".into());
         }
         if !self.tunnel_token_file.is_empty() {
             if !std::path::Path::new(&self.tunnel_token_file).is_absolute()
                 || self.tunnel_token_file.chars().any(char::is_control)
             {
-                return Err("Tunnel 凭据文件必须使用绝对路径".into());
+                return Err("Tunnel credentials file must use an absolute path".into());
             }
             if self.public_url.is_empty() {
-                return Err("使用 Cloudflare Tunnel 时请填写公开访问地址".into());
+                return Err("Please specify a public access URL when using Cloudflare Tunnel".into());
             }
         }
         if !self.public_url.is_empty() {
             let authority = self
                 .public_url
                 .strip_prefix("https://")
-                .ok_or("公开地址必须使用 HTTPS")?;
+                .ok_or("Public URL must use HTTPS")?;
             if authority.is_empty()
                 || authority.contains(['/', '?', '#', '@', '\\'])
                 || authority
                     .chars()
                     .any(|c| c.is_whitespace() || c.is_control())
             {
-                return Err("公开地址应为 HTTPS 域名，不包含路径、账号或查询参数".into());
+                return Err("Public URL must be an HTTPS domain without path, username, or query parameters".into());
             }
         }
         Ok(())
@@ -92,7 +92,7 @@ impl CommandSource {
     pub fn require_desktop(self) -> Result<(), String> {
         match self {
             Self::Desktop => Ok(()),
-            Self::Web => Err("远程访问管理仅允许在桌面应用中操作".into()),
+            Self::Web => Err("Remote access management is only allowed in the desktop application".into()),
         }
     }
 }

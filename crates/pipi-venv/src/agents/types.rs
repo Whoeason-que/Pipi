@@ -130,12 +130,12 @@ pub(super) const DEFAULT_AGENT_DESCRIPTION: &str = "Pipi 自带的默认 Agent�
 pub fn validate_definition(def: &AgentDefinition) -> Result<(), String> {
     validate_agent_name(&def.name)?;
     if def.permissions.tools.is_empty() {
-        return Err("至少启用一个工具".into());
+        return Err("Enable at least one tool".into());
     }
     for tool in &def.permissions.tools {
         if !KNOWN_TOOLS.contains(&tool.as_str()) {
             return Err(format!(
-                "未知工具: {tool}（可用：{}）",
+                "Unknown tool: {tool} (available: {})",
                 KNOWN_TOOLS.join(", ")
             ));
         }
@@ -148,16 +148,16 @@ pub fn validate_definition(def: &AgentDefinition) -> Result<(), String> {
     {
         let expanded = expand_tilde(workspace);
         if !PathBuf::from(&expanded).is_absolute() {
-            return Err(format!("工作目录必须是绝对路径: {workspace}"));
+            return Err(format!("Workspace must be an absolute path: {workspace}"));
         }
     }
     let mut seen_servers = std::collections::HashSet::new();
     for server in &def.mcp_servers {
         if server.name.trim().is_empty() {
-            return Err("MCP 服务器名称不能为空".into());
+            return Err("MCP server name cannot be empty".into());
         }
         if !seen_servers.insert(server.name.trim().to_string()) {
-            return Err(format!("MCP 服务器名称重复: {}", server.name));
+            return Err(format!("Duplicate MCP server name: {}", server.name));
         }
     }
     Ok(())

@@ -69,8 +69,8 @@ pub(super) async fn run_job(
             message = control_rx.recv() => match message {
                 Some(JobCommand::WriteStdin { data, response }) => {
                     let result = match stdin.as_mut() {
-                        Some(stdin) => stdin.write_all(&data).await.map_err(|error| format!("写入后台任务 stdin 失败: {error}")),
-                        None => Err("后台任务 stdin 不可用".into()),
+                        Some(stdin) => stdin.write_all(&data).await.map_err(|error| format!("Failed to write to background task stdin: {error}")),
+                        None => Err("Background task stdin is not available".into()),
                     };
                     let _ = response.send(result);
                 }
@@ -134,12 +134,12 @@ pub(super) async fn run_job(
         Ok(exit) => (
             BackgroundTaskStatus::Failed,
             exit.code(),
-            Some(format!("后台任务退出码 {:?}", exit.code())),
+            Some(format!("Background task exit code {:?}", exit.code())),
         ),
         Err(error) => (
             BackgroundTaskStatus::Failed,
             None,
-            Some(format!("等待后台任务结束失败: {error}")),
+            Some(format!("Failed to wait for background task exit: {error}")),
         ),
     };
     entry.finish(status, exit_code, error);
@@ -190,16 +190,16 @@ async fn terminate_child(child: &mut Child) -> Result<std::process::ExitStatus, 
             // 整组 TERM（进程组在 spawn 时用 process_group(0) 建立）；
             // 目标组已消失（ESRCH）不是错误，helper 内部已按成功处理
             pipi_tools::process::terminate_process_group(pid)
-                .map_err(|error| format!("无法终止后台任务: {error}"))?;
+                .map_err(|error| format!("Cannot terminate background task: {error}"))?;
         }
     }
     #[cfg(not(unix))]
     child
         .start_kill()
-        .map_err(|error| format!("无法终止后台任务: {error}"))?;
+        .map_err(|error| format!("Cannot terminate background task: {error}"))?;
 
     match tokio::time::timeout(TERMINATE_GRACE, child.wait()).await {
-        Ok(result) => result.map_err(|error| format!("等待后台任务终止失败: {error}")),
+        Ok(result) => result.map_err(|error| format!("Failed to wait for background task termination: {error}")),
         Err(_) => {
             #[cfg(unix)]
             if let Some(pid) = child.id() {
@@ -208,11 +208,11 @@ async fn terminate_child(child: &mut Child) -> Result<std::process::ExitStatus, 
             #[cfg(not(unix))]
             child
                 .start_kill()
-                .map_err(|error| format!("无法强制终止后台任务: {error}"))?;
+                .map_err(|error| format!("Cannot force terminate background task: {error}"))?;
             child
                 .wait()
                 .await
-                .map_err(|error| format!("等待后台任务强制终止失败: {error}"))
+                .map_err(|error| format!("Failed to wait for background task force termination: {error}"))
         }
     }
 }

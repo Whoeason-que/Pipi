@@ -174,6 +174,94 @@
   border-radius: var(--r-sm);
 }
 
+.chat-image {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 100%;
+  margin: 8px 0;
+  vertical-align: top;
+}
+
+.chat-image-button {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.chat-image-button img {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+
+.chat-image-caption,
+.chat-image-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.chat-image-caption > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chat-image-caption a,
+.chat-image-caption button {
+  flex-shrink: 0;
+}
+
+.chat-image-notice {
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+
+.chat-image-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.chat-image-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  max-width: 1100px;
+  max-height: 100%;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+}
+
+.chat-image-dialog > img {
+  display: block;
+  min-height: 0;
+  max-width: 100%;
+  object-fit: contain;
+}
+
 /* highlight.js 配色（ChatGPT 深色调色板；代码块恒为深底，两主题通用） */
 
 .md .hljs-comment,

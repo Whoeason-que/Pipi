@@ -27,6 +27,7 @@ import { useAgentConfigFields } from "./use-agent-config-fields";
 interface CreateAgentFormProps {
   providers: ProviderConfig[];
   defaultProviderId: string | null;
+  defaultWorkspace?: string | null;
   onCreated: (name: string) => void | Promise<void>;
   onCancel: () => void;
   onError: (msg: string | null) => void;
@@ -35,6 +36,7 @@ interface CreateAgentFormProps {
 export default function CreateAgentForm({
   providers,
   defaultProviderId,
+  defaultWorkspace,
   onCreated,
   onCancel,
   onError,
@@ -46,7 +48,7 @@ export default function CreateAgentForm({
       : providers[0]?.id ?? "",
     modelId: "",
     description: "",
-    workspace: "",
+    workspace: defaultWorkspace ?? "",
     // Agent 组合工具具有跨 Agent 的持久副作用，必须显式勾选；新建 Agent
     // 继续只默认启用原来的基础工具。
     tools: [...DEFAULT_TOOLS],

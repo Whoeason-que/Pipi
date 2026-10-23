@@ -79,6 +79,18 @@ async fn workspace_commands_cover_file_preview_and_git_lifecycle_without_changin
             .iter()
             .any(|item| item.path == "中文 file.txt")
     );
+    let direct_listing = commands::list_workspace_files(ListWorkspaceFilesArgs {
+        agent_name: root.to_str().unwrap().into(),
+        path: "".into(),
+    })
+    .await
+    .unwrap();
+    assert!(
+        direct_listing
+            .entries
+            .iter()
+            .any(|item| item.path == "中文 file.txt")
+    );
     let file = commands::preview_workspace_file(PreviewWorkspaceFileArgs {
         agent_name: "preview".into(),
         path: "中文 file.txt".into(),

@@ -4,6 +4,10 @@ target/
 crates/pipi/gen/schemas
 *.local
 .DS_Store
+.env
+.env.*
+*.pem
+*.key
 
 # 上游源码参考（pi / codex / opencode / hermes 的浅克隆），只读不提交
 reference/

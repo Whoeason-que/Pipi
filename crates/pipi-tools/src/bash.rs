@@ -113,7 +113,7 @@ impl AgentTool for BashTool {
         args: &Value,
         on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
-        let command = args["command"].as_str().ok_or("缺少 command")?;
+        let command = args["command"].as_str().ok_or("Missing command")?;
         let timeout = validate_timeout(args["timeout"].as_f64())?;
 
         // Pipi：命令权限检查（切分 → 白/黑名单 → 危险命令 → 沙箱重定向）。
@@ -122,7 +122,7 @@ impl AgentTool for BashTool {
 
         tokio::fs::create_dir_all(&ctx.workspace)
             .await
-            .map_err(|e| format!("工作目录不可用: {e}"))?;
+            .map_err(|e| format!("Workspace directory unavailable: {e}"))?;
 
         let mut builder = Command::new("bash");
         builder
@@ -140,7 +140,7 @@ impl AgentTool for BashTool {
         // 它们继续握着 stdout/stderr 管道，读取任务等不到 EOF（工具表现为卡住）。
         #[cfg(unix)]
         builder.process_group(0);
-        let mut child = builder.spawn().map_err(|e| format!("无法启动 bash: {e}"))?;
+        let mut child = builder.spawn().map_err(|e| format!("Failed to spawn bash: {e}"))?;
         let mut group = GroupGuard::new(child.id());
 
         let mut stdout = child.stdout.take().expect("stdout piped");
@@ -290,7 +290,7 @@ impl AgentTool for BashTool {
                 format!("{output_text}\n\nCommand aborted")
             });
         }
-        let status = status.map_err(|e| format!("等待命令结束失败: {e}"))?;
+        let status = status.map_err(|e| format!("Failed to wait for command completion: {e}"))?;
         if let Some(code) = status.code()
             && code != 0
         {

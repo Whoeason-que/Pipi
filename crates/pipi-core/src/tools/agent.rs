@@ -113,7 +113,7 @@ impl AgentTool for CreateAgentTool {
         args: &Value,
         _on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
-        let name = args["name"].as_str().ok_or("缺少 name")?.trim();
+        let name = args["name"].as_str().ok_or("Missing name")?.trim();
         let description = args
             .get("description")
             .and_then(Value::as_str)
@@ -121,10 +121,10 @@ impl AgentTool for CreateAgentTool {
             .trim();
         let instructions = args["instructions"]
             .as_str()
-            .ok_or("缺少 instructions")?
+            .ok_or("Missing instructions")?
             .trim();
         if instructions.is_empty() {
-            return Err("instructions 不能为空".into());
+            return Err("instructions cannot be empty".into());
         }
 
         // 只允许继承基础工具。后台任务工具也是显式高权限能力，不能因
@@ -143,10 +143,10 @@ impl AgentTool for CreateAgentTool {
                 let mut selected = Vec::with_capacity(values.len());
                 let mut seen = HashSet::new();
                 for value in values {
-                    let tool = value.as_str().ok_or("tools 必须是字符串数组")?;
+                    let tool = value.as_str().ok_or("tools must be an array of strings")?;
                     if !allowed.contains(tool) {
                         return Err(format!(
-                            "只能把当前 Agent 已启用的基础工具授予新 Agent: {tool}"
+                            "Only tools already enabled for current Agent can be granted to new Agent: {tool}"
                         ));
                     }
                     if seen.insert(tool) {
@@ -155,10 +155,10 @@ impl AgentTool for CreateAgentTool {
                 }
                 selected
             }
-            Some(_) => return Err("tools 必须是字符串数组".into()),
+            Some(_) => return Err("tools must be an array of strings".into()),
         };
         if selected_tools.is_empty() {
-            return Err("新 Agent 至少需要一个普通工具".into());
+            return Err("New Agent requires at least one ordinary tool".into());
         }
 
         let mut permissions = (*ctx.permissions).clone();
@@ -286,13 +286,13 @@ impl AgentTool for RunAgentTool {
         args: &Value,
         on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
-        let name = args["name"].as_str().ok_or("缺少 name")?.trim();
-        let prompt = args["prompt"].as_str().ok_or("缺少 prompt")?.trim();
+        let name = args["name"].as_str().ok_or("Missing name")?.trim();
+        let prompt = args["prompt"].as_str().ok_or("Missing prompt")?.trim();
         if name == self.caller_agent {
-            return Err("第一阶段不允许 Agent 运行自身".into());
+            return Err("Agent is not allowed to run itself".into());
         }
         if prompt.is_empty() {
-            return Err("prompt 不能为空".into());
+            return Err("prompt cannot be empty".into());
         }
 
         let background = args
@@ -304,17 +304,17 @@ impl AgentTool for RunAgentTool {
                 || !ctx.permissions.tool_enabled(BACKGROUND_TASK_TOOLS[2])
             {
                 return Err(
-                    "后台 run_agent 需要同时启用 query_background_tasks 和 manage_background_task，避免提交后无法观察或终止 child".into(),
+                    "Background run_agent requires both query_background_tasks and manage_background_task enabled to observe or terminate the child".into(),
                 );
             }
             let owner = self
                 .background_owner
                 .clone()
-                .ok_or("当前宿主没有配置后台 Agent 托管服务")?;
+                .ok_or("Current host does not configure background Agent service")?;
             let service = self
                 .background_service
                 .clone()
-                .ok_or("当前宿主没有配置后台 Agent 托管服务")?;
+                .ok_or("Current host does not configure background Agent service")?;
             let info = service
                 .submit_agent(BackgroundAgentTaskSpec {
                     owner,
@@ -324,7 +324,7 @@ impl AgentTool for RunAgentTool {
                 })
                 .await?;
             on_update(ToolOutput::text(format!(
-                "Agent {name} 已提交为托管后台任务 {}。",
+                "Agent {name} submitted as managed background task {}.",
                 info.job_id
             )));
             return background_agent_to_tool_output(&info);
@@ -361,7 +361,7 @@ impl AgentTool for RunAgentTool {
 
 fn background_agent_to_tool_output(info: &BackgroundTaskInfo) -> Result<ToolOutput, String> {
     let mut text = format!(
-        "Agent {} 已提交后台任务 {}，状态为 {:?}。使用 query_background_tasks 查询状态和输出。",
+        "Agent {} submitted background task {}, status is {:?}. Use query_background_tasks to inspect status and output.",
         info.target_agent.as_deref().unwrap_or("(unknown)"),
         info.job_id,
         info.status
@@ -413,7 +413,7 @@ impl AgentTool for ReadAgentTool {
         args: &Value,
         _on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
-        let name = args["name"].as_str().ok_or("缺少 name")?.trim();
+        let name = args["name"].as_str().ok_or("Missing name")?.trim();
         let session_id = args
             .get("sessionId")
             .and_then(Value::as_str)
@@ -452,7 +452,7 @@ pub(crate) fn result_from_messages(
             agent_name: agent_name.to_string(),
             session_id: session_id.to_string(),
             status: AgentRunStatus::Pending,
-            response: "(Agent 还没有输出)".into(),
+            response: "(Agent has no output yet)".into(),
         };
     };
 
@@ -482,7 +482,7 @@ pub(crate) fn result_from_messages(
     let response = if text.trim().is_empty() {
         error_message
             .clone()
-            .unwrap_or_else(|| "(Agent 未返回文本输出)".into())
+            .unwrap_or_else(|| "(Agent returned no text output)".into())
     } else {
         text
     };
@@ -513,10 +513,10 @@ pub fn read_agent_output(
             .into_iter()
             .next()
             .map(|summary| summary.id)
-            .ok_or_else(|| format!("Agent「{agent_name}」还没有会话"))?,
+            .ok_or_else(|| format!("Agent \"{agent_name}\" has no sessions yet"))?,
     };
     if !repo.exists(&session_id)? {
-        return Err(format!("Agent「{agent_name}」没有会话 {session_id}"));
+        return Err(format!("Agent \"{agent_name}\" has no session {session_id}"));
     }
     let entries = repo.entries(&session_id)?;
     let active = active_path(&entries);

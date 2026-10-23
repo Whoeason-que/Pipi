@@ -2,15 +2,18 @@ import {
   Children,
   isValidElement,
   memo,
+  useMemo,
   useRef,
   type ClassAttributes,
   type HTMLAttributes,
   type ReactNode,
 } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { useCopyFeedback } from "./components/use-copy";
+import { MarkdownImage, type ImageAgent } from "./files/MarkdownImage";
+import { markdownImagePath } from "./files/model";
 
 /**
  * 流式安全：生成中的消息常以未闭合的 ``` 代码块结尾，
@@ -68,13 +71,18 @@ function CodeBlockPre({ children }: PreProps) {
  * - remark-gfm：表格 / 删除线 / 任务列表
  * - rehype-highlight：代码高亮（配色见 styles/markdown.css 的 .hljs-*）
  */
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({ text, imageAgent }: { text: string; imageAgent?: ImageAgent }) {
+  const components = useMemo<Components>(() => ({
+    pre: CodeBlockPre,
+    img: ({ src, alt }) => <MarkdownImage src={typeof src === "string" ? src : ""} alt={alt} agent={imageAgent} />,
+  }), [imageAgent?.name, imageAgent?.workspace]);
   return (
     <div className="md">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
-        components={{ pre: CodeBlockPre }}
+        components={components}
+        urlTransform={(url, key) => key === "src" && markdownImagePath(url) !== null ? url : defaultUrlTransform(url)}
       >
         {balanceFences(text)}
       </ReactMarkdown>

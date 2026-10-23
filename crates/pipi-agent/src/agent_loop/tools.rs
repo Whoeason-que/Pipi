@@ -128,7 +128,7 @@ enum Prepared {
 fn prepare_call(call: &ContentBlock, config: &AgentLoopConfig, abort: &AbortSignal) -> Prepared {
     let Some((_, call_name, arguments)) = call_parts(call) else {
         return Prepared::Immediate {
-            result: error_output("内容块不是工具调用"),
+            result: error_output("Content block is not a tool call"),
             is_error: true,
         };
     };
@@ -170,7 +170,7 @@ async fn run_tool(
 ) -> ExecutedOutcome {
     let Some((call_id, call_name, _)) = call_parts(call) else {
         return ExecutedOutcome {
-            result: error_output("内容块不是工具调用"),
+            result: error_output("Content block is not a tool call"),
             is_error: true,
         };
     };

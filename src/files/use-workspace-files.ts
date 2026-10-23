@@ -24,8 +24,10 @@ const noSubscribe = () => () => {};
 const noView = { tabs: [], selected: null, expanded: [], query: "", showHidden: false };
 const emptySnapshot = () => noView;
 
-export function useWorkspaceFiles(agent: AgentDefinition | null, mode: WorkspaceMode, active: boolean, running: boolean) {
-  const store = useMemo(() => agent ? new WorkspaceViewStore(agent, mode) : null, [agent?.name, agent?.workspace, mode]);
+export type WorkspaceFileTarget = Pick<AgentDefinition, "name" | "workspace">;
+
+export function useWorkspaceFiles(target: WorkspaceFileTarget | null, mode: WorkspaceMode, active: boolean, running: boolean) {
+  const store = useMemo(() => target ? new WorkspaceViewStore(target, mode) : null, [target?.name, target?.workspace, mode]);
   const view = useSyncExternalStore(store?.subscribe ?? noSubscribe, store?.getSnapshot ?? emptySnapshot);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(value => value + 1), []);
@@ -36,14 +38,15 @@ export function useWorkspaceFiles(agent: AgentDefinition | null, mode: Workspace
     return () => { window.removeEventListener("focus", refresh); reconnect(); };
   }, [active, refresh]);
   useEffect(() => { if (active && !running) refresh(); }, [active, running, refresh]);
-  const key = active && agent && store ? store.key : null;
+  const key = active && target && store ? store.key : null;
+  const lookupTarget = target?.workspace || target?.name || "";
   const rootListing = useFileResource<WorkspaceListing>(key && mode === "files" ? key : null, revision,
-    () => invoke("list_workspace_files", { agentName: agent!.name, path: "" }));
+    () => invoke("list_workspace_files", { agentName: lookupTarget, path: "" }));
   const changes = useFileResource<WorkspaceChanges>(key && mode === "git" ? key : null, revision,
-    () => invoke("workspace_changes", { agentName: agent!.name }));
+    () => invoke("workspace_changes", { agentName: lookupTarget }));
   const preview = useFileResource<WorkspaceFile | WorkspaceDiff>(key && view.selected ? JSON.stringify([key, view.selected]) : null, revision,
-    () => mode === "files" ? invoke("preview_workspace_file", { agentName: agent!.name, path: view.selected! }) : invoke("workspace_diff", { agentName: agent!.name, path: view.selected! }));
-  return { agent, mode, active, store, view, revision, refresh, rootListing, changes, preview };
+    () => mode === "files" ? invoke("preview_workspace_file", { agentName: lookupTarget, path: view.selected! }) : invoke("workspace_diff", { agentName: lookupTarget, path: view.selected! }));
+  return { target, agent: target, mode, active, store, view, revision, refresh, rootListing, changes, preview };
 }
 
 export type WorkspaceFilesState = ReturnType<typeof useWorkspaceFiles>;

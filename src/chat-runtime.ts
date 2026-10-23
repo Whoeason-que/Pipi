@@ -211,6 +211,19 @@ export const INITIAL_CHAT_STATE: ChatState = {
   activeCompactionKey: null,
 };
 
+/** 最新用户消息之后尚无有效响应；空的 message_start 不代表模型已经开始输出。 */
+export function isAwaitingResponse(state: ChatState): boolean {
+  if (!state.running) return false;
+  for (let index = state.entries.length - 1; index >= 0; index--) {
+    const entry = state.entries[index];
+    if (entry.role === "user") return true;
+    if (entry.kind || entry.role === "toolResult" || entry.toolCallId
+      || entry.text.trim() || entry.thinking?.trim()
+      || entry.status || entry.stopReason || entry.errorMessage) return false;
+  }
+  return false;
+}
+
 export function messageStatus(message: MessageView): EntryStatus | undefined {
   if (message.role === "toolResult" && message.isError) return "tool-error";
   if (message.role !== "assistant") return undefined;

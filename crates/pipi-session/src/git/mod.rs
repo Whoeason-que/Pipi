@@ -72,7 +72,7 @@ impl GitSessionRepo {
                 return if same_entries(&existing, entries) {
                     Ok(false)
                 } else {
-                    Err("同名会话已存在且内容不同".into())
+                    Err("Session with the same ID already exists with different content".into())
                 };
             }
         }
@@ -83,7 +83,7 @@ impl GitSessionRepo {
         let read_back = self.read_session(&ref_name)?;
         if !same_entries(&read_back, entries) {
             let _ = refs::delete_branch(&self.exec, &ref_name);
-            return Err("导入校验失败：读回与原文不一致".into());
+            return Err("Import validation failed: read back does not match original".into());
         }
         if archived {
             // 来源在归档区：把刚建的分支移过去（ref 迁移，零复制）
@@ -98,7 +98,7 @@ impl GitSessionRepo {
             Err(error) => {
                 // 区分「分支不存在」与其他失败：ls-tree 报的是同一类 fatal
                 if !self.exec.ref_exists(ref_name)? {
-                    Err("会话不存在".into())
+                    Err("Session does not exist".into())
                 } else {
                     Err(error)
                 }
@@ -234,7 +234,7 @@ impl SessionRepo for GitSessionRepo {
         validate_session_id(session_id)?;
         let ref_name = refs::session_ref(session_id);
         if !self.exec.ref_exists(&ref_name)? {
-            return Err("会话不存在".into());
+            return Err("Session does not exist".into());
         }
         refs::delete_branch(&self.exec, &ref_name)
     }
@@ -243,7 +243,7 @@ impl SessionRepo for GitSessionRepo {
         validate_session_id(session_id)?;
         let ref_name = refs::archive_ref(session_id);
         if !self.exec.ref_exists(&ref_name)? {
-            return Err("归档区没有该会话".into());
+            return Err("Session does not exist in archive".into());
         }
         refs::delete_branch(&self.exec, &ref_name)
     }

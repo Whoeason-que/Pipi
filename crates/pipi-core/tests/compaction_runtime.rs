@@ -794,7 +794,10 @@ fn manual_compaction_refused_while_running() {
     let error = state
         .compact_now("compaction-e2e", &session_id, sink)
         .expect_err("运行中必须拒绝手动压缩");
-    assert!(error.contains("正在运行"), "{error}");
+    assert!(
+        error.contains("running") || error.contains("正在运行"),
+        "{error}"
+    );
 
     // 收尾：停止这一轮，别把测试挂在半路
     state.stop_run("compaction-e2e", &session_id).expect("停止");
@@ -863,7 +866,10 @@ fn manual_compaction_reports_when_nothing_to_compress() {
             _ => None,
         })
         .expect("应当通过会话错误通道说明原因");
-    assert!(error.contains("压缩"), "{error}");
+    assert!(
+        error.contains("Compaction") || error.contains("压缩"),
+        "{error}"
+    );
     assert_eq!(
         summaries.load(Ordering::SeqCst),
         0,

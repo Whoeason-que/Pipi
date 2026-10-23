@@ -56,7 +56,7 @@ impl AgentTool for ReadTool {
         args: &Value,
         _on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
-        let path = args["path"].as_str().ok_or("缺少 path")?;
+        let path = args["path"].as_str().ok_or("Missing path")?;
         let offset = args["offset"].as_u64().map(|v| v as usize);
         let limit = args["limit"].as_u64().map(|v| v as usize);
 

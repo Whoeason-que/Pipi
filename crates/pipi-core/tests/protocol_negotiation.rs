@@ -484,7 +484,7 @@ fn pinned_protocol_is_not_rewritten() {
     assert_eq!(endpoint.chat_hits(), 1, "钉死的协议照发，不换");
     assert_eq!(endpoint.messages_hits(), 0, "钉死时目录与协商都不参与");
     assert!(
-        session.contains("协议已固定"),
+        session.contains("protocol for this provider is fixed") || session.contains("协议已固定"),
         "错误要说明协议被钉死、并提示改为自动：{session}"
     );
     assert!(
@@ -511,7 +511,10 @@ fn switching_to_manual_ignores_a_previously_learned_protocol() {
     let history = run_prompt(&state, "mode-switch-agent", Some(&id), "manual");
     assert_eq!(endpoint.chat_hits(), 2, "manual 必须使用声明的 OpenAI 协议");
     assert_eq!(endpoint.messages_hits(), 1, "manual 不采用旧记忆，也不协商");
-    assert!(history.contains("协议已固定"), "{history}");
+    assert!(
+        history.contains("protocol for this provider is fixed") || history.contains("协议已固定"),
+        "{history}"
+    );
 
     // 同一个 provider 的摘要路径也必须遵守 manual，不能命中旧的学习记忆。
     let errors = Arc::new(AtomicUsize::new(0));
@@ -552,6 +555,9 @@ fn reading_agent_output_does_not_follow_legacy_session_symlinks() {
     std::os::unix::fs::symlink(&secret, dir.join("linked.jsonl")).unwrap();
     let error =
         pipi_core::tools::agent::read_agent_output("output-agent", Some("linked")).unwrap_err();
-    assert!(error.contains("没有会话"), "{error}");
+    assert!(
+        error.contains("has no session") || error.contains("No session") || error.contains("does not exist") || error.contains("没有会话"),
+        "{error}"
+    );
     assert!(!error.contains("secret"), "{error}");
 }

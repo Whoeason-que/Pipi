@@ -137,7 +137,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .as_deref()
         .is_some_and(|token| token.chars().any(|ch| ch.is_ascii_control() || ch == ';'))
     {
-        return Err("PIPI_AUTH_TOKEN 不能包含控制字符或分号".into());
+        return Err("PIPI_AUTH_TOKEN cannot contain control characters or semicolons".into());
     }
 
     let _lease = crate::remote::HostLease::acquire()?;
@@ -169,7 +169,7 @@ async fn same_origin(req: axum::extract::Request, next: axum::middleware::Next) 
                 && origin.authority().map(|a| a.as_str()) == host
         });
         if !allowed {
-            return (StatusCode::FORBIDDEN, "拒绝跨站请求").into_response();
+            return (StatusCode::FORBIDDEN, "Cross-site requests forbidden").into_response();
         }
     }
     next.run(req).await
@@ -235,7 +235,7 @@ async fn auth_login_handler(
         } else {
             (
                 StatusCode::UNAUTHORIZED,
-                Json(json!({ "ok": false, "error": "Token 错误，请核对后重试" })),
+                Json(json!({ "ok": false, "error": "Invalid token, please check and retry" })),
             )
                 .into_response()
         }
@@ -275,7 +275,7 @@ async fn auth_middleware(
     if !authorized {
         let mut response = (
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "需要 PIPI_AUTH_TOKEN", "authRequired": true })),
+            Json(json!({ "error": "PIPI_AUTH_TOKEN is required", "authRequired": true })),
         )
             .into_response();
         response
