@@ -35,6 +35,7 @@ sha2 = { workspace = true }
 dirs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+toml = { workspace = true }
 uuid = { workspace = true }
 # fs：background 的落盘与扫描用 `tokio::fs`，显式声明（此前靠 pipi-tools 传递开启）
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "time", "sync", "io-util", "fs"] }

@@ -1,11 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { gitStatusMeta, parsePatch } from "../src/files/diff.ts";
+import { FileResourceCache } from "../src/files/resource-cache.ts";
 import { codeFence, formatReference, linkedPath, makeReference, markdownImagePath, toolFiles } from "../src/files/model.ts";
 import type { WorkspaceFile } from "../src/files/types.ts";
 import { WorkspaceViewStore } from "../src/files/workspace-view.ts";
 import { chatReducer, INITIAL_CHAT_STATE, type MessageView } from "../src/chat-runtime.ts";
 
 const file: WorkspaceFile = { workspace: "/project", path: "src/你好.ts", size: 30, version: "sha256-test", kind: "text", mime: "text/plain", content: "one\ntwo\nthree", base64: null, truncated: false };
+
+test("读取缓存按完整身份隔离，更新只替换相同的请求", () => {
+  const cache = new FileResourceCache();
+  const a = JSON.stringify(["preview", "/one:files", "a.ts"]);
+  cache.set(a, file);
+  assert.equal(cache.get(a), file);
+  for (const key of [["preview", "/two:files", "a.ts"], ["preview", "/one:git", "a.ts"], ["listing", "/one:files", "a.ts"], ["preview", "/one:files", "b.ts"]]) {
+    assert.equal(cache.get(JSON.stringify(key)), null);
+  }
+  cache.set(a, { ...file, content: "updated" });
+  assert.equal(cache.get<WorkspaceFile>(a)?.content, "updated");
+});
+
+test("读取缓存限制数量和内容大小，更新会回收旧条目占用", () => {
+  const cache = new FileResourceCache(2, 24);
+  cache.set("a", "one"); // 10 bytes
+  cache.set("b", "two");
+  cache.set("a", "new");
+  cache.set("c", "end");
+  assert.equal(cache.get("b"), null);
+  assert.equal(cache.get("a"), "new");
+  cache.set("large", "x".repeat(20));
+  assert.equal(cache.get("large"), null);
+  assert.equal(cache.get("c"), "end");
+  cache.set("a", "123456789"); // 22 bytes; evicts c by byte budget
+  assert.equal(cache.get("c"), null);
+  assert.equal(cache.get("a"), "123456789");
+});
 
 test("引用保留工作区和版本，反向选区按实际行号保存，不修改源内容", () => {
   const reference = makeReference(file, [3, 2], "  修改这里  ");
@@ -100,4 +130,44 @@ test("历史会话按工具调用 id 和名称恢复文件参数与差异，多�
   const again = chatReducer(first, hydrate);
   assert.deepEqual(toolFiles(again.entries), files);
   assert.equal(again.entries.at(-1)?.toolArgs, undefined, "工具名不匹配时不能套用其他调用的参数");
+});
+
+test("diff 解析保留双行号与增删统计，末尾空行不算新增内容", () => {
+  const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -2,3 +2,4 @@\n context\n-old\n+new\n+extra\n tail\n";
+  const parsed = parsePatch(patch);
+  assert.equal(parsed.added, 2);
+  assert.equal(parsed.removed, 1);
+  assert.equal(parsed.hunks, 1);
+  assert.deepEqual(
+    parsed.rows.filter(row => row.kind !== "meta" && row.kind !== "hunk").map(row => [row.kind, row.oldLine, row.newLine, row.text]),
+    [["context", 2, 2, "context"], ["del", 3, null, "old"], ["add", null, 3, "new"], ["add", null, 4, "extra"], ["context", 4, 5, "tail"]],
+  );
+  assert.equal(parsePatch("@@ new file @@\n+a\n+b\n").added, 2);
+});
+
+test("git 状态码按暂存区与工作树拆分，未跟踪文件不伪造编辑状态", () => {
+  assert.deepEqual(gitStatusMeta("M "), { code: "M ", label: "修改", tone: "modified", staged: true, unstaged: false });
+  assert.deepEqual(gitStatusMeta(" M"), { code: " M", label: "修改", tone: "modified", staged: false, unstaged: true });
+  assert.deepEqual(gitStatusMeta("??"), { code: "??", label: "未跟踪", tone: "untracked", staged: false, unstaged: true });
+  assert.equal(gitStatusMeta("A ").tone, "added");
+  assert.equal(gitStatusMeta(" D").tone, "deleted");
+  assert.equal(gitStatusMeta("UU").tone, "conflict");
+});
+
+test("多仓库与分支元数据兼容 DTO 契约并正确支持状态归属", () => {
+  const changesWithRepos: import("../src/files/types.ts").WorkspaceChanges = {
+    workspace: "/workspace",
+    isRepo: true,
+    repositories: [
+      { name: "Root", path: "", branch: "main" },
+      { name: "Frontend", path: "packages/frontend", branch: "feat-ui" }
+    ],
+    files: [
+      { path: "README.md", status: " M", repository: "Root" },
+      { path: "packages/frontend/src/App.tsx", status: "M ", repository: "Frontend" }
+    ]
+  };
+  assert.equal(changesWithRepos.repositories?.length, 2);
+  assert.equal(changesWithRepos.files[1].repository, "Frontend");
+  assert.equal(changesWithRepos.repositories?.[1].branch, "feat-ui");
 });

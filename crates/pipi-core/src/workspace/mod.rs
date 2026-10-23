@@ -5,4 +5,4 @@ mod git;
 mod paths;
 
 pub use files::{WorkspaceEntry, WorkspaceFile, WorkspaceListing, list_files, preview_file};
-pub use git::{WorkspaceChange, WorkspaceChanges, WorkspaceDiff, changes, diff};
+pub use git::{WorkspaceChange, WorkspaceChanges, WorkspaceDiff, WorkspaceRepoInfo, changes, diff};

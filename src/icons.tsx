@@ -89,11 +89,29 @@ export function IconArrowDown() {
   );
 }
 
+export function IconArrowUp() {
+  return (
+    <IconBase>
+      <path d="M12 20V4m-6 6 6-6 6 6" />
+    </IconBase>
+  );
+}
+
 export function IconPanel() {
   return (
     <IconBase>
       <rect x="3" y="4" width="18" height="16" rx="3" />
       <path d="M9 4v16" />
+    </IconBase>
+  );
+}
+
+/** 右侧面板开关（信息/引用/上下文） */
+export function IconPanelRight() {
+  return (
+    <IconBase>
+      <rect x="3" y="4" width="18" height="16" rx="3" />
+      <path d="M15 4v16" />
     </IconBase>
   );
 }
@@ -133,6 +151,27 @@ export function IconFolder() {
     <IconBase>
       <path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
     </IconBase>
+  );
+}
+
+/** 文件（预览标题、文件树） */
+export function IconFile() {
+  return (
+    <IconBase>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 3v5h5" />
+    </IconBase>
+  );
+}
+
+/** 文件树展开箭头 */
+export function IconCaret({ expanded = false }: { expanded?: boolean } = {}) {
+  return (
+    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      className={`file-caret${expanded ? " open" : ""}`}>
+      <path d="m9 6 6 6-6 6" />
+    </svg>
   );
 }
 
@@ -424,6 +463,47 @@ export function IconArrowRepeat({ size }: { size?: number }) {
 /** 工作区源码管理 */
 export function IconGit() {
   return <IconBase><circle cx="6" cy="5" r="3" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="19" r="3" /><path d="M6 8v8m12-7c0 5-12 1-12 7" /></IconBase>;
+}
+
+export function IconGitBranch({ size = 14 }: { size?: number } = {}) {
+  return (
+    <IconBase size={size}>
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </IconBase>
+  );
+}
+
+export function IconTree({ size = 15 }: { size?: number } = {}) {
+  return (
+    <IconBase size={size}>
+      <path d="M4 5h5v4H4zM13 9h7v4h-7zM13 16h7v4h-7z" />
+      <path d="M9 7h2a2 2 0 0 1 2 2v9M13 11h-2M13 18h-2" />
+    </IconBase>
+  );
+}
+
+export function IconList({ size = 15 }: { size?: number } = {}) {
+  return (
+    <IconBase size={size}>
+      <line x1="8" y1="6" x2="20" y2="6" />
+      <line x1="8" y1="12" x2="20" y2="12" />
+      <line x1="8" y1="18" x2="20" y2="18" />
+      <line x1="4" y1="6" x2="4.01" y2="6" />
+      <line x1="4" y1="12" x2="4.01" y2="12" />
+      <line x1="4" y1="18" x2="4.01" y2="18" />
+    </IconBase>
+  );
+}
+
+export function IconCollapseAll({ size = 14 }: { size?: number } = {}) {
+  return (
+    <IconBase size={size}>
+      <path d="M4 8h16M4 16h16M12 4v4m0 8v4" />
+    </IconBase>
+  );
 }
 
 /** 用户 / 人类 */

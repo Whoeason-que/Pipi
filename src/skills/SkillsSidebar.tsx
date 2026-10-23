@@ -1,7 +1,7 @@
 // 技能库侧栏：已安装技能列表（选择 + 过滤）。安装 / 校验等动作在主区。
 
 import { useMemo, useState } from "react";
-import { IconClose, IconRefresh, IconSearch } from "../icons";
+import { IconClose, IconRefresh, IconSearch, IconSkill } from "../icons";
 import type { SkillLibrary } from "../types";
 import { shortHash, sourceLabel } from "./labels";
 
@@ -82,20 +82,24 @@ export function SkillsSidebar({
             <button
               key={skill.name}
               type="button"
-              className={`search-item${selected === skill.name ? " active" : ""}`}
+              className={`search-item skills-item${selected === skill.name ? " active" : ""}`}
               title={skill.description || skill.name}
               aria-current={selected === skill.name ? "true" : undefined}
               onClick={() => onSelect(selected === skill.name ? null : skill.name)}
             >
-              <span className="search-item-name">
-                {skill.name}
-                {missing && <span className="skill-dot error" title="当前版本内容缺失" />}
-              </span>
-              <span className="search-item-meta">
-                {sourceLabel(skill.source, skill.sourceType, current?.revision ?? null)}
-                {" · "}
-                {shortHash(skill.currentHash)}
-                {skill.versions.length > 1 ? ` · ${skill.versions.length} 个版本` : ""}
+              <span className="skills-item-icon"><IconSkill /></span>
+              <span className="skills-item-body">
+                <span className="search-item-name">
+                  {skill.name}
+                  {missing && <span className="skill-dot error" title="当前版本内容缺失" />}
+                </span>
+                <span className="search-item-meta">
+                  {sourceLabel(skill.source, skill.sourceType, current?.revision ?? null)}
+                </span>
+                <span className="skills-item-foot">
+                  <span className="mono">{shortHash(skill.currentHash)}</span>
+                  <span>{skill.versions.length} 个版本</span>
+                </span>
               </span>
             </button>
           );

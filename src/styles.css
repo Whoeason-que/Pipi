@@ -14,6 +14,7 @@
 @import "./styles/shell.css";
 @import "./styles/chat.css";
 @import "./styles/inspector.css";
+@import "./styles/right-rail.css";
 @import "./styles/settings.css";
 @import "./styles/markdown.css";
 @import "./styles/overview.css";

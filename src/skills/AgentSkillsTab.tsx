@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatRuntimeError } from "../chat-runtime";
-import { IconRefresh } from "../icons";
+import { IconRefresh, IconSkill } from "../icons";
 import { invoke } from "../platform";
 import type { AgentSkills, SkillSyncReport } from "../types";
 import {
@@ -120,6 +120,14 @@ export function AgentSkillsTab({ agentName, onError, onChanged }: AgentSkillsTab
 
   return (
     <section className="settings-section agent-skills">
+      <div className="agent-skills-overview">
+        <span className="agent-skills-overview-icon"><IconSkill /></span>
+        <div>
+          <strong>{view.declared.length > 0 ? `${view.declared.length} 个技能已启用` : "尚未启用技能"}</strong>
+          <p>技能内容来自全局 store；这里只管理当前 Agent 的声明与解析锁。</p>
+        </div>
+        <span className={`tag ${view.declared.length > 0 ? "ok" : ""}`}>{view.declared.length} / {view.declared.length + view.available.length}</span>
+      </div>
       <div className="settings-summary-row">
         <span className="field-label">声明</span>
         {view.declared.length > 0 ? (
@@ -171,7 +179,7 @@ export function AgentSkillsTab({ agentName, onError, onChanged }: AgentSkillsTab
               </div>
               <button
                 type="button"
-                className="link danger"
+                className="btn small ghost"
                 disabled={busy}
                 onClick={() => void toggle(skill.name, false)}
               >
@@ -203,7 +211,7 @@ export function AgentSkillsTab({ agentName, onError, onChanged }: AgentSkillsTab
               </div>
               <button
                 type="button"
-                className="link"
+                className="btn small"
                 disabled={busy || !skill.present}
                 title={skill.present ? "写入 use 并生成解析锁" : "store 内容缺失：先安装或同步"}
                 onClick={() => void toggle(skill.name, true)}

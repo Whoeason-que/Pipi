@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { useCopyFeedback } from "../components/use-copy";
 import { codeFence, languageFor, linkedPath } from "./model";
 import type { WorkspaceFile } from "./types";
 
@@ -28,6 +29,7 @@ export const FileContent = memo(function FileContent({ file, lines, onLines, onO
   const url = useMediaUrl(file);
   const [rendered, setRendered] = useState(file.kind === "markdown");
   const [query, setQuery] = useState("");
+  const clipboard = useCopyFeedback();
   const [matchIndex, setMatchIndex] = useState(0);
   const source = useRef<HTMLDivElement>(null);
   const content = file.content;
@@ -59,6 +61,11 @@ export const FileContent = memo(function FileContent({ file, lines, onLines, onO
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setMatchIndex(i => i + (e.shiftKey ? Math.max(1, matches.length - 1) : 1)); } }} />
         <button type="button" className="btn small ghost" disabled={!matches.length} onClick={() => setMatchIndex(i => i + 1)}>{matches.length ? `${matchIndex % matches.length + 1}/${matches.length}` : "0"} ↓</button>
       </>}
+      <div className="file-content-meta">
+        <span>{languageFor(file.path)}</span>
+        <span>{textLines.length.toLocaleString()} 行</span>
+      </div>
+      <button type="button" className="btn small ghost" onClick={() => void clipboard.copy(content)}>{clipboard.label}</button>
     </div>
     {file.truncated && <p className="file-notice">仅展示前 256 KiB；截断内容不能作为完整文件版本或选区引用。</p>}
     {rendered ? <div className="md file-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}

@@ -16,7 +16,7 @@ const empty = (): WorkspaceView => ({ tabs: [], selected: null, expanded: [], qu
 const paths = (value: unknown): string[] => Array.isArray(value)
   ? [...new Set(value.filter((path): path is string => typeof path === "string" && path.length > 0 && path.length <= 4096))] : [];
 
-/** 文件视图属于 Agent 工作区，File/Git 分别保存；会话 id 不参与身份。内容不落缓存。 */
+/** 文件视图属于 Agent 工作区，File/Git 分别保存；会话 id 不参与身份。内容不落浏览器存储。 */
 export class WorkspaceViewStore {
   readonly key: string;
   private snapshot = empty();

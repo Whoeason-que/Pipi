@@ -1,24 +1,17 @@
-// 技能库主区：store 概览（安装 / 全部校验）与单个技能的详情
-// （版本与来源、内容校验、启用它的 Agent 及开关）。
+// 技能库主区：store 概览（安装 / 全部校验）与技能卡片网格。
+// 选中技能的版本、来源与启用情况放在右侧面板（见 SkillRail）。
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { NavigationToggle } from "../app/AppNavigation";
+import { useRightRail } from "../app/right-rail";
 import { formatRuntimeError } from "../chat-runtime";
 import ConfirmModal from "../components/ConfirmModal";
-import { IconCheck, IconDownload, IconRefresh } from "../icons";
+import { IconCheck, IconDownload, IconPanelRight, IconRefresh, IconSkill } from "../icons";
 import { invoke } from "../platform";
-import type { SkillLibrary, SkillUsage, SkillVerify } from "../types";
+import type { SkillLibrary, SkillVerify, StoreSkill } from "../types";
 import InstallSkillModal from "./InstallSkillModal";
-import {
-  AGENT_SKILL_STATUS_HINTS,
-  AGENT_SKILL_STATUS_LABELS,
-  AGENT_SKILL_STATUS_TONES,
-  SKILL_VERIFY_LABELS,
-  SKILL_VERIFY_TONES,
-  shortHash,
-  sourceLabel,
-  toneClass,
-} from "./labels";
+import { SkillRail } from "./SkillRail";
+import { shortHash, sourceLabel } from "./labels";
 
 interface SkillsViewProps {
   library: SkillLibrary | null;
@@ -42,32 +35,16 @@ export function SkillsView({
   const [verifyRows, setVerifyRows] = useState<Record<string, SkillVerify[]>>({});
   const [installOpen, setInstallOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
-  const [usage, setUsage] = useState<SkillUsage[] | null>(null);
-  const [usageError, setUsageError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const rail = useRightRail("skills");
 
   const skill = library?.skills.find((candidate) => candidate.name === selected) ?? null;
   const skillName = skill?.name ?? null;
 
-  const loadUsage = useCallback(async (name: string) => {
-    try {
-      setUsage(await invoke("skill_usage", { name }));
-      setUsageError(null);
-    } catch (errorValue) {
-      setUsage(null);
-      setUsageError(formatRuntimeError(errorValue));
-    }
-  }, []);
-
-  useEffect(() => {
-    setNotice(null);
-    if (!skillName) {
-      setUsage(null);
-      setUsageError(null);
-      return;
-    }
-    void loadUsage(skillName);
-  }, [skillName, loadUsage]);
+  // 从左侧栏选择技能时也直接展开右栏；用户手动关闭后不会反复弹开。
+  useEffect(() => { if (selected) rail.setOpen(true); }, [selected]);
+  // 没有选中项时不在启动阶段留下一块空面板。
+  useEffect(() => { if (!selected) rail.setOpen(false); }, []);
 
   const runVerify = async (name: string) => {
     setWorking(`verify:${name}`);
@@ -106,23 +83,6 @@ export function SkillsView({
     }
   };
 
-  const toggleAgent = async (agentName: string, enabled: boolean) => {
-    if (!skillName) return;
-    setWorking(`toggle:${agentName}`);
-    try {
-      await invoke("set_skill_enabled", { agentName, name: skillName, enabled });
-      if (enabled) {
-        setNotice(`已在 ${agentName} 启用 ${skillName}：下一个会话启动时注入（测试会话会重建）`);
-      }
-    } catch (errorValue) {
-      onError(formatRuntimeError(errorValue));
-    } finally {
-      setWorking(null);
-      await loadUsage(skillName);
-      await onRefresh();
-    }
-  };
-
   const removeSkill = async (name: string) => {
     setWorking("remove");
     try {
@@ -137,17 +97,34 @@ export function SkillsView({
     }
   };
 
+  const chooseSkill = (name: string) => {
+    onSelect(name);
+    rail.setOpen(true);
+  };
+
   const busy = working !== null;
   const totalVersions = library?.skills.reduce((total, item) => total + item.versions.length, 0) ?? 0;
+  const missing = library?.skills.filter((item) => !currentVersion(item)?.present).length ?? 0;
 
   return (
-    <div className="screen skills-screen">
+    <div className="screen skills-screen" style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
+      <div className="skills-main">
       <div className="screen-bar">
         <NavigationToggle />
         <span className="crumb">
           技能库 · <b>{library?.storePath ?? "~/.av/skills"}</b>
         </span>
         <span className="spacer" />
+        <button
+          type="button"
+          className={`icon-btn${rail.open ? " active" : ""}`}
+          title="技能详情"
+          aria-label="切换技能详情面板"
+          aria-pressed={rail.open}
+          onClick={rail.toggle}
+        >
+          <IconPanelRight />
+        </button>
         <button
           type="button"
           className="btn ghost"
@@ -167,183 +144,113 @@ export function SkillsView({
         </button>
       </div>
 
-      <div className="skills-body">
-        {notice && (
-          <div className="skills-notice" role="status">
-            <span>{notice}</span>
-            <button type="button" className="error-dismiss" onClick={() => setNotice(null)} aria-label="关闭提示">
-              ✕
-            </button>
-          </div>
-        )}
-        {!library ? (
-          <div className="empty compact-empty">
-            <h2>{loadError ? "读取技能 store 失败" : "正在读取全局技能 store…"}</h2>
-            {loadError && <p>{loadError}</p>}
-            <p>位置：~/.av/skills（AV_HOME 可覆盖）</p>
-            <button type="button" className="btn ghost" onClick={() => void onRefresh()}>
-              <IconRefresh /> 重试
-            </button>
-          </div>
-        ) : skill ? (
-          <>
-            <div className="skills-detail-head">
-              <div className="info">
-                <h2 className="mono">{skill.name}</h2>
-                <p className="dim">{skill.description ?? "（SKILL.md 没有可读描述）"}</p>
-              </div>
-              <div className="skills-actions">
-                <button
-                  type="button"
-                  className="btn ghost"
-                  disabled={busy}
-                  onClick={() => void runVerify(skill.name)}
-                >
-                  <IconRefresh /> 校验内容
-                </button>
-                <button
-                  type="button"
-                  className="btn danger"
-                  disabled={busy}
-                  onClick={() => setRemoveTarget(skill.name)}
-                >
-                  从 store 移除
-                </button>
-              </div>
+        <div className="skills-body">
+          {notice && (
+            <div className="skills-notice" role="status">
+              <span>{notice}</span>
+              <button type="button" className="error-dismiss" onClick={() => setNotice(null)} aria-label="关闭提示">
+                ✕
+              </button>
             </div>
-
-            <div className="skills-meta">
-              <div className="settings-summary-row">
-                <span className="field-label">当前版本</span>
-                <span className="mono" title={skill.currentHash}>{skill.currentHash}</span>
-              </div>
-              <div className="settings-summary-row">
-                <span className="field-label">来源</span>
-                <span className="mono" title={skill.source}>
-                  {sourceLabel(skill.source, skill.sourceType)}
-                </span>
-              </div>
-              <div className="settings-summary-row">
-                <span className="field-label">来源内路径</span>
-                <span className="mono">{skill.skillPath ?? "—"}</span>
-              </div>
-              <div className="settings-summary-row">
-                <span className="field-label">安装时间</span>
-                <span>{skill.installedAt ?? "—"}</span>
-              </div>
+          )}
+          {!library ? (
+            <div className="empty compact-empty skills-loading">
+              <span className="skills-hero-icon"><IconSkill /></span>
+              <h2>{loadError ? "读取技能 store 失败" : "正在读取全局技能 store…"}</h2>
+              {loadError && <p>{loadError}</p>}
+              <p>位置：~/.av/skills（AV_HOME 可覆盖）</p>
+              <button type="button" className="btn ghost" onClick={() => void onRefresh()}>
+                <IconRefresh /> 重试
+              </button>
             </div>
-
-            <h3 className="skills-sub">版本（{skill.versions.length}）</h3>
-            <div className="skills-versions">
-              {skill.versions.map((version) => {
-                const rows =
-                  verifyRows[skill.name]?.filter((row) => row.contentHash === version.contentHash) ?? [];
-                return (
-                  <div className="skills-version" key={version.contentHash}>
-                    <span className="mono">{shortHash(version.contentHash)}</span>
-                    {version.contentHash === skill.currentHash && <span className="tag ok">当前</span>}
-                    <span className="dim mono">
-                      {version.revision
-                        ? `${version.revision.slice(0, 12)}${version.reference ? ` · ${version.reference}` : ""}`
-                        : "本地来源"}
-                    </span>
-                    <span className="spacer" />
-                    {version.present ? (
-                      <span className="tag ok">内容在</span>
-                    ) : (
-                      <span className="tag warn">内容缺失</span>
-                    )}
-                    {rows.map((row) => (
-                      <span
-                        className={toneClass(SKILL_VERIFY_TONES[row.status])}
-                        key={`${row.status}:${row.actualHash ?? ""}`}
-                        title={row.actualHash ? `实际哈希：${row.actualHash}` : undefined}
-                      >
-                        校验：{SKILL_VERIFY_LABELS[row.status]}
-                      </span>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-
-            <h3 className="skills-sub">启用它的 Agent</h3>
-            {usageError && <p className="field-error">{usageError}</p>}
-            {!usage && !usageError && <p className="dim">读取中…</p>}
-            {usage && usage.length === 0 && <p className="dim">还没有 Agent。</p>}
-            {usage && usage.length > 0 && (
-              <div className="skills-usage">
-                {usage.map((row) => (
-                  <div className="skills-usage-row" key={row.agentName}>
-                    <span className="name mono">{row.agentName}</span>
-                    {row.enabled && row.status ? (
-                      <span
-                        className={toneClass(AGENT_SKILL_STATUS_TONES[row.status])}
-                        title={row.filter ?? AGENT_SKILL_STATUS_HINTS[row.status]}
-                      >
-                        {AGENT_SKILL_STATUS_LABELS[row.status]}
-                      </span>
-                    ) : (
-                      <span className="dim">未启用</span>
-                    )}
-                    {row.enabled && row.declaredBy && row.declaredBy !== "agent" && (
-                      <span className="tag" title="声明落在项目层文件（随仓库走）">
-                        项目层声明
-                      </span>
-                    )}
-                    <span className="spacer" />
-                    <button
-                      type="button"
-                      className={row.enabled ? "link danger" : "link"}
-                      disabled={busy}
-                      onClick={() => void toggleAgent(row.agentName, !row.enabled)}
-                    >
-                      {working === `toggle:${row.agentName}` ? "处理中…" : row.enabled ? "禁用" : "启用"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="hint">
-              启用会写入该 Agent 生效的最高声明层契约（`[resources.skills].use`）并生成同层
-              agent.lock；禁用移除声明与锁记录，不动 store 内容。
-            </p>
-          </>
-        ) : (
-          <>
-            <div className="skills-overview-head">
-              <h2>全局技能 store</h2>
-              <p className="dim">
-                {library.storePath} · {library.skills.length} 个技能 · {totalVersions} 个版本
-              </p>
-            </div>
-            <div className="skills-notes">
-              <p>
-                <b>安装 ≠ 启用</b>：安装只把内容放进 store；在 Agent 工作台的「技能」页写
-                <span className="mono"> [resources.skills].use </span>
-                才生效。左侧点选技能可以看到哪些 Agent 正在用它。
-              </p>
-              <p>
-                <b>会话启动只读</b>：运行时只按同层 <span className="mono">agent.lock</span>{" "}
-                解析本地内容，不联网、不静默安装；缺锁 / 缺内容一律 fail-closed。
-              </p>
-              <p>
-                命令行的等价操作：<span className="mono">av skill install | add | sync | verify | remove</span>
-              </p>
-            </div>
-            {library.skills.length === 0 ? (
-              <div className="skills-empty">
-                <p>store 里还没有技能。从 GitHub 短名（owner/repo）、git URL 或本地目录安装第一个：</p>
+          ) : (
+            <>
+              <header className="skills-hero skills-overview-hero">
+                <span className="skills-hero-icon"><IconSkill /></span>
+                <div className="skills-hero-copy">
+                  <h2>全局技能 store</h2>
+                  <p className="mono">{library.storePath}</p>
+                  <p>安装把能力包放进本地 store；在 Agent 工作台启用后，才会进入下一个会话的提示词。</p>
+                </div>
                 <button type="button" className="btn primary" onClick={() => setInstallOpen(true)} disabled={busy}>
                   <IconDownload /> 安装技能
                 </button>
+              </header>
+
+              <div className="skills-stat-grid overview">
+                <div className="skills-stat">
+                  <span>已安装技能</span>
+                  <strong>{library.skills.length}</strong>
+                </div>
+                <div className="skills-stat">
+                  <span>内容版本</span>
+                  <strong>{totalVersions}</strong>
+                </div>
+                <div className={`skills-stat${missing ? " warn" : ""}`}>
+                  <span>内容异常</span>
+                  <strong>{missing}</strong>
+                </div>
+                <div className="skills-stat">
+                  <span>存储方式</span>
+                  <strong className="mono">本地文件</strong>
+                </div>
               </div>
-            ) : (
-              <p className="dim">左侧选择一个技能查看版本、来源与启用它的 Agent。</p>
-            )}
-          </>
-        )}
+
+              {library.skills.length === 0 ? (
+                <div className="skills-empty">
+                  <span className="skills-hero-icon"><IconDownload /></span>
+                  <h2>store 里还没有技能</h2>
+                  <p>从 GitHub 短名（owner/repo）、git URL 或本地目录安装第一个技能。</p>
+                  <button type="button" className="btn primary" onClick={() => setInstallOpen(true)} disabled={busy}>
+                    <IconDownload /> 安装技能
+                  </button>
+                </div>
+              ) : (
+                <section className="skills-panel">
+                  <div className="skills-panel-head">
+                    <h3 className="skills-sub">已安装技能 <span>{library.skills.length}</span></h3>
+                    <span className="dim">
+                      {skillName ? `正在查看 ${skillName}，详情在右侧` : "选择卡片查看版本、来源与启用它的 Agent"}
+                    </span>
+                  </div>
+                  <div className="skills-cards">
+                    {library.skills.map((item) => (
+                      <SkillCard key={item.name} skill={item} active={item.name === skillName}
+                        onSelect={() => chooseSkill(item.name)} />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <details className="skills-notes">
+                <summary>store 与注入规则</summary>
+                <p>
+                  <b>安装 ≠ 启用</b>：安装只把内容放进 store；在 Agent 工作台的「技能」页写
+                  <span className="mono"> [resources.skills].use </span>
+                  才生效。
+                </p>
+                <p>
+                  <b>会话启动只读</b>：运行时只按同层 <span className="mono">agent.lock</span>{" "}
+                  解析本地内容，不联网、不静默安装；缺锁 / 缺内容一律 fail-closed。
+                </p>
+                <p>
+                  命令行的等价操作：<span className="mono">av skill install | add | sync | verify | remove</span>
+                </p>
+              </details>
+            </>
+          )}
+        </div>
       </div>
+
+      <SkillRail
+          controller={rail}
+          skill={skill}
+          verifyRows={skill ? verifyRows[skill.name] ?? [] : []}
+          verifyBusy={working === `verify:${skillName}`}
+          onVerify={() => { if (skill) void runVerify(skill.name); }}
+          onRequestRemove={setRemoveTarget}
+          onError={onError}
+        />
 
       {installOpen && (
         <InstallSkillModal
@@ -368,5 +275,29 @@ export function SkillsView({
         />
       )}
     </div>
+  );
+}
+
+function currentVersion(skill: StoreSkill) {
+  return skill.versions.find((version) => version.contentHash === skill.currentHash);
+}
+
+function SkillCard({ skill, active, onSelect }: { skill: StoreSkill; active: boolean; onSelect: () => void }) {
+  const current = currentVersion(skill);
+  const healthy = !!current?.present;
+  return (
+    <button type="button" className={`skills-card${active ? " active" : ""}`} aria-pressed={active} onClick={onSelect}>
+      <div className="skills-card-head">
+        <span className="skills-card-icon"><IconSkill /></span>
+        <span className="skills-card-name mono">{skill.name}</span>
+        <span className={`skill-dot ${healthy ? "ok" : "error"}`} title={healthy ? "当前版本内容在" : "当前版本内容缺失"} />
+      </div>
+      <p className="skills-card-desc">{skill.description ?? "（SKILL.md 没有可读描述）"}</p>
+      <div className="skills-card-foot">
+        <span className="mono" title={skill.source}>{sourceLabel(skill.source, skill.sourceType)}</span>
+        <span>{skill.versions.length} 个版本</span>
+        <span className="mono">{shortHash(skill.currentHash)}</span>
+      </div>
+    </button>
   );
 }

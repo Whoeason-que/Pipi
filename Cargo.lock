@@ -5846,6 +5846,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "tokio",
+ "toml 1.1.6+spec-1.1.0",
  "tower",
  "tower-http 0.7.1",
  "uuid",

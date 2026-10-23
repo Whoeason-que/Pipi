@@ -38,7 +38,7 @@ import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
 import { useDialogFocus } from "./components/use-dialog-focus";
 import { useI18n } from "./i18n";
-import { IconAlertTriangle, IconClose, IconPanel, IconSearch } from "./icons";
+import { IconAlertTriangle, IconClose, IconSearch } from "./icons";
 import Login from "./Login";
 import { getAuthStatus, invoke, isTauriRuntime, listen, onAuthRequired } from "./platform";
 import { useResizableWidth } from "./resizable";
@@ -400,10 +400,6 @@ export default function App() {
           setNavSection(section); setSidebarCollapsed(false); setSidebarOpen(true);
         }} />
       <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "files" || navSection === "git" ? "工作区文件与 Git 改动" : "Agent 与会话列表"}>
-        <div className="sb-head">
-          <span className="spacer" />
-          <button type="button" className="icon-btn" title={t("nav.collapseSidebar")} aria-label={t("nav.collapseSidebar")} onClick={toggleNavigation}><IconPanel /></button>
-        </div>
         <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
         {view.kind === "settings" ? settings && <SettingsSidebar settings={settings} section={settingsSection}
           showLogout={!isTauriRuntime() && authStatus.authRequired}
@@ -486,7 +482,8 @@ export default function App() {
           : view.kind === "forum" ? <ForumView />
           : (view.kind === "files" || view.kind === "git") ? <WorkspaceView key={workspace.store?.key ?? "no-workspace"} state={workspace}
             sessions={workspaceSessions} defaultSession={workspaceSessions[0]?.id ?? null}
-            onOpenFile={path => { openWorkspaceFile(currentWorkspaceTarget?.workspace ?? "", path); }} onReference={referenceToSession} />
+            onOpenFile={path => { openWorkspaceFile(currentWorkspaceTarget?.workspace ?? "", path); }} onReference={referenceToSession}
+            onModeChange={mode => navigate({ kind: mode, agentName: view.agentName })} />
           : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
             onOpenFile={path => openWorkspaceFile(current.name, path)}
             title={sessionTitle || t("chat.newSessionTitle")} sessionId={view.sessionId} sessions={sessionRuntime}

@@ -4,8 +4,9 @@ export interface WorkspaceFile {
   workspace: string; path: string; size: number; version: string; kind: string; mime: string;
   content: string | null; base64: string | null; truncated: boolean;
 }
-export interface WorkspaceChange { path: string; status: string }
-export interface WorkspaceChanges { workspace: string; isRepo: boolean; files: WorkspaceChange[] }
+export interface WorkspaceRepoInfo { name: string; path: string; branch?: string }
+export interface WorkspaceChange { path: string; status: string; repository?: string }
+export interface WorkspaceChanges { workspace: string; isRepo: boolean; files: WorkspaceChange[]; repositories?: WorkspaceRepoInfo[] }
 export interface WorkspaceDiff { path: string; base: string; patch: string; truncated: boolean }
 
 export interface FileReference {

@@ -80,9 +80,65 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2.5"
 
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+pedantic = { level = "deny", priority = -1 }
+
+cargo = { level = "warn", priority = -1 }
+# Internal, unpublished workspace crates: package metadata and duplicate
+# transitive versions are not actionable here.
+cargo_common_metadata = "allow"
+multiple_crate_versions = "allow"
+
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+todo = "deny"
+unimplemented = "deny"
+
+dbg_macro = "deny"
+
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+
+# Pervasive in quantitative hot loops where bounds are validated by
+# construction; enforcing `.get()` everywhere obscures the numerical code.
+indexing_slicing = "allow"
+# f64 accumulators are the intended data model (prices, P&L, metrics).
+cast_precision_loss = "allow"
+# Internal crates: rely on module-level docs instead of per-function boilerplate.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Data plumbing encodes rows/segments/codes by construction; call sites bound the
+# values before conversion (u32 code indices, usize tape offsets, i64 timestamps).
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+# Protocol/report builders are sequential by nature; splitting them obscures flow.
+too_many_lines = "allow"
+
+
+
+[profile.dev]
+opt-level = 1
+debug = true
+lto = "off"
+panic = "unwind"
+strip = false
+incremental = true
+overflow-checks = true
+debug-assertions = true
+split-debuginfo = "off"
+
+
 [profile.release]
-codegen-units = 1
-lto = true
-opt-level = "s"
+opt-level = 3
+debug = false
+lto = "off"
 panic = "abort"
 strip = true
+incremental = true
+overflow-checks = false
+debug-assertions = false
+split-debuginfo = "off"

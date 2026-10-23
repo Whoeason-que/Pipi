@@ -1,13 +1,16 @@
 // 本地论坛主区：完全展示正文与回复内容，以及新建主题与回复编辑器。
 // 支持 Markdown 渲染、语法高亮代码块、@Agent 快捷提及与实时预览。
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { NavigationToggle } from "../app/AppNavigation";
+import { useRightRail } from "../app/right-rail";
 import {
   IconAgent,
+  IconArrowDown,
   IconClose,
   IconForum,
   IconLock,
+  IconPanelRight,
   IconPlus,
   IconRefresh,
   IconSend,
@@ -16,6 +19,7 @@ import {
 } from "../icons";
 import { Markdown } from "../Markdown";
 import type { PostView } from "../types";
+import { ForumRail } from "./ForumRail";
 import { useForum } from "./forum-state";
 import { formatFullTime, formatRelativeTime } from "./time";
 
@@ -44,6 +48,9 @@ export default function ForumView() {
   const [newBody, setNewBody] = useState("");
   const [composeTab, setComposeTab] = useState<"edit" | "preview">("edit");
   const composeTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const rail = useRightRail("forum");
 
   // 回帖表单状态
   const [replyText, setReplyText] = useState("");
@@ -73,6 +80,31 @@ export default function ForumView() {
     if (success) {
       setReplyText("");
       setReplyTab("edit");
+      requestAnimationFrame(() => scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: "smooth" }));
+    }
+  };
+
+  const scrollToBottom = () => scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: "smooth" });
+  const onScroller = () => {
+    const element = scrollerRef.current;
+    if (!element) return;
+    setAtBottom(element.scrollHeight - element.scrollTop - element.clientHeight < 120);
+  };
+  useEffect(() => {
+    scrollerRef.current?.scrollTo({ top: 0 });
+    setAtBottom(true);
+  }, [selectedId, composing]);
+
+  const composeKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      void handlePublish();
+    }
+  };
+  const replyKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      void handleSendReply();
     }
   };
 
@@ -108,7 +140,8 @@ export default function ForumView() {
   };
 
   return (
-    <div className="forum">
+    <div className={`forum${rail.open ? " rail-open" : ""}`} style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
+      <div className="forum-main-shell">
       <header className="workspace-toolbar">
         <NavigationToggle />
         <span className="toolbar-divider" />
@@ -128,6 +161,16 @@ export default function ForumView() {
           <span className="forum-toolbar-title">论坛</span>
         )}
         <span className="spacer" />
+        <button
+          type="button"
+          className={`icon-btn${rail.open ? " active" : ""}`}
+          title="主题信息"
+          aria-label="切换主题信息面板"
+          aria-pressed={rail.open}
+          onClick={rail.toggle}
+        >
+          <IconPanelRight />
+        </button>
         {composing ? (
           <button
             type="button"
@@ -176,7 +219,7 @@ export default function ForumView() {
         </div>
       )}
 
-      <div className="forum-main-content">
+      <div className="forum-main-content" ref={scrollerRef} onScroll={onScroller}>
         {composing ? (
           <div className="forum-content-container">
             <div className="forum-compose-box">
@@ -256,6 +299,7 @@ export default function ForumView() {
                     placeholder="输入正文内容（支持 Markdown 语法与 @AgentName 提及）…"
                     value={newBody}
                     onChange={(e) => setNewBody(e.target.value)}
+                    onKeyDown={composeKeyDown}
                     rows={12}
                   />
                 ) : (
@@ -280,6 +324,8 @@ export default function ForumView() {
               </div>
 
               <div className="forum-compose-actions">
+                <span className="forum-kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发布</span>
+                <span className="spacer" />
                 <button
                   type="button"
                   className="forum-btn forum-btn-ghost"
@@ -347,6 +393,8 @@ export default function ForumView() {
                 </span>
                 <span className="forum-dot">·</span>
                 <span className="forum-hero-count">共 {thread.posts.length} 帖</span>
+                <span className="forum-dot">·</span>
+                <span className="forum-hero-count">{new Set(thread.posts.map(post => post.author)).size} 位参与者</span>
 
                 {thread.thread.tags.length > 0 && (
                   <>
@@ -394,6 +442,7 @@ export default function ForumView() {
                             {post.via === "tool" ? "Agent 工具" : post.via === "cli" ? "CLI" : "Web"}
                           </span>
                         )}
+                        {post.replyTo && <span className="forum-reply-to" title={post.replyTo}>回复 #{thread.posts.find(item => item.id === post.replyTo)?.seq ?? "?"}</span>}
                       </div>
 
                       <div className="forum-post-actions-group">
@@ -468,6 +517,7 @@ export default function ForumView() {
                       placeholder="写下你的回复…（支持 Markdown 语法与代码块，可用 @Agent 提及对应助手）"
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
+                      onKeyDown={replyKeyDown}
                       rows={5}
                     />
                   ) : (
@@ -500,7 +550,7 @@ export default function ForumView() {
 
                   <div className="forum-reply-footer">
                     <span className="forum-reply-hint">
-                      正文中写入 <code>@名字</code> 将通知该 Agent 参与协作
+                      正文中写入 <code>@名字</code> 将通知该 Agent 参与协作 · <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发送
                     </span>
                     <button
                       type="button"
@@ -539,7 +589,15 @@ export default function ForumView() {
             </button>
           </div>
         )}
+        {!composing && thread && !atBottom && (
+          <button type="button" className="forum-scroll-bottom" onClick={scrollToBottom} aria-label="回到最新回复">
+            <IconArrowDown />
+            <span>最新</span>
+          </button>
+        )}
       </div>
+      </div>
+      <ForumRail thread={thread} loading={threadLoading} composing={composing} agents={agents} controller={rail} />
     </div>
   );
 }

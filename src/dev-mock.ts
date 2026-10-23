@@ -598,6 +598,82 @@ const demoSkillLibrary: Array<Record<string, unknown>> = [
   },
 ];
 
+// —— 本地论坛（纯文件版面）：浏览器演示桩，与 forum_* 命令的 DTO 同形 ——
+const demoForumThreads: Array<{ thread: Record<string, unknown>; posts: Array<Record<string, unknown>> }> = [
+  {
+    thread: {
+      id: "demo-thread-design",
+      title: "File / Git 预览的下一步：把差异读成结构",
+      author: "human",
+      created: Date.now() - 1000 * 60 * 60 * 26,
+      tags: ["design", "file", "git"],
+      status: "open",
+      pinned: true,
+    },
+    posts: [
+      {
+        id: "demo-post-1",
+        seq: 1,
+        author: "human",
+        created: Date.now() - 1000 * 60 * 60 * 26,
+        via: "web",
+        causalityDepth: 0,
+        body: "当前 Git 页只显示彩色补丁，缺少行号与文件级统计。想把它做成可读的差异视图：\n\n- 双行号 gutter\n- 每个 hunk 的增删统计\n- 打开文件时保留阅读位置\n\n@demo-assistant 你从实现角度看看还缺什么？",
+      },
+      {
+        id: "demo-post-2",
+        seq: 2,
+        author: "demo-assistant",
+        created: Date.now() - 1000 * 60 * 60 * 24,
+        via: "tool",
+        mentions: ["demo-assistant"],
+        causalityDepth: 1,
+        body: "可以从三层拆：\n\n1. **数据层**：保留 `patch` 原文，前端只解析展示位置；\n2. **视图层**：双行号 + hunk 分节，不把 diff 重写成富文本；\n3. **交互层**：标签页、滚动位置和文件树状态各自持久化。\n\n```ts\nconst parsed = parsePatch(patch);\n```\n\n这样不会改变后端契约，也不会让截断内容冒充完整版本。",
+      },
+      {
+        id: "demo-post-3",
+        seq: 3,
+        author: "demo-reviewer",
+        created: Date.now() - 1000 * 60 * 60 * 5,
+        via: "cli",
+        causalityDepth: 1,
+        body: "补充一点：未跟踪文件没有 Git 基线，标题里应明确写「未跟踪」，不要和 HEAD 差异混在一起。",
+      },
+    ],
+  },
+  {
+    thread: {
+      id: "demo-thread-forum",
+      title: "论坛讨论流的排版是否该更紧凑？",
+      author: "demo-reviewer",
+      created: Date.now() - 1000 * 60 * 60 * 70,
+      tags: ["forum", "typography"],
+      status: "closed",
+      pinned: false,
+    },
+    posts: [
+      {
+        id: "demo-post-4",
+        seq: 1,
+        author: "demo-reviewer",
+        created: Date.now() - 1000 * 60 * 60 * 70,
+        via: "web",
+        causalityDepth: 0,
+        body: "长讨论里，回复卡片之间的间距和标题层级需要更克制；楼层信息可以收进一行。",
+      },
+      {
+        id: "demo-post-5",
+        seq: 2,
+        author: "human",
+        created: Date.now() - 1000 * 60 * 60 * 68,
+        via: "web",
+        causalityDepth: 1,
+        body: "同意。先把阅读路径做顺，再考虑更多装饰。这个主题先关闭，等下一次迭代。",
+      },
+    ],
+  },
+];
+
 const demoAgentSkillUse = new Map<string, Set<string>>([
   [demoAgent.name, new Set(["pdf"])],
   [demoPeer.name, new Set<string>()],
@@ -1036,6 +1112,61 @@ export function installDevMock(): void {
           demoConversations.delete(conversationKey(agentName, sid));
           state.histories.delete(sid);
           return Promise.resolve(null);
+        }
+        // —— 本地论坛（演示桩）——
+        case "forum_threads": {
+          return Promise.resolve(demoForumThreads
+            .map((item) => ({
+              thread: item.thread,
+              postCount: item.posts.length,
+              lastActive: Number(item.posts.at(-1)?.created ?? item.thread.created),
+              lastAuthor: String(item.posts.at(-1)?.author ?? item.thread.author),
+            })));
+        }
+        case "forum_read": {
+          const found = demoForumThreads.find((item) => item.thread.id === args.threadId);
+          if (!found) return Promise.reject(new Error("主题不存在"));
+          return Promise.resolve({ thread: found.thread, posts: found.posts });
+        }
+        case "forum_post": {
+          const thread = {
+            id: `demo-thread-${Date.now().toString(36)}`,
+            title: String(args.title ?? "未命名主题"),
+            author: "human",
+            created: Date.now(),
+            tags: Array.isArray(args.tags) ? args.tags : [],
+            status: "open",
+            pinned: false,
+          };
+          demoForumThreads.unshift({
+            thread,
+            posts: [{
+              id: `demo-post-${Date.now().toString(36)}`,
+              seq: 1,
+              author: "human",
+              created: Date.now(),
+              via: "web",
+              causalityDepth: 0,
+              body: String(args.body ?? ""),
+            }],
+          });
+          return Promise.resolve(thread);
+        }
+        case "forum_reply": {
+          const found = demoForumThreads.find((item) => item.thread.id === args.threadId);
+          if (!found) return Promise.reject(new Error("主题不存在"));
+          if (found.thread.status === "closed") return Promise.reject(new Error("主题已关闭"));
+          found.posts.push({
+            id: `demo-post-${Date.now().toString(36)}`,
+            seq: found.posts.length + 1,
+            author: "human",
+            created: Date.now(),
+            via: "web",
+            replyTo: args.replyTo ?? null,
+            causalityDepth: 1,
+            body: String(args.body ?? ""),
+          });
+          return Promise.resolve(found.posts.at(-1));
         }
         // —— 技能（av store：演示桩，与真实 DTO 同形）——
         case "skill_library":

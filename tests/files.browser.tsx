@@ -24,10 +24,16 @@ window.fetch = (input, init) => String(input).includes("/api/auth/status")
 window.__PIPI_DEV_PLATFORM__ = {
   ...platform,
   invoke: async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    // /tests/files.browser.html?delay=1200 可观察首次加载和有缓存时的后台刷新。
+    const delay = Math.min(2000, Math.max(0, Number(new URLSearchParams(location.search).get("delay")) || 0));
+    if (delay && ["workspace_changes", "workspace_diff", "list_workspace_files", "preview_workspace_file"].includes(command)) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
     const path = String(args?.path ?? "");
-    const workspace = `/fixture/${args?.agentName ?? "unknown"}`;
+    const workspace = String(args?.agentName ?? "/fixture/unknown");
     let result: unknown;
-    if (command === "list_workspace_files") result = { workspace, path, truncated: false, entries: path === "src" ? ["src/slow.ts", "src/fast.ts"].map(path => ({ name: path.split("/").pop(), path, kind: "file", size: 40 })) : [
+    if (command === "list_agents") result = (await platform.invoke<Array<Record<string, unknown>>>(command, args)).map(agent => ({ ...agent, workspace: `/fixture/${agent.name}` }));
+    else if (command === "list_workspace_files") result = { workspace, path, truncated: false, entries: path === "src" ? ["src/slow.ts", "src/fast.ts"].map(path => ({ name: path.split("/").pop(), path, kind: "file", size: 40 })) : [
       { name: "src", path: "src", kind: "directory", size: 0 },
       { name: "hello.ts", path: "hello.ts", kind: "file", size: 90 },
       { name: "readme.md", path: "readme.md", kind: "file", size: 120 },
@@ -38,8 +44,16 @@ window.__PIPI_DEV_PLATFORM__ = {
       if (path === "src/slow.ts") await new Promise(resolve => setTimeout(resolve, 600));
       if (!(path in contents) && path !== "image.png") throw new Error("文件不存在或不在工作目录内");
       result = { workspace, path, size: 100, version: `fixture-${path}`, kind: path.endsWith("md") ? "markdown" : path.endsWith("png") ? "image" : "text", mime: path.endsWith("png") ? "image/png" : "text/plain", content: contents[path] ?? null, base64: path.endsWith("png") ? "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jWZkAAAAASUVORK5CYII=" : null, truncated: false } satisfies WorkspaceFile;
-    } else if (command === "workspace_changes") result = { workspace, isRepo: args?.agentName !== "demo-reviewer", files: args?.agentName === "demo-reviewer" ? [] : [{ path: "staged.ts", status: "M " }, { path: "hello.ts", status: " M" }, { path: "deleted.txt", status: " D" }, { path: "new.txt", status: "??" }] };
-    else if (command === "workspace_diff") result = { path, base: "HEAD", patch: "--- a/hello.ts\n+++ b/hello.ts\n@@ -1 +1 @@\n-before\n+after\n", truncated: false };
+    } else if (command === "workspace_changes") result = { workspace, isRepo: true, repositories: [{ name: "pipi", path: ".", branch: "codex/file-preview" }, { name: "docs", path: "docs", branch: "main" }], files: [
+      { path: "staged.ts", status: "M ", repository: "pipi" },
+      { path: "src/files/WorkspaceView.tsx", status: "MM", repository: "pipi" },
+      { path: "hello.ts", status: " M", repository: "pipi" },
+      { path: "src/styles/files.css", status: " M", repository: "pipi" },
+      { path: "deleted.txt", status: " D", repository: "pipi" },
+      { path: "docs/readme.md", status: " M", repository: "docs" },
+      { path: "new.txt", status: "??", repository: "pipi" },
+    ] };
+    else if (command === "workspace_diff") result = { path, base: "HEAD", patch: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,4 +1,5 @@\n import { useState } from "react";\n \n-export const title = "Workspace";\n+export const title = "源代码管理";\n+export const description = "Review your workspace changes, inspect each diff, and keep every file in context without leaving your Agent workspace.";\n export const ready = true;\n@@ -30,3 +31,4 @@ export function Workspace() {\n   return (\n-    <main className="workspace">\n+    <main className="workspace git-view">\n+      <ChangeSummary />\n     );\n`, truncated: false };
     else if (command === "open_session") {
       const snapshot = await platform.invoke<{ info: unknown; messages: unknown[]; stats: unknown }>(command, args);
       result = { ...snapshot, messages: [...snapshot.messages,

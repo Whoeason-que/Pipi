@@ -47,6 +47,23 @@ export function formatReference(reference: FileReference): string {
 
 export function parentPath(path: string): string { return path.split("/").slice(0, -1).join("/"); }
 
+const FILE_TONES: Record<string, string> = {
+  ts: "code", tsx: "code", js: "code", jsx: "code", rs: "code", py: "code", go: "code", c: "code", cpp: "code",
+  json: "data", toml: "data", yaml: "data", yml: "data", sql: "data",
+  css: "style", scss: "style", html: "style", svg: "style",
+  md: "doc", txt: "doc", pdf: "doc",
+  png: "media", jpg: "media", jpeg: "media", gif: "media", webp: "media", mp4: "media", mp3: "media",
+  sh: "shell", bash: "shell", zsh: "shell", lock: "data",
+};
+
+/** 文件树左侧的类型胶囊：用短扩展名而不是引入图标库。 */
+export function fileGlyph(path: string): { label: string; tone: string } {
+  const name = path.split("/").pop() ?? path;
+  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+  const special = name === "Dockerfile" ? "docker" : name === "Makefile" ? "make" : name.startsWith(".") ? "dot" : ext;
+  return { label: (special || "txt").slice(0, 3).toUpperCase(), tone: FILE_TONES[ext] ?? "plain" };
+}
+
 /** Markdown 的本地链接相对当前文件解析；绝对路径仍由宿主校验，网络链接不在这里读取。 */
 export function linkedPath(file: string, href: string): string | null {
   if (!href || href.startsWith("#") || /^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith("//")) return null;

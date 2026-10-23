@@ -2,7 +2,7 @@
 
 import { useContext } from "react";
 import { LayoutContext } from "../app/layout-context";
-import { IconClose, IconPlus, IconRefresh, IconSearch } from "../icons";
+import { IconClose, IconForum, IconPlus, IconRefresh, IconSearch } from "../icons";
 import { useForum } from "./forum-state";
 import { formatRelativeTime } from "./time";
 
@@ -129,8 +129,10 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
       )}
 
       {!loading && threads.length === 0 && (
-        <div className="session pending">
-          还没有主题。点击上方「+」新建一个。
+        <div className="forum-sidebar-empty">
+          <IconForum />
+          <p>还没有讨论主题</p>
+          <small>点击上方「+」发起第一个主题。</small>
         </div>
       )}
 
@@ -159,12 +161,19 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
                 {isClosed && <span className="forum-badge-closed">已关闭</span>}
               </div>
               <div className="forum-item-meta">
+                <span className={`forum-item-state ${isClosed ? "closed" : "open"}`} aria-hidden="true" />
                 <span className="forum-item-author" title={`发起者：${summary.thread.author}`}>
                   {summary.thread.author}
                 </span>
                 <span className="forum-item-dot">·</span>
                 <span className="forum-item-count">{summary.postCount} 帖</span>
-                <span className="forum-item-dot">·</span>
+                {summary.lastAuthor && summary.lastAuthor !== summary.thread.author && (
+                  <>
+                    <span className="forum-item-dot">·</span>
+                    <span className="forum-item-last" title={`最后回复：${summary.lastAuthor}`}>最后 {summary.lastAuthor}</span>
+                  </>
+                )}
+                <span className="spacer" />
                 <span className="forum-item-time">{formatRelativeTime(summary.lastActive)}</span>
               </div>
               {summary.thread.tags.length > 0 && (
