@@ -93,6 +93,19 @@ pub enum StopReason {
     Aborted,
 }
 
+/// 供应商边界归一的错误类别；不携带重发策略，未知错误保留原始说明。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AssistantErrorKind {
+    Auth,
+    RateLimit,
+    Quota,
+    ContextOverflow,
+    Network,
+    Protocol,
+    Generic,
+}
+
 /// 用户、助手和工具结果消息；它是 session JSONL 的核心载荷。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(
@@ -114,6 +127,8 @@ pub enum Message {
         stop_reason: StopReason,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error_message: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<AssistantErrorKind>,
         timestamp: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         duration_ms: Option<u64>,
@@ -163,6 +178,7 @@ impl Message {
             usage: Usage::default(),
             stop_reason: StopReason::Stop,
             error_message: None,
+            error_kind: None,
             timestamp: now_millis(),
             duration_ms: None,
         }
@@ -177,6 +193,7 @@ impl Message {
             usage: Usage::default(),
             stop_reason: reason,
             error_message: Some(message.into()),
+            error_kind: None,
             timestamp: now_millis(),
             duration_ms: None,
         }
@@ -357,6 +374,7 @@ pub enum StreamEvent {
     },
     Error {
         message: String,
+        kind: AssistantErrorKind,
         retry: Option<RetryHint>,
         /// 端点明确说「这个模型不支持当前协议」（可换另一种协议再试一次）。
         /// 载体不重发；是否换协议由 agent loop 决定（仅 auto 协议模式）。

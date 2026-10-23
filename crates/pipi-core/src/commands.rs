@@ -61,6 +61,7 @@ pub const COMMANDS: &[&str] = &[
     "query_background_tasks",
     "manage_background_task",
     "new_session",
+    "create_session",
     "send_prompt",
     "compact_now",
     "steer",
@@ -482,6 +483,19 @@ pub fn new_session(runtime: &RuntimeState, args: NewSessionArgs) -> Result<(), S
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CreateSessionArgs {
+    pub agent_name: String,
+}
+
+pub fn create_session(
+    runtime: &RuntimeState,
+    args: CreateSessionArgs,
+) -> Result<SessionInfo, String> {
+    runtime.create_session(&args.agent_name)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SendPromptArgs {
     pub agent_name: String,
     pub session_id: Option<String>,
@@ -658,7 +672,9 @@ pub async fn import_sessions(
     let agent_name = args.agent_name.clone();
     tokio::task::spawn_blocking(move || {
         let def = agents::load_agent(&agent_name)?;
-        let legacy_dir = def.sessions_dir().ok_or("Cannot resolve session directory")?;
+        let legacy_dir = def
+            .sessions_dir()
+            .ok_or("Cannot resolve session directory")?;
         Ok(pipi_session::import_legacy_sessions(
             &agent_repo(&def)?,
             &legacy_dir,
@@ -985,6 +1001,7 @@ pub async fn dispatch(
         "query_background_tasks" => to_value(query_background_tasks(runtime, parse(args)?).await?),
         "manage_background_task" => to_value(manage_background_task(runtime, parse(args)?).await?),
         "new_session" => to_value(new_session(runtime, parse(args)?)?),
+        "create_session" => to_value(create_session(runtime, parse(args)?)?),
         "send_prompt" => to_value(send_prompt(runtime, emitter, parse(args)?)?),
         "compact_now" => to_value(compact_now(runtime, emitter, parse(args)?)?),
         "steer" => to_value(steer(runtime, parse(args)?)?),
@@ -1027,7 +1044,8 @@ fn parse<T: DeserializeOwned>(args: Value) -> Result<T, String> {
 }
 
 fn to_value<T: Serialize>(value: T) -> Result<Value, String> {
-    serde_json::to_value(value).map_err(|error| format!("Failed to serialize command result: {error}"))
+    serde_json::to_value(value)
+        .map_err(|error| format!("Failed to serialize command result: {error}"))
 }
 
 #[cfg(test)]
@@ -1043,8 +1061,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            54,
-            "宿主命令数应为 54（前端 CommandMap 同步）"
+            55,
+            "宿主命令数应为 55（前端 CommandMap 同步）"
         );
     }
 

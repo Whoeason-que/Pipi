@@ -236,6 +236,7 @@ fn seed_history_turns(sessions_dir: &std::path::Path, turns: u32) -> String {
             usage: Default::default(),
             stop_reason: pipi_protocol::StopReason::ToolUse,
             error_message: None,
+            error_kind: None,
             timestamp: 0,
             duration_ms: None,
         })

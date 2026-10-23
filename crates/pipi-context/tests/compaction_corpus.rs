@@ -34,6 +34,7 @@ fn assistant(content: Vec<ContentBlock>) -> Message {
             StopReason::Stop
         },
         error_message: None,
+        error_kind: None,
         timestamp: 0,
         duration_ms: None,
     }

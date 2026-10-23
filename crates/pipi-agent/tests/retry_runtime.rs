@@ -323,9 +323,14 @@ async fn terminal_400_is_not_resent() {
         Message::Assistant {
             stop_reason,
             error_message,
+            error_kind,
             ..
         } => {
             assert_eq!(*stop_reason, StopReason::Error);
+            assert_eq!(
+                *error_kind,
+                Some(pipi_protocol::AssistantErrorKind::ContextOverflow)
+            );
             let message = error_message.clone().unwrap_or_default();
             assert!(message.contains("400"), "{message}");
         }

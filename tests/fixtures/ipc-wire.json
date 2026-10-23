@@ -11,7 +11,8 @@
   "messages": [
     {"role":"user","content":"hello","timestamp":1},
     {"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"toolCall","id":"call-1","name":"read","arguments":{"path":"README.md"}}],"api":"openai-completions","provider":"fixture","model":"fixture-model","usage":{"input":10,"output":2,"cacheRead":3,"cacheWrite":0,"totalTokens":15},"stopReason":"toolUse","timestamp":2},
-    {"role":"toolResult","toolCallId":"call-1","toolName":"read","content":[{"type":"text","text":"fixture"}],"isError":false,"timestamp":3}
+    {"role":"toolResult","toolCallId":"call-1","toolName":"read","content":[{"type":"text","text":"fixture"}],"isError":false,"timestamp":3},
+    {"role":"assistant","content":[{"type":"text","text":"partial"}],"api":"openai-completions","provider":"fixture","model":"fixture-model","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0},"stopReason":"error","errorMessage":"rate limited","errorKind":"rateLimit","timestamp":4}
   ],
   "stats": {"input":10,"output":2,"cacheRead":3,"cacheWrite":0,"calls":1},
   "session": {"agentName":"fixture","sessionId":"session-1","temporary":false,"running":true,"backgroundTasks":0,"runId":7,"model":null,"isCustomModel":false},

@@ -188,6 +188,7 @@ mod tests {
             usage,
             stop_reason: StopReason::Stop,
             error_message: None,
+            error_kind: None,
             timestamp: 0,
             duration_ms: Some(duration_ms),
         }

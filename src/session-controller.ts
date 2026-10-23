@@ -5,6 +5,7 @@ import {
   type SessionErrorPayload,
   type SessionEventMeta, type SessionStatsPayload, type SessionSwitchedPayload
 } from "./chat-runtime.ts";
+import { CommandTransportError } from "./transport-error.ts";
 import type { Invoke } from "./ipc.ts";
 import type { AgentDefinition, ModelConfig, SessionInfoView } from "./types.ts";
 
@@ -22,7 +23,7 @@ export type SessionFrame =
 export interface SessionSnapshot {
   chat: ChatState;
   load: "idle" | "loading" | "ready" | "failed";
-  operation: "idle" | "stopping";
+  operation: "idle" | "stopping" | "uncertain";
   sessionId: string | null;
   model: ModelConfig | null;
   isCustomModel: boolean;
@@ -40,8 +41,8 @@ export class SessionController {
   private identity: { sessionId: string; runId?: number } | null;
   private settledRun: number | null = null;
   private awaitingRun: number | null = null;
-  private ignoreEvents = false;
   private sending = false;
+  private uncertainSend: { runId: number; key: string } | null = null;
   private runEpoch = 0;
   private loadEpoch = 0;
   private pending: SessionFrame[] = [];
@@ -115,7 +116,7 @@ export class SessionController {
   }
 
   private accept(meta: SessionEventMeta): boolean {
-    if (!eventMatchesRun(meta, this.agent.name, this.identity, this.settledRun, this.ignoreEvents)) return false;
+    if (!eventMatchesRun(meta, this.agent.name, this.identity, this.settledRun)) return false;
     if (this.awaitingRun !== null) {
       if (meta.runId <= this.awaitingRun) return false;
       this.awaitingRun = null;
@@ -128,6 +129,10 @@ export class SessionController {
     } else {
       if (meta.runId > (this.identity.runId ?? 0)) this.settledRun = null;
       this.identity = { sessionId: meta.sessionId, runId: Math.max(this.identity.runId ?? 0, meta.runId) };
+    }
+    if (this.uncertainSend && meta.runId > this.uncertainSend.runId) {
+      this.uncertainSend = null;
+      this.patch({ error: null, operation: this.value.operation === "stopping" ? "stopping" : "idle" });
     }
     return true;
   }
@@ -222,8 +227,16 @@ export class SessionController {
           type: "hydrate",
           messages: snapshot.messages,
           stats: snapshot.stats,
-          running: stale ? previous.running : info.running,
+          running: this.uncertainSend ? true : stale ? previous.running : info.running,
         });
+        const unresolved = this.uncertainSend;
+        const confirmedPrompt = unresolved && this.value.chat.entries.some(entry =>
+          entry.key === unresolved.key && !entry.transient);
+        if (unresolved && (confirmedPrompt || (info.running && (info.runId ?? 0) > unresolved.runId))) {
+          this.uncertainSend = null;
+          if (this.value.operation === "uncertain") this.patch({ operation: "idle" });
+          this.dispatch({ type: "running", running: stale ? previous.running : info.running });
+        }
         this.patch({ load: "ready" });
       } catch (error) {
         if (epoch !== this.loadEpoch) return;
@@ -240,34 +253,70 @@ export class SessionController {
 
   async send(text: string): Promise<boolean> {
     text = text.trim();
-    if (!text || this.value.load !== "ready" || this.sending) return false;
+    if (!text || this.value.load !== "ready" || this.sending || this.uncertainSend) return false;
     this.sending = true;
     if (this.value.chat.running) {
       try { await this.transport.invoke("steer", { agentName: this.agent.name, sessionId: this.requireSessionId(), message: text }); }
       finally { this.sending = false; }
       return true;
     }
+    // 先取得稳定身份：响应丢失后仍能查到同一条会话，且不会误认其他窗口的运行。
+    if (!this.identity) {
+      try {
+        const info = this.temporary
+          ? await this.transport.invoke("open_workbench_session", { agentName: this.agent.name })
+          : await this.transport.invoke("create_session", { agentName: this.agent.name });
+        if (info.agentName !== this.agent.name || !info.sessionId || info.running) {
+          throw new Error("Unable to establish an idle session");
+        }
+        // 创建身份不应覆盖草稿中已选择的模型。
+        this.adopt({ ...info, model: undefined }, true);
+      } catch (error) { this.sending = false; throw error; }
+    }
+    const baseline = this.identity?.runId ?? 0;
+    const requestedSession = this.requireSessionId();
     const key = createEntryKey("user");
     ++this.runEpoch;
-    this.awaitingRun = this.identity?.runId ?? null;
+    this.awaitingRun = baseline;
     this.settledRun = null;
-    this.ignoreEvents = false;
     this.dispatch({ type: "submit_user", key, text });
     try {
       const info = await this.transport.invoke("send_prompt", { agentName: this.agent.name,
-        sessionId: this.value.sessionId, prompt: text, model: this.value.isCustomModel ? this.value.model : null });
-      // 主路径：返回值就是权威身份（新会话的 id/run/模型一次到位）。事件与
-      // 响应先后无保证：事件先到时 draft 认领已接管（见 session-runtime），
-      // 这里只把返回值里的模型元信息补齐，不重复 announce。
-      if (!this.identity) this.adopt(info, true);
-      else if (info.model !== undefined) {
+        sessionId: requestedSession, prompt: text, model: this.value.isCustomModel ? this.value.model : null });
+      if (!info || info.agentName !== this.agent.name || info.sessionId !== requestedSession
+        || !Number.isSafeInteger(info.runId)) {
+        throw new CommandTransportError("Invalid send response identity");
+      }
+      // 压缩可能已通过事件切换身份，迟到的响应只补模型元信息。
+      if (info.model !== undefined) {
         this.patch({ model: info.model ?? this.agent.provider ?? null, isCustomModel: Boolean(info.isCustomModel) });
       }
       return true;
     } catch (error) {
-      this.dispatch({ type: "reject_user", key });
-      this.awaitingRun = null;
-      throw error;
+      if (!(error instanceof CommandTransportError)) {
+        // 命令明确拒绝时保留草稿；其他客户端刚启动的运行不能被这次回滚清除。
+        this.dispatch({ type: "reject_user", key,
+          running: (this.identity?.runId ?? 0) > baseline && this.value.chat.running });
+        this.awaitingRun = null;
+        throw error;
+      }
+      // 帧可能先于传输失败到达；已观察到的新 run 不应被回滚。
+      if ((this.identity?.runId ?? 0) > baseline) return true;
+      this.uncertainSend = { runId: baseline, key };
+      this.patch({ operation: "uncertain" });
+      try {
+        const info = await this.transport.invoke("session_info", {
+          agentName: this.agent.name, sessionId: this.requireSessionId(),
+        });
+        if (info?.agentName === this.agent.name && info.sessionId === this.value.sessionId
+          && (info.runId ?? 0) > baseline) {
+          await this.hydrate();
+          if (!this.uncertainSend) return true;
+        }
+      } catch { /* 查询失败不代表原请求失败；继续保留消息和停止入口。 */ }
+      if (!this.uncertainSend) return true;
+      this.fail("连接中断，暂时无法确认发送结果。消息已保留，不会自动重发；恢复连接后会同步，也可点击停止。");
+      return false;
     } finally { this.sending = false; }
   }
 
@@ -283,10 +332,22 @@ export class SessionController {
           agentName: this.agent.name, sessionId: this.requireSessionId(),
         });
         if (epoch !== this.runEpoch || this.getSnapshot().operation !== "stopping") return;
-        if (!info?.running) {
-          this.ignoreEvents = true;
+        if (!info || info.agentName !== this.agent.name || info.sessionId !== this.value.sessionId) {
+          throw new Error("Unable to confirm the stopped session");
+        }
+        if (!info.running) {
           await this.hydrate();
           if (epoch !== this.runEpoch) return;
+          if (this.value.load !== "ready") throw new Error("Unable to synchronize the stopped session");
+          // 查询与水合之间可能出现新 run；停止旧 run 不能把新 run 标成完成。
+          if (!this.uncertainSend && this.value.chat.running
+            && (this.identity?.runId ?? 0) > (info.runId ?? 0)) {
+            this.patch({ operation: "idle" });
+            return;
+          }
+          if (this.uncertainSend) this.dispatch({ type: "reject_user", key: this.uncertainSend.key });
+          this.uncertainSend = null;
+          this.awaitingRun = null;
           this.settledRun = this.identity?.runId ?? this.settledRun;
           this.dispatch({ type: "event", event: { type: "agent_end" }, key: createEntryKey("stop") });
           this.patch({ operation: "idle", approval: null });
@@ -296,7 +357,7 @@ export class SessionController {
         await this.delay(100);
       }
     } catch (error) {
-      if (epoch === this.runEpoch) { this.patch({ operation: "idle" }); this.fail(error); }
+      if (epoch === this.runEpoch) { this.patch({ operation: this.uncertainSend ? "uncertain" : "idle" }); this.fail(error); }
     }
   }
 
@@ -307,6 +368,7 @@ export class SessionController {
     await this.transport.invoke("resolve_approval", { requestId: request.requestId, decision });
   }
   async compact(): Promise<void> {
+    if (this.uncertainSend) throw new Error("Please confirm or stop the pending run first");
     await this.transport.invoke("compact_now", { agentName: this.agent.name, sessionId: this.requireSessionId() });
   }
   async fork(): Promise<void> {

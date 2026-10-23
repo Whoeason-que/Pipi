@@ -337,7 +337,8 @@
   --error-badge-bg: rgba(245, 158, 11, 0.18);
 }
 
-.chat-error-card.chat-error-rate_limit {
+.chat-error-card.chat-error-rate_limit,
+.chat-error-card.chat-error-quota {
   --error-accent: var(--warn);
   --error-bg: var(--warn-soft);
   --error-border: var(--warn-border);
@@ -387,7 +388,8 @@
   --error-badge-bg: rgba(217, 119, 6, 0.14);
 }
 
-:root[data-theme="light"] .chat-error-card.chat-error-rate_limit {
+:root[data-theme="light"] .chat-error-card.chat-error-rate_limit,
+.chat-error-card.chat-error-quota {
   --error-accent: var(--warn);
   --error-bg: var(--warn-soft);
   --error-border: var(--warn-border);
@@ -1398,4 +1400,11 @@ pre.code {
 
 .chat-toolbar .chat-new-session {
   flex-shrink: 0;
+}
+
+.chat-send-uncertain {
+  padding: 8px 16px;
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.6;
 }

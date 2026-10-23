@@ -583,7 +583,7 @@ test("classifyChatError correctly identifies all error categories with actionabl
   assert.ok(rateLimit.suggestion?.includes("稍候片刻"));
 
   const quota = classifyChatError({ errorMessage: "insufficient_quota: 账户余额已耗尽" });
-  assert.equal(quota.category, "rate_limit");
+  assert.equal(quota.category, "quota");
 
   // 上下文超限
   const context = classifyChatError({ errorMessage: "maximum context length is 128000 tokens, but prompt had 135000" });
@@ -680,3 +680,21 @@ test("extractAssistantContentAndError separates prose and error states cleanly",
 });
 
 
+
+
+test("backend error kinds override text guesses and legacy fallback avoids ambiguous parameter names", async () => {
+  const { classifyChatError, extractAssistantContentAndError } = await import("../src/chat/chat-errors.ts");
+  assert.equal(classifyChatError({ errorKind: "generic", errorMessage: "context_length_exceeded" }).category, "generic");
+  assert.equal(classifyChatError({ errorKind: "quota", errorMessage: "429 too many requests" }).category, "quota");
+  assert.equal(classifyChatError({ errorKind: "auth", errorMessage: "opaque provider failure" }).category, "auth");
+  for (const errorMessage of ["max_tokens must be positive", "invalid request at offset 429", "api key field in invalid payload", "上下文转换错误"]) {
+    assert.equal(classifyChatError({ errorMessage }).category, "generic", errorMessage);
+  }
+  const { entryFromMessage } = await import("../src/chat-runtime.ts");
+  const entry = entryFromMessage({ role: "assistant", content: "partial response", stopReason: "error",
+    errorMessage: "opaque", errorKind: "network" }, "typed-error");
+  const result = extractAssistantContentAndError(entry);
+  assert.equal(result.cleanText, "partial response");
+  assert.equal(result.errorInfo?.category, "network");
+  assert.equal(classifyChatError({ stopReason: "aborted", errorKind: "network" }).category, "aborted");
+});

@@ -122,6 +122,7 @@ mod tests {
             usage: Usage::default(),
             stop_reason: reason,
             error_message: None,
+            error_kind: None,
             timestamp: 0,
             duration_ms: None,
         }
@@ -161,6 +162,7 @@ mod tests {
     /// 可重试 / 终态错误的一轮（只发一个 Error 事件）。
     fn error_turn(message: &str, retryable: bool) -> Vec<StreamEvent> {
         vec![StreamEvent::Error {
+            kind: pipi_protocol::AssistantErrorKind::Generic,
             message: message.into(),
             retry: retryable.then(pipi_protocol::RetryHint::plain),
             protocol_mismatch: false,
@@ -170,6 +172,7 @@ mod tests {
     /// 端点回报「不支持当前协议」的一轮（协议协商的触发条件）。
     fn protocol_mismatch_turn(message: &str) -> Vec<StreamEvent> {
         vec![StreamEvent::Error {
+            kind: pipi_protocol::AssistantErrorKind::Generic,
             message: message.into(),
             retry: None,
             protocol_mismatch: true,
@@ -181,6 +184,7 @@ mod tests {
         vec![
             StreamEvent::TextDelta { delta: text.into() },
             StreamEvent::Error {
+                kind: pipi_protocol::AssistantErrorKind::Generic,
                 message: message.into(),
                 retry: Some(pipi_protocol::RetryHint::plain()),
                 protocol_mismatch: false,
@@ -193,6 +197,7 @@ mod tests {
         vec![
             StreamEvent::TextDelta { delta: text.into() },
             StreamEvent::Error {
+                kind: pipi_protocol::AssistantErrorKind::Generic,
                 message: message.into(),
                 retry: None,
                 protocol_mismatch: true,
@@ -211,6 +216,7 @@ mod tests {
                 delta: "{\"n\": 1".into(),
             },
             StreamEvent::Error {
+                kind: pipi_protocol::AssistantErrorKind::Generic,
                 message: message.into(),
                 retry: Some(pipi_protocol::RetryHint::plain()),
                 protocol_mismatch: false,
@@ -491,10 +497,7 @@ mod tests {
         match messages.last().expect("至少一条消息") {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
-                assert!(
-                    message.contains("Failed after 3 retries") || message.contains("已重试 3 次仍失败"),
-                    "{message}"
-                );
+                assert!(message.contains("Failed after 3 attempts"), "{message}");
             }
             other => panic!("期望错误消息，得到 {other:?}"),
         }
@@ -531,7 +534,8 @@ mod tests {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
                 assert!(
-                    message.contains("partial content already emitted") || message.contains("已输出部分内容"),
+                    message.contains("partial content already emitted")
+                        || message.contains("已输出部分内容"),
                     "{message}"
                 );
             }
@@ -606,7 +610,8 @@ mod tests {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
                 assert!(
-                    message.contains("protocol for this provider is fixed") || message.contains("协议已固定"),
+                    message.contains("protocol for this provider is fixed")
+                        || message.contains("协议已固定"),
                     "{message}"
                 );
             }
@@ -644,7 +649,8 @@ mod tests {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
                 assert!(
-                    message.contains("partial content already emitted") || message.contains("已输出部分内容"),
+                    message.contains("partial content already emitted")
+                        || message.contains("已输出部分内容"),
                     "{message}"
                 );
             }
@@ -682,7 +688,8 @@ mod tests {
             Message::Assistant { error_message, .. } => {
                 let message = error_message.clone().unwrap_or_default();
                 assert!(
-                    message.contains("both Anthropic and OpenAI protocols have been attempted") || message.contains("两种协议均已尝试"),
+                    message.contains("both Anthropic and OpenAI protocols have been attempted")
+                        || message.contains("两种协议均已尝试"),
                     "{message}"
                 );
             }
@@ -1119,6 +1126,7 @@ mod tests {
             usage: Usage::default(),
             stop_reason: StopReason::ToolUse,
             error_message: None,
+            error_kind: None,
             timestamp: 0,
             duration_ms: None,
         };

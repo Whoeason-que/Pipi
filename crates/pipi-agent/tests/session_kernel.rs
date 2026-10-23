@@ -312,6 +312,7 @@ impl Provider for InterruptedProvider {
                 },
                 StreamEvent::ToolCallDelta { delta: "{".into() },
                 StreamEvent::Error {
+                    kind: pipi_protocol::AssistantErrorKind::Generic,
                     message: "流提前结束".into(),
                     retry: None,
                     protocol_mismatch: false,

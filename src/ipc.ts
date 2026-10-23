@@ -43,6 +43,7 @@ export interface CommandMap {
   query_background_tasks: { args: { agentName: string; sessionId: string; jobId?: string | null; afterSeq?: number | null; waitMs?: number | null; includeCompleted?: boolean | null; limit?: number | null }; result: BackgroundTaskSnapshot[] };
   manage_background_task: { args: { agentName: string; sessionId: string; jobId: string; action: string; data?: string | null }; result: BackgroundTaskSnapshot };
   new_session: { args: { agentName: string }; result: void };
+  create_session: { args: { agentName: string }; result: SessionInfoView };
   send_prompt: { args: { agentName: string; sessionId?: string | null; prompt: string; model?: ModelConfig | null }; result: SessionInfoView };
   compact_now: { args: { agentName: string; sessionId: string }; result: void };
   steer: { args: { agentName: string; sessionId: string; message: string }; result: void };

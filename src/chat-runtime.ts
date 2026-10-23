@@ -15,6 +15,8 @@ export type MessageContentView =
   | { type: "image"; data: string; mimeType: string }
   | { type: "toolResultText"; text: string };
 
+export type AssistantErrorKind = "auth" | "rateLimit" | "quota" | "contextOverflow" | "network" | "protocol" | "generic";
+
 export interface MessageView {
   role: "user" | "assistant" | "toolResult";
   content: string | MessageContentView[];
@@ -25,6 +27,7 @@ export interface MessageView {
   usage?: UsageView;
   stopReason?: string;
   errorMessage?: string | null;
+  errorKind?: AssistantErrorKind | null;
   durationMs?: number | null;
   toolName?: string;
   toolCallId?: string;
@@ -160,6 +163,7 @@ export interface ChatEntry {
   isError?: boolean;
   status?: EntryStatus;
   errorMessage?: string;
+  errorKind?: AssistantErrorKind;
   stopReason?: string;
   usage?: UsageView;
   durationMs?: number;
@@ -198,7 +202,7 @@ export type ChatAction =
   | { type: "event"; event: AgentEvent; key: string }
   | { type: "stats"; stats: SessionStatsView }
   | { type: "running"; running: boolean }
-  | { type: "reject_user"; key: string }
+  | { type: "reject_user"; key: string; running?: boolean }
   | { type: "reset" };
 
 export const INITIAL_CHAT_STATE: ChatState = {
@@ -305,6 +309,7 @@ function messageFields(message: MessageView) {
     isError: message.isError || status !== undefined,
     status,
     errorMessage: message.errorMessage ?? undefined,
+    errorKind: message.errorKind ?? undefined,
     stopReason: message.stopReason,
     usage: message.usage,
     durationMs: message.durationMs ?? undefined,
@@ -399,7 +404,8 @@ function sameMessage(left: ChatEntry, message: MessageView): boolean {
     && left.text === messageText(message)
     && left.thinking === messageThinking(message)
     && left.stopReason === message.stopReason
-    && left.errorMessage === (message.errorMessage ?? undefined);
+    && left.errorMessage === (message.errorMessage ?? undefined)
+    && left.errorKind === (message.errorKind ?? undefined);
 }
 
 function updateAssistantEntry(entry: ChatEntry, message: MessageView, streaming: boolean): ChatEntry {
@@ -514,7 +520,8 @@ function sameEntryContent(left: ChatEntry, right: ChatEntry): boolean {
   return left.role === right.role
     && left.text === right.text
     && left.stopReason === right.stopReason
-    && left.errorMessage === right.errorMessage;
+    && left.errorMessage === right.errorMessage
+    && left.errorKind === right.errorKind;
 }
 
 // ============ 渲染分组：连续的工具调用 / thinking 折叠为一行标签 ============
@@ -970,7 +977,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         entries: state.entries.filter((entry) => entry.key !== action.key),
-        running: false,
+        running: action.running ?? false,
       };
     case "reset":
       return { ...INITIAL_CHAT_STATE };

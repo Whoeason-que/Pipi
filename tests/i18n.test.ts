@@ -59,12 +59,12 @@ test("classifyChatError supports English and Chinese locale outputs", () => {
   // 3. 限流错误在中英双语下的输出
   const enRate = classifyChatError({ errorMessage: "429 Rate limit reached for requests per minute" }, "en");
   assert.equal(enRate.category, "rate_limit");
-  assert.equal(enRate.title, "Rate Limit Exceeded or Quota Exhausted");
+  assert.equal(enRate.title, "Rate Limit Exceeded");
   assert.equal(enRate.badge, "Rate Limit");
 
   const zhRate = classifyChatError({ errorMessage: "429 Rate limit reached for requests per minute" }, "zh");
   assert.equal(zhRate.category, "rate_limit");
-  assert.equal(zhRate.title, "请求频率超限或配额耗尽");
+  assert.equal(zhRate.title, "请求频率超限");
   assert.equal(zhRate.badge, "频率限制");
 
   // 4. 上下文超限在中英双语下的输出

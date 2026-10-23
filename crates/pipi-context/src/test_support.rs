@@ -15,6 +15,7 @@ pub(crate) fn assistant_text(text: &str) -> Message {
         usage: Usage::default(),
         stop_reason: StopReason::Stop,
         error_message: None,
+        error_kind: None,
         timestamp: 0,
         duration_ms: None,
     }

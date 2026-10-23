@@ -117,7 +117,8 @@ fn cleared_message(
     else {
         return original.clone();
     };
-    let mut note = format!("{CLEARED_TOOL_RESULT_PREFIX}: {tool_name}, original {chars} characters");
+    let mut note =
+        format!("{CLEARED_TOOL_RESULT_PREFIX}: {tool_name}, original {chars} characters");
     if images > 0 {
         note.push_str(&format!(", {images} images"));
     }
@@ -154,6 +155,7 @@ mod tests {
                 usage: Default::default(),
                 stop_reason: pipi_protocol::StopReason::Stop,
                 error_message: None,
+                error_kind: None,
                 timestamp: 0,
                 duration_ms: None,
             });

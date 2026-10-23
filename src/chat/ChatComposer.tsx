@@ -22,6 +22,7 @@ interface ChatComposerProps {
   ready: boolean;
   running: boolean;
   stopping: boolean;
+  uncertain?: boolean;
   temporary: boolean;
   atTail: boolean;
   model: ModelConfig | null;
@@ -44,6 +45,7 @@ export default function ChatComposer({
   ready,
   running,
   stopping,
+  uncertain = false,
   temporary,
   atTail,
   model,
@@ -80,7 +82,7 @@ export default function ChatComposer({
   }, [text]);
 
   const send = async () => {
-    if (!ready || !text.trim() || sendingRef.current) return;
+    if (!ready || uncertain || !text.trim() || sendingRef.current) return;
     sendingRef.current = true;
     setSending(true);
     onBeforeSend();
@@ -94,6 +96,8 @@ export default function ChatComposer({
     }
   };
 
+  const sendLabel = uncertain ? t("chat.sendPending")
+    : running ? (locale === "en" ? "Send steering" : "插话") : t("chat.send");
   const modelName = model?.id || (locale === "en" ? "No model" : "未配置模型");
   return (
     <div className="composer" ref={containerRef}>
@@ -233,13 +237,15 @@ export default function ChatComposer({
                 ? locale === "en"
                   ? "Sending…"
                   : "正在提交…"
-                : running
-                  ? locale === "en"
-                    ? "Running · Steering available"
-                    : "运行中 · 可插话"
-                  : locale === "en"
-                    ? "Enter to send"
-                    : "Enter 发送"}
+                : uncertain
+                  ? t("chat.sendPending")
+                  : running
+                    ? locale === "en"
+                      ? "Running · Steering available"
+                      : "运行中 · 可插话"
+                    : locale === "en"
+                      ? "Enter to send"
+                      : "Enter 发送"}
           </span>
           {running && (
             <button
@@ -262,18 +268,10 @@ export default function ChatComposer({
           <button
             type="button"
             className="btn send"
-            disabled={!ready || !text.trim() || sending || stopping}
+            disabled={!ready || uncertain || !text.trim() || sending || stopping}
             onClick={() => void send()}
-            title={
-              running
-                ? locale === "en"
-                  ? "Send steering"
-                  : "插话"
-                : t("chat.send")
-            }
-            aria-label={
-              running ? (locale === "en" ? "Steering" : "插话") : t("chat.send")
-            }
+            title={sendLabel}
+            aria-label={sendLabel}
           >
             <IconSend />
           </button>

@@ -42,6 +42,7 @@ pub fn run() {
             chat::query_background_tasks,
             chat::manage_background_task,
             chat::new_session,
+            chat::create_session,
             chat::session_messages,
             chat::session_stats,
             chat::list_sessions,

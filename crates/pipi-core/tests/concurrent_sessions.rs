@@ -314,6 +314,54 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 #[test]
+fn reserved_session_identity_survives_send_and_starts_idle() {
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let previous_home = std::env::var_os("HOME");
+    let home = pipi_test_support::temp_dir("pipi-reserved-session");
+    pipi_test_support::set_env_var("HOME", &home);
+    let base = format!("http://{}/v1", spawn_stalling_endpoint("reserved"));
+    fixture_agent("reserved", &base);
+    write_settings(&[base]);
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let reserved = pipi_core::commands::create_session(
+        &state,
+        pipi_core::commands::CreateSessionArgs {
+            agent_name: "reserved".into(),
+        },
+    )
+    .unwrap();
+    assert!(!reserved.running);
+    assert!(!reserved.temporary);
+    let snapshot = state
+        .open_session("reserved", &reserved.session_id)
+        .unwrap();
+    assert!(snapshot.messages.is_empty());
+    let (sink, _) = recording_sink();
+    let started = state
+        .send_prompt("reserved", Some(&reserved.session_id), "hello", None, sink)
+        .unwrap();
+    assert_eq!(started.session_id, reserved.session_id);
+    assert!(started.running);
+    assert!(started.run_id > reserved.run_id);
+    assert_eq!(
+        open_session_ids(&state, "reserved"),
+        vec![reserved.session_id.clone()]
+    );
+    state.stop_run("reserved", &reserved.session_id).unwrap();
+    assert!(wait_until(5_000, || !any_session_running(
+        &state, "reserved"
+    )));
+    match previous_home {
+        Some(value) => pipi_test_support::set_env_var("HOME", value),
+        None => pipi_test_support::remove_env_var("HOME"),
+    }
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[test]
 fn multiple_agents_run_at_the_same_time_and_stop_independently() {
     let _guard = pipi_test_support::HOME_LOCK
         .lock()

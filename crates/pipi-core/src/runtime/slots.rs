@@ -141,7 +141,9 @@ impl RuntimeState {
             let session = Self::load_session_object(&def, repo, session_id)?;
             sessions.insert(key.clone(), session);
         }
-        let session = sessions.get(&key).ok_or_else(|| "Session does not exist".to_string())?;
+        let session = sessions
+            .get(&key)
+            .ok_or_else(|| "Session does not exist".to_string())?;
         let info = self.session_info_of(session)?;
         let messages = session.engine.message_history()?;
         let stats = session.engine.stats()?;
@@ -150,6 +152,16 @@ impl RuntimeState {
             messages,
             stats,
         })
+    }
+
+    /// 先建立可查询的身份，再由 send_prompt 启动运行；创建本身不调用模型。
+    pub fn create_session(&self, agent_name: &str) -> Result<SessionInfo, String> {
+        let def = agents::load_agent(agent_name)?;
+        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        let (session, id) = Self::create_session_object(&def, session_repo(&def)?, None)?;
+        let info = self.session_info_of(&session)?;
+        sessions.insert(SessionKey::new(agent_name, &id), session);
+        Ok(info)
     }
 
     /// 分叉一个会话（可指定截断至某个 entry_id，留空则分叉到当前 tip）。
@@ -311,7 +323,10 @@ impl RuntimeState {
             return Err(format!("Session \"{session_id}\" is not open"));
         };
         if session.engine.snapshot().map(|s| s.running).unwrap_or(true) {
-            return Err("Session is running, please wait for completion or stop it before switching models".into());
+            return Err(
+                "Session is running, please wait for completion or stop it before switching models"
+                    .into(),
+            );
         }
 
         let effective_target = model.clone().or_else(|| session.agent.provider.clone());

@@ -66,6 +66,7 @@ use pipi_protocol::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct StreamError {
     message: String,
+    kind: pipi_protocol::AssistantErrorKind,
     retry: Option<RetryHint>,
     /// 端点明确回了「这个模型不支持当前协议」（见 [`classify::protocol_mismatch`]）。
     protocol_mismatch: bool,
@@ -75,6 +76,7 @@ impl StreamError {
     fn terminal(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            kind: pipi_protocol::AssistantErrorKind::Generic,
             retry: None,
             protocol_mismatch: false,
         }
@@ -83,6 +85,7 @@ impl StreamError {
     fn retryable_with(message: impl Into<String>, hint: Option<RetryHint>) -> Self {
         Self {
             message: message.into(),
+            kind: pipi_protocol::AssistantErrorKind::Network,
             retry: Some(hint.unwrap_or_else(RetryHint::plain)),
             protocol_mismatch: false,
         }
@@ -90,6 +93,7 @@ impl StreamError {
 
     fn with_protocol_mismatch(mut self) -> Self {
         self.protocol_mismatch = true;
+        self.kind = pipi_protocol::AssistantErrorKind::Protocol;
         self
     }
 }
@@ -240,6 +244,7 @@ pub fn effective_api(
 fn send_error(tx: &Sender<StreamEvent>, error: StreamError) {
     let _ = tx.try_send(StreamEvent::Error {
         message: error.message,
+        kind: error.kind,
         retry: error.retry,
         protocol_mismatch: error.protocol_mismatch,
     });
@@ -250,10 +255,11 @@ fn send_error(tx: &Sender<StreamEvent>, error: StreamError) {
 fn classify_with(prefix: &str, error: &rig::ProviderError) -> StreamError {
     let (verdict, hint) = classify_rig_error(error);
     let message = format!("{prefix}: {error}");
-    let classified = match verdict {
+    let mut classified = match verdict {
         RetryVerdict::Retryable => StreamError::retryable_with(message, hint),
         RetryVerdict::Terminal => StreamError::terminal(message),
     };
+    classified.kind = classify::error_kind(error);
     if classify::protocol_mismatch(error) {
         classified.with_protocol_mismatch()
     } else {
@@ -568,6 +574,7 @@ impl Accumulator {
             usage,
             stop_reason: reason,
             error_message: None,
+            error_kind: None,
             timestamp: pipi_protocol::now_millis(),
             duration_ms: Some(duration_ms),
         }
@@ -680,7 +687,9 @@ async fn consume_rig_stream(
         // 无进展超时：可重试，但每次尝试都要花掉整个 timeout 预算，
         // 所以带上 RetryHint::timeout()（重试层据此最多再试一次）。
         return Err(StreamError::retryable_with(
-            format!("Request timed out: no new response data within {idle_secs} seconds, aborted current request"),
+            format!(
+                "Request timed out: no new response data within {idle_secs} seconds, aborted current request"
+            ),
             Some(RetryHint::timeout()),
         ));
     }
@@ -841,6 +850,7 @@ mod tests {
                     usage: Usage::default(),
                     stop_reason: StopReason::ToolUse,
                     error_message: None,
+                    error_kind: None,
                     timestamp: 0,
                     duration_ms: None,
                 },
@@ -1145,6 +1155,7 @@ mod tests {
                 usage: Usage::default(),
                 stop_reason: StopReason::Stop,
                 error_message: None,
+                error_kind: None,
                 timestamp: 0,
                 duration_ms: None,
             }],

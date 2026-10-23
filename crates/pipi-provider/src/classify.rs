@@ -7,6 +7,71 @@ use pipi_protocol::RetryHint;
 use rig::ProviderError;
 use rig::http_client;
 
+/// UI 分类使用状态码和明确的供应商错误语义，不根据数字片段或参数名猜测。
+pub fn error_kind(error: &ProviderError) -> pipi_protocol::AssistantErrorKind {
+    use pipi_protocol::AssistantErrorKind as Kind;
+    if protocol_mismatch(error) {
+        return Kind::Protocol;
+    }
+    let (status, body) = match error {
+        ProviderError::InvalidAuthentication(_) => return Kind::Auth,
+        ProviderError::ProviderResponse(response) => {
+            (response.status.map(|s| s.as_u16()), response.body.as_str())
+        }
+        ProviderError::Http(error) => match &**error {
+            http_client::Error::InvalidStatusCodeWithDetails { status, body, .. } => {
+                (Some(status.as_u16()), body.as_str())
+            }
+            _ => return Kind::Network,
+        },
+        ProviderError::Truncated => return Kind::Network,
+        ProviderError::Provider(message) if transport_flavored(message) => return Kind::Network,
+        ProviderError::Response(message) if stream_truncation_flavored(message) => {
+            return Kind::Network;
+        }
+        _ => return Kind::Generic,
+    };
+    match status {
+        Some(401 | 403) => Kind::Auth,
+        Some(429) if quota_exhausted(body) => Kind::Quota,
+        Some(429) => Kind::RateLimit,
+        Some(408) => Kind::Network,
+        Some(400 | 413) => {
+            let json = serde_json::from_str::<serde_json::Value>(body).unwrap_or_default();
+            let context_code =
+                ["/error/code", "/error/type", "/code", "/type"]
+                    .iter()
+                    .any(|path| {
+                        matches!(
+                            json.pointer(path).and_then(|v| v.as_str()),
+                            Some(
+                                "context_length_exceeded"
+                                    | "context_window_exceeded"
+                                    | "prompt_too_long"
+                            )
+                        )
+                    });
+            let message = json
+                .pointer("/error/message")
+                .or_else(|| json.get("message"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(body)
+                .to_lowercase();
+            if context_code
+                || message.contains("prompt is too long")
+                || message.contains("maximum context length")
+                || message.contains("context length exceeded")
+                || message.contains("exceeds the context window")
+            {
+                Kind::ContextOverflow
+            } else {
+                Kind::Generic
+            }
+        }
+        _ => Kind::Generic,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RetryVerdict {
     Retryable,
@@ -171,6 +236,42 @@ fn stream_truncation_flavored(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_category_uses_status_and_explicit_error_semantics() {
+        use pipi_protocol::AssistantErrorKind as Kind;
+        for (status, body, expected) in [
+            (401, "invalid credentials", Kind::Auth),
+            (403, "forbidden", Kind::Auth),
+            (429, "slow down", Kind::RateLimit),
+            (
+                429,
+                r#"{"error":{"code":"insufficient_quota"}}"#,
+                Kind::Quota,
+            ),
+            (
+                400,
+                r#"{"error":{"code":"context_length_exceeded"}}"#,
+                Kind::ContextOverflow,
+            ),
+            (
+                400,
+                "prompt is too long: 100000 tokens",
+                Kind::ContextOverflow,
+            ),
+            (400, "max_tokens must be positive", Kind::Generic),
+            (400, "invalid input at offset 429", Kind::Generic),
+            (400, "Model does not support this protocol.", Kind::Protocol),
+            (500, "internal server error", Kind::Generic),
+        ] {
+            let error = ProviderError::ProviderResponse(rig::ProviderResponseError::new(
+                http::StatusCode::from_u16(status).unwrap(),
+                body,
+            ));
+            assert_eq!(error_kind(&error), expected, "{status}: {body}");
+        }
+        assert_eq!(error_kind(&ProviderError::Truncated), Kind::Network);
+    }
 
     #[test]
     fn retry_after_is_preserved_for_every_retryable_status() {

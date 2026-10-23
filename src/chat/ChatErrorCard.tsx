@@ -1,3 +1,4 @@
+import { useCopyFeedback } from "../components/use-copy";
 import { useState } from "react";
 import type { ChatErrorInfo } from "./chat-errors";
 import { useI18n } from "../i18n";
@@ -20,6 +21,7 @@ function renderCategoryIcon(category: ChatErrorInfo["category"]) {
       return <IconStop size={12} />;
     case "auth":
       return <IconKey size={14} />;
+    case "quota":
     case "rate_limit":
       return <IconClock size={14} />;
     case "context_overflow":
@@ -38,7 +40,8 @@ function renderCategoryIcon(category: ChatErrorInfo["category"]) {
 
 export function ChatErrorCard({ info }: { info: ChatErrorInfo }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
+  const clipboard = useCopyFeedback();
+  const copied = clipboard.state === "copied";
   const [openRaw, setOpenRaw] = useState(false);
 
   // 用户主动中止：以温和低调的 pill 胶囊展现，不给红色惊悚感
@@ -53,18 +56,11 @@ export function ChatErrorCard({ info }: { info: ChatErrorInfo }) {
     );
   }
 
-  const handleCopy = async () => {
-    try {
-      const textToCopy = `${info.title}\n[${info.badge}] ${info.rawError}${
-        info.suggestion ? `\n${t("chat.suggestionPrefix")}${info.suggestion}` : ""
-      }`;
-      await navigator.clipboard.writeText(textToCopy);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      // 忽略剪贴板写入失败
-    }
-  };
+  const handleCopy = () => clipboard.copy(`${info.title}\n[${info.badge}] ${info.rawError}${
+    info.suggestion ? `\n${t("chat.suggestionPrefix")}${info.suggestion}` : ""
+  }`);
+  const copyLabel = clipboard.state === "failed" ? t("chat.copyFailed")
+    : copied ? t("common.copied") : t("chat.copyError");
 
   const isLongError = info.rawError.length > 70 || info.rawError.includes("\n");
 
@@ -84,11 +80,11 @@ export function ChatErrorCard({ info }: { info: ChatErrorInfo }) {
           type="button"
           className="chat-error-copy-btn"
           onClick={handleCopy}
-          title={copied ? t("common.copied") : t("chat.copyError")}
-          aria-label={copied ? t("common.copied") : t("chat.copyError")}
+          title={copyLabel}
+          aria-label={copyLabel}
         >
           {copied ? <IconCheck /> : <IconCopy />}
-          <span className="copy-label">{copied ? t("common.copied") : t("common.copy")}</span>
+          <span className="copy-label">{clipboard.state === "failed" ? t("chat.copyFailed") : copied ? t("common.copied") : t("common.copy")}</span>
         </button>
       </div>
 

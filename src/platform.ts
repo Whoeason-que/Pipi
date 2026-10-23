@@ -2,6 +2,8 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type { CommandArgs, CommandName, CommandResult, EventMap } from "./ipc";
 
+import { CommandTransportError, decodeCommandResponse } from "./transport-error.ts";
+
 type PlatformEvent<T> = Pick<Event<T>, "payload">;
 type PlatformListener = (event: PlatformEvent<unknown>) => void;
 
@@ -158,36 +160,24 @@ async function webInvoke<T>(
   command: string,
   args: Record<string, unknown> | undefined,
 ): Promise<T> {
-  const response = await fetch(webApiBase() + "/api/invoke", {
-    method: "POST",
-    headers: webHeaders(),
-    credentials: "include",
-    body: JSON.stringify({ command, args: args ?? {} }),
-  });
-  const text = await response.text();
-  let value: unknown = null;
-  if (text) {
-    try {
-      value = JSON.parse(text);
-    } catch {
-      value = text;
-    }
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(webApiBase() + "/api/invoke", {
+      method: "POST", headers: webHeaders(), credentials: "include",
+      body: JSON.stringify({ command, args: args ?? {} }),
+    });
+    text = await response.text();
+  } catch (error) {
+    throw new CommandTransportError(error);
   }
-  if (!response.ok) {
-    if (response.status === 401) {
-      notifyAuthRequired();
-      const authErr = new Error("需要 PIPI_AUTH_TOKEN");
-      (authErr as unknown as { isAuthError?: boolean }).isAuthError = true;
-      throw authErr;
-    }
-    const message = value && typeof value === "object" && "error" in value
-      ? (value as { error?: unknown }).error
-      : value;
-    throw new Error(
-      typeof message === "string" ? message : "请求失败（HTTP " + response.status + "）",
-    );
+  if (response.status === 401) {
+    notifyAuthRequired();
+    const authErr = new Error("需要 PIPI_AUTH_TOKEN");
+    (authErr as unknown as { isAuthError?: boolean }).isAuthError = true;
+    throw authErr;
   }
-  return value as T;
+  return decodeCommandResponse(response.status, text) as T;
 }
 
 function webEventUrl(): string {
@@ -304,6 +294,7 @@ const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }
   fork_session: { sessionId: "required" },
   send_prompt: { sessionId: "optional" },
   new_session: {},
+  create_session: {},
   list_sessions: {},
   import_sessions: {},
   archive_session: { sessionId: "required" },
@@ -346,7 +337,10 @@ export function invoke<K extends CommandName>(command: K, ...parameters: Command
   const dev = devPlatform();
   if (dev) return dev.invoke<CommandResult<K>>(command, args);
   return isTauriRuntime()
-    ? tauriInvoke<CommandResult<K>>(command, args)
+    ? tauriInvoke<CommandResult<K>>(command, args).catch((error: unknown) => {
+        // Result<T, String> 的字符串拒绝来自命令，其余失败可能发生在传输层。
+        throw typeof error === "string" ? error : new CommandTransportError(error);
+      })
     : webInvoke<CommandResult<K>>(command, args);
 }
 

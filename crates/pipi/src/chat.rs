@@ -9,11 +9,12 @@ use tauri::{AppHandle, Emitter, State};
 
 use pipi_agent::stats::SessionStats;
 use pipi_core::commands::{
-    ArchiveAgentArgs, ArchiveSessionArgs, CompactNowArgs, DeleteAgentArgs, DeleteSessionArgs,
-    ForkSessionArgs, ImportSessionsArgs, ListSessionsArgs, ManageBackgroundTaskArgs,
-    NewSessionArgs, OpenSessionArgs, OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs,
-    ResolveApprovalArgs, RestoreAgentArgs, RestoreSessionArgs, SendPromptArgs, SessionInfoArgs,
-    SessionMessagesArgs, SessionStatsArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
+    ArchiveAgentArgs, ArchiveSessionArgs, CompactNowArgs, CreateSessionArgs, DeleteAgentArgs,
+    DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs, ListSessionsArgs,
+    ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs, OpenWorkbenchSessionArgs,
+    QueryBackgroundTasksArgs, ResolveApprovalArgs, RestoreAgentArgs, RestoreSessionArgs,
+    SendPromptArgs, SessionInfoArgs, SessionMessagesArgs, SessionStatsArgs, SetSessionModelArgs,
+    SteerArgs, StopRunArgs,
 };
 use pipi_core::events::{EventEmitter, RuntimeEvent};
 use pipi_core::runtime::{RuntimeState, SessionInfo, SessionSnapshot};
@@ -105,6 +106,14 @@ pub fn new_session(
     args: InvokeArgs<NewSessionArgs>,
 ) -> Result<(), String> {
     pipi_core::commands::new_session(&state, args.0)
+}
+
+#[tauri::command]
+pub fn create_session(
+    state: State<Arc<RuntimeState>>,
+    args: InvokeArgs<CreateSessionArgs>,
+) -> Result<SessionInfo, String> {
+    pipi_core::commands::create_session(&state, args.0)
 }
 
 #[tauri::command]

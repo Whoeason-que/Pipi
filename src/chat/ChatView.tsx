@@ -80,7 +80,7 @@ export default function ChatView({
   renderInspector,
   onInspectDetail,
 }: ChatViewProps) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const isTest = mode === "test";
   const controller = useMemo(
     () => sessions.get(agent, initialSessionId, isTest),
@@ -107,7 +107,7 @@ export default function ChatView({
   const sessionModel = snapshot.model;
   const isCustomModel = snapshot.isCustomModel;
   const pendingApproval = snapshot.approval;
-  const connecting = ready && !stopping && !pendingApproval && isAwaitingResponse(snapshot.chat);
+  const connecting = snapshot.operation !== "uncertain" && ready && !stopping && !pendingApproval && isAwaitingResponse(snapshot.chat);
   const [atTail, setAtTail] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [pinnedFindKey, setPinnedFindKey] = useState<string | null>(null);
@@ -502,12 +502,18 @@ export default function ChatView({
             />
           </div>
 
+          {snapshot.operation === "uncertain" && (
+            <div className="chat-send-uncertain" role="status">
+              {t("chat.sendUncertain")}
+            </div>
+          )}
           <ChatComposer
             containerRef={composerRef}
             draft={draft}
             ready={ready}
             running={running}
             stopping={stopping}
+            uncertain={snapshot.operation === "uncertain"}
             temporary={isTest}
             atTail={atTail}
             model={sessionModel}

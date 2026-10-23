@@ -944,6 +944,12 @@ export function installDevMock(): void {
             contextMax: 200000,
             contextPercent: 0,
           });
+        case "create_session": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const conversation = createConversation(agentName);
+          return Promise.resolve({ agentName, sessionId: conversation.sessionId,
+            temporary: false, running: false, runId: conversation.runId });
+        }
         case "send_prompt": {
           const agentName = String(args.agentName ?? demoAgent.name);
           // 会话 id 为空 = 新会话（核心会创建文件，这里创建一条演示会话）

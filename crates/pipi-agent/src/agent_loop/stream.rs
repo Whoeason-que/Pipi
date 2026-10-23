@@ -83,23 +83,38 @@ pub(super) async fn stream_assistant_response(
                 usage: Default::default(),
                 stop_reason: StopReason::Pending,
                 error_message: None,
+                error_kind: None,
                 timestamp,
                 duration_ms: None,
             }
         };
-        let interrupted = |blocks: &[ContentBlock], message: String, reason: StopReason| {
+        let interrupted = |blocks: &[ContentBlock],
+                           message: String,
+                           reason: StopReason,
+                           kind: pipi_protocol::AssistantErrorKind| {
             let mut terminal = interrupted_message(partial(blocks), message, reason);
-            if let Message::Assistant { duration_ms, .. } = &mut terminal {
+            if let Message::Assistant {
+                error_kind,
+                duration_ms,
+                ..
+            } = &mut terminal
+            {
+                *error_kind = (reason == StopReason::Error).then_some(kind);
                 *duration_ms = Some(started.elapsed().as_millis() as u64);
             }
             finish(emit, terminal)
         };
 
-        let failure: (String, Option<pipi_protocol::RetryHint>, bool) = loop {
+        let failure = loop {
             match rx.recv().await {
                 None => {
                     if abort.is_aborted() {
-                        return interrupted(&blocks, "Aborted".into(), StopReason::Aborted);
+                        return interrupted(
+                            &blocks,
+                            "Aborted".into(),
+                            StopReason::Aborted,
+                            pipi_protocol::AssistantErrorKind::Generic,
+                        );
                     }
                     // channel 关闭且用户没中止：流被截断（provider 侧的
                     // `流提前结束` 会走上面的 Error 分支，这里是兜底）
@@ -107,6 +122,7 @@ pub(super) async fn stream_assistant_response(
                         STREAM_TRUNCATED.into(),
                         Some(pipi_protocol::RetryHint::plain()),
                         false,
+                        pipi_protocol::AssistantErrorKind::Network,
                     );
                 }
                 Some(StreamEvent::Start) => {
@@ -188,14 +204,15 @@ pub(super) async fn stream_assistant_response(
                     message,
                     retry,
                     protocol_mismatch,
-                }) => break (message, retry, protocol_mismatch),
+                    kind,
+                }) => break (message, retry, protocol_mismatch, kind),
             }
         };
 
         // —— 失败收尾：协议协商 → 终态 → 能不能重放 ——
-        let (message, hint, protocol_mismatch) = failure;
+        let (message, hint, protocol_mismatch, kind) = failure;
         if abort.is_aborted() {
-            return interrupted(&blocks, "Aborted".into(), StopReason::Aborted);
+            return interrupted(&blocks, "Aborted".into(), StopReason::Aborted, kind);
         }
 
         // 协议协商（仅 auto）：端点说这个模型不支持当前协议 —— 换另一种协议再试
@@ -205,8 +222,11 @@ pub(super) async fn stream_assistant_response(
             if prose_visible {
                 return interrupted(
                     &blocks,
-                    format!("{message} (partial content already emitted, not retrying automatically)"),
+                    format!(
+                        "{message} (partial content already emitted, not retrying automatically)"
+                    ),
                     StopReason::Error,
+                    kind,
                 );
             }
             switched_protocol = true;
@@ -219,7 +239,9 @@ pub(super) async fn stream_assistant_response(
                 &blocks,
                 if protocol_mismatch {
                     if switched_protocol {
-                        format!("{message} (both Anthropic and OpenAI protocols have been attempted)")
+                        format!(
+                            "{message} (both Anthropic and OpenAI protocols have been attempted)"
+                        )
                     } else {
                         // 协议被用户钉死：不改写，只提示「自动」模式能逐模型选协议
                         format!(
@@ -230,6 +252,7 @@ pub(super) async fn stream_assistant_response(
                     message
                 },
                 StopReason::Error,
+                kind,
             );
         };
         if prose_visible {
@@ -238,6 +261,7 @@ pub(super) async fn stream_assistant_response(
                 &blocks,
                 format!("{message} (partial content already emitted, not retrying automatically)"),
                 StopReason::Error,
+                kind,
             );
         }
 
@@ -251,7 +275,7 @@ pub(super) async fn stream_assistant_response(
                     cause: message,
                 });
                 if sleep_or_abort(delay, abort).await {
-                    return interrupted(&blocks, "Aborted".into(), StopReason::Aborted);
+                    return interrupted(&blocks, "Aborted".into(), StopReason::Aborted, kind);
                 }
             }
             pipi_context::retry::RetryDecision::GiveUp(reason) => {
@@ -259,6 +283,7 @@ pub(super) async fn stream_assistant_response(
                     &blocks,
                     give_up_message(&message, failures, reason),
                     StopReason::Error,
+                    kind,
                 );
             }
         }
@@ -293,7 +318,8 @@ pub(crate) fn interrupted_message(
 }
 
 /// 流被截断（没等到结束帧）时的兜底说明。
-const STREAM_TRUNCATED: &str = "Stream ended prematurely: no end frame received (connection interrupted or proxy truncated)";
+const STREAM_TRUNCATED: &str =
+    "Stream ended prematurely: no end frame received (connection interrupted or proxy truncated)";
 
 /// 协议协商的另一半：Pipi 只支持这两种 wire，换协议就是它们互切。
 fn alternate_api(api: Api) -> Api {
@@ -319,7 +345,7 @@ fn give_up_message(
 ) -> String {
     match reason {
         pipi_context::retry::GiveUpReason::PolicyExhausted => {
-            format!("Failed after {failures} retries: {cause}")
+            format!("Failed after {failures} attempts: {cause}")
         }
         pipi_context::retry::GiveUpReason::TimeoutBudget => {
             format!("Request timed out consecutively ({failures} times), giving up: {cause}")
@@ -328,5 +354,22 @@ fn give_up_message(
             "Server requested retry after {}s, exceeding retry limit, giving up: {cause}",
             after_ms / 1_000
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exhausted_policy_reports_total_attempts_including_the_initial_request() {
+        assert_eq!(
+            give_up_message(
+                "unavailable",
+                3,
+                pipi_context::retry::GiveUpReason::PolicyExhausted
+            ),
+            "Failed after 3 attempts: unavailable"
+        );
     }
 }

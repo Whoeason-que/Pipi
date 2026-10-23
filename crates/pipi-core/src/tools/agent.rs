@@ -516,7 +516,9 @@ pub fn read_agent_output(
             .ok_or_else(|| format!("Agent \"{agent_name}\" has no sessions yet"))?,
     };
     if !repo.exists(&session_id)? {
-        return Err(format!("Agent \"{agent_name}\" has no session {session_id}"));
+        return Err(format!(
+            "Agent \"{agent_name}\" has no session {session_id}"
+        ));
     }
     let entries = repo.entries(&session_id)?;
     let active = active_path(&entries);
@@ -554,6 +556,7 @@ mod tests {
                 usage: Usage::default(),
                 stop_reason: StopReason::Stop,
                 error_message: None,
+                error_kind: None,
                 timestamp: now_millis(),
                 duration_ms: None,
             },

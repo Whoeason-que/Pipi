@@ -209,6 +209,7 @@ mod tests {
                     usage: Default::default(),
                     stop_reason: StopReason::ToolUse,
                     error_message: None,
+                    error_kind: None,
                     timestamp: 0,
                     duration_ms: None,
                 },

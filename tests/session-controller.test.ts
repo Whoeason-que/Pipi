@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentEvent, MessageView } from "../src/chat-runtime.ts";
 import { SessionRuntime, type RuntimeTransport } from "../src/session-runtime.ts";
+import { CommandTransportError, decodeCommandResponse } from "../src/transport-error.ts";
 import { submitDraft } from "../src/drafts.ts";
 import type { AgentDefinition, SessionInfoView, SessionStatsView } from "../src/types.ts";
 
@@ -48,11 +49,18 @@ class Host implements RuntimeTransport {
       case "session_stats": value = stats; break;
       case "session_info": value = this.infos.get(session) ?? null; break;
       case "stop_run": this.infos.set(session, { ...this.infos.get(session)!, running: false }); break;
+      case "create_session": {
+        const created = info("created", 0, false);
+        this.infos.set("created", created);
+        value = created;
+        break;
+      }
       case "send_prompt": {
         // 与核心同构：不带 sessionId = 新会话，响应返回它的权威身份。
         const target = args?.sessionId === null || args?.sessionId === undefined
           ? "created" : String(args.sessionId);
-        const snapshot = this.infos.get(target) ?? info(target, 3, true);
+        const snapshot = args?.sessionId === "created" ? info(target, 3, true)
+          : this.infos.get(target) ?? info(target, 3, true);
         this.infos.set(target, snapshot);
         if (this.sendGate) await this.sendGate;
         value = { ...snapshot, ...this.sendInfo };
@@ -174,6 +182,7 @@ test("an agent_start that beats the IPC response is claimed by the draft, and th
   const draft = runtime.get(agent, null);
   await draft.hydrate();
   const sending = draft.send("create");
+  await Promise.resolve(); // 稳定会话身份先于发送建立。
   // 事件先到：按 Agent 名认领（响应还挂着）
   host.event({ type: "agent_start" }, "created", 3);
   assert.equal(draft.getSnapshot().sessionId, "created");
@@ -355,4 +364,208 @@ test("composer drafts follow authoritative creation and compaction without cross
   runtime.forget(agent.name, "compact");
   assert.equal(draft.getSnapshot().text, "");
   assert.equal(runtime.composerDrafts.get(agent.name, "peer").getSnapshot().text, "peer draft");
+});
+
+
+test("a lost response recovers an accepted run without dropping the prompt or resending", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  const original = host.invoke.bind(host);
+  host.invoke = async (command, ...args) => {
+    if (command === "send_prompt") {
+      host.calls.push({ command });
+      host.infos.set("s", info("s", 2, true));
+      throw new CommandTransportError("response lost");
+    }
+    return original(command, ...args);
+  };
+  assert.equal(await controller.send("keep this prompt"), true);
+  assert.equal(controller.getSnapshot().chat.running, true);
+  assert.equal(controller.getSnapshot().operation, "idle");
+  assert.ok(controller.getSnapshot().chat.entries.some(entry => entry.text === "keep this prompt"));
+  assert.equal(host.calls.filter(call => call.command === "send_prompt").length, 1);
+  await controller.stop();
+  assert.equal(controller.getSnapshot().chat.running, false);
+  runtime.disconnect();
+});
+
+test("an unknown send keeps the draft and stop control, and blocks duplicate sends or steering", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  const original = host.invoke.bind(host);
+  let requests = 0;
+  host.invoke = async (command, ...args) => {
+    if (command === "send_prompt") { requests++; throw new CommandTransportError("offline"); }
+    if (command === "session_info") throw new CommandTransportError("still offline");
+    return original(command, ...args);
+  };
+  const draft = runtime.composerDrafts.get(agent.name, "s");
+  draft.write("do not lose me");
+  assert.equal(await submitDraft(draft, text => controller.send(text)), false);
+  assert.equal(draft.getSnapshot().text, "do not lose me");
+  assert.equal(controller.getSnapshot().operation, "uncertain");
+  assert.equal(controller.getSnapshot().chat.running, true);
+  assert.equal(await controller.send("another prompt"), false);
+  assert.equal(requests, 1);
+  await controller.hydrate(); // 旧的 idle 快照不能证明发送失败。
+  assert.equal(controller.getSnapshot().chat.running, true);
+  host.invoke = original;
+  await controller.stop();
+  assert.equal(controller.getSnapshot().chat.running, false);
+  assert.equal(controller.getSnapshot().operation, "idle");
+  assert.equal(draft.getSnapshot().text, "do not lose me");
+  assert.equal(controller.getSnapshot().chat.entries.some(entry => entry.text === "do not lose me"), false);
+  runtime.disconnect();
+});
+
+test("a late completion resolves an unknown send and preserves partial error content", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  const original = host.invoke.bind(host);
+  host.invoke = async (command, ...args) => {
+    if (command === "send_prompt") throw new CommandTransportError("response lost");
+    return original(command, ...args);
+  };
+  assert.equal(await controller.send("hello"), false);
+  const partial: MessageView = { role: "assistant", content: "already generated",
+    stopReason: "error", errorMessage: "stream closed", errorKind: "network" };
+  host.event({ type: "agent_end", messages: [partial] }, "s", 2);
+  assert.equal(controller.getSnapshot().chat.running, false);
+  assert.equal(controller.getSnapshot().operation, "idle");
+  assert.equal(controller.getSnapshot().error, null);
+  assert.equal(controller.getSnapshot().chat.entries.at(-1)?.text, "already generated");
+  assert.equal(controller.getSnapshot().chat.entries.at(-1)?.errorKind, "network");
+  runtime.disconnect();
+});
+
+test("a confirmed rejection restores the draft and removes only the rejected prompt", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  const original = host.invoke.bind(host);
+  host.invoke = async (command, ...args) => {
+    if (command === "send_prompt") throw "Invalid model configuration";
+    return original(command, ...args);
+  };
+  const draft = runtime.composerDrafts.get(agent.name, "s");
+  draft.write("retry after fixing configuration");
+  await assert.rejects(submitDraft(draft, text => controller.send(text)), error => error === "Invalid model configuration");
+  assert.equal(draft.getSnapshot().text, "retry after fixing configuration");
+  assert.equal(controller.getSnapshot().chat.entries.length, 0);
+  assert.equal(controller.getSnapshot().chat.running, false);
+  runtime.disconnect();
+});
+
+test("a new draft reserves identity before sending and cannot start a run if reservation fails", async () => {
+  const { host, runtime } = await fixture();
+  const controller = runtime.get(agent, null);
+  await controller.hydrate();
+  const original = host.invoke.bind(host);
+  host.invoke = async (command, ...args) => {
+    if (command === "create_session") throw new CommandTransportError("reservation response lost");
+    return original(command, ...args);
+  };
+  await assert.rejects(controller.send("new prompt"), /reservation response lost/);
+  assert.equal(host.calls.some(call => call.command === "send_prompt"), false);
+  assert.equal(controller.getSnapshot().chat.running, false);
+  host.invoke = original;
+  await controller.send("new prompt");
+  assert.equal(host.calls.find(call => call.command === "send_prompt")?.args?.sessionId, "created");
+  runtime.disconnect();
+});
+
+
+test("HTTP command rejections stay distinct from proxy failures and corrupt responses", () => {
+  assert.throws(() => decodeCommandResponse(400, '{"error":"Invalid model"}'), error =>
+    error instanceof Error && !(error instanceof CommandTransportError) && error.message === "Invalid model");
+  for (const [status, body] of [[502, "bad gateway"], [504, '{"error":"timeout"}'], [200, "incomplete json"], [400, "bad gateway"]] as const) {
+    assert.throws(() => decodeCommandResponse(status, body), CommandTransportError);
+  }
+  assert.equal(decodeCommandResponse(200, "null"), null);
+});
+
+
+test("a rejected prompt cannot clear another observed run or consume the draft", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  const original = host.invoke.bind(host);
+  host.invoke = async (command, ...args) => {
+    if (command === "send_prompt") {
+      host.event({ type: "agent_start" }, "s", 2);
+      throw "Session is already running";
+    }
+    return original(command, ...args);
+  };
+  await assert.rejects(controller.send("rejected prompt"), error => error === "Session is already running");
+  assert.equal(controller.getSnapshot().chat.running, true);
+  assert.equal(controller.getSnapshot().chat.entries.length, 0);
+  runtime.disconnect();
+});
+
+test("an advanced but idle run number alone cannot acknowledge an uncertain prompt", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  const original = host.invoke.bind(host);
+  host.invoke = async (command, ...args) => {
+    if (command === "send_prompt") {
+      // 核心在准备失败时也可能已分配 runId；没有正文/用户账本不能证明成功。
+      host.infos.set("s", info("s", 2, false));
+      throw new CommandTransportError("response lost");
+    }
+    return original(command, ...args);
+  };
+  assert.equal(await controller.send("still a draft"), false);
+  assert.equal(controller.getSnapshot().operation, "uncertain");
+  assert.equal(controller.getSnapshot().chat.running, true);
+  await controller.stop();
+  assert.equal(controller.getSnapshot().chat.entries.length, 0);
+  runtime.disconnect();
+});
+
+test("a completed send can be acknowledged from its persisted user prompt after response loss", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  const original = host.invoke.bind(host);
+  host.invoke = async (command, ...args) => {
+    if (command === "send_prompt") {
+      host.infos.set("s", info("s", 2, false));
+      host.history = [{ role: "user", content: "finished quickly" }, message("done")];
+      throw new CommandTransportError("response lost");
+    }
+    return original(command, ...args);
+  };
+  assert.equal(await controller.send("finished quickly"), true);
+  assert.equal(controller.getSnapshot().chat.running, false);
+  assert.equal(controller.getSnapshot().operation, "idle");
+  assert.deepEqual(controller.getSnapshot().chat.entries.map(entry => entry.text), ["finished quickly", "done"]);
+  runtime.disconnect();
+});
+
+
+test("stopping one run does not suppress a later run from the host", async () => {
+  const { host, controller, runtime } = await fixture();
+  host.infos.set("s", info("s", 2, true));
+  await controller.hydrate();
+  await controller.stop();
+  host.event({ type: "agent_start" }, "s", 3);
+  assert.equal(controller.getSnapshot().chat.running, true);
+  host.event({ type: "agent_end" }, "s", 2);
+  assert.equal(controller.getSnapshot().chat.running, true);
+  runtime.disconnect();
+});
+
+test("stop cannot settle a newer host run that starts during final hydration", async () => {
+  const { host, controller, runtime } = await fixture();
+  host.infos.set("s", info("s", 2, true));
+  await controller.hydrate();
+  const history = deferred<MessageView[]>();
+  host.held = history.promise;
+  const stopping = controller.stop();
+  for (let attempt = 0; attempt < 10 && controller.getSnapshot().load !== "loading"; attempt++) await Promise.resolve();
+  assert.equal(controller.getSnapshot().load, "loading");
+  host.event({ type: "agent_start" }, "s", 3);
+  history.resolve([]);
+  await stopping;
+  assert.equal(controller.getSnapshot().chat.running, true);
+  assert.equal(controller.getSnapshot().operation, "idle");
+  runtime.disconnect();
 });

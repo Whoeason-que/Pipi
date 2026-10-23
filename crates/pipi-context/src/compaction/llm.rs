@@ -377,6 +377,7 @@ mod tests {
                 usage: self.usage,
                 stop_reason: self.reason,
                 error_message: None,
+                error_kind: None,
                 timestamp: 0,
                 duration_ms: None,
             };

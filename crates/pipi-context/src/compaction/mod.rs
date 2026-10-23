@@ -467,6 +467,7 @@ mod tests {
             usage: Default::default(),
             stop_reason: StopReason::ToolUse,
             error_message: None,
+            error_kind: None,
             timestamp: 0,
             duration_ms: None,
         }
@@ -555,6 +556,7 @@ mod tests {
                 },
                 stop_reason: StopReason::Stop,
                 error_message: None,
+                error_kind: None,
                 timestamp: 10,
                 duration_ms: None,
             },
@@ -685,6 +687,7 @@ mod tests {
                 usage: Default::default(),
                 stop_reason: StopReason::ToolUse,
                 error_message: None,
+                error_kind: None,
                 timestamp: 0,
                 duration_ms: None,
             },
@@ -709,6 +712,7 @@ mod tests {
             usage: Default::default(),
             stop_reason: StopReason::ToolUse,
             error_message: None,
+            error_kind: None,
             timestamp: 0,
             duration_ms: None,
         }
