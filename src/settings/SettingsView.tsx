@@ -1,10 +1,12 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { LayoutContext } from "../app/layout-context";
 import { NavigationToggle } from "../app/AppNavigation";
+import { useRightRail } from "../app/right-rail";
 import { catalogSourceLabel, type CatalogProvider } from "../catalog";
 import { loadCatalog, resetCatalog } from "../catalog-client";
-import { IconBack, IconLayers, IconPlus, IconRefresh } from "../icons";
+import { IconBack, IconLayers, IconPanelRight, IconPlus, IconRefresh } from "../icons";
 import RemoteAccessPanel from "./RemoteAccessPanel";
+import { SettingsRail } from "./SettingsRail";
 import { isTauriRuntime, logout } from "../platform";
 import {
   API_LABELS,
@@ -39,6 +41,7 @@ export default function SettingsView({
 }: SettingsViewProps) {
   const { locale, setLocale, t } = useI18n();
   const { navigationOpen } = useContext(LayoutContext);
+  const rail = useRightRail("settings");
   const sectionInfo = getSettingsSectionInfo(section, t);
   const [editing, setEditing] = useState<ProviderConfig | "new" | null>(null);
   const [preset, setPreset] = useState<CatalogProvider | null>(null);
@@ -125,7 +128,8 @@ export default function SettingsView({
   };
 
   return (
-    <div className="screen settings-view">
+    <div className="screen settings-view" style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
+      <div className="settings-shell">
       <div className="screen-bar">
         <NavigationToggle />
         <button
@@ -141,6 +145,16 @@ export default function SettingsView({
           {t("settings.title")} · <b>{sectionInfo.label}</b>
         </span>
         <span className="spacer" />
+        <button
+          type="button"
+          className={`icon-btn${rail.open ? " active" : ""}`}
+          title="设置信息"
+          aria-label="切换设置信息面板"
+          aria-pressed={rail.open}
+          onClick={rail.toggle}
+        >
+          <IconPanelRight />
+        </button>
         {section !== "remote" && <span className="settings-autosave">
           <span aria-hidden="true" />
           {t("common.saveAuto")}
@@ -532,6 +546,8 @@ export default function SettingsView({
           )}
         </div>
       </div>
+      </div>
+      <SettingsRail controller={rail} section={section} settings={draft} t={t} showLogout={showLogout} onClose={onClose} />
     </div>
   );
 }

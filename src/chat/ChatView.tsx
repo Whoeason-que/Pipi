@@ -404,6 +404,7 @@ export default function ChatView({
         } as React.CSSProperties
       }
     >
+      <div className="chat-main">
       <ChatToolbar
         agentName={agent.name}
         title={title}
@@ -525,8 +526,10 @@ export default function ChatView({
             onError={onError}
           />
         </div>
+      </div>
+      </div>
 
-        {inspectorOpen && (
+      {inspectorOpen && (
           <div
             className="resize-handle inspector-resize"
             title="拖动调整检查器宽度（←/→ 微调）"
@@ -581,7 +584,6 @@ export default function ChatView({
             searchInputRef={searchInputRef}
           />
         )}
-      </div>
 
       {narrow && inspectorOpen && (
         <button

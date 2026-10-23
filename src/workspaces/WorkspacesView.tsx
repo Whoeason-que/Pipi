@@ -1,10 +1,13 @@
 import { NavigationToggle } from "../app/AppNavigation";
+import type { CSSProperties } from "react";
+import { useRightRail } from "../app/right-rail";
 import AgentAvatar from "../components/AgentAvatar";
 import {
   IconAgent,
   IconFolder,
   IconGit,
   IconHome,
+  IconPanelRight,
   IconPlus,
 } from "../icons";
 import {
@@ -13,6 +16,7 @@ import {
   type WorkspaceInfo,
 } from "../app/workspaces";
 import type { AgentDefinition, SessionSummaryView } from "../types";
+import { WorkspacesRail } from "./WorkspacesRail";
 
 interface WorkspacesViewProps {
   workspaces: WorkspaceInfo[];
@@ -41,6 +45,7 @@ export function WorkspacesView({
   onCreateAgent,
   onNavigateSection,
 }: WorkspacesViewProps) {
+  const rail = useRightRail("workspaces");
   const isAll = activeWorkspace === "all";
   const currentWorkspace = workspaces.find((w) => w.path === activeWorkspace);
   const displayName = isAll
@@ -62,7 +67,8 @@ export function WorkspacesView({
   );
 
   return (
-    <div className="workspaces-view">
+    <div className="workspaces-view" style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
+      <div className="workspaces-main">
       <header className="workspace-toolbar">
         <NavigationToggle />
         <span className="toolbar-divider" />
@@ -70,6 +76,16 @@ export function WorkspacesView({
           {isAll ? "工作区 · 全部" : `工作区 · ${displayName}`}
         </span>
         <span className="spacer" />
+        <button
+          type="button"
+          className={`icon-btn${rail.open ? " active" : ""}`}
+          title="工作区信息"
+          aria-label="切换工作区信息面板"
+          aria-pressed={rail.open}
+          onClick={rail.toggle}
+        >
+          <IconPanelRight />
+        </button>
         <button
           type="button"
           className="btn small"
@@ -371,6 +387,11 @@ export function WorkspacesView({
           </div>
         )}
       </div>
+      </div>
+      <WorkspacesRail controller={rail} workspaces={workspaces} activeWorkspace={activeWorkspace}
+        agents={agents} sessionsByAgent={sessionsByAgent} onSelectWorkspace={onSelectWorkspace}
+        onOpenCreateModal={onOpenCreateModal} onCreateAgent={onCreateAgent}
+        onNavigateSection={onNavigateSection} />
     </div>
   );
 }
