@@ -186,7 +186,10 @@ pub(crate) async fn run_agent_once_with_sink(
         compaction: None,
         timeout: Some(RunTimeout {
             duration: timeout,
-            message: format!("Subtask run timed out ({} seconds), terminated", timeout.as_secs()),
+            message: format!(
+                "Subtask run timed out ({} seconds), terminated",
+                timeout.as_secs()
+            ),
         }),
     };
     let outcome = reservation

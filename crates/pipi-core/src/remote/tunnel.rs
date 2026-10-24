@@ -42,9 +42,9 @@ impl TunnelHandle {
     }
 
     async fn spawn(binary: &Path, token_file: &Path) -> Result<Self, String> {
-        let meta = tokio::fs::symlink_metadata(token_file)
-            .await
-            .map_err(|_| "Cannot read Tunnel credentials file, please check file path and permissions")?;
+        let meta = tokio::fs::symlink_metadata(token_file).await.map_err(
+            |_| "Cannot read Tunnel credentials file, please check file path and permissions",
+        )?;
         if !meta.is_file() || meta.len() == 0 {
             return Err("Tunnel credentials must be a non-empty regular file".into());
         }
@@ -52,7 +52,9 @@ impl TunnelHandle {
         {
             use std::os::unix::fs::PermissionsExt;
             if meta.permissions().mode() & 0o077 != 0 {
-                return Err("Tunnel credentials file permissions too open, please set to 0600".into());
+                return Err(
+                    "Tunnel credentials file permissions too open, please set to 0600".into(),
+                );
             }
         }
         // 随机回环端口只供应用探测连接状态，不对外暴露管理接口。
@@ -109,7 +111,13 @@ impl TunnelHandle {
                     )),
                 );
             }
-            Err(_) => return (false, false, Some("Cannot read Cloudflare Tunnel status".into())),
+            Err(_) => {
+                return (
+                    false,
+                    false,
+                    Some("Cannot read Cloudflare Tunnel status".into()),
+                );
+            }
         }
         let connected = ready(self.metrics).await;
         let error = (!connected && self.started.elapsed() > Duration::from_secs(30))

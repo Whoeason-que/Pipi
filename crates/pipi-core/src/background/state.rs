@@ -78,6 +78,8 @@ pub(super) enum JobCommand {
 /// 差异只有两处在构造时固定：`kind`（写进 `info()` 与元数据）与 `label`
 /// （错误文案前缀）。独有字段由各自的 `finish` 在调用 [`Self::finish_with`] 时补写。
 pub(super) struct JobCore {
+    /// 终态元数据写入结束后置位；仅看 status 会早于最后一次异步写盘。
+    pub(super) finished: std::sync::atomic::AtomicBool,
     kind: BackgroundTaskKind,
     pub(super) owner: Mutex<BackgroundTaskOwner>,
     pub(super) state: Mutex<JobState>,
@@ -95,6 +97,7 @@ impl JobCore {
     ) -> Self {
         Self {
             kind,
+            finished: std::sync::atomic::AtomicBool::new(false),
             owner: Mutex::new(owner),
             state: Mutex::new(JobState {
                 info,

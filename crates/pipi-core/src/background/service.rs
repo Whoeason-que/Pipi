@@ -25,6 +25,12 @@ use super::{BackgroundTaskManager, CONTROL_TIMEOUT, JobHandle};
 #[async_trait]
 impl BackgroundTaskService for BackgroundTaskManager {
     async fn submit(&self, spec: BackgroundTaskSpec) -> Result<BackgroundTaskInfo, String> {
+        let accepting = self.inner.accepting.read().await;
+        if !*accepting {
+            return Err(
+                "Application is shutting down; background tasks cannot be submitted".into(),
+            );
+        }
         let command = spec.command.trim();
         if command.is_empty() {
             return Err("Background task command cannot be empty".into());
@@ -38,7 +44,9 @@ impl BackgroundTaskService for BackgroundTaskManager {
         let cwd = std::fs::canonicalize(&spec.cwd)
             .map_err(|error| format!("Background task cwd is not available: {error}"))?;
         if !cwd.starts_with(&workspace) || !cwd.is_dir() {
-            return Err("Background task cwd must be located within Agent working directory".into());
+            return Err(
+                "Background task cwd must be located within Agent working directory".into(),
+            );
         }
 
         let jobs_dir = Self::jobs_dir(&spec.owner.agent_name)?;
@@ -149,6 +157,12 @@ impl BackgroundTaskService for BackgroundTaskManager {
         &self,
         spec: BackgroundAgentTaskSpec,
     ) -> Result<BackgroundTaskInfo, String> {
+        let accepting = self.inner.accepting.read().await;
+        if !*accepting {
+            return Err(
+                "Application is shutting down; background tasks cannot be submitted".into(),
+            );
+        }
         let target_agent = spec.target_agent.trim();
         let prompt = spec.prompt.trim();
         if target_agent.is_empty() {
@@ -377,7 +391,87 @@ impl BackgroundTaskService for BackgroundTaskManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::background::BackgroundAgentSessionSink;
     use std::sync::Mutex;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn shutdown_waits_for_shell_and_child_agent_and_rejects_new_tasks() {
+        let _guard = pipi_test_support::HOME_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = pipi_test_support::temp_dir("pipi-background-shutdown");
+        pipi_test_support::set_env_var("HOME", &home);
+        let workspace = home.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        for name in ["shutdown-parent", "shutdown-child"] {
+            agents::create_agent(
+                name,
+                "shutdown test",
+                Some(workspace.to_str().unwrap()),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        }
+        struct StoppingChild;
+        #[async_trait]
+        impl super::super::ChildAgentRunner for StoppingChild {
+            async fn run_child(
+                &self,
+                target: &str,
+                _: &str,
+                abort: AbortSignal,
+                _: Option<crate::tools::agent::ChildProgressTx>,
+                _: Option<BackgroundAgentSessionSink>,
+            ) -> Result<crate::tools::agent::AgentRunResult, String> {
+                abort.wait_aborted().await;
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                Ok(crate::tools::agent::AgentRunResult {
+                    agent_name: target.into(),
+                    session_id: "stopped-child".into(),
+                    status: crate::tools::agent::AgentRunStatus::Aborted,
+                    response: "partial result".into(),
+                })
+            }
+        }
+        let manager =
+            BackgroundTaskManager::new(tokio::runtime::Handle::current(), Arc::new(StoppingChild));
+        let owner = BackgroundTaskOwner::new("shutdown-parent", "session", 1);
+        let spec = BackgroundTaskSpec {
+            owner: owner.clone(),
+            command: "printf ready; sleep 60".into(),
+            cwd: workspace,
+            env: Default::default(),
+        };
+        let shell = manager.submit(spec.clone()).await.unwrap();
+        let agent = manager
+            .submit_agent(BackgroundAgentTaskSpec {
+                owner: owner.clone(),
+                target_agent: "shutdown-child".into(),
+                prompt: "work".into(),
+                session_sink: None,
+            })
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), manager.shutdown())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            manager
+                .submit(spec)
+                .await
+                .unwrap_err()
+                .contains("shutting down")
+        );
+        // 从磁盘重读，证明 shutdown 等到了终态元数据写完，而不只是内存 status 改变。
+        for id in [shell.job_id, agent.job_id] {
+            let snapshot = manager.query_persisted_job(&owner, &id, 0).await.unwrap();
+            assert_eq!(snapshot.task.status, BackgroundTaskStatus::Terminated);
+        }
+        manager.shutdown().await.unwrap();
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn submit_query_manage_and_restart_are_session_scoped() {

@@ -1,20 +1,18 @@
 use std::path::{Component, Path, PathBuf};
 
 pub(super) fn root(agent_or_workspace: &str) -> Result<PathBuf, String> {
-    if let Ok(def) = pipi_venv::agents::load_agent(agent_or_workspace) {
-        if let Some(path) = def.resolve_workspace() {
-            if let Ok(root) = path.canonicalize() {
-                if root.is_dir() {
-                    return Ok(root);
-                }
-            }
-        }
+    if let Ok(def) = pipi_venv::agents::load_agent(agent_or_workspace)
+        && let Some(path) = def.resolve_workspace()
+        && let Ok(root) = path.canonicalize()
+        && root.is_dir()
+    {
+        return Ok(root);
     }
     let direct = PathBuf::from(agent_or_workspace);
-    if let Ok(root) = direct.canonicalize() {
-        if root.is_dir() {
-            return Ok(root);
-        }
+    if let Ok(root) = direct.canonicalize()
+        && root.is_dir()
+    {
+        return Ok(root);
     }
     Err("Cannot resolve workspace directory".into())
 }
@@ -38,7 +36,9 @@ pub(super) fn resolve(root: &Path, input: &str, deleted: bool) -> Result<PathBuf
             _ => return Err("Path traversal or Git internal files are not allowed".into()),
         }
         match std::fs::symlink_metadata(&path) {
-            Ok(meta) if meta.file_type().is_symlink() => return Err("Preview does not follow symlinks".into()),
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err("Preview does not follow symlinks".into());
+            }
             Ok(_) => (),
             Err(e) if deleted && e.kind() == std::io::ErrorKind::NotFound => (),
             Err(e) => return Err(format!("Cannot access file: {e}")),

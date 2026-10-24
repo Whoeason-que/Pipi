@@ -33,6 +33,9 @@ pub(super) async fn run_compaction(
     hooks: &SessionHooks,
     manual: bool,
 ) -> Result<bool, String> {
+    if session.abort.is_aborted() {
+        return Ok(false);
+    }
     let history = session
         .messages
         .lock()
@@ -201,7 +204,9 @@ fn fork_and_write_compaction(
         // 写失败就删掉半成品，别在会话列表里留下空壳
         drop(forked);
         let _ = repo.delete(&new_id);
-        return Err(format!("Failed to write compaction entry to new session: {error}"));
+        return Err(format!(
+            "Failed to write compaction entry to new session: {error}"
+        ));
     }
     // 溯源标记：回答「这个会话从哪来」（回放中性，见 EntryKind::Custom）
     let _ = forked.append_custom(&format!("compaction-fork:{source_id}"));
@@ -210,7 +215,9 @@ fn fork_and_write_compaction(
     if let Err(error) = forked.commit_point() {
         drop(forked);
         let _ = repo.delete(&new_id);
-        return Err(format!("Cannot commit compaction entries of new session: {error}"));
+        return Err(format!(
+            "Cannot commit compaction entries of new session: {error}"
+        ));
     }
 
     {

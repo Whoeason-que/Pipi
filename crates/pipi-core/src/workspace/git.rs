@@ -78,7 +78,9 @@ async fn git(dir: &Path, overrides: &[String], args: &[&str]) -> Result<Vec<u8>,
         command.arg("-c").arg(value);
     }
     command.args(args);
-    let mut child = command.spawn().map_err(|e| format!("Cannot run Git: {e}"))?;
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("Cannot run Git: {e}"))?;
     let mut stdout = child
         .stdout
         .take()
@@ -426,9 +428,13 @@ pub async fn diff(agent: &str, input: &str) -> Result<WorkspaceDiff, String> {
         "--no-color",
         "--no-indent-heuristic",
     ];
-    let has_head = git(&repo.root, &repo.overrides, &["rev-parse", "--verify", "HEAD"])
-        .await
-        .is_ok();
+    let has_head = git(
+        &repo.root,
+        &repo.overrides,
+        &["rev-parse", "--verify", "HEAD"],
+    )
+    .await
+    .is_ok();
     let mut args = common.to_vec();
     if has_head {
         args.push("HEAD")
@@ -597,22 +603,37 @@ repositories = [
 
         assert_eq!(changes_res.repositories[1].name, "SubRepo 2");
         assert_eq!(changes_res.repositories[1].path, "packages/sub2");
-        assert_eq!(changes_res.repositories[1].branch.as_deref(), Some("feature-x"));
+        assert_eq!(
+            changes_res.repositories[1].branch.as_deref(),
+            Some("feature-x")
+        );
 
         // 验证文件改动被正确归类并包含仓库信息
-        let file1_change = changes_res.files.iter().find(|f| f.path == "sub1/file1.txt").expect("sub1/file1.txt");
+        let file1_change = changes_res
+            .files
+            .iter()
+            .find(|f| f.path == "sub1/file1.txt")
+            .expect("sub1/file1.txt");
         assert_eq!(file1_change.repository.as_deref(), Some("SubRepo 1"));
 
-        let file2_change = changes_res.files.iter().find(|f| f.path == "packages/sub2/new_file.txt").expect("sub2 new file");
+        let file2_change = changes_res
+            .files
+            .iter()
+            .find(|f| f.path == "packages/sub2/new_file.txt")
+            .expect("sub2 new file");
         assert_eq!(file2_change.repository.as_deref(), Some("SubRepo 2"));
 
         // 测试 diff 对两个子仓库分别正确工作
-        let diff1 = diff(workspace.to_str().unwrap(), "sub1/file1.txt").await.unwrap();
+        let diff1 = diff(workspace.to_str().unwrap(), "sub1/file1.txt")
+            .await
+            .unwrap();
         assert_eq!(diff1.path, "sub1/file1.txt");
         assert!(diff1.patch.contains("-hello sub1"));
         assert!(diff1.patch.contains("+modified sub1"));
 
-        let diff2 = diff(workspace.to_str().unwrap(), "packages/sub2/new_file.txt").await.unwrap();
+        let diff2 = diff(workspace.to_str().unwrap(), "packages/sub2/new_file.txt")
+            .await
+            .unwrap();
         assert_eq!(diff2.path, "packages/sub2/new_file.txt");
         assert_eq!(diff2.base, "untracked");
         assert!(diff2.patch.contains("+new file in sub2"));

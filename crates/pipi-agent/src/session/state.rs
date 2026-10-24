@@ -22,7 +22,9 @@ impl RunState {
         let mut current = self.value.load(Ordering::Acquire);
         loop {
             if current & 1 != 0 {
-                return Err("Session is running, please wait for completion or stop it first".into());
+                return Err(
+                    "Session is running, please wait for completion or stop it first".into(),
+                );
             }
             let next = (((current >> 1).wrapping_add(1)) << 1) | 1;
             match self
@@ -265,7 +267,10 @@ impl AgentSession {
     pub fn set_model(&self, model: Option<Model>, effective: Option<Model>) -> Result<(), String> {
         let _control = self.state.control.lock().map_err(|e| e.to_string())?;
         if self.state.running.is_running() {
-            return Err("Session is running, please wait for completion or stop it before switching models".into());
+            return Err(
+                "Session is running, please wait for completion or stop it before switching models"
+                    .into(),
+            );
         }
         let mut selected = self.state.model.lock().map_err(|e| e.to_string())?;
         if *selected != model {
@@ -294,6 +299,15 @@ impl AgentSession {
         let _control = self.state.control.lock().map_err(|e| e.to_string())?;
         self.state.abort.abort();
         Ok(())
+    }
+
+    /// 宿主退出时重试空闲账本的提交；运行中的账本只能由本轮收尾提交。
+    pub fn commit_idle(&self) -> Result<(), String> {
+        let _control = self.state.control.lock().map_err(|e| e.to_string())?;
+        if self.state.running.is_running() {
+            return Err("Session is still running; wait for completion before saving".into());
+        }
+        commit::commit_shared(&self.state.writer)
     }
 
     pub fn steer(&self, text: &str) -> Result<(), String> {

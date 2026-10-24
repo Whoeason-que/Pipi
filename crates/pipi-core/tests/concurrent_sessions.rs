@@ -314,6 +314,233 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 #[test]
+fn shutdown_saves_partial_sessions_and_retries_failed_commits() {
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = pipi_test_support::temp_dir("pipi-shutdown");
+    pipi_test_support::set_env_var("HOME", &home);
+    let base = format!("http://{}/v1", spawn_stalling_endpoint("shutdown"));
+    fixture_agent("closing-a", &base);
+    fixture_agent("closing-b", &base);
+    write_settings(&[base]);
+    let runtime = runtime();
+    let state = RuntimeState::new(runtime.handle().clone());
+    let updates = Arc::new(AtomicUsize::new(0));
+    let observed = updates.clone();
+    let sink: EventEmitter = Arc::new(move |event| {
+        if let RuntimeEvent::AgentEvent(event) = event
+            && matches!(
+                event.event,
+                pipi_agent::agent_loop::AgentEvent::MessageUpdate { .. }
+            )
+        {
+            observed.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    let sessions: Vec<_> = ["closing-a", "closing-a", "closing-b"]
+        .into_iter()
+        .map(|agent| {
+            let info = state
+                .send_prompt(agent, None, "keep this unfinished turn", None, sink.clone())
+                .unwrap();
+            (agent, info.session_id)
+        })
+        .collect();
+    assert!(wait_until(5_000, || updates.load(Ordering::SeqCst) >= 3));
+
+    // 真正的 Git 提交失败：缓冲必须保留，退出必须报告失败，下一次关闭能重试。
+    let lock = home
+        .join(".pipi/agents/closing-a/sessions.git/refs/heads/session")
+        .join(format!("{}.lock", sessions[0].1));
+    std::fs::write(&lock, "").unwrap();
+    assert!(
+        runtime
+            .block_on(state.shutdown())
+            .unwrap_err()
+            .contains("Cannot save session")
+    );
+    assert!(
+        state
+            .send_prompt("closing-a", None, "too late", None, sink.clone())
+            .unwrap_err()
+            .contains("shutting down")
+    );
+    assert!(
+        state
+            .compact_now("closing-a", &sessions[0].1, sink)
+            .unwrap_err()
+            .contains("shutting down")
+    );
+    // 保存失败后也不能让 new_session 丢掉仍持有缓冲的空闲会话。
+    assert!(
+        state
+            .new_session("closing-a")
+            .unwrap_err()
+            .contains("shutting down")
+    );
+    std::fs::remove_file(lock).unwrap();
+    runtime.block_on(state.shutdown()).unwrap();
+    runtime.block_on(state.shutdown()).unwrap();
+    assert!(
+        state
+            .session_infos()
+            .unwrap()
+            .iter()
+            .all(|info| !info.running)
+    );
+    for (agent, id) in sessions {
+        let persisted = read_session_text(agent, &id);
+        assert!(persisted.contains("keep this unfinished turn"));
+        assert!(persisted.contains("开头-shutdown"));
+        assert!(persisted.contains("\"stopReason\":\"aborted\""));
+        let entries = agent_repo(agent).entries(&id).unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| matches!(
+                    &entry.kind,
+                    pipi_protocol::session::EntryKind::Message {
+                        message: Message::User { .. }
+                    }
+                ))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn shutdown_cancels_a_request_before_response_headers_arrive() {
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = pipi_test_support::temp_dir("pipi-shutdown-headers");
+    pipi_test_support::set_env_var("HOME", &home);
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let observed = accepted.clone();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        read_request(&mut stream);
+        observed.store(1, Ordering::SeqCst);
+        let _ = stream.read(&mut [0u8; 1]);
+    });
+    fixture_agent("closing-headers", &base);
+    write_settings(&[base]);
+    let runtime = runtime();
+    let state = RuntimeState::new(runtime.handle().clone());
+    let info = state
+        .send_prompt(
+            "closing-headers",
+            None,
+            "pending request",
+            None,
+            Arc::new(|_| {}),
+        )
+        .unwrap();
+    assert!(wait_until(5_000, || accepted.load(Ordering::SeqCst) > 0));
+    runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(3), state.shutdown())
+            .await
+            .unwrap()
+            .unwrap();
+    });
+    let persisted = read_session_text("closing-headers", &info.session_id);
+    assert!(persisted.contains("pending request"));
+    assert!(persisted.contains("\"stopReason\":\"aborted\""));
+}
+
+#[test]
+fn shutdown_settles_running_tools_and_pending_approvals() {
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = pipi_test_support::temp_dir("pipi-shutdown-tools");
+    pipi_test_support::set_env_var("HOME", &home);
+    for needs_approval in [false, true] {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let response = tool_call_response(
+            "bash",
+            serde_json::json!({ "command": "printf 'started\\n'; sleep 60" }),
+        );
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            read_request(&mut stream);
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response.len(),
+                response
+            );
+        });
+        let name = if needs_approval {
+            "closing-approval"
+        } else {
+            "closing-bash"
+        };
+        fixture_agent(name, &base);
+        let mut agent = agents::load_agent(name).unwrap();
+        agent.permissions.sandbox = pipi_protocol::permissions::SandboxMode::DangerFullAccess;
+        agent.permissions.bash = pipi_protocol::permissions::BashPermissions {
+            mode: if needs_approval {
+                pipi_protocol::permissions::BashMode::Allowlist
+            } else {
+                pipi_protocol::permissions::BashMode::AllowAll
+            },
+            commands: Vec::new(),
+        };
+        agents::save_agent(&agent).unwrap();
+        write_settings(&[base]);
+        let runtime = runtime();
+        let state = RuntimeState::new(runtime.handle().clone());
+        let ready = Arc::new(AtomicUsize::new(0));
+        let observed = ready.clone();
+        let sink: EventEmitter = Arc::new(move |event| {
+            let hit = if needs_approval {
+                matches!(event, RuntimeEvent::ApprovalRequest(_))
+            } else {
+                matches!(event, RuntimeEvent::AgentEvent(ref event)
+                    if matches!(event.event, pipi_agent::agent_loop::AgentEvent::ToolExecutionUpdate { .. }))
+            };
+            if hit {
+                observed.store(1, Ordering::SeqCst);
+            }
+        });
+        let info = state
+            .send_prompt(name, None, "run the tool", None, sink)
+            .unwrap();
+        assert!(wait_until(5_000, || ready.load(Ordering::SeqCst) > 0));
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), state.shutdown())
+                .await
+                .unwrap()
+                .unwrap();
+        });
+        assert!(state.pending_approvals().is_empty());
+        let entries = agent_repo(name).entries(&info.session_id).unwrap();
+        let messages: Vec<_> = entries
+            .iter()
+            .filter_map(|entry| match &entry.kind {
+                pipi_protocol::session::EntryKind::Message { message } => Some(message),
+                _ => None,
+            })
+            .collect();
+        assert!(messages.iter().any(|message| matches!(message,
+            Message::ToolResult { tool_call_id, is_error: true, .. } if tool_call_id == "call-write")));
+        assert!(matches!(
+            messages.last(),
+            Some(Message::Assistant {
+                stop_reason: pipi_protocol::StopReason::Aborted,
+                ..
+            })
+        ));
+    }
+}
+
+#[test]
 fn reserved_session_identity_survives_send_and_starts_idle() {
     let _guard = pipi_test_support::HOME_LOCK
         .lock()

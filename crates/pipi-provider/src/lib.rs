@@ -792,7 +792,13 @@ impl Provider for RigProvider {
             }
             let started = Instant::now();
             let trace = diagnostics::RequestTrace::default();
-            if let Err(e) = stream_impl(model.clone(), context, options, abort, &tx, &trace).await {
+            // 收到响应头之前也必须能停止；取消后关闭 channel，让内核保留部分输出并收尾。
+            let result = tokio::select! {
+                biased;
+                _ = abort.wait_aborted() => return,
+                result = stream_impl(model.clone(), context, options, abort.clone(), &tx, &trace) => result,
+            };
+            if let Err(e) = result {
                 trace.report(&model, &e, started);
                 send_error(&tx, e);
             }

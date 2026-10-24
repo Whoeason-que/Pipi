@@ -219,7 +219,6 @@ async fn drive_run(
         emitter,
         observed.clone(),
     );
-    let needs_abort_terminal = request.timeout.is_some();
     let mut messages = if let Some(timeout) = request.timeout {
         match tokio::time::timeout(timeout.duration, drive).await {
             Ok(messages) => messages,
@@ -257,9 +256,8 @@ async fn drive_run(
     } else {
         drive.await
     };
-    // 一次性运行在工具完成后中止时，loop 可能尚未生成 assistant 终态。
-    if needs_abort_terminal
-        && session.abort.is_aborted()
+    // 在工具完成后中止时，loop 可能尚未生成 assistant 终态。
+    if session.abort.is_aborted()
         && messages
             .iter()
             .rev()
@@ -289,10 +287,14 @@ async fn drive_run(
     // 收到 AgentEnd 后立刻发的新一轮会与提交竞争同一分支）。提交失败不失败本轮：
     // 条目留在缓冲里，随下一轮再提交（自愈）。
     if let Err(error) = commit::commit_log(&session).await {
-        eprintln!("pipi: session commit failed (entries remain in buffer, will retry next turn): {error}");
+        eprintln!(
+            "pipi: session commit failed (entries remain in buffer, will retry next turn): {error}"
+        );
         hooks.error(&id, run_id, format!("Session commit failed: {error}"));
     }
-    if let (Some(budget), Some(policy)) = (request.budget, request.compaction) {
+    if !session.abort.is_aborted()
+        && let (Some(budget), Some(policy)) = (request.budget, request.compaction)
+    {
         let compact = CompactionRequest {
             model: compaction_model(request.model, request.options.auto_protocol, &messages),
             provider: request.provider,

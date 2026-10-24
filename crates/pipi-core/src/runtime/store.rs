@@ -15,7 +15,9 @@ pub(super) fn session_repo(def: &AgentDefinition) -> Result<Arc<dyn SessionRepo>
 
 /// 同上，返回具体类型（导入等直接操作载体的调用点用）。
 pub(crate) fn agent_repo(def: &AgentDefinition) -> Result<GitSessionRepo, String> {
-    let dir = def.sessions_dir().ok_or("Cannot resolve session directory")?;
+    let dir = def
+        .sessions_dir()
+        .ok_or("Cannot resolve session directory")?;
     let agent_dir = dir.parent().ok_or("Cannot resolve agent directory")?;
     Ok(GitSessionRepo::new(agent_dir.join("sessions.git")))
 }

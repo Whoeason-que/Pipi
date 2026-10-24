@@ -271,7 +271,9 @@ fn read_session(repo: &dyn SessionRepo, session_id: &str, offset: usize) -> Resu
         next = index + 1;
     }
     if next < messages.len() {
-        out.push(format!("(Truncated; use offset={next} to continue reading)"));
+        out.push(format!(
+            "(Truncated; use offset={next} to continue reading)"
+        ));
     }
     Ok(out.join("\n"))
 }

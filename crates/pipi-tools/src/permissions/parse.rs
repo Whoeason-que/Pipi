@@ -12,7 +12,9 @@ pub fn split_segments(command: &str) -> Result<Vec<Segment>, String> {
     let mut out = Vec::new();
     for raw in split_raw_on_connectors(command)? {
         let Some(argv) = shlex::split(raw.trim()) else {
-            return Err(format!("Command segment \"{raw}\" contains unclosed quote or escape"));
+            return Err(format!(
+                "Command segment \"{raw}\" contains unclosed quote or escape"
+            ));
         };
         if argv.is_empty() {
             continue;
@@ -121,12 +123,14 @@ pub(super) fn read_word(chars: &[char], start: usize) -> Result<(String, usize),
         match c {
             ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>' | '(' | ')' => break,
             '\'' => {
-                let end = skip_quoted(chars, i + 1, '\'').ok_or("Command contains unclosed single quote")?;
+                let end = skip_quoted(chars, i + 1, '\'')
+                    .ok_or("Command contains unclosed single quote")?;
                 word.extend(&chars[i + 1..end]);
                 i = end + 1;
             }
             '"' => {
-                let end = skip_quoted(chars, i + 1, '"').ok_or("Command contains unclosed double quote")?;
+                let end = skip_quoted(chars, i + 1, '"')
+                    .ok_or("Command contains unclosed double quote")?;
                 word.extend(&chars[i + 1..end]);
                 i = end + 1;
             }

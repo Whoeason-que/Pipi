@@ -140,7 +140,9 @@ impl AgentTool for BashTool {
         // 它们继续握着 stdout/stderr 管道，读取任务等不到 EOF（工具表现为卡住）。
         #[cfg(unix)]
         builder.process_group(0);
-        let mut child = builder.spawn().map_err(|e| format!("Failed to spawn bash: {e}"))?;
+        let mut child = builder
+            .spawn()
+            .map_err(|e| format!("Failed to spawn bash: {e}"))?;
         let mut group = GroupGuard::new(child.id());
 
         let mut stdout = child.stdout.take().expect("stdout piped");

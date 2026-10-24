@@ -285,7 +285,11 @@ async fn management_is_local_only_rotation_disconnects_clients_and_conflicts_pre
         .await
         .unwrap();
     assert!(
-        remote.set_enabled(true).await.unwrap_err().contains("credentials")
+        remote
+            .set_enabled(true)
+            .await
+            .unwrap_err()
+            .contains("credentials")
             || remote.set_enabled(true).await.unwrap_err().contains("凭据")
     );
     assert!(!remote.status().await.local_running);

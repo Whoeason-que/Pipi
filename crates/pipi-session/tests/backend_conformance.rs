@@ -241,7 +241,9 @@ fn run_conformance(repo: &dyn SessionRepo, label: &str) {
     repo.delete(&forked_id).unwrap();
     assert!(!repo.exists(&forked_id).unwrap(), "{}", at("删除后不存在"));
     assert!(
-        repo.entries(&forked_id).unwrap_err().contains("does not exist"),
+        repo.entries(&forked_id)
+            .unwrap_err()
+            .contains("does not exist"),
         "{}",
         at("读已删除会话报「不存在」")
     );

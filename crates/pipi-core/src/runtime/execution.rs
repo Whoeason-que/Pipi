@@ -31,6 +31,7 @@ impl RuntimeState {
         }
 
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         let def = agents::load_agent(agent_name)?;
         // 目标会话：显式指定且已打开 → 复用；否则要载入或新建
         let reuse_key = session_id

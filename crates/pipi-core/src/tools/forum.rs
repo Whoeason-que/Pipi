@@ -523,7 +523,10 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(err.contains("non-existent") || err.contains("not exist"), "{err}");
+        assert!(
+            err.contains("non-existent") || err.contains("not exist"),
+            "{err}"
+        );
         assert!(
             ForumListTool::new(repo.clone())
                 .execute(&ctx, &json!({ "status": "bogus" }), &noop)

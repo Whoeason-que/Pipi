@@ -66,19 +66,26 @@ pub async fn start(
     assets: WebAssets,
 ) -> Result<ServerHandle, String> {
     if !addr.ip().is_loopback() && token.is_none() {
-        return Err("Access token must be configured when listening on non-loopback addresses".into());
+        return Err(
+            "Access token must be configured when listening on non-loopback addresses".into(),
+        );
     }
     if token.as_deref().is_some_and(|token| {
         token.is_empty() || token.chars().any(|c| c.is_ascii_control() || c == ';')
     }) {
-        return Err("Access token cannot be empty or contain control characters or semicolons".into());
+        return Err(
+            "Access token cannot be empty or contain control characters or semicolons".into(),
+        );
     }
     if !assets.has_index() {
-        return Err("Remote web assets missing, please run npm run build or reinstall full application".into());
+        return Err(
+            "Remote web assets missing, please run npm run build or reinstall full application"
+                .into(),
+        );
     }
-    let listener = TcpListener::bind(addr)
-        .await
-        .map_err(|e| format!("Cannot listen on {addr}: {e}. Please check if port is occupied by another service"))?;
+    let listener = TcpListener::bind(addr).await.map_err(|e| {
+        format!("Cannot listen on {addr}: {e}. Please check if port is occupied by another service")
+    })?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
     let clients = Arc::new(AtomicUsize::new(0));
     let (shutdown, receiver) = watch::channel(false);

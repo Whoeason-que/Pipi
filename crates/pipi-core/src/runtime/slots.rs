@@ -88,6 +88,7 @@ impl RuntimeState {
     /// 返回该 Agent 在应用运行期唯一的临时测试会话；没有则在内存中创建。
     pub fn ensure_test_session(&self, agent_name: &str) -> Result<SessionInfo, String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         if let Some(session) = sessions.iter().find_map(|(key, session)| {
             (key.agent_name == agent_name && session.temporary).then_some(session)
         }) {
@@ -106,6 +107,7 @@ impl RuntimeState {
     /// 丢弃该 Agent 的空闲临时上下文并用最新保存的 Agent 定义新建一条。
     pub fn reset_test_session(&self, agent_name: &str) -> Result<SessionInfo, String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         if sessions.iter().any(|(key, session)| {
             key.agent_name == agent_name && session.temporary && self.session_occupied(session)
         }) {
@@ -131,6 +133,7 @@ impl RuntimeState {
     ) -> Result<SessionSnapshot, String> {
         validate_session_id(session_id)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         let key = SessionKey::new(agent_name, session_id);
         if !sessions.contains_key(&key) {
             let def = agents::load_agent(agent_name)?;
@@ -158,6 +161,7 @@ impl RuntimeState {
     pub fn create_session(&self, agent_name: &str) -> Result<SessionInfo, String> {
         let def = agents::load_agent(agent_name)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         let (session, id) = Self::create_session_object(&def, session_repo(&def)?, None)?;
         let info = self.session_info_of(&session)?;
         sessions.insert(SessionKey::new(agent_name, &id), session);
@@ -185,6 +189,7 @@ impl RuntimeState {
         }
 
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         // 源会话正在跑时不允许分叉（分叉会复制一份半途的历史）
         if sessions
             .get(&SessionKey::new(agent_name, session_id))
@@ -319,6 +324,7 @@ impl RuntimeState {
         model: Option<Model>,
     ) -> Result<(), String> {
         let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
             return Err(format!("Session \"{session_id}\" is not open"));
         };
@@ -429,6 +435,7 @@ impl RuntimeState {
             return Err("Message cannot be empty".into());
         }
         let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
             return Err(format!("Session \"{session_id}\" is not open"));
         };
@@ -451,6 +458,7 @@ impl RuntimeState {
     /// 正在跑的那条保留 —— 后台运行不会因为「离开这个 Agent」被清掉。
     pub fn new_session(&self, agent_name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         sessions.retain(|key, session| {
             key.agent_name != agent_name || session.temporary || self.session_occupied(session)
         });

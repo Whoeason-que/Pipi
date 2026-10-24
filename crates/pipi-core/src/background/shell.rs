@@ -154,6 +154,10 @@ pub(super) async fn run_job(
         )
         .await;
     }
+    entry
+        .core
+        .finished
+        .store(true, std::sync::atomic::Ordering::Release);
 }
 
 async fn read_output<R>(
@@ -199,7 +203,8 @@ async fn terminate_child(child: &mut Child) -> Result<std::process::ExitStatus, 
         .map_err(|error| format!("Cannot terminate background task: {error}"))?;
 
     match tokio::time::timeout(TERMINATE_GRACE, child.wait()).await {
-        Ok(result) => result.map_err(|error| format!("Failed to wait for background task termination: {error}")),
+        Ok(result) => result
+            .map_err(|error| format!("Failed to wait for background task termination: {error}")),
         Err(_) => {
             #[cfg(unix)]
             if let Some(pid) = child.id() {
@@ -209,10 +214,9 @@ async fn terminate_child(child: &mut Child) -> Result<std::process::ExitStatus, 
             child
                 .start_kill()
                 .map_err(|error| format!("Cannot force terminate background task: {error}"))?;
-            child
-                .wait()
-                .await
-                .map_err(|error| format!("Failed to wait for background task force termination: {error}"))
+            child.wait().await.map_err(|error| {
+                format!("Failed to wait for background task force termination: {error}")
+            })
         }
     }
 }

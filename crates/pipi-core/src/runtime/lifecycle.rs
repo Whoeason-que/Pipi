@@ -10,6 +10,7 @@ impl RuntimeState {
         Self {
             runtime,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            shutting_down: AtomicBool::new(false),
             approval: Arc::new(ApprovalGate::default()),
             background,
             events: crate::events::EventHub::default(),
@@ -72,6 +73,7 @@ impl RuntimeState {
         validate_session_id(session_id)?;
         let repo = Self::session_repo_for(agent_name)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         if !repo.exists(session_id)? {
             return Err("Session does not exist".into());
         }
@@ -91,6 +93,7 @@ impl RuntimeState {
         validate_session_id(session_id)?;
         let repo = Self::session_repo_for(agent_name)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         if !repo.exists(session_id)? {
             return Err("Session does not exist".into());
         }
@@ -120,6 +123,7 @@ impl RuntimeState {
     /// 它们的文件句柄，否则导入改名后打开的句柄会继续往旧文件追加。
     pub fn prepare_session_import(&self, agent_name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         if sessions
             .iter()
             .any(|(key, session)| key.agent_name == agent_name && self.session_occupied(session))
@@ -139,6 +143,7 @@ impl RuntimeState {
     /// sessions 锁内，避免检查后被并发打开抢跑。
     pub fn archive_agent(&self, name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         if sessions
             .iter()
             .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
@@ -160,6 +165,7 @@ impl RuntimeState {
     /// 会话必须先停止/终止；不可恢复。
     pub fn delete_agent(&self, name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         if sessions
             .iter()
             .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
@@ -179,6 +185,7 @@ impl RuntimeState {
     /// 从完整的新定义（模型、权限、环境与工作目录）重新构造。
     pub fn save_agent_definition(&self, def: &AgentDefinition) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         if sessions.iter().any(|(key, session)| {
             key.agent_name == def.name && session.temporary && self.session_occupied(session)
         }) {
@@ -206,6 +213,7 @@ impl RuntimeState {
         content: &str,
     ) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         if sessions.iter().any(|(key, session)| {
             key.agent_name == agent_name && session.temporary && self.session_occupied(session)
         }) {

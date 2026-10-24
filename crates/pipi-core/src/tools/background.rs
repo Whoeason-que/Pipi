@@ -377,8 +377,8 @@ fn resolve_workspace_cwd(ctx: &ToolContext, requested: Option<&str>) -> Result<P
         .map(|value| pipi_protocol::tools::resolve_path(&ctx.workspace, value))
         .transpose()?
         .unwrap_or_else(|| ctx.workspace.clone());
-    let canonical =
-        std::fs::canonicalize(&path).map_err(|error| format!("Background task cwd is not available: {error}"))?;
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|error| format!("Background task cwd is not available: {error}"))?;
     if !canonical.starts_with(&ctx.workspace) || !canonical.is_dir() {
         return Err(format!(
             "Background task cwd must be an existing directory within workspace {}",
@@ -405,7 +405,10 @@ fn validate_managed_command(command: &str) -> Result<(), String> {
             .first()
             .is_some_and(|argv| matches!(argv.as_str(), "nohup" | "setsid" | "disown" | "daemon"))
     }) {
-        return Err("Background tasks do not accept nohup, setsid, disown, or daemon unmanaged execution".into());
+        return Err(
+            "Background tasks do not accept nohup, setsid, disown, or daemon unmanaged execution"
+                .into(),
+        );
     }
     Ok(())
 }

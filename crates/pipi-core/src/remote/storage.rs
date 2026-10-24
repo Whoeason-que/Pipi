@@ -27,8 +27,8 @@ pub(super) fn load_config() -> Result<RemoteAccessConfig, String> {
     let path = paths::remote_settings_path().ok_or("Cannot locate Pipi data directory")?;
     match fs::read_to_string(path) {
         Ok(text) => {
-            let stored: StoredConfig =
-                serde_json::from_str(&text).map_err(|e| format!("Invalid remote access configuration: {e}"))?;
+            let stored: StoredConfig = serde_json::from_str(&text)
+                .map_err(|e| format!("Invalid remote access configuration: {e}"))?;
             let mut config = stored.config;
             // 兼容此前由 systemd 托管的部署，只复用凭据路径，不恢复系统服务。
             // 显式保存的空路径表示用户不让应用管理 Tunnel，不能再次自动补回。

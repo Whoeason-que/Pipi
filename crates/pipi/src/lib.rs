@@ -82,19 +82,46 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("Failed to start Pipi");
-    let exiting = Arc::new(AtomicBool::new(false));
+    let saving = Arc::new(AtomicBool::new(false));
+    let saved = Arc::new(AtomicBool::new(false));
     app.run(move |app, event| {
         if let tauri::RunEvent::ExitRequested { api, .. } = event
-            && !exiting.swap(true, Ordering::SeqCst)
+            && !saved.load(Ordering::SeqCst)
         {
             api.prevent_exit();
+            if saving.swap(true, Ordering::SeqCst) {
+                return;
+            }
             let app = app.clone();
+            let saving = saving.clone();
+            let saved = saved.clone();
+            let runtime = app
+                .state::<Arc<pipi_core::runtime::RuntimeState>>()
+                .inner()
+                .clone();
             let remote = app
                 .state::<Arc<pipi_core::remote::RemoteAccess>>()
                 .inner()
                 .clone();
             tauri::async_runtime::spawn(async move {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_title("Pipi — Stopping and saving…");
+                }
+                if let Err(error) = runtime.shutdown().await {
+                    eprintln!("pipi: shutdown failed: {error}");
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.set_title(&format!(
+                            "Pipi — Save failed; quit again to retry: {error}"
+                        ));
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                    saving.store(false, Ordering::SeqCst);
+                    return;
+                }
                 let _ = remote.set_enabled(false).await;
+                saved.store(true, Ordering::SeqCst);
                 app.exit(0);
             });
         }

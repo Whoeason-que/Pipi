@@ -96,7 +96,10 @@ mod tests {
 
         // 空仓库里归档/恢复报「不存在」；删不存在的 ref 是幂等空操作
         assert_eq!(archive(&exec, "s1").unwrap_err(), "Session does not exist");
-        assert_eq!(restore(&exec, "s1").unwrap_err(), "Session does not exist in archive");
+        assert_eq!(
+            restore(&exec, "s1").unwrap_err(),
+            "Session does not exist in archive"
+        );
         assert!(delete_branch(&exec, &session_ref("s1")).is_ok());
 
         branch_at(&exec, &session_ref("s1"), &tip).unwrap();
@@ -109,9 +112,15 @@ mod tests {
         assert_eq!(list_ids(&exec, ARCHIVE_PREFIX).unwrap(), vec!["s1"]);
         // 归档区已有同名会话时拒绝再归档
         branch_at(&exec, &session_ref("s1"), &tip).unwrap();
-        assert_eq!(archive(&exec, "s1").unwrap_err(), "Session with the same ID already exists in archive");
+        assert_eq!(
+            archive(&exec, "s1").unwrap_err(),
+            "Session with the same ID already exists in archive"
+        );
         // 活跃区已有同名会话时拒绝恢复
-        assert_eq!(restore(&exec, "s1").unwrap_err(), "Session with the same ID already exists in active region");
+        assert_eq!(
+            restore(&exec, "s1").unwrap_err(),
+            "Session with the same ID already exists in active region"
+        );
 
         delete_branch(&exec, &session_ref("s1")).unwrap();
         assert!(!exec.ref_exists(&session_ref("s1")).unwrap());

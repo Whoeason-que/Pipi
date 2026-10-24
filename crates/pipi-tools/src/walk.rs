@@ -24,8 +24,12 @@ pub(crate) fn resolve_search_root(
 ) -> Result<PathBuf, String> {
     let root = match path {
         Some(p) if !p.is_empty() => resolve_read_path(&ctx.workspace, &ctx.read_roots, p)?,
-        _ => std::fs::canonicalize(&ctx.workspace)
-            .map_err(|e| format!("Cannot resolve workspace directory {}: {e}", ctx.workspace.display()))?,
+        _ => std::fs::canonicalize(&ctx.workspace).map_err(|e| {
+            format!(
+                "Cannot resolve workspace directory {}: {e}",
+                ctx.workspace.display()
+            )
+        })?,
     };
     if !root.is_dir() {
         return Err(format!("Search root {} is not a directory", root.display()));

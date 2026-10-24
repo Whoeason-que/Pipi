@@ -203,7 +203,9 @@ impl FileForumRepo {
                 let parent = existing
                     .iter()
                     .find(|post| post.id == parent_id)
-                    .ok_or_else(|| format!("reply_to points to non-existent post in this thread: {parent_id}"))?;
+                    .ok_or_else(|| {
+                        format!("reply_to points to non-existent post in this thread: {parent_id}")
+                    })?;
                 let root = parent.root_id.clone().unwrap_or_else(|| parent.id.clone());
                 (
                     Some(parent_id.to_string()),
@@ -296,11 +298,11 @@ impl FileForumRepo {
         }
         let content = fs::read_to_string(&path)
             .map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
-        let mut table: toml::Table =
-            toml::from_str(&content).map_err(|error| format!("Failed to parse thread metadata: {error}"))?;
+        let mut table: toml::Table = toml::from_str(&content)
+            .map_err(|error| format!("Failed to parse thread metadata: {error}"))?;
         patch(&mut table);
-        let text =
-            toml::to_string(&table).map_err(|error| format!("Failed to serialize thread metadata: {error}"))?;
+        let text = toml::to_string(&table)
+            .map_err(|error| format!("Failed to serialize thread metadata: {error}"))?;
         pipi_protocol::fs::write_atomic(&path, text)
             .map_err(|error| format!("Failed to write {}: {error}", path.display()))
     }
@@ -499,7 +501,9 @@ impl ForumRepo for FileForumRepo {
         let needle_chars = needle.chars().count();
         // 活跃区，以及（可选）归档区依次扫描。
         let mut regions: Vec<PathBuf> = Vec::new();
-        if let Some(dir) = self.existing_real_dir(&self.threads_path(), "forum threads directory")? {
+        if let Some(dir) =
+            self.existing_real_dir(&self.threads_path(), "forum threads directory")?
+        {
             regions.push(dir);
         }
         if options.include_archived
@@ -591,7 +595,10 @@ impl ForumRepo for FileForumRepo {
         let target = self
             .ensured_real_dir(&self.archive_path(), "archive directory")?
             .join(thread_id);
-        if self.existing_real_dir(&target, "archived thread directory")?.is_some() {
+        if self
+            .existing_real_dir(&target, "archived thread directory")?
+            .is_some()
+        {
             return Err(format!("Thread \"{thread_id}\" already exists in archive"));
         }
         fs::rename(&dir, &target).map_err(|error| format!("Failed to archive thread: {error}"))
@@ -606,8 +613,13 @@ impl ForumRepo for FileForumRepo {
         let target = self
             .ensured_real_dir(&self.threads_path(), "forum threads directory")?
             .join(thread_id);
-        if self.existing_real_dir(&target, "thread directory")?.is_some() {
-            return Err(format!("Thread \"{thread_id}\" already exists in active region"));
+        if self
+            .existing_real_dir(&target, "thread directory")?
+            .is_some()
+        {
+            return Err(format!(
+                "Thread \"{thread_id}\" already exists in active region"
+            ));
         }
         fs::rename(&dir, &target).map_err(|error| format!("Failed to restore thread: {error}"))
     }
@@ -625,7 +637,9 @@ fn validate_title(title: &str) -> Result<(), String> {
         return Err("Thread title cannot be empty".into());
     }
     if title.chars().count() > MAX_TITLE_CHARS {
-        return Err(format!("Thread title too long (maximum {MAX_TITLE_CHARS} characters)"));
+        return Err(format!(
+            "Thread title too long (maximum {MAX_TITLE_CHARS} characters)"
+        ));
     }
     if title.chars().any(char::is_control) {
         return Err("Thread title cannot contain control characters or newlines".into());
@@ -640,7 +654,9 @@ fn validate_author(author: &str) -> Result<(), String> {
         return Err("Post author cannot be empty".into());
     }
     if author.chars().count() > MAX_AUTHOR_CHARS {
-        return Err(format!("Author name too long (maximum {MAX_AUTHOR_CHARS} characters)"));
+        return Err(format!(
+            "Author name too long (maximum {MAX_AUTHOR_CHARS} characters)"
+        ));
     }
     if author.chars().any(char::is_control) {
         return Err("Author name cannot contain control characters or newlines".into());

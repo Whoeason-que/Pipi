@@ -71,6 +71,10 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
         if app.tray_by_id("pipi").is_some() && app.state::<Arc<RemoteAccess>>().keep_alive() {
             api.prevent_close();
             let _ = window.hide();
+        } else {
+            // 保留窗口，直到 ExitRequested 的会话保存完成；失败时仍能提示与重试。
+            api.prevent_close();
+            app.exit(0);
         }
     }
 }

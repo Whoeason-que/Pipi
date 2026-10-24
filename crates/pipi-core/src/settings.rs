@@ -289,8 +289,8 @@ pub fn load_settings() -> Settings {
 /// 原子替换：桌面壳与 Web 服务可能并发保存，崩溃也不能留下截断的 settings.json
 /// （坏文件会被 `load_settings` 当成默认值，用户的配置就此静默丢失）。
 pub fn save_settings(settings: &Settings) -> Result<(), String> {
-    let path =
-        pipi_venv::av::paths::settings_path().ok_or_else(|| "Cannot locate user home directory".to_string())?;
+    let path = pipi_venv::av::paths::settings_path()
+        .ok_or_else(|| "Cannot locate user home directory".to_string())?;
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     pipi_protocol::fs::write_atomic(&path, text + "\n").map_err(|e| e.to_string())
 }

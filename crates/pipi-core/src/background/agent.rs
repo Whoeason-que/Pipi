@@ -128,4 +128,8 @@ pub(super) async fn run_agent_job(
         )
         .await;
     }
+    entry
+        .core
+        .finished
+        .store(true, std::sync::atomic::Ordering::Release);
 }

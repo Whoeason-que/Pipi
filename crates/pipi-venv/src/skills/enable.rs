@@ -63,8 +63,9 @@ pub fn set_skill_enabled(
             let mut lock = SkillLock::read(&context.lock_path)?;
             if lock.remove(name) {
                 if lock.skills.is_empty() {
-                    fs::remove_file(&context.lock_path)
-                        .map_err(|e| format!("Failed to delete {}: {e}", context.lock_path.display()))?;
+                    fs::remove_file(&context.lock_path).map_err(|e| {
+                        format!("Failed to delete {}: {e}", context.lock_path.display())
+                    })?;
                 } else {
                     lock.write(&context.lock_path)?;
                 }

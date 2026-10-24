@@ -48,7 +48,10 @@ pub(super) fn scan_agents(dir: &Path) -> Vec<AgentDefinition> {
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
             Err(error) => {
-                eprintln!("pipi: skipping uncheckable {}: {error}", entry.path().display());
+                eprintln!(
+                    "pipi: skipping uncheckable {}: {error}",
+                    entry.path().display()
+                );
                 continue;
             }
         };
@@ -189,7 +192,8 @@ pub fn create_agent_with_instructions(
             if !path.is_absolute() {
                 return Err(format!("Workspace must be an absolute path: {w}"));
             }
-            fs::create_dir_all(&path).map_err(|e| format!("Failed to create workspace directory {expanded}: {e}"))?;
+            fs::create_dir_all(&path)
+                .map_err(|e| format!("Failed to create workspace directory {expanded}: {e}"))?;
             Some(expanded)
         }
         None => None,
@@ -268,12 +272,8 @@ pub fn load_agent(name: &str) -> Result<AgentDefinition, String> {
     if !ensure_real_file(&path, "agent.json")? {
         return Err(format!("agent.json does not exist for Agent \"{name}\""));
     }
-    let text = fs::read_to_string(&path).map_err(|e| {
-        format!(
-            "Failed to read {}: {e}",
-            path.display()
-        )
-    })?;
+    let text =
+        fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
     let def: AgentDefinition =
         serde_json::from_str(&text).map_err(|e| format!("agent.json format error: {e}"))?;
     if !manifest_name_matches_directory(name, &def.name) {

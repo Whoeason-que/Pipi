@@ -27,7 +27,7 @@ use pipi_venv::agents::{self, AgentDefinition};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 struct HostSession {
@@ -72,6 +72,7 @@ pub struct RuntimeState {
     /// `Arc` 是为了让压缩分叉换会话 id 时能在运行任务里把条目搬到新键（见
     /// `SessionRekey`）。
     sessions: Arc<Mutex<HashMap<SessionKey, HostSession>>>,
+    shutting_down: AtomicBool,
     approval: Arc<ApprovalGate>,
     background: BackgroundTaskManager,
     events: crate::events::EventHub,
@@ -84,6 +85,7 @@ mod events;
 mod execution;
 mod lifecycle;
 mod model;
+mod shutdown;
 mod slots;
 mod store;
 use child::RuntimeAgentRunner;

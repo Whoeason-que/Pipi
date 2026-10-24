@@ -94,11 +94,15 @@ fn resolve_agent_md_path(
             depth = relative_to_memory.components().count();
         }
         if !(1..=3).contains(&depth) {
-            return Err(format!("Memory file path depth must be 1-3 levels: {rel_path}"));
+            return Err(format!(
+                "Memory file path depth must be 1-3 levels: {rel_path}"
+            ));
         }
         let file_name = components.last().unwrap().to_string_lossy().into_owned();
         if !file_name.ends_with(".md") || file_name.len() <= 3 {
-            return Err(format!("Only .md files can be edited in memory directory: {rel_path}"));
+            return Err(format!(
+                "Only .md files can be edited in memory directory: {rel_path}"
+            ));
         }
     }
 

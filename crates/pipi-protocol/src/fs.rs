@@ -39,28 +39,38 @@ pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<
 /// 验证路径是真实目录（不是符号链接）。不存在返回 `Ok(false)`。
 pub fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(format!("{label} cannot be a symbolic link: {}", path.display()))
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(format!(
+            "{label} cannot be a symbolic link: {}",
+            path.display()
+        )),
+        Ok(metadata) if !metadata.is_dir() => {
+            Err(format!("{label} is not a directory: {}", path.display()))
         }
-        Ok(metadata) if !metadata.is_dir() => Err(format!("{label} is not a directory: {}", path.display())),
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!("Failed to check {label} {}: {error}", path.display())),
+        Err(error) => Err(format!(
+            "Failed to check {label} {}: {error}",
+            path.display()
+        )),
     }
 }
 
 /// 验证路径是普通文件（不是符号链接）。不存在返回 `Ok(false)`。
 pub fn ensure_real_file(path: &Path, label: &str) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(format!("{label} cannot be a symbolic link: {}", path.display()))
-        }
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(format!(
+            "{label} cannot be a symbolic link: {}",
+            path.display()
+        )),
         Ok(metadata) if !metadata.is_file() => {
             Err(format!("{label} is not a regular file: {}", path.display()))
         }
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!("Failed to check {label} {}: {error}", path.display())),
+        Err(error) => Err(format!(
+            "Failed to check {label} {}: {error}",
+            path.display()
+        )),
     }
 }
 

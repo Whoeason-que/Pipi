@@ -145,9 +145,9 @@ pub fn sync_agent_skills(agent_name: &str, repair: bool) -> Result<SkillSyncRepo
             let action = classify_sync_entry(&entry, repair)?;
             match &action {
                 SyncAction::Ready => report.ready.push(name.clone()),
-                SyncAction::Materialize => report
-                    .log
-                    .push(format!("↓ {name}: store content missing, reproducing from lock")),
+                SyncAction::Materialize => report.log.push(format!(
+                    "↓ {name}: store content missing, reproducing from lock"
+                )),
                 SyncAction::Repair { actual } => report.log.push(format!(
                     "! {name}: store content drift ({} != {}), reinstalling",
                     short_hash(actual),

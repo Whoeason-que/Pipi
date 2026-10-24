@@ -118,8 +118,8 @@ fn scan_redirect(
 
     // 进程替换：`<(cmd)` 读、`>(cmd)` 写进管道 —— 都不落盘
     if next == Some('(') {
-        let after =
-            skip_balanced_parens(chars, start + 1).ok_or("Unmatched parentheses in process substitution".to_string())?;
+        let after = skip_balanced_parens(chars, start + 1)
+            .ok_or("Unmatched parentheses in process substitution".to_string())?;
         if op == '<' {
             return Ok((read_step(&redirect_snippet(chars, start, after)), after));
         }

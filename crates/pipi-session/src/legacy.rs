@@ -110,7 +110,8 @@ fn mark_imported(path: &Path) -> Result<(), String> {
             .and_then(|value| value.to_str())
             .ok_or_else(|| "Cannot parse legacy session file name".to_string())?
     ));
-    std::fs::rename(path, &target).map_err(|error| format!("Failed to rename legacy session file: {error}"))
+    std::fs::rename(path, &target)
+        .map_err(|error| format!("Failed to rename legacy session file: {error}"))
 }
 
 #[cfg(test)]
@@ -209,7 +210,8 @@ mod tests {
         assert!(report.imported.is_empty(), "{report:?}");
         assert_eq!(report.failed.len(), 1, "{report:?}");
         assert!(
-            report.failed[0].reason.contains("different content") || report.failed[0].reason.contains("内容不同"),
+            report.failed[0].reason.contains("different content")
+                || report.failed[0].reason.contains("内容不同"),
             "{report:?}"
         );
         // git 里的原内容未被改动

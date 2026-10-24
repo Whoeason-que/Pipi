@@ -204,7 +204,10 @@ impl RemoteAccessControl for RemoteAccess {
             state.stop_all().await
         } else {
             if !state.valid {
-                return Err(state.error.clone().unwrap_or("Please save valid configuration first".into()));
+                return Err(state
+                    .error
+                    .clone()
+                    .unwrap_or("Please save valid configuration first".into()));
             }
             async {
                 if !state.server.as_ref().is_some_and(ServerHandle::running) {

@@ -64,7 +64,9 @@ impl ToolContext {
     pub fn ensure_writable(&self, path: &Path) -> Result<(), String> {
         match self.sandbox {
             SandboxMode::DangerFullAccess => Ok(()),
-            SandboxMode::ReadOnly => Err("Sandbox policy is read-only: file writing is prohibited".into()),
+            SandboxMode::ReadOnly => {
+                Err("Sandbox policy is read-only: file writing is prohibited".into())
+            }
             SandboxMode::WorkspaceWrite => {
                 crate::permissions::resolve_write_target(&self.workspace, path)
                     .map(|_| ())
@@ -120,8 +122,9 @@ pub fn resolve_read_path(
     let requested = resolve_path(workspace, path)?;
     let target = std::fs::canonicalize(&requested)
         .map_err(|e| format!("Cannot read file {path}: failed to resolve path (file does not exist or link is invalid): {e}"))?;
-    std::fs::metadata(&target)
-        .map_err(|e| format!("Cannot read file {path}: failed to verify target file status: {e}"))?;
+    std::fs::metadata(&target).map_err(|e| {
+        format!("Cannot read file {path}: failed to verify target file status: {e}")
+    })?;
 
     let mut roots = Vec::with_capacity(read_roots.len() + 1);
     roots.push(workspace.to_path_buf());

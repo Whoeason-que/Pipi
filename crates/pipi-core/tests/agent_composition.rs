@@ -240,7 +240,9 @@ async fn create_run_and_read_agent_output() {
     .unwrap();
     assert_eq!(setup_failure.status, AgentRunStatus::Failed);
     assert!(
-        setup_failure.response.contains("no default model configured")
+        setup_failure
+            .response
+            .contains("no default model configured")
             || setup_failure.response.contains("default model")
             || setup_failure.response.contains("还未配置默认模型")
     );

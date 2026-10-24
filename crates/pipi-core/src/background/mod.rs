@@ -66,6 +66,7 @@ struct Inner {
     /// 全部托管任务（shell 子进程与 child Agent）一张表：job_id 全局唯一，
     /// 后端差异只在需要处 match [`JobHandle`]。
     jobs: Mutex<HashMap<String, JobHandle>>,
+    accepting: tokio::sync::RwLock<bool>,
 }
 
 /// 表里的一条任务。绝大部分操作（身份、状态、快照、输出）走共用的
@@ -108,8 +109,44 @@ impl BackgroundTaskManager {
                 runtime,
                 child_runner,
                 jobs: Mutex::new(HashMap::new()),
+                accepting: tokio::sync::RwLock::new(true),
             }),
         }
+    }
+
+    /// 停止接收任务，并等待 shell / child Agent 完成正常收尾。
+    pub async fn shutdown(&self) -> Result<(), String> {
+        // 写锁会等正在提交的任务完成登记；之后快照不会漏掉启动中的任务。
+        *self.inner.accepting.write().await = false;
+        let jobs: Vec<_> = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|error| format!("Background task table is unavailable: {error}"))?
+            .values()
+            .cloned()
+            .collect();
+        for job in &jobs {
+            if job.is_active() {
+                match job {
+                    JobHandle::Agent(entry) => entry.abort.abort(),
+                    JobHandle::Shell(entry) => {
+                        let (response, _) = tokio::sync::oneshot::channel();
+                        let _ = entry
+                            .control
+                            .send(state::JobCommand::Terminate { response });
+                    }
+                }
+            }
+        }
+        while jobs.iter().any(|job| {
+            !job.core()
+                .finished
+                .load(std::sync::atomic::Ordering::Acquire)
+        }) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        Ok(())
     }
 
     /// 压缩分叉把逻辑 session 换成新 id 时，后台任务仍属于同一条逻辑会话。
@@ -146,8 +183,9 @@ impl BackgroundTaskManager {
 
     fn jobs_dir(agent_name: &str) -> Result<PathBuf, String> {
         agents::validate_agent_name(agent_name)?;
-        let agent_dir = agents::agent_dir(agent_name)
-            .ok_or_else(|| "Cannot locate user home directory; cannot create background task directory".to_string())?;
+        let agent_dir = agents::agent_dir(agent_name).ok_or_else(|| {
+            "Cannot locate user home directory; cannot create background task directory".to_string()
+        })?;
         if !pipi_protocol::fs::ensure_real_directory(&agent_dir, "Agent directory")? {
             return Err(format!("Agent \"{agent_name}\" does not exist"));
         }
@@ -204,7 +242,9 @@ impl BackgroundTaskManager {
         validate_job_id(job_id)?;
         let path = Self::jobs_dir(&owner.agent_name)?.join(format!("{job_id}.jsonl"));
         let Some(snapshot) = load_persisted_snapshot(&path, owner, after_seq).await? else {
-            return Err(format!("Background task \"{job_id}\" does not exist or does not belong to current session"));
+            return Err(format!(
+                "Background task \"{job_id}\" does not exist or does not belong to current session"
+            ));
         };
         Ok(snapshot)
     }

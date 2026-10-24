@@ -9,6 +9,7 @@ impl RuntimeState {
         event_sink: EventEmitter,
     ) -> Result<(), String> {
         let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
         let key = SessionKey::new(agent_name, session_id);
         let session = sessions
             .get(&key)

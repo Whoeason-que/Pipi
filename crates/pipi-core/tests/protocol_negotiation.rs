@@ -556,7 +556,10 @@ fn reading_agent_output_does_not_follow_legacy_session_symlinks() {
     let error =
         pipi_core::tools::agent::read_agent_output("output-agent", Some("linked")).unwrap_err();
     assert!(
-        error.contains("has no session") || error.contains("No session") || error.contains("does not exist") || error.contains("没有会话"),
+        error.contains("has no session")
+            || error.contains("No session")
+            || error.contains("does not exist")
+            || error.contains("没有会话"),
         "{error}"
     );
     assert!(!error.contains("secret"), "{error}");

@@ -48,7 +48,9 @@ impl RemoteAccessConfig {
                 return Err("Tunnel credentials file must use an absolute path".into());
             }
             if self.public_url.is_empty() {
-                return Err("Please specify a public access URL when using Cloudflare Tunnel".into());
+                return Err(
+                    "Please specify a public access URL when using Cloudflare Tunnel".into(),
+                );
             }
         }
         if !self.public_url.is_empty() {
@@ -92,7 +94,9 @@ impl CommandSource {
     pub fn require_desktop(self) -> Result<(), String> {
         match self {
             Self::Desktop => Ok(()),
-            Self::Web => Err("Remote access management is only allowed in the desktop application".into()),
+            Self::Web => {
+                Err("Remote access management is only allowed in the desktop application".into())
+            }
         }
     }
 }
