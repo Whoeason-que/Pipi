@@ -7,6 +7,7 @@ import {
   eventMatchesSession,
   INITIAL_CHAT_STATE,
   isAwaitingResponse,
+  groupChatBlocks,
   formatRuntimeError,
   type AgentEvent,
   type MessageView,
@@ -30,6 +31,11 @@ test("Connecting survives empty stream starts and ends at the first response act
   waiting = event(waiting, { type: "turn_start" });
   waiting = event(waiting, { type: "message_start", message: assistantMessage("") });
   assert.equal(isAwaitingResponse(waiting), true);
+  for (const text of [" \n\t", "\u200b", " \u200b\n\u200b "]) {
+    const placeholder = event(waiting, { type: "message_update", message: assistantMessage(text) });
+    assert.equal(isAwaitingResponse(placeholder), true);
+    assert.deepEqual(groupChatBlocks(placeholder.entries).map(block => block.kind), ["user"]);
+  }
 
   const activities: AgentEvent[] = [
     { type: "message_update", message: assistantMessage("hello back") },
@@ -44,6 +50,54 @@ test("Connecting survives empty stream starts and ends at the first response act
   }
   const answered = event(waiting, { type: "message_update", message: assistantMessage("done") });
   assert.equal(isAwaitingResponse(chatReducer(answered, { type: "submit_user", key: "next", text: "next prompt" })), true);
+});
+
+test("zero-width assistant placeholders keep tool groups together live and after hydration", () => {
+  const messages: MessageView[] = [
+    { role: "assistant", content: [
+      { type: "text", text: "\u200b" },
+      { type: "thinking", thinking: "Read the file" },
+      { type: "toolCall", id: "read", name: "read", arguments: {} },
+    ], stopReason: "toolUse" },
+    { role: "toolResult", toolCallId: "read", toolName: "read", content: "file contents" },
+    { role: "assistant", content: [
+      { type: "text", text: " \u200b\n" },
+      { type: "thinking", thinking: "Run the check" },
+      { type: "toolCall", id: "bash", name: "bash", arguments: {} },
+    ], stopReason: "toolUse" },
+    { role: "toolResult", toolCallId: "bash", toolName: "bash", content: "check passed" },
+  ];
+  const live = messages.reduce((state, message) => event(state, { type: "message_end", message }), INITIAL_CHAT_STATE);
+  const hydrated = chatReducer(INITIAL_CHAT_STATE, { type: "hydrate", messages, stats: null, running: false });
+  for (const state of [live, hydrated]) {
+    const blocks = groupChatBlocks(state.entries);
+    assert.deepEqual(blocks.map(block => block.kind), ["chips"]);
+    assert.deepEqual(blocks.flatMap(block => block.kind === "chips" ? block.chips.map(chip => chip.name) : []),
+      ["thinking", "read", "thinking", "bash"]);
+    assert.deepEqual(state.entries.filter(entry => entry.role === "assistant").map(entry => entry.text),
+      ["\u200b", " \u200b\n"]);
+  }
+  const prose = "\u200b正文 a\u200bb 👩\u200d💻";
+  const blocks = groupChatBlocks([
+    ...hydrated.entries, { key: "prose", role: "assistant", text: prose },
+  ]);
+  assert.deepEqual(blocks.map(block => block.kind), ["chips", "body"]);
+  assert.equal(blocks[1].kind === "body" && blocks[1].entry.text, prose);
+});
+
+test("zero-width placeholders do not hide assistant errors or render as error prose", async () => {
+  const { extractAssistantContentAndError } = await import("../src/chat/chat-errors.ts");
+  for (const stopReason of ["error", "aborted"]) {
+    const state = event(INITIAL_CHAT_STATE, { type: "message_end", message: assistantMessage("\u200b", stopReason) });
+    const blocks = groupChatBlocks(state.entries);
+    assert.equal(blocks[0]?.kind, "body");
+    const result = extractAssistantContentAndError(state.entries[0]);
+    assert.equal(result.cleanText, "");
+    assert.ok(result.errorInfo);
+  }
+  assert.equal(extractAssistantContentAndError({ text: "\u200b\n■ 已中止", stopReason: "aborted" }).cleanText, "");
+  const prose = "\u200b部分正文";
+  assert.equal(extractAssistantContentAndError({ text: prose, stopReason: "error" }).cleanText, prose);
 });
 
 test("Connecting clears on rejection, stop, errors and completion and can be derived after hydration", () => {

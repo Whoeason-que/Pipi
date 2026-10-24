@@ -2,7 +2,7 @@
 import { getDefaultLocale, type Locale } from "../i18n/core.ts";
 import { zh } from "../i18n/zh.ts";
 import { en } from "../i18n/en.ts";
-import type { AssistantErrorKind } from "../chat-runtime.ts";
+import { hasVisibleText, type AssistantErrorKind } from "../chat-runtime.ts";
 
 export type ChatErrorCategory = "aborted" | "auth" | "rate_limit" | "quota" | "context_overflow"
   | "network" | "protocol" | "permission" | "generic";
@@ -85,7 +85,7 @@ export function extractAssistantContentAndError(
 
   // 既无报错也无中止
   if (!isAborted && !isError) {
-    return { cleanText: rawText, errorInfo: null };
+    return { cleanText: hasVisibleText(rawText) ? rawText : "", errorInfo: null };
   }
 
   // 处理文本中的中止标记
@@ -114,5 +114,5 @@ export function extractAssistantContentAndError(
     locale,
   );
 
-  return { cleanText, errorInfo };
+  return { cleanText: hasVisibleText(cleanText) ? cleanText : "", errorInfo };
 }

@@ -215,6 +215,11 @@ export const INITIAL_CHAT_STATE: ChatState = {
   activeCompactionKey: null,
 };
 
+/** 显示判空时忽略 U+200B 占位符；不改写原始正文中的字符。 */
+export function hasVisibleText(text: string): boolean {
+  return text.replace(/\u200b/g, "").trim().length > 0;
+}
+
 /** 最新用户消息之后尚无有效响应；空的 message_start 不代表模型已经开始输出。 */
 export function isAwaitingResponse(state: ChatState): boolean {
   if (!state.running) return false;
@@ -222,7 +227,7 @@ export function isAwaitingResponse(state: ChatState): boolean {
     const entry = state.entries[index];
     if (entry.role === "user") return true;
     if (entry.kind || entry.role === "toolResult" || entry.toolCallId
-      || entry.text.trim() || entry.thinking?.trim()
+      || hasVisibleText(entry.text) || entry.thinking?.trim()
       || entry.status || entry.stopReason || entry.errorMessage) return false;
   }
   return false;
@@ -614,7 +619,7 @@ export function groupChatBlocks(entries: ChatEntry[]): ChatBlock[] {
       entry.stopReason === "error" ||
       entry.stopReason === "aborted" ||
       Boolean(entry.errorMessage);
-    if ((entry.text && entry.text.trim()) || hasError) {
+    if (hasVisibleText(entry.text) || hasError) {
       flushChips();
       blocks.push({ kind: "body", key: entry.key, entry });
     }
