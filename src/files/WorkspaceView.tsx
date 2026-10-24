@@ -11,9 +11,10 @@ import type { WorkspaceFilesState } from "./use-workspace-files";
 import type { WorkspaceDiff, WorkspaceFile } from "./types";
 import type { WorkspaceMode } from "./workspace-view";
 
-export function WorkspaceView({ state, sessions, defaultSession, onOpenFile, onReference, onModeChange }: {
+export function WorkspaceView({ state, sessions, canReference, defaultSession, onOpenFile, onReference, onModeChange }: {
   state: WorkspaceFilesState;
   sessions: SessionSummaryView[];
+  canReference: boolean;
   defaultSession: string | null;
   onOpenFile: (path: string) => void;
   onReference: (text: string, sessionId: string | null) => void;
@@ -84,7 +85,7 @@ export function WorkspaceView({ state, sessions, defaultSession, onOpenFile, onR
         <button type="button" className="file-tab-close" aria-label={`关闭 ${path}`} onClick={() => store?.close(path)}>×</button>
       </div>)}</div>}
       onReference={mode === "files" ? text => onReference(text, selectedSession) : undefined}
-      referenceDisabled={!validTarget || !sessions.length}
+      referenceDisabled={!validTarget || !canReference}
       referenceLabel={validTarget ? selectedSession === null ? "加入新会话草稿并返回会话" : `加入「${targetTitle}」草稿并返回会话` : "请重新选择目标会话"}
       referenceOptions={sessions.length > 0 ? <label className="workspace-reference-target">引用到会话
         <select className="text-input" aria-label="引用目标会话" value={JSON.stringify(selectedSession)} onChange={event => setSelectedSession(JSON.parse(event.target.value))}>

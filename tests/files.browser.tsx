@@ -1,4 +1,7 @@
 // npm run dev 后打开 /tests/files.browser.html。仅使用假数据，不连接真实 Agent 或发送模型请求。
+// ?emptySessions=1 验证没有历史会话的 Agent 仍能引用到新草稿。
+// ?twoWorkspaces=1 验证从另一 Agent 的会话文件打开时，选择写入目标工作区。
+// Git -> File 回归：先在 File 打开 readme.md，再在 Git 打开 staged.ts 并点击「在 File 打开」。
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "../src/App";
@@ -32,7 +35,16 @@ window.__PIPI_DEV_PLATFORM__ = {
     const path = String(args?.path ?? "");
     const workspace = String(args?.agentName ?? "/fixture/unknown");
     let result: unknown;
-    if (command === "list_agents") result = (await platform.invoke<Array<Record<string, unknown>>>(command, args)).map(agent => ({ ...agent, workspace: `/fixture/${agent.name}` }));
+    const query = new URLSearchParams(location.search);
+    if (command === "list_agents") {
+      const agents = await platform.invoke<Array<Record<string, unknown>>>(command, args);
+      if (query.has("twoWorkspaces") && agents[0]) agents.push({ ...agents[0], name: "second-assistant" });
+      result = agents.map(agent => ({ ...agent, workspace: `/fixture/${agent.name}` }));
+    }
+    else if (command === "list_sessions" && query.has("emptySessions")) result = [];
+    else if (command === "list_sessions" && query.has("twoWorkspaces") && args?.agentName === "second-assistant" && !args.archived) {
+      result = [{ id: "fixture-second-session", title: "跨工作区工具记录", messageCount: 2, startedAt: 42, lastActive: 43 }];
+    }
     else if (command === "list_workspace_files") result = { workspace, path, truncated: false, entries: path === "src" ? ["src/slow.ts", "src/fast.ts"].map(path => ({ name: path.split("/").pop(), path, kind: "file", size: 40 })) : [
       { name: "src", path: "src", kind: "directory", size: 0 },
       { name: "hello.ts", path: "hello.ts", kind: "file", size: 90 },

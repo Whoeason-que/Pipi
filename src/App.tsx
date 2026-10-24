@@ -320,12 +320,15 @@ export default function App() {
     return { name, workspace: wsPath };
   }, [activeWorkspace, previewWorkspacePath, current?.workspace, workspaces]);
 
-  const workspaceSessions = useMemo(() => {
+  const workspaceAgents = useMemo(() => {
     if (!currentWorkspaceTarget) return [];
     const targetNorm = normalizeWorkspacePath(currentWorkspaceTarget.workspace);
-    const agentsInWs = agents.filter((a) => !a.subagent && normalizeWorkspacePath(a.workspace) === targetNorm);
-    return agentsInWs.flatMap((a) => sessionsByAgent[a.name] ?? []);
-  }, [currentWorkspaceTarget, agents, sessionsByAgent]);
+    return agents.filter(agent => !agent.subagent && normalizeWorkspacePath(agent.workspace) === targetNorm);
+  }, [currentWorkspaceTarget, agents]);
+  const workspaceSessions = useMemo(
+    () => workspaceAgents.flatMap(agent => sessionsByAgent[agent.name] ?? []),
+    [workspaceAgents, sessionsByAgent],
+  );
 
   const workspaceActive = (view.kind === "files" || view.kind === "git") && !authStatus.checking && authStatus.authenticated;
   const workspace = useWorkspaceFiles(
@@ -336,33 +339,25 @@ export default function App() {
   );
   const openWorkspaceFile = (agentOrWs: string, path: string) => {
     const agent = filteredAgents.find(item => item.name === agentOrWs) ?? agents.find(item => item.name === agentOrWs);
-    if (agent?.workspace) {
-      setPreviewWorkspacePath(agent.workspace);
-    } else if (agentOrWs) {
-      setPreviewWorkspacePath(agentOrWs);
-    }
-    const store = workspace.store;
-    (store ?? (currentWorkspaceTarget ? new WorkspaceViewStore(currentWorkspaceTarget, "files") : null))?.open(path);
+    const workspacePath = normalizeWorkspacePath(agent?.workspace || agentOrWs || currentWorkspaceTarget?.workspace);
+    if (!workspacePath) return;
+    const info = workspaces.find(item => normalizeWorkspacePath(item.path) === workspacePath);
+    const target = { name: info?.name || getWorkspaceBasename(workspacePath), workspace: workspacePath };
+    const destination = new WorkspaceViewStore(target, "files");
+    // 同一 File 视图使用现有订阅；跨模式/工作区时把选择写入目标视图，再导航。
+    const store = workspace.store?.key === destination.key ? workspace.store : destination;
+    store.open(path);
+    setPreviewWorkspacePath(workspacePath);
     navigate({ kind: "files", agentName: agent?.name ?? null });
   };
   const referenceToSession = (text: string, sessionId: string | null) => {
-    let targetAgentName: string | null = current?.name ?? null;
-    if (sessionId !== null) {
-      for (const [agentName, sessList] of Object.entries(sessionsByAgent)) {
-        if (sessList.some(s => s.id === sessionId)) {
-          targetAgentName = agentName;
-          break;
-        }
-      }
+    const targetAgent = sessionId === null
+      ? workspaceAgents.find(agent => agent.name === current?.name) ?? workspaceAgents[0]
+      : workspaceAgents.find(agent => sessionsByAgent[agent.name]?.some(session => session.id === sessionId));
+    if (!targetAgent) {
+      throw new Error("当前工作区没有可用的 Agent 或目标会话已不可用，无法写入会话草稿");
     }
-    if (!targetAgentName && currentWorkspaceTarget) {
-      const targetNorm = normalizeWorkspacePath(currentWorkspaceTarget.workspace);
-      const agentsInWs = agents.filter(a => normalizeWorkspacePath(a.workspace) === targetNorm);
-      targetAgentName = agentsInWs[0]?.name ?? null;
-    }
-    if (!targetAgentName) {
-      throw new Error("当前工作区没有可用的 Agent，无法写入会话草稿");
-    }
+    const targetAgentName = targetAgent.name;
     const draft = sessionRuntime.composerDrafts.get(targetAgentName, sessionId);
     const previous = draft.getSnapshot().text;
     draft.write(previous ? `${previous}\n\n${text}` : text);
@@ -481,7 +476,7 @@ export default function App() {
             onSelect={setSkillSelected} onRefresh={loadSkillLibrary} onError={safeSetError} />
           : view.kind === "forum" ? <ForumView />
           : (view.kind === "files" || view.kind === "git") ? <WorkspaceView key={workspace.store?.key ?? "no-workspace"} state={workspace}
-            sessions={workspaceSessions} defaultSession={workspaceSessions[0]?.id ?? null}
+            sessions={workspaceSessions} canReference={workspaceAgents.length > 0} defaultSession={workspaceSessions[0]?.id ?? null}
             onOpenFile={path => { openWorkspaceFile(currentWorkspaceTarget?.workspace ?? "", path); }} onReference={referenceToSession}
             onModeChange={mode => navigate({ kind: mode, agentName: view.agentName })} />
           : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
