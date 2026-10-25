@@ -264,9 +264,6 @@ fn recording_sink() -> (EventEmitter, EventLog) {
                 "{}:{}:error({})",
                 envelope.agent_name, envelope.session_id, envelope.message
             ),
-            RuntimeEvent::ApprovalRequest(envelope) => {
-                format!("{}:{}:approval", envelope.agent_name, envelope.session_id)
-            }
             RuntimeEvent::SessionSwitched(envelope) => format!(
                 "{}:{}:switched({})",
                 envelope.agent_name, envelope.session_id, envelope.to_session_id
@@ -463,91 +460,72 @@ fn shutdown_cancels_a_request_before_response_headers_arrive() {
 }
 
 #[test]
-fn shutdown_settles_running_tools_and_pending_approvals() {
+fn shutdown_settles_running_tools() {
     let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let home = pipi_test_support::temp_dir("pipi-shutdown-tools");
     pipi_test_support::set_env_var("HOME", &home);
-    for needs_approval in [false, true] {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let base = format!("http://{}/v1", listener.local_addr().unwrap());
-        let response = tool_call_response(
-            "bash",
-            serde_json::json!({ "command": "printf 'started\\n'; sleep 60" }),
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let response = tool_call_response(
+        "bash",
+        serde_json::json!({ "command": "printf 'started\n'; sleep 60" }),
+    );
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        read_request(&mut stream);
+        let _ = write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            response.len(),
+            response
         );
-        std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            read_request(&mut stream);
-            let _ = write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                response.len(),
-                response
-            );
-        });
-        let name = if needs_approval {
-            "closing-approval"
-        } else {
-            "closing-bash"
-        };
-        fixture_agent(name, &base);
-        let mut agent = agents::load_agent(name).unwrap();
-        agent.permissions.sandbox = pipi_protocol::permissions::SandboxMode::DangerFullAccess;
-        agent.permissions.bash = pipi_protocol::permissions::BashPermissions {
-            mode: if needs_approval {
-                pipi_protocol::permissions::BashMode::Allowlist
-            } else {
-                pipi_protocol::permissions::BashMode::AllowAll
-            },
-            commands: Vec::new(),
-        };
-        agents::save_agent(&agent).unwrap();
-        write_settings(&[base]);
-        let runtime = runtime();
-        let state = RuntimeState::new(runtime.handle().clone());
-        let ready = Arc::new(AtomicUsize::new(0));
-        let observed = ready.clone();
-        let sink: EventEmitter = Arc::new(move |event| {
-            let hit = if needs_approval {
-                matches!(event, RuntimeEvent::ApprovalRequest(_))
-            } else {
-                matches!(event, RuntimeEvent::AgentEvent(ref event)
-                    if matches!(event.event, pipi_agent::agent_loop::AgentEvent::ToolExecutionUpdate { .. }))
-            };
-            if hit {
-                observed.store(1, Ordering::SeqCst);
-            }
-        });
-        let info = state
-            .send_prompt(name, None, "run the tool", None, sink)
+    });
+    let name = "closing-bash";
+    fixture_agent(name, &base);
+    let mut agent = agents::load_agent(name).unwrap();
+    agent.permissions.sandbox = pipi_protocol::permissions::SandboxMode::DangerFullAccess;
+    agents::save_agent(&agent).unwrap();
+    write_settings(&[base]);
+    let runtime = runtime();
+    let state = RuntimeState::new(runtime.handle().clone());
+    let ready = Arc::new(AtomicUsize::new(0));
+    let observed = ready.clone();
+    let sink: EventEmitter = Arc::new(move |event| {
+        let hit = matches!(event, RuntimeEvent::AgentEvent(ref event)
+            if matches!(event.event, pipi_agent::agent_loop::AgentEvent::ToolExecutionUpdate { .. }));
+        if hit {
+            observed.store(1, Ordering::SeqCst);
+        }
+    });
+    let info = state
+        .send_prompt(name, None, "run the tool", None, sink)
+        .unwrap();
+    assert!(wait_until(5_000, || ready.load(Ordering::SeqCst) > 0));
+    runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(5), state.shutdown())
+            .await
+            .unwrap()
             .unwrap();
-        assert!(wait_until(5_000, || ready.load(Ordering::SeqCst) > 0));
-        runtime.block_on(async {
-            tokio::time::timeout(Duration::from_secs(5), state.shutdown())
-                .await
-                .unwrap()
-                .unwrap();
-        });
-        assert!(state.pending_approvals().is_empty());
-        let entries = agent_repo(name).entries(&info.session_id).unwrap();
-        let messages: Vec<_> = entries
-            .iter()
-            .filter_map(|entry| match &entry.kind {
-                pipi_protocol::session::EntryKind::Message { message } => Some(message),
-                _ => None,
-            })
-            .collect();
-        assert!(messages.iter().any(|message| matches!(message,
-            Message::ToolResult { tool_call_id, is_error: true, .. } if tool_call_id == "call-write")));
-        assert!(matches!(
-            messages.last(),
-            Some(Message::Assistant {
-                stop_reason: pipi_protocol::StopReason::Aborted,
-                ..
-            })
-        ));
-    }
+    });
+    let entries = agent_repo(name).entries(&info.session_id).unwrap();
+    let messages: Vec<_> = entries
+        .iter()
+        .filter_map(|entry| match &entry.kind {
+            pipi_protocol::session::EntryKind::Message { message } => Some(message),
+            _ => None,
+        })
+        .collect();
+    assert!(messages.iter().any(|message| matches!(message,
+        Message::ToolResult { tool_call_id, is_error: true, .. } if tool_call_id == "call-write")));
+    assert!(matches!(
+        messages.last(),
+        Some(Message::Assistant {
+            stop_reason: pipi_protocol::StopReason::Aborted,
+            ..
+        })
+    ));
 }
 
 #[test]

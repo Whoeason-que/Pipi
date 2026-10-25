@@ -307,10 +307,7 @@ async fn auth_middleware(
 
 async fn ws_events(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     let receiver = state.events.subscribe();
-    let pending = state.runtime.pending_approvals();
-    ws.on_upgrade(move |socket| {
-        stream_events(socket, receiver, state.shutdown, state.clients, pending)
-    })
+    ws.on_upgrade(move |socket| stream_events(socket, receiver, state.shutdown, state.clients))
 }
 
 async fn stream_events(
@@ -318,7 +315,6 @@ async fn stream_events(
     mut receiver: broadcast::Receiver<RuntimeEvent>,
     mut shutdown: watch::Receiver<bool>,
     clients: Arc<AtomicUsize>,
-    pending: Vec<crate::events::ApprovalRequestEnvelope>,
 ) {
     struct ClientCount(Arc<AtomicUsize>);
     impl Drop for ClientCount {
@@ -330,13 +326,6 @@ async fn stream_events(
     let _count = ClientCount(clients);
     if *shutdown.borrow() {
         return;
-    }
-    for envelope in pending {
-        if let Ok(text) = serde_json::to_string(&RuntimeEvent::ApprovalRequest(envelope))
-            && !send_frame(&mut socket, WsMessage::Text(text.into()), &mut shutdown).await
-        {
-            return;
-        }
     }
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
     loop {

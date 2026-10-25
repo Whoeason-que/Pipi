@@ -20,7 +20,7 @@ import {
   type ProviderConfig
 } from "../types";
 import { DEFAULT_TOOLS, permissionsFromFields } from "./agent-fields";
-import { BashChoices, SandboxChoices, ToolChoices } from "./PermissionChoices";
+import { SandboxChoices, ToolChoices } from "./PermissionChoices";
 import { useAgentConfigFields } from "./use-agent-config-fields";
 
 // ============ 新建 Agent ============
@@ -53,8 +53,6 @@ export default function CreateAgentForm({
     // Agent 组合工具具有跨 Agent 的持久副作用，必须显式勾选；新建 Agent
     // 继续只默认启用原来的基础工具。
     tools: [...DEFAULT_TOOLS],
-    bashMode: "allowAll",
-    commands: "",
     sandbox: "workspace-write",
   });
   const [submitting, setSubmitting] = useState(false);
@@ -64,12 +62,7 @@ export default function CreateAgentForm({
     setSubmitting(true);
     onError(null);
     try {
-      const permissions = permissionsFromFields(
-        fields.tools,
-        fields.bashMode,
-        fields.commands,
-        fields.sandbox,
-      );
+      const permissions = permissionsFromFields(fields.tools, fields.sandbox);
 
       const selectedProvider = providers.find((p) => p.id === fields.providerId);
       const trimmedModel = fields.modelId.trim();
@@ -201,28 +194,9 @@ export default function CreateAgentForm({
             <span className="label">沙箱</span>
             <SandboxChoices value={fields.sandbox} onChange={fields.setSandbox} name="sandbox" />
             <div className="hint">
-              只读：不执行命令、不写文件；工作目录内可写：强制删除类命令与越出
-              工作目录的写入被拒绝；完全访问：不设限
+              只读：文件系统只读、网络默认关闭；工作目录内可写：只有工作目录与
+              临时目录可写；完全访问：不挂沙箱（显式逃生门）
             </div>
-          </div>
-
-          <div className="field">
-            <span className="label">命令权限（bash）</span>
-            <BashChoices value={fields.bashMode} onChange={fields.setBashMode} name="bash-mode" />
-            {fields.bashMode !== "allowAll" && (
-              <div className="perm-editor">
-                <textarea
-                  value={fields.commands}
-                  onChange={(e) => fields.setCommands(e.target.value)}
-                  placeholder={fields.bashMode === "allowlist" ? "git\nnpm run\nls" : "rm\nsudo"}
-                />
-                <div className="hint">
-                  {fields.bashMode === "allowlist"
-                    ? "每行一条；单词条目匹配以该词开头的命令，带空格按前缀匹配"
-                    : "每行一条；命中任意条目的命令将被拒绝"}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="actions">

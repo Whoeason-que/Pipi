@@ -173,7 +173,6 @@ export const zh = {
     categories: "通知类型（所有已订阅设备）",
     completed: "回复完成",
     failed: "运行失败",
-    approval: "需要审批",
     privacy: "通知只包含 Agent 名称与状态，不包含对话正文、命令和密钥。手机通知经浏览器推送服务加密传送。",
   },
   remoteAccess: {

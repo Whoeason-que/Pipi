@@ -269,7 +269,6 @@ mod tests {
             sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
             resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
             abort: pipi_protocol::AbortSignal::new(),
-            approver: None,
         };
         let result = EditTool
             .execute(

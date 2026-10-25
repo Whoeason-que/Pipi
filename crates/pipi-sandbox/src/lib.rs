@@ -11,12 +11,11 @@
 //! `pre_exec` 安装策略**：fork 之后不能分配、不能读文件，策略解析与规则构造
 //! 都必须发生在 helper 自己的进程里。
 //!
-//! 开关：`PIPI_SANDBOX=off|auto|require`（默认 auto）。`auto` 找不到 helper
-//! 时回退到旧权限层并打印一次警告；`require` 直接报错，适合测试与发布环境。
+//! helper 缺失时**直接拒绝**（fail-closed）；没有用户态回退路径。
+//! `danger-full-access` 是唯一的显式逃生门，它不启动 helper。
 
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
-use std::sync::Once;
 
 use pipi_protocol::permissions::SandboxPolicy;
 
@@ -24,45 +23,6 @@ use pipi_protocol::permissions::SandboxPolicy;
 pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
-
-/// 沙箱后端开关。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Backend {
-    /// 完全关闭：走旧的用户态权限层（迁移期回滚开关）。
-    Off,
-    /// 有 helper 就使用，没有就回退并警告一次。
-    Auto,
-    /// 必须使用 helper；任何不可用都 fail-closed。
-    Require,
-}
-
-/// 从 `PIPI_SANDBOX` 读取后端开关。
-pub fn backend() -> Backend {
-    match std::env::var("PIPI_SANDBOX").as_deref() {
-        Ok("off") | Ok("0") => Backend::Off,
-        Ok("require") | Ok("1") => Backend::Require,
-        _ => Backend::Auto,
-    }
-}
-
-/// 一次 spawn 的沙箱判定结果。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Enforcement {
-    /// 使用给定 helper 二进制。
-    Sandboxed(PathBuf),
-    /// 不回退到内核沙箱（旧权限层或显式关闭）。
-    Legacy,
-}
-
-static WARNED: Once = Once::new();
-
-fn warn_legacy_once() {
-    WARNED.call_once(|| {
-        eprintln!(
-            "pipi: pipi-sandbox helper not found; falling back to the legacy userspace permission layer (set PIPI_SANDBOX=require to fail instead)"
-        );
-    });
-}
 
 /// 查找 helper 二进制。
 ///
@@ -75,7 +35,7 @@ pub fn binary() -> Option<PathBuf> {
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        // 没有后端实现的平台不要假装能用：auto 回退旧权限层，require 报错。
+        // 没有后端实现的平台不要假装能用：非 danger 档位会拒绝执行。
         None
     }
 }
@@ -84,7 +44,7 @@ pub fn binary() -> Option<PathBuf> {
 fn binary_on_supported_platform() -> Option<PathBuf> {
     if let Some(raw) = std::env::var_os("PIPI_SANDBOX_BIN") {
         // 显式覆盖优先且不透传：指向不存在的 helper 时直接视为不可用，
-        // 不再悄悄从 PATH 找另一个（require 模式据此 fail-closed）。
+        // 不再悄悄从 PATH 找另一个（helper 缺失时上层 fail-closed）。
         let path = PathBuf::from(raw);
         return path.is_file().then_some(path);
     }
@@ -123,27 +83,21 @@ fn binary_on_supported_platform() -> Option<PathBuf> {
     None
 }
 
-/// 这次运行是否真的会挂内核沙箱（不产生警告）。
-pub fn will_enforce(policy: &SandboxPolicy) -> bool {
-    policy.is_enforced() && backend() != Backend::Off && binary().is_some()
-}
-
-/// 解析本次 spawn 的沙箱执行方式。
-pub fn enforcement(policy: &SandboxPolicy) -> Result<Enforcement, String> {
-    if !policy.is_enforced() || backend() == Backend::Off {
-        return Ok(Enforcement::Legacy);
+/// 解析本次 spawn 使用的 helper。
+///
+/// - `danger-full-access`：`Ok(None)`，直接执行（显式逃生门）；
+/// - 其余档位：必须找到 helper，否则拒绝执行。
+fn helper_for(policy: &SandboxPolicy) -> Result<Option<PathBuf>, String> {
+    if !policy.is_enforced() {
+        return Ok(None);
     }
     match binary() {
-        Some(binary) => Ok(Enforcement::Sandboxed(binary)),
-        None if backend() == Backend::Require => {
-            Err("OS sandbox unavailable (pipi-sandbox helper not found); refusing to run. \
-             Set PIPI_SANDBOX_BIN to the helper path, or PIPI_SANDBOX=off to disable the sandbox explicitly"
-                .into())
-        }
-        None => {
-            warn_legacy_once();
-            Ok(Enforcement::Legacy)
-        }
+        Some(binary) => Ok(Some(binary)),
+        None => Err(
+            "OS sandbox unavailable (pipi-sandbox helper not found); refusing to run. \
+             Set PIPI_SANDBOX_BIN to the helper path, or use danger-full-access explicitly"
+                .into(),
+        ),
     }
 }
 
@@ -186,8 +140,8 @@ where
     S: AsRef<OsStr>,
 {
     let policy = effective_policy(policy);
-    match enforcement(&policy)? {
-        Enforcement::Sandboxed(binary) => {
+    match helper_for(&policy)? {
+        Some(binary) => {
             let mut command = std::process::Command::new(binary);
             command
                 .arg("--policy")
@@ -197,7 +151,7 @@ where
             command.args(args);
             Ok(command)
         }
-        Enforcement::Legacy => {
+        None => {
             let mut command = std::process::Command::new(program);
             command.args(args);
             Ok(command)
@@ -216,8 +170,8 @@ where
     S: AsRef<OsStr>,
 {
     let policy = effective_policy(policy);
-    match enforcement(&policy)? {
-        Enforcement::Sandboxed(binary) => {
+    match helper_for(&policy)? {
+        Some(binary) => {
             let mut command = tokio::process::Command::new(binary);
             command
                 .arg("--policy")
@@ -227,7 +181,7 @@ where
             command.args(args);
             Ok(command)
         }
-        Enforcement::Legacy => {
+        None => {
             let mut command = tokio::process::Command::new(program);
             command.args(args);
             Ok(command)
@@ -341,7 +295,6 @@ mod tests {
     fn dangerous_mode_never_enforces() {
         let policy =
             SandboxPolicy::for_workspace(SandboxMode::DangerFullAccess, Path::new("/tmp/ws"));
-        assert!(!will_enforce(&policy));
-        assert_eq!(enforcement(&policy).unwrap(), Enforcement::Legacy);
+        assert!(helper_for(&policy).unwrap().is_none());
     }
 }

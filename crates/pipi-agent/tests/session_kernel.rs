@@ -214,7 +214,6 @@ fn request(hang: bool, panic: bool) -> RunRequest {
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
-            approver: None,
         },
         options: StreamOptions::default(),
         retry: RetryPolicy::NONE,

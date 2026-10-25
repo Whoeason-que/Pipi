@@ -497,7 +497,6 @@ mod tests {
                 .map(|name| (*name).to_string())
                 .collect(),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
-            ..Default::default()
         };
         pipi_venv::agents::create_agent(
             "background-test",
@@ -693,7 +692,6 @@ mod tests {
             Some(pipi_protocol::permissions::PermissionsConfig {
                 tools: vec!["read".into()],
                 sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
-                ..Default::default()
             }),
             None,
             None,

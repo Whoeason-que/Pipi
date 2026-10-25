@@ -14,7 +14,6 @@ pipi-protocol = { workspace = true }
 pipi-sandbox = { workspace = true }
 regex = { workspace = true }
 serde_json = { workspace = true }
-shlex = { workspace = true }
 similar = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }

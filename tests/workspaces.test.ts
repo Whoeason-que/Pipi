@@ -15,7 +15,6 @@ function mockAgent(name: string, workspace: string | null): AgentDefinition {
     workspace,
     permissions: {
       tools: [],
-      bash: { mode: "allowAll" },
       sandbox: "workspace-write",
     },
     mcpServers: [],

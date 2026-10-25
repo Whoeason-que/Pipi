@@ -233,7 +233,6 @@ mod tests {
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
-            approver: None,
         };
         (base, ctx, skill_file, outside)
     }

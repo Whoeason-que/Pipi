@@ -1,9 +1,4 @@
-import type { BashMode, PermissionsConfig, SandboxMode } from "../types";
-export const BASH_MODE_LABELS: Record<BashMode, string> = {
-  allowAll: "全部允许",
-  allowlist: "白名单",
-  denylist: "黑名单",
-};
+import type { PermissionsConfig, SandboxMode } from "../types";
 
 export const DEFAULT_TOOLS = ["read", "write", "edit", "bash", "memory", "glob", "grep"] as const;
 export const KNOWN_TOOLS = [
@@ -22,6 +17,6 @@ export const KNOWN_TOOLS = [
 ] as const;
 
 
-export function permissionsFromFields(tools: string[], mode: BashMode, commands: string, sandbox: SandboxMode): PermissionsConfig {
-  return { tools, bash: { mode, commands: mode === "allowAll" ? [] : commands.split("\n").map(command => command.trim()).filter(Boolean) }, sandbox };
+export function permissionsFromFields(tools: string[], sandbox: SandboxMode): PermissionsConfig {
+  return { tools, sandbox };
 }

@@ -1,9 +1,8 @@
-//! 权限与沙箱的公共词汇：沙箱模式、bash 权限配置、命令段、评估结论、审批通道、
-//! 内置工具名清单，以及写入路径的 canonical containment 检查。
+//! 权限与沙箱的公共词汇：沙箱档位 / 能力清单、工具名清单，以及写入路径的
+//! canonical containment 检查。
 //!
-//! 这里只有**数据与共享的安全原语**：命令切分、白/黑名单与危险命令判定等
-//! 策略实现留在 `pipi-tools::permissions`；两边的分工是「谁被别的层依赖」——
-//! 清单（agent.json）与引擎都要读权限数据，所以数据在契约层。
+//! 安全边界是 `pipi-sandbox` 的 OS 沙箱；这里不再有命令文本策略（白/黑名单、
+//! 危险命令、审批）。`permissions.bash` 作为旧字段被忽略，保留读取兼容。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,16 +11,16 @@ use serde::{Deserialize, Serialize};
 
 /// 沙箱策略。移植自 codex 的 `SandboxMode`。
 ///
-/// 反序列化缺省值为 `DangerFullAccess`（兼容旧 agent.json 的行为）；
-/// 新建 Agent 的 UI 默认选 `WorkspaceWrite`。
+/// 缺省值为 `WorkspaceWrite`：旧 agent.json 缺少 `sandbox` 时也落到受限档位，
+/// 不再因为字段缺失而静默获得完全访问。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SandboxMode {
     #[serde(rename = "read-only")]
     ReadOnly,
     #[serde(rename = "workspace-write")]
+    #[default]
     WorkspaceWrite,
     #[serde(rename = "danger-full-access")]
-    #[default]
     DangerFullAccess,
 }
 
@@ -87,33 +86,6 @@ impl SandboxPolicy {
     }
 }
 
-/// 一个已切分的命令段：argv（供危险检测）与重组文本（供白名单匹配）。
-#[derive(Debug, Clone, PartialEq)]
-pub struct Segment {
-    pub argv: Vec<String>,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum BashMode {
-    #[default]
-    AllowAll,
-    Allowlist,
-    Denylist,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BashPermissions {
-    #[serde(default)]
-    pub mode: BashMode,
-    /// 白名单 / 黑名单条目。单词条目（如 "git"）匹配以该词开头的命令段；
-    /// 带空格条目（如 "npm run"）按前缀匹配。
-    #[serde(default)]
-    pub commands: Vec<String>,
-}
-
 /// 普通 Agent 默认启用的基础工具。Agent 组合工具不在默认集合中，避免旧的
 /// `agent.json`（缺少 `permissions.tools`）在升级后静默获得创建、运行或读取
 /// 其他 Agent 的能力。
@@ -157,27 +129,6 @@ pub const KNOWN_TOOLS: [&str; 18] = [
     "forum_reply",
 ];
 
-/// bash 命令评估结论。
-#[derive(Debug, Clone, PartialEq)]
-pub enum BashAssessment {
-    Allowed,
-    /// 黑名单命中 / 危险命令 / 沙箱约束 / 解析失败 —— 不可审批。
-    HardDenied(String),
-    /// Allowlist 模式下白名单未命中（且非危险）。`missing` 是未命中的段落文本，
-    /// 「总是允许」时按段写入白名单。
-    NeedsApproval {
-        missing: Vec<String>,
-    },
-}
-
-/// 交互审批通道。宿主（桌面壳 / Web 服务）实现传输：把请求发给用户界面，
-/// 等待用户决定。任何实现失败都必须落到 Err（fail-closed）。
-#[async_trait::async_trait]
-pub trait CommandApprover: Send + Sync {
-    /// 请求批准执行整条命令。Ok(()) = 批准；Err = 拒绝 / 超时 / 已中止 / 通道失败。
-    async fn approve(&self, command: &str) -> Result<(), String>;
-}
-
 /// Agent 的权限配置（`agent.json` 的 `permissions` 段）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -185,9 +136,7 @@ pub struct PermissionsConfig {
     /// 启用的工具名列表（`KNOWN_TOOLS` 的子集）。
     #[serde(default = "default_tools")]
     pub tools: Vec<String>,
-    #[serde(default)]
-    pub bash: BashPermissions,
-    /// 沙箱策略（codex 的 SandboxMode）。缺省 DangerFullAccess 以兼容旧文件。
+    /// 沙箱策略（codex 的 SandboxMode）。缺省 WorkspaceWrite（fail-safe）。
     #[serde(default)]
     pub sandbox: SandboxMode,
 }
@@ -200,7 +149,6 @@ impl Default for PermissionsConfig {
     fn default() -> Self {
         PermissionsConfig {
             tools: default_tools(),
-            bash: BashPermissions::default(),
             sandbox: SandboxMode::default(),
         }
     }
@@ -281,16 +229,17 @@ mod tests {
         assert!(config.tool_enabled("bash"));
         // 组合工具必须显式启用
         assert!(!config.tool_enabled("create_agent"));
-        assert_eq!(config.sandbox, SandboxMode::DangerFullAccess);
+        assert_eq!(config.sandbox, SandboxMode::WorkspaceWrite);
     }
 
     #[test]
-    fn sparse_permissions_json_roundtrips_without_new_fields() {
+    fn legacy_bash_policy_fields_are_ignored() {
+        // 旧 agent.json 里的 permissions.bash 已废弃；反序列化必须继续成功，
+        // 但不参与任何行为。
         let raw = r#"{"tools":["read"],"bash":{"mode":"allowlist","commands":["git"]},"sandbox":"workspace-write"}"#;
         let config: PermissionsConfig = serde_json::from_str(raw).unwrap();
         assert!(config.tool_enabled("read"));
         assert!(!config.tool_enabled("bash"));
-        assert_eq!(config.bash.mode, BashMode::Allowlist);
         assert_eq!(config.sandbox, SandboxMode::WorkspaceWrite);
         // 缺省段仍可反序列化（兼容旧 agent.json）
         let sparse: PermissionsConfig = serde_json::from_str("{}").unwrap();

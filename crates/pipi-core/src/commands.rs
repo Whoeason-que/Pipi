@@ -29,7 +29,6 @@ use pipi_venv::skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
 };
 
-use crate::approval::ApprovalDecision;
 use crate::events::{EventEmitter, PromptQueueEnvelope};
 use crate::runtime::{self, RuntimeState, SessionInfo, SessionSnapshot, agent_repo};
 
@@ -74,7 +73,6 @@ pub const COMMANDS: &[&str] = &[
     "queue_prompt",
     "cancel_queued_prompt",
     "set_prompt_queue_paused",
-    "resolve_approval",
     "set_session_model",
     "session_messages",
     "session_stats",
@@ -753,18 +751,6 @@ pub fn set_prompt_queue_paused(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResolveApprovalArgs {
-    pub request_id: String,
-    pub decision: String,
-}
-
-/// 回传 bash 命令审批请求的用户决定。
-pub fn resolve_approval(runtime: &RuntimeState, args: ResolveApprovalArgs) -> Result<(), String> {
-    runtime.resolve_approval(&args.request_id, args.decision.parse::<ApprovalDecision>()?)
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SetSessionModelArgs {
     pub agent_name: String,
     pub session_id: String,
@@ -1227,7 +1213,6 @@ pub async fn dispatch(
         "queue_prompt" => to_value(queue_prompt(runtime, parse(args)?)?),
         "cancel_queued_prompt" => to_value(cancel_queued_prompt(runtime, parse(args)?)?),
         "set_prompt_queue_paused" => to_value(set_prompt_queue_paused(runtime, parse(args)?)?),
-        "resolve_approval" => to_value(resolve_approval(runtime, parse(args)?)?),
         "set_session_model" => to_value(set_session_model(runtime, parse(args)?)?),
         "session_messages" => to_value(session_messages(runtime, parse(args)?).await?),
         "session_stats" => to_value(session_stats(runtime, parse(args)?)?),
@@ -1284,8 +1269,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            64,
-            "宿主命令数应为 64（前端 CommandMap 同步）"
+            63,
+            "宿主命令数应为 63（前端 CommandMap 同步）"
         );
     }
 

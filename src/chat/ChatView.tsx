@@ -15,7 +15,6 @@ import {
   formatRuntimeError,
   groupChatBlocks,
   isAwaitingResponse,
-  type ApprovalDecisionValue,
   type Chip,
 } from "../chat-runtime";
 import ChatTimeline from "./ChatTimeline";
@@ -106,8 +105,7 @@ export default function ChatView({
   const sessionId = snapshot.sessionId;
   const sessionModel = snapshot.model;
   const isCustomModel = snapshot.isCustomModel;
-  const pendingApproval = snapshot.approval;
-  const connecting = snapshot.operation !== "uncertain" && ready && !stopping && !pendingApproval && isAwaitingResponse(snapshot.chat);
+  const connecting = snapshot.operation !== "uncertain" && ready && !stopping && isAwaitingResponse(snapshot.chat);
   const [atTail, setAtTail] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [pinnedFindKey, setPinnedFindKey] = useState<string | null>(null);
@@ -327,11 +325,6 @@ export default function ChatView({
     const list = listRef.current;
     if (list) list.scrollTo({ top: list.scrollHeight, behavior: "auto" });
   };
-  const resolveApproval = (decision: ApprovalDecisionValue) => {
-    void controller
-      .resolveApproval(decision)
-      .catch((error) => onError(formatRuntimeError(error)));
-  };
   const clearPreviewDetail = () => setPreviewChip(null);
   const togglePinnedDetail = (id: string) => {
     setPinnedChip((current) => (current === id ? null : id));
@@ -526,7 +519,6 @@ export default function ChatView({
             atTail={atTail}
             model={sessionModel}
             customModel={isCustomModel}
-            approval={pendingApproval}
             composingRef={composingRef}
             onSend={(text) => controller.send(text)}
             onSteer={(text) => controller.steer(text)}
@@ -539,7 +531,6 @@ export default function ChatView({
               setAtTail(true);
             }}
             onStop={stop}
-            onResolveApproval={resolveApproval}
             onOpenModel={() => setModelModalOpen(true)}
             onReasoningChange={(effort) => controller.setReasoningEffort(effort)}
             onScrollToLatest={scrollToLatest}

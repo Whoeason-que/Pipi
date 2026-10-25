@@ -526,7 +526,6 @@ mod tests {
             Some(workspace.to_str().unwrap()),
             Some(pipi_protocol::permissions::PermissionsConfig {
                 tools: vec!["read".into()],
-                bash: Default::default(),
                 sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
             }),
             None,

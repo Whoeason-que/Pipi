@@ -1,9 +1,8 @@
 //! 宿主事件协议：运行时发给宿主的信封与事件枚举。
 //!
-//! 这是宿主的**叶子模块**：只依赖协议与 Agent 事件类型，不依赖
-//! `runtime` 或 `approval`。于是 `approval` 能发审批请求、`runtime` 能发全部
-//! 事件，而两者之间不再有类型上的环。宿主把 [`RuntimeEvent`] 映射成自己的
-//! 传输（Tauri event 或 WebSocket frame），不做业务解释。
+//! 这是宿主的**叶子模块**：只依赖协议与 Agent 事件类型，不依赖 `runtime`。
+//! 宿主把 [`RuntimeEvent`] 映射成自己的传输（Tauri event 或 WebSocket frame），
+//! 不做业务解释。
 
 use std::sync::{Arc, RwLock};
 
@@ -97,18 +96,6 @@ pub struct PromptQueueEnvelope {
     pub queue: PromptQueueSnapshot,
 }
 
-/// 发给宿主的审批请求。`missing` 是白名单未命中的段落，「总是允许」时按段写入。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApprovalRequestEnvelope {
-    pub request_id: String,
-    pub agent_name: String,
-    pub session_id: String,
-    pub run_id: usize,
-    pub command: String,
-    pub missing: Vec<String>,
-}
-
 /// 宿主只需将这个协议映射为 Tauri event 或 WebSocket frame。
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "payload")]
@@ -119,8 +106,6 @@ pub enum RuntimeEvent {
     SessionStats(StatsEventEnvelope),
     #[serde(rename = "session-error")]
     SessionError(SessionErrorEnvelope),
-    #[serde(rename = "approval-request")]
-    ApprovalRequest(ApprovalRequestEnvelope),
     #[serde(rename = "session-switched")]
     SessionSwitched(SessionSwitchedEnvelope),
     #[serde(rename = "session-changed")]
@@ -139,7 +124,6 @@ pub type EventEmitter = Arc<dyn Fn(RuntimeEvent) + Send + Sync>;
 pub struct EventHub {
     sender: tokio::sync::broadcast::Sender<RuntimeEvent>,
     desktop: Arc<RwLock<Option<EventEmitter>>>,
-    notifications: Arc<std::sync::Mutex<crate::notifications::NotificationPolicy>>,
     notification_sender: tokio::sync::broadcast::Sender<crate::notifications::NotificationEnvelope>,
 }
 
@@ -148,7 +132,6 @@ impl Default for EventHub {
         Self {
             sender: tokio::sync::broadcast::channel(1024).0,
             desktop: Arc::new(RwLock::new(None)),
-            notifications: Arc::new(std::sync::Mutex::new(Default::default())),
             notification_sender: tokio::sync::broadcast::channel(128).0,
         }
     }
@@ -187,25 +170,11 @@ impl EventHub {
             if let RuntimeEvent::Notification(notice) = &event {
                 let _ = hub.notification_sender.send(notice.clone());
             }
-            let notification = hub
-                .notifications
-                .lock()
-                .ok()
-                .and_then(|mut policy| policy.observe(&event));
             let sink = hub.desktop.read().ok().and_then(|sink| sink.clone());
             if let Some(sink) = sink {
                 sink(event.clone());
             }
             let _ = hub.sender.send(event);
-            if let Some(notification) = notification {
-                let _ = hub.notification_sender.send(notification.clone());
-                let event = RuntimeEvent::Notification(notification);
-                let sink = hub.desktop.read().ok().and_then(|sink| sink.clone());
-                if let Some(sink) = sink {
-                    sink(event.clone());
-                }
-                let _ = hub.sender.send(event);
-            }
         })
     }
 }

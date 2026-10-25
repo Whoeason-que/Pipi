@@ -4,7 +4,7 @@ export interface NotificationEnvelope {
   sessionId: string;
   runId: number;
   id: string;
-  kind: "completed" | "failed" | "approval";
+  kind: "completed" | "failed";
   title: string;
   body: string;
 }

@@ -18,7 +18,6 @@ impl RuntimeState {
             runtime,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             shutting_down: Arc::new(AtomicBool::new(false)),
-            approval: Arc::new(ApprovalGate::default()),
             background,
             events,
             #[cfg(feature = "server")]
@@ -34,10 +33,6 @@ impl RuntimeState {
     #[cfg(feature = "server")]
     pub fn push_service(&self) -> Arc<crate::notifications::push::PushService> {
         self.push.clone()
-    }
-
-    pub fn pending_approvals(&self) -> Vec<crate::events::ApprovalRequestEnvelope> {
-        self.approval.pending_requests()
     }
 
     pub fn attach_remote_access(

@@ -17,8 +17,6 @@ export const API_MODE_LABELS: Record<ApiMode, string> = {
   manual: "固定",
 };
 
-export type BashMode = "allowAll" | "allowlist" | "denylist";
-
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 
 export const SANDBOX_LABELS: Record<SandboxMode, string> = {
@@ -41,14 +39,8 @@ export function pinnedProtocolHint(conflict: ApiKind, providerApi: ApiKind): str
     + `${API_LABELS[providerApi]}：固定模式不会自动改写，改为「自动」即可按模型选择。`;
 }
 
-export interface BashPermissions {
-  mode: BashMode;
-  commands: string[];
-}
-
 export interface PermissionsConfig {
   tools: string[];
-  bash: BashPermissions;
   sandbox: SandboxMode;
 }
 
@@ -162,7 +154,6 @@ export interface NotificationSettings {
   desktopEnabled: boolean;
   completed: boolean;
   failed: boolean;
-  approval: boolean;
 }
 
 // ---- 会话统计（hermes 设计，Rust stats::SessionStats 的序列化）----

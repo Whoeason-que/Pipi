@@ -12,9 +12,9 @@ use pipi_core::commands::{
     ArchiveAgentArgs, ArchiveSessionArgs, CancelQueuedPromptArgs, CompactNowArgs,
     CreateSessionArgs, DeleteAgentArgs, DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs,
     ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs,
-    OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs, QueuePromptArgs, ResolveApprovalArgs,
-    RestoreAgentArgs, RestoreSessionArgs, SendPromptArgs, SessionInfoArgs, SessionMessagesArgs,
-    SessionStatsArgs, SetPromptQueuePausedArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
+    OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs, QueuePromptArgs, RestoreAgentArgs,
+    RestoreSessionArgs, SendPromptArgs, SessionInfoArgs, SessionMessagesArgs, SessionStatsArgs,
+    SetPromptQueuePausedArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
 };
 use pipi_core::events::{EventEmitter, PromptQueueEnvelope, RuntimeEvent};
 use pipi_core::runtime::{RuntimeState, SessionInfo, SessionSnapshot};
@@ -33,7 +33,6 @@ pub(crate) fn tauri_emitter(app: AppHandle) -> EventEmitter {
             RuntimeEvent::AgentEvent(payload) => app.emit("agent-event", &payload),
             RuntimeEvent::SessionStats(payload) => app.emit("session-stats", &payload),
             RuntimeEvent::SessionError(payload) => app.emit("session-error", &payload),
-            RuntimeEvent::ApprovalRequest(payload) => app.emit("approval-request", &payload),
             RuntimeEvent::SessionSwitched(payload) => app.emit("session-switched", &payload),
             RuntimeEvent::SessionChanged(payload) => app.emit("session-changed", &payload),
             RuntimeEvent::PromptQueue(payload) => app.emit("prompt-queue", &payload),
@@ -166,15 +165,6 @@ pub fn set_prompt_queue_paused(
     args: InvokeArgs<SetPromptQueuePausedArgs>,
 ) -> Result<PromptQueueEnvelope, String> {
     pipi_core::commands::set_prompt_queue_paused(&state, args.0)
-}
-
-/// 回传 bash 命令审批请求的用户决定。
-#[tauri::command]
-pub fn resolve_approval(
-    state: State<Arc<RuntimeState>>,
-    args: InvokeArgs<ResolveApprovalArgs>,
-) -> Result<(), String> {
-    pipi_core::commands::resolve_approval(&state, args.0)
 }
 
 #[tauri::command]

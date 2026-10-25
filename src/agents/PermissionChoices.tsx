@@ -1,11 +1,10 @@
 import {
   PROMPT_SCOPE_LABELS,
   SANDBOX_LABELS,
-  type BashMode,
   type PromptScope,
   type SandboxMode,
 } from "../types";
-import { BASH_MODE_LABELS, KNOWN_TOOLS } from "./agent-fields";
+import { KNOWN_TOOLS } from "./agent-fields";
 
 export function ToolChoices({
   value,
@@ -30,34 +29,6 @@ export function ToolChoices({
           />
           <span className="slider" />
           <span className="toggle-label mono">{tool}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-export function BashChoices({
-  value,
-  onChange,
-  name,
-  className = "tool-row",
-}: {
-  value: BashMode;
-  onChange: (mode: BashMode) => void;
-  name: string;
-  className?: string;
-}) {
-  return (
-    <div className={className}>
-      {(Object.keys(BASH_MODE_LABELS) as BashMode[]).map((mode) => (
-        <label key={mode} className="tool-check">
-          <input
-            type="radio"
-            name={name}
-            checked={value === mode}
-            onChange={() => onChange(mode)}
-          />
-          <span>{BASH_MODE_LABELS[mode]}</span>
         </label>
       ))}
     </div>

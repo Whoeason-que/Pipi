@@ -434,7 +434,6 @@ mod tests {
             sandbox: SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
-            approver: None,
         }
     }
 

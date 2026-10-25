@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTokens } from "../chat-runtime";
 
 import { IconClose, IconSearch } from "../icons";
-import { BASH_MODE_LABELS } from "../agents/agent-fields";
 import type { ChatInspectorContext } from "./inspector-context";
 import { ChipDetailPane, formatClock } from "./ToolDetails";
 import { extractSnippet, type SearchHit } from "./find";
@@ -527,18 +526,6 @@ export default function Inspector({
               <span className="k">沙箱</span>
               <span className="v">
                 <span className="tag ok">{agent.permissions.sandbox}</span>
-              </span>
-            </div>
-            <div className="kv-row">
-              <span className="k">bash</span>
-              <span className="v mono">
-                {BASH_MODE_LABELS[agent.permissions.bash.mode] ??
-                  agent.permissions.bash.mode}
-                <span className="dim">
-                  {agent.permissions.bash.mode !== "allowAll"
-                    ? ` · ${agent.permissions.bash.commands.length} 条`
-                    : ""}
-                </span>
               </span>
             </div>
             <div className="kv-row">

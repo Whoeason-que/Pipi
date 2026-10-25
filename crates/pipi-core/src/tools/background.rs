@@ -15,8 +15,6 @@ use pipi_protocol::permissions::SandboxPolicy;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_protocol::{BackgroundTaskInfo, BackgroundTaskSnapshot, ToolResultContent};
 
-use pipi_tools::permissions::check_bash_command;
-
 const MAX_COMMAND_BYTES: usize = 16 * 1024;
 const MAX_WAIT_MS: u64 = 60_000;
 const DEFAULT_LIST_LIMIT: usize = 20;
@@ -175,8 +173,6 @@ impl AgentTool for SubmitBackgroundTaskTool {
             .ok_or("Missing command")?
             .trim();
         validate_managed_command(command)?;
-
-        check_bash_command(ctx, command).await?;
 
         let cwd = resolve_workspace_cwd(ctx, args.get("cwd").and_then(Value::as_str))?;
         let info = self
@@ -403,13 +399,13 @@ fn validate_managed_command(command: &str) -> Result<(), String> {
     if has_unquoted_background_operator(command) {
         return Err("Background tasks do not accept bare shell '&'; please let Pipi manage the task lifecycle".into());
     }
-    let segments = pipi_tools::permissions::split_segments(command)?;
-    if segments.iter().any(|segment| {
-        segment
-            .argv
-            .first()
-            .is_some_and(|argv| matches!(argv.as_str(), "nohup" | "setsid" | "disown" | "daemon"))
-    }) {
+    let detached = command.split_whitespace().any(|token| {
+        matches!(
+            token.trim_matches(['\'', '"']),
+            "nohup" | "setsid" | "disown" | "daemon"
+        )
+    });
+    if detached {
         return Err(
             "Background tasks do not accept nohup, setsid, disown, or daemon unmanaged execution"
                 .into(),

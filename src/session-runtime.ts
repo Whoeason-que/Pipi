@@ -8,7 +8,7 @@ export interface RuntimeTransport extends SessionTransport {
   listen: Listen;
 }
 
-const EVENT_NAMES = ["agent-event", "session-stats", "session-error", "approval-request", "session-switched", "session-changed", "prompt-queue"] as const;
+const EVENT_NAMES = ["agent-event", "session-stats", "session-error", "session-switched", "session-changed", "prompt-queue"] as const;
 const REPLAY_LIMIT = 2048;
 const IDLE_CACHE_LIMIT = 32;
 

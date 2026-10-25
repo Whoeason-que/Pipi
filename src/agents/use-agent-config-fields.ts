@@ -5,7 +5,7 @@
 //! 仍由各自组件拥有。
 import { useCallback, useState } from "react";
 import type { CatalogModel } from "../catalog";
-import type { BashMode, ReasoningEffort, SandboxMode } from "../types";
+import type { ReasoningEffort, SandboxMode } from "../types";
 
 export interface AgentConfigFieldsInit {
   /** 当前选中的供应商 id（空串 = 未绑定） */
@@ -15,8 +15,6 @@ export interface AgentConfigFieldsInit {
   description: string;
   workspace: string;
   tools: string[];
-  bashMode: BashMode;
-  commands: string;
   sandbox: SandboxMode;
 }
 
@@ -29,8 +27,6 @@ export function useAgentConfigFields(init: AgentConfigFieldsInit) {
   const [description, setDescription] = useState(init.description);
   const [workspace, setWorkspace] = useState(init.workspace);
   const [tools, setTools] = useState(init.tools);
-  const [bashMode, setBashMode] = useState(init.bashMode);
-  const [commands, setCommands] = useState(init.commands);
   const [sandbox, setSandbox] = useState(init.sandbox);
 
   // 切换供应商必须清掉上一个供应商残留的模型 ID 与目录选择，
@@ -65,14 +61,10 @@ export function useAgentConfigFields(init: AgentConfigFieldsInit) {
     description,
     workspace,
     tools,
-    bashMode,
-    commands,
     sandbox,
     setDescription,
     setWorkspace,
     setTools,
-    setBashMode,
-    setCommands,
     setSandbox,
     changeProvider,
     changeModel,

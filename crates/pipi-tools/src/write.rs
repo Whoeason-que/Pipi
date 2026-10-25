@@ -91,7 +91,6 @@ mod tests {
             sandbox,
             resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
-            approver: None,
         }
     }
 

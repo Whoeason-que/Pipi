@@ -1,7 +1,8 @@
 # OS 沙箱
 
 状态：**Linux 已落地（Landlock + seccomp），macOS 已实现 Seatbelt 路径，
-Windows 暂无后端**。旧的用户态命令策略保留为回退路径，不再是安全边界。
+Windows 暂无后端**。旧的用户态命令策略与交互审批已经删除；非
+`danger-full-access` 档位在 helper 不可用时直接拒绝执行。
 
 ## 不变量
 
@@ -18,7 +19,7 @@ Windows 暂无后端**。旧的用户态命令策略保留为回退路径，不�
 | 档位 | 文件系统 | 网络 | 说明 |
 | --- | --- | --- | --- |
 | `read-only` | 全盘可读/可执行，无写入（`/dev/null` 等基础设备除外） | 默认拒绝 | 可以跑 bash；写不出去就是写不出去 |
-| `workspace-write` | 全盘可读/可执行；workspace + 临时目录可写 | 默认拒绝 | 旧的 `permissions.bash` 不再参与 |
+| `workspace-write` | 全盘可读/可执行；workspace + 临时目录可写 | 默认拒绝 | 命令文本策略已删除 |
 | `danger-full-access` | 不限制 | 不限制 | 显式逃生门，不启动 helper |
 
 `SandboxPolicy` 定义在 `pipi-protocol/src/permissions.rs`；策略由
@@ -51,7 +52,6 @@ Windows 暂无后端**。旧的用户态命令策略保留为回退路径，不�
 
 | 环境变量 | 取值 | 作用 |
 | --- | --- | --- |
-| `PIPI_SANDBOX` | `off` / `auto`（默认） / `require` | 关闭 / 有 helper 就用、没有回退旧策略并警告 / 缺失即拒绝 |
 | `PIPI_SANDBOX_BIN` | 路径 | 显式指定 helper；指向不存在的文件时按不可用处理，不再从 PATH 兜底 |
 | `PIPI_SANDBOX_NETWORK` | `1` / `true` / `on` | 保留文件系统沙箱、放行网络（临时逃生阀） |
 | `PIPI_SANDBOX_WRITABLE` | `split_paths` 分隔的绝对路径 | 追加可写根（如工具链缓存目录；临时逃生阀） |
@@ -79,8 +79,8 @@ helper 查找顺序：`PIPI_SANDBOX_BIN` → 当前可执行文件同级 / 上�
   namespace/容器。
 - **授权范围内仍可破坏**：删自己的工作区、把工作区内容发到已放行的网络、
   在仓库里写 `.git/hooks` 供日后沙箱外执行——这些都不在沙箱职责内。后续应把
-  `.git/hooks` 等提权子路径加入只读子路径，并把网络授权做成按 Agent/按次审批。
-- **Windows 没有后端**：`auto` 回退旧权限层，`require` 失败。
+  `.git/hooks` 等提权子路径加入只读子路径，并把网络授权做成按 Agent/按次能力授权。
+- **Windows 没有后端**：非 `danger-full-access` 档位直接拒绝。
 - **老内核**：Landlock 需要 5.13+ 且 LSM 包含 `landlock`；helper 使用
   `CompatLevel::HardRequirement` + ABI V3（含 truncate），无法满足时不会
   悄悄降级。
@@ -92,7 +92,7 @@ helper 查找顺序：`PIPI_SANDBOX_BIN` → 当前可执行文件同级 / 上�
 ## 验证
 
 ```bash
-cargo test -p pipi-sandbox          # 内核黑盒：写越界 / read-only / 网络 / require
+cargo test -p pipi-sandbox          # 内核黑盒：写越界 / read-only / 网络 / helper 缺失
 cargo test -p pipi-tools            # 门控：沙箱生效时旧策略让位
 cargo xtask arch                    # 分层（pipi-sandbox 只依赖契约层）
 ```
@@ -111,9 +111,7 @@ cargo build -p pipi-sandbox
 
 1. macOS 签名/notarization 与三平台 CI（外部 helper 的签名与 ABI 冒烟）。
    发布打包已接 `externalBin`（`scripts/prepare-sidecar.mjs`）。
-2. 把审批从「批准命令字符串」改成「授予能力」：`+writable_root` / `+network`，
-   按次 / 按会话 / 写回 `agent.json`。
+2. 能力授权：只在需要越过边界时请求 `+writable_root` / `+network`，按次 /
+   按会话 / 写回 `agent.json`（不是旧的命令白名单审批）。
 3. `writable_roots` 的只读子路径（`.git/hooks`、`.git/config`、`agent.json`）。
-4. 删除 `permissions/{parse,safety,redirect,rm}.rs` 与 `BashMode`（先保持回退
-   一个发布周期）。
-5. 跨平台契约测试：Linux 内核 ABI 探测、macOS Seatbelt profile 冒烟。
+4. 跨平台契约测试：Linux 内核 ABI 探测、macOS Seatbelt profile 冒烟。

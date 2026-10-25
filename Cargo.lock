@@ -6716,7 +6716,6 @@ dependencies = [
  "pipi-test-support",
  "regex",
  "serde_json",
- "shlex",
  "similar",
  "tempfile",
  "tokio",

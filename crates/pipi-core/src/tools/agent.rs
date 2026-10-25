@@ -678,7 +678,6 @@ mod tests {
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
-            approver: None,
         };
         let updates = Arc::new(Mutex::new(Vec::new()));
         let updates_for_cb = updates.clone();
@@ -755,7 +754,6 @@ mod tests {
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
-            approver: None,
         };
         let runner = Arc::new(ResumingRunner {
             seen: Mutex::new(None),
@@ -798,7 +796,6 @@ mod tests {
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
-            approver: None,
         };
         let runner = Arc::new(ResumingRunner {
             seen: Mutex::new(None),
@@ -879,7 +876,6 @@ mod tests {
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
-            approver: None,
         };
         let runner = Arc::new(ResumingRunner {
             seen: Mutex::new(None),

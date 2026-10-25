@@ -1,19 +1,16 @@
-//! 内置工具实现与 bash 权限策略。移植自 `packages/agent/src/harness/tools/`，
-//! 外加 Pipi 新增的 memory 工具。
+//! 内置工具实现。移植自 `packages/agent/src/harness/tools/`，外加 Pipi 新增的
+//! memory 工具。
 //!
 //! 工具**端口**（`AgentTool` / `ToolContext` / `ToolRegistry` / `ToolOutput`）
 //! 与权限**数据**（`PermissionsConfig` / `SandboxMode` / 工具名清单）在
-//! `pipi_protocol`；这里放实现：内置工具集、命令切分与危险命令判定、输出
-//! 截断、进程组收尾。装配策略只有 [`builtin_registry`] 一处 —— 宿主在运行
-//! 装配时调用它，再按需 `ToolRegistry::push` 注入自己的工具（组合工具、
-//! 后台任务工具）。
+//! `pipi_protocol`；这里放实现：内置工具集、输出截断、进程组收尾。真正的
+//! 执行边界在 `pipi_sandbox`，装配策略只有 [`builtin_registry`] 一处。
 
 mod bash;
 mod edit;
 mod glob;
 mod grep;
 pub mod memory;
-pub mod permissions;
 pub mod process;
 mod read;
 mod truncate;

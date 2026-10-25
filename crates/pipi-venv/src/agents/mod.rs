@@ -37,8 +37,8 @@ pub use paths::{agent_dir, expand_tilde, validate_agent_name};
 pub use preparation::{PreparedAgent, prepare_agent};
 pub use prompt::build_system_prompt_with_tools;
 pub use registry::{
-    add_bash_allowlist_entries, create_agent, create_agent_with_instructions, ensure_default_agent,
-    list_agents, list_agents_bootstrapped, load_agent, save_agent,
+    create_agent, create_agent_with_instructions, ensure_default_agent, list_agents,
+    list_agents_bootstrapped, load_agent, save_agent,
 };
 pub use tool_context::build_tool_context;
 pub use types::{

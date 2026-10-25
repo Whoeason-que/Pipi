@@ -47,7 +47,6 @@ pub fn run() {
             chat::queue_prompt,
             chat::cancel_queued_prompt,
             chat::set_prompt_queue_paused,
-            chat::resolve_approval,
             chat::stop_run,
             chat::query_background_tasks,
             chat::manage_background_task,

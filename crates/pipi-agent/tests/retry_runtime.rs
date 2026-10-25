@@ -142,7 +142,6 @@ fn test_config(addr: std::net::SocketAddr, retry: RetryPolicy) -> AgentLoopConfi
             sandbox: SandboxMode::DangerFullAccess,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
-            approver: None,
         },
         options: StreamOptions {
             auto_protocol: false,

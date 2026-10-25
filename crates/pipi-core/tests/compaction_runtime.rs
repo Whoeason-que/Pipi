@@ -306,7 +306,6 @@ fn wait_for<F: Fn(&[RuntimeEvent]) -> bool>(
                     RuntimeEvent::SessionError(envelope) => {
                         format!("session-error: {}", envelope.message)
                     }
-                    RuntimeEvent::ApprovalRequest(_) => "approval-request".to_string(),
                     RuntimeEvent::SessionSwitched(envelope) => format!(
                         "session-switched → {} (archived={})",
                         envelope.to_session_id, envelope.archived

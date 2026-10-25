@@ -458,15 +458,6 @@ impl RuntimeState {
         session.engine.steer(message)
     }
 
-    /// 回传一次审批请求的用户决定。请求已过期（超时 / 中止）时返回 Err。
-    pub fn resolve_approval(
-        &self,
-        request_id: &str,
-        decision: ApprovalDecision,
-    ) -> Result<(), String> {
-        self.approval.resolve(request_id, decision)
-    }
-
     /// 释放某个 Agent 名下**所有空闲**的会话（不落盘，文件留在磁盘上）。
     /// 正在跑的那条保留 —— 后台运行不会因为「离开这个 Agent」被清掉。
     pub fn new_session(&self, agent_name: &str) -> Result<(), String> {

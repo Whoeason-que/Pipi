@@ -1,5 +1,4 @@
 //! 宿主负责产品装配、多会话索引与调度；单会话内核在 pipi-agent。
-use crate::approval::{ApprovalDecision, ApprovalGate, InteractiveApprover};
 use crate::background::BackgroundTaskManager;
 use crate::events::{
     AgentEventEnvelope, EventEmitter, RuntimeEvent, SessionChangedEnvelope, SessionErrorEnvelope,
@@ -76,7 +75,6 @@ pub struct RuntimeState {
     /// `SessionRekey`）。
     sessions: Arc<Mutex<HashMap<SessionKey, HostSession>>>,
     shutting_down: Arc<AtomicBool>,
-    approval: Arc<ApprovalGate>,
     background: BackgroundTaskManager,
     events: crate::events::EventHub,
     #[cfg(feature = "server")]

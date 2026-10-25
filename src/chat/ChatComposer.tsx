@@ -6,11 +6,7 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
-import {
-  formatRuntimeError,
-  type ApprovalDecisionValue,
-  type ApprovalRequestPayload,
-} from "../chat-runtime";
+import { formatRuntimeError } from "../chat-runtime";
 import { submitDraft, type DraftBuffer } from "../drafts";
 import { useI18n } from "../i18n";
 import { IconArrowDown, IconSend, IconStop } from "../icons";
@@ -29,7 +25,6 @@ interface ChatComposerProps {
   atTail: boolean;
   model: ModelConfig | null;
   customModel: boolean;
-  approval: ApprovalRequestPayload | null;
   composingRef: RefObject<boolean>;
   onSend: (text: string) => Promise<boolean>;
   onSteer: (text: string) => Promise<boolean>;
@@ -39,7 +34,6 @@ interface ChatComposerProps {
   onPauseQueue: (paused: boolean) => Promise<void>;
   onBeforeSend: () => void;
   onStop: () => void;
-  onResolveApproval: (decision: ApprovalDecisionValue) => void;
   onOpenModel: () => void;
   onReasoningChange: (effort: ReasoningEffort | null) => Promise<void>;
   onScrollToLatest: () => void;
@@ -58,7 +52,6 @@ export default function ChatComposer({
   atTail,
   model,
   customModel,
-  approval,
   composingRef,
   onSend,
   onSteer,
@@ -68,7 +61,6 @@ export default function ChatComposer({
   onPauseQueue,
   onBeforeSend,
   onStop,
-  onResolveApproval,
   onOpenModel,
   onReasoningChange,
   onScrollToLatest,
@@ -149,42 +141,6 @@ export default function ChatComposer({
           <IconArrowDown />
           {locale === "en" ? "Latest messages" : "回到最新消息"}
         </button>
-      )}
-      {approval && (
-        <div
-          className="approval-bar"
-          role="alertdialog"
-          aria-label="命令执行审批"
-        >
-          <div className="approval-text">
-            <span className="approval-title">Agent 请求执行白名单外的命令</span>
-            <code>{approval.command}</code>
-          </div>
-          <div className="approval-actions">
-            <button
-              type="button"
-              className="btn deny"
-              onClick={() => onResolveApproval("deny")}
-            >
-              拒绝
-            </button>
-            <button
-              type="button"
-              className="btn allow"
-              onClick={() => onResolveApproval("allow")}
-            >
-              允许一次
-            </button>
-            <button
-              type="button"
-              className="btn allow"
-              onClick={() => onResolveApproval("always")}
-              title="执行并把命令加入 Agent 白名单（agent.json）"
-            >
-              总是允许
-            </button>
-          </div>
-        </div>
       )}
       {temporary && (
         <div className="test-safety-note" role="note">

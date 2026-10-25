@@ -114,7 +114,6 @@ pub fn ensure_default_agent() -> Result<Option<AgentDefinition>, String> {
         return Ok(None);
     }
     // 权限沿用「新建 Agent」表单的默认：全部基础工具 + 受限沙箱（workspace-write）。
-    // 注意不要直接传 PermissionsConfig::default()，其沙箱默认是 DangerFullAccess。
     match create_agent(
         DEFAULT_AGENT_NAME,
         DEFAULT_AGENT_DESCRIPTION,
@@ -182,11 +181,8 @@ pub fn create_agent_with_instructions(
     let name = name.trim().to_string();
     validate_agent_name(&name)?;
 
-    // 新建 Agent 默认使用受限沙箱；旧 agent.json 的 serde 默认仍保持兼容。
-    let permissions = permissions.unwrap_or_else(|| PermissionsConfig {
-        sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
-        ..Default::default()
-    });
+    // 新建 Agent 与旧 agent.json 的缺省都是受限沙箱（workspace-write）。
+    let permissions = permissions.unwrap_or_default();
 
     // 工作目录校验：显式指定时展开 ~ 并确保是绝对路径，不存在则创建
     let workspace = match workspace.map(str::trim).filter(|w| !w.is_empty()) {
@@ -301,28 +297,6 @@ pub fn save_agent(def: &AgentDefinition) -> Result<(), String> {
     let manifest_path = dir.join("agent.json");
     ensure_real_file(&manifest_path, "agent.json")?;
     fs::write(manifest_path, manifest + "\n").map_err(|e| e.to_string())
-}
-
-/// 交互审批「总是允许」：把命令段落追加进 Agent 的 bash 白名单并落盘。
-/// 读改写之间不做跨进程互斥（与 save_agent 同一信任级别），条目去重。
-pub fn add_bash_allowlist_entries(name: &str, entries: &[String]) -> Result<(), String> {
-    let mut def = load_agent(name)?;
-    for entry in entries {
-        let entry = entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
-        if !def
-            .permissions
-            .bash
-            .commands
-            .iter()
-            .any(|existing| existing == entry)
-        {
-            def.permissions.bash.commands.push(entry.to_string());
-        }
-    }
-    save_agent(&def)
 }
 
 #[cfg(test)]
@@ -456,7 +430,6 @@ mod tests {
                 None,
                 Some(PermissionsConfig {
                     tools: vec!["nuclear".into()],
-                    bash: Default::default(),
                     sandbox: Default::default(),
                 }),
                 None,
@@ -471,7 +444,6 @@ mod tests {
                 None,
                 Some(PermissionsConfig {
                     tools: vec![],
-                    bash: Default::default(),
                     sandbox: Default::default(),
                 }),
                 None,
@@ -496,10 +468,6 @@ mod tests {
             None,
             Some(PermissionsConfig {
                 tools: vec!["read".into(), "bash".into()],
-                bash: pipi_protocol::permissions::BashPermissions {
-                    mode: pipi_protocol::permissions::BashMode::Allowlist,
-                    commands: vec!["git".into()],
-                },
                 sandbox: Default::default(),
             }),
             None,
@@ -521,7 +489,7 @@ mod tests {
             assert!(dir.join(sub).is_dir(), "{sub}/ 未创建");
         }
         let text = std::fs::read_to_string(dir.join("agent.json")).unwrap();
-        assert!(text.contains("\"allowlist\""));
+        assert!(text.contains("\"sandbox\""));
         assert!(text.contains("\"tools\": ["));
         assert_eq!(def.resolve_workspace().unwrap(), dir.join("workspace"));
         // 重复创建被拒
@@ -589,7 +557,7 @@ mod tests {
         ] {
             assert!(dir.join(entry).exists(), "{entry} 应存在");
         }
-        // 默认权限：全部基础工具 + 受限沙箱（PermissionsConfig::default 的沙箱是 DangerFullAccess，不能被沿用）
+        // 默认权限：全部基础工具 + 受限沙箱（PermissionsConfig::default）
         assert_eq!(
             created.permissions.sandbox,
             pipi_protocol::permissions::SandboxMode::WorkspaceWrite

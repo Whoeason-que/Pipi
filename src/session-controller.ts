@@ -1,6 +1,6 @@
 import {
   INITIAL_CHAT_STATE, chatReducer, createEntryKey, eventMatchesRun, formatRuntimeError,
-  type AgentEventPayload, type ApprovalDecisionValue, type ApprovalRequestPayload,
+  type AgentEventPayload,
   type ChatAction, type ChatState,
   type SessionErrorPayload,
   type SessionEventMeta, type SessionStatsPayload, type SessionSwitchedPayload
@@ -36,7 +36,6 @@ export type SessionFrame =
   | { type: "agent-event"; payload: AgentEventPayload }
   | { type: "session-stats"; payload: SessionStatsPayload }
   | { type: "session-error"; payload: SessionErrorPayload }
-  | { type: "approval-request"; payload: ApprovalRequestPayload }
   | { type: "session-switched"; payload: SessionSwitchedPayload };
 
 export interface SessionSnapshot {
@@ -47,7 +46,6 @@ export interface SessionSnapshot {
   sessionId: string | null;
   model: ModelConfig | null;
   isCustomModel: boolean;
-  approval: ApprovalRequestPayload | null;
   change: { revision: number; info: SessionInfoView } | null;
   error: { revision: number; message: string } | null;
 }
@@ -90,7 +88,7 @@ export class SessionController {
     this.identity = sessionId ? { sessionId } : null;
     this.value = {
       queue: EMPTY_PROMPT_QUEUE, chat: INITIAL_CHAT_STATE, load: "idle", operation: "idle", sessionId,
-      model: agent.provider ?? null, isCustomModel: false, approval: null, change: null, error: null,
+      model: agent.provider ?? null, isCustomModel: false, change: null, error: null,
     };
   }
 
@@ -186,7 +184,7 @@ export class SessionController {
       if (!accepted && !recovery) return;
       if (event.type === "agent_end") {
         this.settledRun = meta?.runId ?? this.identity?.runId ?? null;
-        this.patch({ approval: null, operation: "idle" });
+        this.patch({ operation: "idle" });
       }
       this.dispatch({ type: "event", event, key: createEntryKey("event") });
     } else if (frame.type === "session-stats") {
@@ -199,8 +197,6 @@ export class SessionController {
         runId: payload.runId, temporary: this.temporary, running: true }, true);
       // 只刷新会话信息；压缩后的时间线由 compaction_end 更新。
       void this.refreshInfo();
-    } else if (frame.type === "approval-request") {
-      if (this.accept(frame.payload)) this.patch({ approval: frame.payload });
     } else if (this.accept(frame.payload)) {
       this.fail(frame.payload.message);
     }
@@ -222,7 +218,6 @@ export class SessionController {
 
   /** 先订阅，再取快照；加载期间的所有事件按到达顺序合并。 */
   async reconnect(): Promise<void> {
-    this.patch({ approval: null });
     await this.hydrate();
   }
 
@@ -410,7 +405,7 @@ export class SessionController {
           this.awaitingRun = null;
           this.settledRun = this.identity?.runId ?? this.settledRun;
           this.dispatch({ type: "event", event: { type: "agent_end" }, key: createEntryKey("stop") });
-          this.patch({ operation: "idle", approval: null });
+          this.patch({ operation: "idle" });
           return;
         }
         if (attempt === 50) throw new Error("停止请求已发送，但后端仍在运行；请稍后重试");
@@ -477,24 +472,6 @@ export class SessionController {
     this.receive({ type: "prompt-queue", payload });
   }
 
-  async resolveApproval(decision: ApprovalDecisionValue): Promise<void> {
-    const request = this.value.approval;
-    if (!request) return;
-    // 只有宿主确认收到决定后才移除审批条：传输失败时保留入口，
-    // 否则运行会停在等待审批，而用户已经无法再点允许/拒绝。
-    try {
-      await this.transport.invoke("resolve_approval", { requestId: request.requestId, decision });
-    } catch (error) {
-      // 传输失败 = 决定可能没送到，保留可重试；领域错误（请求过期/已被
-      // 其他客户端处理）= 这个审批条已经没有意义，移除以免误导。
-      if (!(error instanceof CommandTransportError)
-        && this.value.approval?.requestId === request.requestId) {
-        this.patch({ approval: null });
-      }
-      throw error;
-    }
-    if (this.value.approval?.requestId === request.requestId) this.patch({ approval: null });
-  }
   async compact(): Promise<void> {
     if (this.uncertainSend) throw new Error("Please confirm or stop the pending run first");
     await this.transport.invoke("compact_now", { agentName: this.agent.name, sessionId: this.requireSessionId() });

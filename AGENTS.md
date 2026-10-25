@@ -20,8 +20,7 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 crates/pipi-protocol/ 契约层：DTO 与 wire 形状、会话条目格式与存储端口
                       （SessionLog / SessionRepo）、工具/权限/provider 端口，
                       以及跨层共用的零依赖助手（fs 守卫、文本转义、id、RetryHint）
-crates/pipi-tools/    内置工具实现（bash/read/write/edit/glob/grep/memory）与
-                      bash 权限策略（切分 / 白黑名单 / 危险命令 / 沙箱重定向）
+crates/pipi-tools/    内置工具实现（bash/read/write/edit/glob/grep/memory）
 crates/pipi-sandbox/  OS 级沙箱：SandboxPolicy → Landlock + seccomp（Linux）/
                       Seatbelt（macOS），提供 pipi-sandbox helper 与库侧
                       Command 包装（唯一安全边界）
@@ -37,7 +36,7 @@ crates/pipi-venv/     Agent 环境域：agents（清单与注册表、契约层�
                       / skills（技能中心）/ prompt（纯提示词层）
 crates/pipi-agent/    L5 单会话内核：session（运行守卫 / abort / steering /
                       账本恢复 / 压缩编排）/ agent_loop / stats
-crates/pipi-core/     宿主层：runtime（多会话索引、能力装配与调度）/ events / approval /
+crates/pipi-core/     宿主层：runtime（多会话索引、能力装配与调度）/ events /
                       background / commands（**宿主命令表**）/ settings /
                       tools（Agent 组合工具）；`--features server` 的 Web 宿主
 crates/pipi-test-support/ 测试脚手架（HOME/AV_HOME 串行化改写），仅 dev-dependency
@@ -63,14 +62,13 @@ src/                 React + TypeScript 前端
 
 核心从 [pi](https://github.com/earendil-works/pi) 移植而来，模块映射与「有意
 不移植清单」见 README「与 pi 的关系」一节。改核心逻辑前先看上游对应实现。
-命令安全（`permissions/safety.rs`）与沙箱模式移植自 openai/codex，
-映射见 README「与 codex 的关系」。**安全边界是 `pipi-sandbox` 的 OS 沙箱**
+沙箱模式与早期的命令安全启发式移植自 openai/codex，映射见 README
+「与 codex 的关系」（用户态命令安全实现已删除）。**安全边界是 `pipi-sandbox` 的 OS 沙箱**
 （Linux Landlock + seccomp，macOS Seatbelt）：bash 与后台任务在真正 spawn 处
-经 helper 挂沙箱，子进程自动继承。旧的白/黑名单与危险命令检测只在
-`PIPI_SANDBOX=off` 或 helper 不可用时作为回退路径，不要再把新安全规则加到
-命令文本解析上。`PIPI_SANDBOX=off|auto|require`、helper 路径
-`PIPI_SANDBOX_BIN`、网络临时开关 `PIPI_SANDBOX_NETWORK`、额外可写根
-`PIPI_SANDBOX_WRITABLE`；新增 spawn 点必须
+经 helper 挂沙箱，子进程自动继承。旧的命令文本策略与交互审批已删除；
+非 `danger-full-access` 档位在 helper 不可用时**直接拒绝**，不要重新引入
+用户态命令解析。helper 路径 `PIPI_SANDBOX_BIN`、网络临时开关
+`PIPI_SANDBOX_NETWORK`、额外可写根 `PIPI_SANDBOX_WRITABLE`；新增 spawn 点必须
 先想清楚它是否属于 Agent 可控执行（属于则走 `pipi_sandbox::tokio_command`）。
 
 ## 常用命令
@@ -126,7 +124,7 @@ src/                 React + TypeScript 前端
   测试用 `use crate::test_support::…` 引用。临时目录一律
   `pipi_test_support::temp_dir(prefix)`，不要再手写一份。**集成测试（只用 pub API、
   编译成独立 crate）放 `crates/<crate>/tests/*.rs`，无需任何声明**：整条链路 /
-  整个生命周期的黑盒回归都放这里（如 `pipi-tools/tests/permissions_policy.rs`、
+  整个生命周期的黑盒回归都放这里（如 `pipi-sandbox/tests/linux_policy.rs`、
   `pipi-venv/tests/skill_lifecycle.rs`、`pipi-context/tests/compaction_corpus.rs`），只走公开入口的用例不要塞回单元测试。
   `mod.rs` 里的 `pub use` 是 Rust 模块系统要求的门面，**不是**被禁止的转口
   re-export —— 后者指的是跨 crate 的整包转发。
@@ -222,19 +220,14 @@ src/                 React + TypeScript 前端
   **同一个 Agent 两条会话同时跑**、停一条不影响其他、只释放空闲会话、事件与落盘
   互不串），并且别把前端拖回去：ChatView 卸载**不得**中止运行、切换 Agent 或切换
   会话**不得**被拦（后台运行是产品行为，不是 bug）。
-- 权限是安全边界：bash 命令检查在 `pipi-tools/src/bash.rs` 执行前发生，
-  改权限逻辑（`permissions/`）必须带测试，且宁可拒绝不可放行 —— 无法静态
-  分析的命令一律视为危险。两条已定的判据边界，改动前先想清楚：
-  **重定向**只拦「写入文件系统」（`>` `>>` `2>文件` `&>` `>|` `<>` `>&词`）
-  与「从文件读入」（`<文件` `<(cmd)`），`2>/dev/null`、`2>&1`、`>&-`、
-  heredoc / herestring 必须放行（它们既不落盘也不读文件，且实测占拒绝量的
-  绝大多数，拦下来只有摩擦）—— 见 `permissions/redirect.rs` 的 `check_write_redirect`；
-  **`rm -f` 家族**只放行工作区内、非仓库根 / 工作区根的字面量绝对路径，
-  包装调用（sudo/env/bash -c）、变量与通配符目标必须拒绝 —— 见
-  `permissions/rm.rs` 的 `forced_rm_inside_workspace`。这两条改判据都要更新
-  `crates/pipi-tools/tests/permissions_policy.rs` 的表驱动测试（白盒解析回归
-  内联在 `permissions/{parse,redirect,safety,rm}.rs` 各自文件底部），
-  工作区包含判定本身在 `pipi-protocol/src/permissions.rs`（`resolve_write_path`）。
+- 权限是安全边界：唯一实现在 `pipi-sandbox`（Linux Landlock + seccomp，macOS
+  Seatbelt）。bash 与后台任务在真正 spawn 处经 `pipi_sandbox::tokio_command`
+  包装；非 `danger-full-access` 档位在 helper 缺失、Landlock 不可用或策略构造
+  失败时**直接拒绝**，不要退回用户态命令解析。改沙箱必须跑
+  `cargo test -p pipi-sandbox`（黑盒断言写越界 / read-only / 网络 / helper 缺失）
+  与 `cargo test -p pipi-tools`（工具侧门控）。`resolve_write_path` /
+  `resolve_read_path` 仍用于 write/edit/read/memory 的 UX containment（报错更
+  清晰、防手滑），但它们**不是**执行边界；不要再按命令文本增加安全规则。
 - 请求重试分两层，别把重试加到 provider 层：**provider 只分类**（rig 的结构化错误
   → 可重试 / 终态 + `Retry-After`，见 `pipi-provider/src/classify.rs` 的
   `classify_rig_error`，`mod classify` 是私有的、不对外导出），**重发只在

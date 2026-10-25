@@ -11,7 +11,6 @@ const demoAgent: AgentDefinition = {
   workspace: null,
   permissions: {
     tools: ["read", "write", "edit", "bash", "memory", "glob", "grep"],
-    bash: { mode: "allowAll", commands: [] },
     sandbox: "workspace-write",
   },
   mcpServers: [],
@@ -77,7 +76,6 @@ const demoPeer: AgentDefinition = {
   workspace: null,
   permissions: {
     tools: ["read", "glob", "grep"],
-    bash: { mode: "allowAll", commands: [] },
     sandbox: "read-only",
   },
   mcpServers: [],
@@ -162,7 +160,6 @@ interface DemoConversation {
   running: boolean;
   runId: number;
   runTimer: ReturnType<typeof setTimeout> | null;
-  approvalId?: string;
   queue: PromptQueueSnapshot;
   queueTimer?: ReturnType<typeof setTimeout>;
 }
@@ -445,17 +442,8 @@ function startDemoRun(conversation: DemoConversation, prompt: string): void {
     () => emitDemoAgentEvent(conversation, { type: "agent_end", messages: [response] }),
   ];
 
-  // UI 验收的显式演示入口，不调用真实工具，不进入生产 bundle。
-  if (prompt.startsWith("[审批演示]")) steps.splice(1, 0, () => {
-    const requestId = `approval-${conversation.sessionId}-${conversation.runId}`;
-    conversation.approvalId = requestId;
-    emitDevEvent("approval-request", { agentName: conversation.agentName, sessionId: conversation.sessionId,
-      runId: conversation.runId, requestId, command: "git status --short", missing: ["git status --short"] });
-  });
-
   let stepIndex = 0;
   const runNextStep = () => {
-    if (conversation.approvalId) { conversation.runTimer = setTimeout(runNextStep, 240); return; }
     if (stepIndex >= steps.length) {
       conversation.runTimer = null;
       conversation.running = false;
@@ -544,7 +532,7 @@ const demoCatalog: ModelCatalog = {
 };
 
 const settings: Settings = {
-  notifications: { desktopEnabled: false, completed: true, failed: true, approval: true },
+  notifications: { desktopEnabled: false, completed: true, failed: true },
   theme: localStorage.getItem("pipi-theme") || "ink-blue",
   providers: [
     {
@@ -1041,26 +1029,12 @@ export function installDevMock(): void {
           scheduleDemoQueue(conversation);
           return Promise.resolve(payload);
         }
-        case "resolve_approval": {
-          const conversation = [...demoConversations.values()].find(item => item.approvalId === args.requestId);
-          if (conversation) {
-            delete conversation.approvalId;
-            if (args.decision === "deny") {
-              if (conversation.runTimer) clearTimeout(conversation.runTimer);
-              conversation.runTimer = null;
-              emitDemoAgentEvent(conversation, { type: "agent_end" });
-              conversation.running = false;
-            }
-          }
-          return Promise.resolve(null);
-        }
         case "stop_run": {
           const conversation = conversationOf(
             String(args.agentName ?? demoAgent.name),
             String(args.sessionId ?? ""),
           );
           if (!conversation) return Promise.resolve(null);
-          delete conversation.approvalId;
           if (conversation.queue.messages.length) { conversation.queue.paused = true; publishDemoQueue(conversation); }
           if (conversation.runTimer) clearTimeout(conversation.runTimer);
           conversation.runTimer = null;

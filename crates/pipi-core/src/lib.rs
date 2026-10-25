@@ -6,8 +6,7 @@
 //!
 //! | 模块 | 职责 |
 //! | --- | --- |
-//! | [`events`] | 宿主事件协议（叶子：approval / runtime 都依赖它） |
-//! | [`approval`] | bash 交互审批状态机（fail-closed） |
+//! | [`events`] | 宿主事件协议（叶子：runtime 依赖它） |
 //! | [`runtime`] | 会话槽、运行编排、压缩重键、会话载体装配点 |
 //! | [`background`] | 后台任务托管（shell / child Agent） |
 //! | [`commands`] | 宿主命令表（参数结构 + 实现 + dispatch） |
@@ -18,13 +17,12 @@
 //! 领域与引擎在别处：Agent 清单 / 注册表 / 技能在 `pipi-venv`，上下文与压缩
 //! 策略在 `pipi-context`，会话载体在 `pipi-session`，模型面在 `pipi-provider`。
 //!
-//! 另有 codex 移植：危险命令判定（`pipi-tools/src/permissions/safety.rs`）与
-//! `SandboxMode`，见 README「与 codex 的关系」。
+//! 执行边界是 `pipi-sandbox` 的 OS 沙箱；命令文本策略与交互审批已经删除。
+//! `SandboxMode` 的语义移植自 codex，见 README「与 codex 的关系」。
 //!
 //! 尚未移植（有意推迟，需要时再从上游搬运）：
 //! hooks 全集、prepareNextTurn、多 provider 目录、图片工具等。
 
-pub mod approval;
 pub mod background;
 pub mod commands;
 pub mod events;

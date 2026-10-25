@@ -111,7 +111,6 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 技能 | `agent.toml` → `[resources.skills].sources` 声明的目录（默认 `harness/skills/`）；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
 | 记忆 | `agent.toml` → `[resources].memory` 声明的目录（默认 `harness/memory/`） | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
 | 系统提示词策略 | `agent.json` → `systemPrompt` | `both`（默认：Pipi 侧 + 工作区侧）/ `agent`（只取 Agent 侧素材）/ `workspace`（只取项目上下文）/ `none`（完全不发 system 消息，只发对话与工具定义）。策略只影响提示词：权限、沙箱、env 与受信任读取根不受影响，`workspace` 策略的 Agent 照样能用 memory 工具读写契约声明的记忆目录 |
-| 命令权限 | `agent.json` → `permissions.bash` | **回退路径**：`PIPI_SANDBOX=off` 或 helper 不可用时才生效（白/黑名单、逐段危险检测、Allowlist 审批）。OS 沙箱生效时命令文本不参与安全判定，`$()`/`eval`/管道喂 shell 都由内核边界兜住 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`。Linux 用 Landlock（文件系统）+ seccomp（默认禁网络），macOS 用 Seatbelt；由 `pipi-sandbox` helper 在 `exec` 前安装，子进程全部继承。`workspace-write` 只允许写工作目录、临时目录与 `/dev` 基础设备；`danger-full-access` 是显式逃生门（不挂沙箱） |
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |
 | Agent 分组 | `agent.json` → `subagent` | `false`（默认）显示在 AGENTS；Agent 的 `create_agent` 工具创建时写为 `true` 并显示在 SUBS；可在设置中更改 |
@@ -133,21 +132,20 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 ### OS 沙箱（当前边界）
 
 设计与迁移细节见 [os-sandbox.md](docs/os-sandbox.md)。沙箱是唯一的安全边界，
-命令文本只在**回退路径**上被旧策略检查：
+命令文本不参与安全判定，旧的命令策略与交互审批已经删除：
 
 - **Linux**：`pipi-sandbox` helper 装 Landlock（全盘只读、`writable_roots` 可写）
   与 seccomp（默认挡 `AF_INET`/`AF_INET6` socket），随后 `exec` 真实命令。
-  Landlock 需要 5.13+ 且 LSM 包含 `landlock`；不满足时按 `PIPI_SANDBOX` 的
-  模式回退或拒绝，不会静默放行。
+  Landlock 需要 5.13+ 且 LSM 包含 `landlock`；不满足时拒绝执行，不会静默降级。
 - **macOS**：同一 helper 生成 SBPL profile 并 `exec /usr/bin/sandbox-exec`。
-- **Windows**：暂无后端；`auto` 回退旧权限层，`require` 直接失败。
+- **Windows**：暂无后端；非 `danger-full-access` 档位拒绝执行。
+- helper 缺失 / 无法加载时同样拒绝；`danger-full-access` 是唯一显式逃生门。
 
-开关：`PIPI_SANDBOX=off|auto|require`（默认 `auto`），helper 路径可用
-`PIPI_SANDBOX_BIN` 覆盖；`PIPI_SANDBOX_NETWORK=1` 可在保留文件系统沙箱的
-前提下放行网络，`PIPI_SANDBOX_WRITABLE` 可追加可写根（两者都是临时逃生阀，
-按 Agent/按次授权是下一步）。发布包把
-`pipi-sandbox` 作为 sidecar 分发：`npm run tauri:dev` / `tauri:build` 会先构建
-helper 并用 `scripts/prepare-sidecar.mjs` 准备 `externalBin`。
+helper 路径可用 `PIPI_SANDBOX_BIN` 覆盖；`PIPI_SANDBOX_NETWORK=1` 可在保留
+文件系统沙箱的前提下放行网络，`PIPI_SANDBOX_WRITABLE` 可追加可写根（两者都是
+临时逃生阀，按 Agent/按次授权是下一步）。发布包把 `pipi-sandbox` 作为 sidecar
+分发：`npm run tauri:dev` / `tauri:build` 会先构建 helper 并用
+`scripts/prepare-sidecar.mjs` 准备 `externalBin`。
 
 边界说明：`workspace-write` 限制的是内容与目录结构，不是文件权限位——
 Landlock 不中介 `chmod`/`chown`/`utime`；授权范围内的破坏（删自己的仓库、
@@ -244,7 +242,7 @@ Markdown 外部图片。桌面与远程共用同一组宿主命令。
 - **外观**：深色 / 浅色主题；
 - **上下文**：压缩是否先分叉新会话、分叉后是否归档原会话；
 - **重试**：最大尝试次数、起始退避与退避上限；
-- **通知**：桌面后台提醒与逐设备 Web Push；回复完成、运行失败、待审批共用事件。
+- **通知**：桌面后台提醒与逐设备 Web Push；回复完成与运行失败共用事件。
   iPhone 通过 HTTPS 添加到主屏幕后开启，使用与验证见 [notifications.md](docs/notifications.md)；
 - **模型提供商**：端点与密钥、默认提供商、模型目录刷新；协议默认「自动」（按模型
   决定，见「与 opencode 的关系」的模型目录一条），也可对某一家固定协议；
@@ -289,7 +287,7 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 │  crates/pipi    Tauri 薄壳           │  commands：只做 IPC 转发
 │  pipi-core      Web 宿主（feature）  │  axum WS + /api/invoke + 鉴权
 ├──────────────────────────────────────┤
-│  pipi-core      宿主层               │  命令表、会话槽、运行编排、审批、后台
+│  pipi-core      宿主层               │  命令表、会话槽、运行编排、后台
 │  ├─ runtime      多会话索引与装配    │  主轮 / child / 压缩共用单会话内核
 │  ├─ commands     宿主命令表          │  参数结构 + 实现 + dispatch（只有一份）
 │  ├─ settings     全局设置            │  供应商、压缩阈值、重试策略
@@ -302,7 +300,7 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 ├──────────────────────────────────────┤
 │  pipi-protocol  契约层               │  DTO + 会话条目格式 + 端口（唯一被所有层依赖）
 │  pipi-session   会话载体             │  git 分支（一轮一 commit）+ 旧会话导入
-│  pipi-tools     工具实现             │  内置工具 + bash 权限策略（回退路径）
+│  pipi-tools     工具实现             │  内置工具（bash/read/write/edit/…）
 │  pipi-sandbox   OS 沙箱               │  Landlock/seccomp/Seatbelt + helper（唯一边界）
 │  pipi-provider  模型面               │  rig 适配 + models.dev 目录（唯一 HTTP）
 └──────────────────────────────────────┘
@@ -329,9 +327,8 @@ Agent 身份样式由 `components/AgentAvatar.tsx` 统一渲染。样式以 `sty
 `lifecycle`（宿主生命周期）、`execution` / `child` / `compaction`（能力装配与调度）、
 `model`（模型与凭据解析）、`events`（身份信封与宿主重键）拆分。内核压缩更换账本后
 通知宿主移动索引和后台任务归属，再发旧 id 的 `session-switched`，后续事件用新 id。
-宿主事件协议（`RuntimeEvent` 与各 envelope）在 `pipi_core::events`，审批与
-runtime 都依赖这个叶子模块，`background` 通过 `ChildAgentRunner` 端口拿到 child
-运行能力。桌面与 Web 共用这些实现（Web 宿主是 `pipi_core::server`，`--features
+宿主事件协议（`RuntimeEvent` 与各 envelope）在 `pipi_core::events`；
+`background` 通过 `ChildAgentRunner` 端口拿到 child 运行能力。桌面与 Web 共用这些实现（Web 宿主是 `pipi_core::server`，`--features
 server`）。前端 `ipc.ts` 声明命令参数、返回值和事件类型，`npm run test:frontend`
 会核对桌面注册、Web 路由和共享 JSON wire 样例；宿主层的
 `cargo test -p pipi-core` 验证同一份样例的 Rust 序列化。
@@ -500,8 +497,8 @@ Alt+Enter 引导当前任务，Shift+Enter 换行。消息实际起跑前只显�
 | `packages/agent` skills（frontmatter） | `pipi-venv::skills` | 渐进式披露：索引常驻上下文，全文模型按需 read；技能包管理（store/锁/安装）见「agent.toml 契约」一节 |
 
 有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/
-prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-tools::permissions`
-（命令权限，现为回退路径）、`pipi-sandbox`（OS 沙箱与 helper）、
+prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-sandbox`
+（OS 沙箱与 helper）、
 `pipi-venv::agents`（Agent 注册表）、`pipi-provider::catalog`（模型目录，
 models.dev）、`pipi-venv::skills`（技能中心）、
 memory 工具（含渐进召回注入）、glob/grep 检索工具。
@@ -550,16 +547,15 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
 
 ### 与 codex 的关系
 
-命令安全与沙箱概念移植自 [openai/codex](https://github.com/openai/codex)
-（Apache-2.0，见 `crates/pipi-tools/src/permissions/safety.rs` 的 attribution）：
+沙箱模式与早期的命令安全启发式移植自
+[openai/codex](https://github.com/openai/codex)（Apache-2.0）；命令安全实现
+（`permissions/safety.rs`）已随 OS 沙箱落地而删除：
 
 - `SandboxMode`（read-only / workspace-write / danger-full-access）→
   `pipi_protocol::permissions::SandboxMode`，语义一致（kebab-case 序列化兼容）；
   落地实现变成 `pipi-sandbox` helper 的 Landlock/Seatbelt 规则。
-- `is_dangerous_command`（rm -f 家族 + sudo/env/trap/bash-c 包装器解包 +
-  深度上限 fail-closed）→ `pipi_tools::permissions::safety`。上游用 tree-sitter 解析
-  `bash -c` 脚本，我们不引入该依赖：脚本含语法关键字/命令替换时按危险
-  处理（fail-closed）。
+- 早期的 `is_dangerous_command`（rm -f 家族 + sudo/env/trap/bash-c 包装器）
+  已删除；命令文本不再参与安全判定，由 Landlock/Seatbelt 执行能力集合。
 - AGENTS.md 项目文档发现（`core/src/agents_md.rs`：项目根定位 + 根→近
   逐层收集 + 字节预算）→ `pipi-venv::prompt` 的资源发现（`resources.rs`）。
 - 环境上下文注入（`environment_context`：cwd/沙箱/平台/日期）→
@@ -567,15 +563,10 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
 - bash 输出截断时的 spill 文件来自 pi 的 output-capture：完整输出落盘、
   路径附在提示里。
 - 现已移植：OS 级沙箱（Linux Landlock + seccomp，macOS Seatbelt），入口是
-  `pipi-sandbox` helper；沙箱生效时旧的白/黑名单与危险启发式只作为回退路径。
-- 回退路径的分工（有意为之）：重定向约束只覆盖**写入文件系统**（拦
-  `>` `>>` `2>文件`）与**从文件读入**（拦 `<文件` `<(cmd)`）；`2>/dev/null`、
-  `2>&1`、`>&-`、heredoc 既不落盘也不读文件，一律放行。它保护的是「工作区
-  写入必须走 `write` / `edit` 的 canonical containment」，**不是防逃逸**——
-  `tee`、`python -c "open(p,'w')"` 本就在用户态闸门之外（见
-  `permissions` 模块文档的局限声明）。
-  `rm -f` 家族同理：只放行工作区内、非仓库根 / 工作区根的字面量绝对路径，
-  用来清构建与缓存产物；含变量 / 通配符或经 `cd` 的相对路径照旧拒绝。
+  `pipi-sandbox` helper；它是唯一的执行边界。
+- 旧的命令文本策略（切分 / 白黑名单 / 危险命令 / 重定向 / 交互审批）已删除。
+  shell 不是可静态判定的语言，`$()`、`eval`、管道喂 shell 都能绕过这类规则；
+  现在由内核按能力集合执行，helper 缺失时非 `danger-full-access` 档位直接拒绝。
 
 ## agent.toml 契约（av 标准）
 
@@ -599,7 +590,7 @@ Agent 运行时环境的声明式契约，实现在 [`crates/pipi-venv/src/av`](
   `AV_SANDBOX`、`AV_SESSION`……嵌套感知变量）由运行时注入，声明文件
   不得触碰；
 - **env 与权限分离**：env 只影响子进程看到什么，不影响它能做什么
-  （命令白名单 / 沙箱照旧）。
+  （能做什么由 OS 沙箱的能力集合决定）。
 
 ```toml
 schema = 1                            # 契约版本
@@ -769,4 +760,4 @@ Pipi 也可以把 React 前端和宿主运行时以浏览器服务方式启动�
 
 ## License
 
-MIT（`crates/pipi-tools/src/permissions/safety.rs` 移植自 Apache-2.0 项目 openai/codex，保留其许可声明）。
+MIT（沙箱实现移植自 Apache-2.0 项目 openai/codex 的设计；用户态命令安全代码已删除）。

@@ -73,7 +73,6 @@ pub fn build_tool_context(
             sandbox: def.permissions.sandbox,
             resolved_env: std::sync::Arc::new(resolved.vars.clone()),
             abort,
-            approver: None,
         },
         resolved,
     ))

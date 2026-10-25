@@ -175,7 +175,6 @@ export const en: I18nSchema = {
     categories: "Notification types (all subscribed devices)",
     completed: "Reply completed",
     failed: "Run failed",
-    approval: "Approval needed",
     privacy: "Notifications include only the Agent name and status, without conversation text, commands or secrets. Web Push is encrypted through the browser push service.",
   },
   remoteAccess: {

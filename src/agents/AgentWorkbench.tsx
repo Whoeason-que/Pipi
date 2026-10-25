@@ -17,7 +17,6 @@ import {
 } from "../types";
 import { permissionsFromFields } from "./agent-fields";
 import {
-  BashChoices,
   PromptScopeChoices,
   SandboxChoices,
   ToolChoices,
@@ -54,14 +53,13 @@ export default function AgentWorkbench({
   sessions,
   onRunningChange,
 }: AgentWorkbenchProps) {
-  const { bash } = agent.permissions;
   const [testSession, setTestSession] = useState<SessionInfoView | null>(null);
   const [testLoadError, setTestLoadError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importReport, setImportReport] = useState<string | null>(null);
   const [testLoadVersion, setTestLoadVersion] = useState(0);
   const [settingsTab, setSettingsTab] = useState<AgentSettingsTab>("basic");
-  // —— 共享字段（供应商 / 模型 / 描述 / 工作目录 / 工具 / bash / 沙箱）——
+  // —— 共享字段（供应商 / 模型 / 描述 / 工作目录 / 工具 / 沙箱）——
   // 状态与「换供应商清模型」联动在 useAgentConfigFields；工作台只保留自己的
   // savedLimits、subagent、压缩阈值、promptScope 与保存/校验逻辑。
   const {
@@ -73,14 +71,10 @@ export default function AgentWorkbench({
     description,
     workspace,
     tools,
-    bashMode,
-    commands,
     sandbox,
     setDescription,
     setWorkspace,
     setTools,
-    setBashMode,
-    setCommands,
     setSandbox,
     changeProvider,
     changeModel,
@@ -98,8 +92,6 @@ export default function AgentWorkbench({
     description: agent.description,
     workspace: agent.workspace ?? "",
     tools: agent.permissions.tools,
-    bashMode: bash.mode,
-    commands: bash.commands.join("\n"),
     sandbox: agent.permissions.sandbox,
   });
   // 当前「已保存绑定」的限额。换供应商后必须作废：否则手填目录外模型时会写回
@@ -187,8 +179,6 @@ export default function AgentWorkbench({
     setCompactThreshold(agent.compactThresholdPercent);
     setCompactTarget(agent.compactTargetPercent?.toString() ?? "");
     setPromptScope(agent.systemPrompt);
-    setBashMode(bash.mode);
-    setCommands(bash.commands.join("\n"));
     setSandbox(agent.permissions.sandbox);
   }
 
@@ -253,7 +243,7 @@ export default function AgentWorkbench({
         description: description.trim(),
         subagent,
         workspace: workspace.trim() || null,
-        permissions: permissionsFromFields(tools, bashMode, commands, sandbox),
+        permissions: permissionsFromFields(tools, sandbox),
         // 越界值在核心侧也会兜底，但先在这里夹一次，免得写进文件的是脏值
         compactThresholdPercent: Math.min(
           100,
@@ -281,8 +271,6 @@ export default function AgentWorkbench({
     subagent !== agent.subagent ||
     (workspace.trim() || null) !== (agent.workspace ?? null) ||
     tools.join(",") !== agent.permissions.tools.join(",") ||
-    bashMode !== bash.mode ||
-    (bashMode === "allowAll" ? "" : commands) !== bash.commands.join("\n") ||
     sandbox !== agent.permissions.sandbox ||
     Math.min(100, Math.max(1, Math.round(compactThreshold))) !==
       agent.compactThresholdPercent ||
@@ -542,35 +530,6 @@ export default function AgentWorkbench({
                   />
                   {tools.length === 0 && (
                     <span className="field-error">至少保留一个工具。</span>
-                  )}
-                </div>
-                <div className="settings-field">
-                  <span className="field-label">命令执行策略</span>
-                  <BashChoices
-                    value={bashMode}
-                    onChange={setBashMode}
-                    name="agent-bash-mode"
-                    className="tool-row vertical-choices"
-                  />
-                  {bashMode !== "allowAll" && (
-                    <div className="perm-editor">
-                      <textarea
-                        className="text-input"
-                        value={commands}
-                        onChange={(event) => setCommands(event.target.value)}
-                        placeholder={
-                          bashMode === "allowlist"
-                            ? "git\nnpm run\nls"
-                            : "rm\nsudo"
-                        }
-                        rows={5}
-                      />
-                      <div className="hint">
-                        {bashMode === "allowlist"
-                          ? "每行一条；单词条目匹配命令名，带空格的条目按前缀匹配。"
-                          : "每行一条；命中任意条目的命令将被拒绝。"}
-                      </div>
-                    </div>
                   )}
                 </div>
                 <div className="settings-field">

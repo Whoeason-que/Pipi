@@ -47,8 +47,8 @@ pub fn apply(policy: &SandboxPolicy) -> Result<(), String> {
 }
 
 fn apply_landlock(policy: &SandboxPolicy) -> Result<(), String> {
-    // V3 才包含 truncate；用 HardRequirement，老内核直接不可用（由上层决定
-    // 回退或拒绝），避免悄悄降级成「挡得住写、挡不住 truncate」。
+    // V3 才包含 truncate；用 HardRequirement，老内核直接不可用（上层拒绝执行），
+    // 避免悄悄降级成「挡得住写、挡不住 truncate」。
     let abi = ABI::V3;
     let ruleset = Ruleset::default()
         .set_compatibility(CompatLevel::HardRequirement)

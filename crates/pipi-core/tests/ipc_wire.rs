@@ -2,8 +2,8 @@
 use pipi_agent::agent_loop::AgentEvent;
 use pipi_agent::stats::SessionStats;
 use pipi_core::events::{
-    AgentEventEnvelope, ApprovalRequestEnvelope, RuntimeEvent, SessionChangedEnvelope,
-    SessionErrorEnvelope, SessionSwitchedEnvelope, StatsEventEnvelope,
+    AgentEventEnvelope, RuntimeEvent, SessionChangedEnvelope, SessionErrorEnvelope,
+    SessionSwitchedEnvelope, StatsEventEnvelope,
 };
 use pipi_core::runtime::SessionInfo;
 use pipi_core::settings::Settings;
@@ -73,14 +73,6 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
             session_id: "session-1".into(),
             run_id: 7,
             message: "fixture failure".into(),
-        }),
-        RuntimeEvent::ApprovalRequest(ApprovalRequestEnvelope {
-            agent_name: "fixture".into(),
-            session_id: "session-1".into(),
-            run_id: 7,
-            request_id: "approval-1".into(),
-            command: "git status".into(),
-            missing: vec!["git status".into()],
         }),
         RuntimeEvent::SessionSwitched(SessionSwitchedEnvelope {
             agent_name: "fixture".into(),

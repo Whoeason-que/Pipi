@@ -87,7 +87,6 @@ fn send_prompt_runs_without_an_ambient_reactor() {
                 }
                 RuntimeEvent::SessionStats(_) => ("session-stats", None),
                 RuntimeEvent::SessionError(_) => ("session-error", None),
-                RuntimeEvent::ApprovalRequest(_) => ("approval-request", None),
                 RuntimeEvent::SessionSwitched(_) => ("session-switched", None),
                 RuntimeEvent::PromptQueue(_) => ("prompt-queue", None),
                 RuntimeEvent::SessionChanged(_) => ("session-changed", None),

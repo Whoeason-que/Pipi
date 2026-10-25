@@ -56,7 +56,7 @@ export default function NotificationsPanel({ settings, onChange }: { settings: N
     {note && <p role="status" className="hint">{note}</p>}
     <span className="label">{t("notifications.categories")}</span>
     <div className="setting-checks">
-      {(["completed", "failed", "approval"] as const).map(kind => <label className="ios-toggle settings-toggle" key={kind}>
+      {(["completed", "failed"] as const).map(kind => <label className="ios-toggle settings-toggle" key={kind}>
         <input type="checkbox" checked={settings[kind]} onChange={() => onChange({ ...settings, [kind]: !settings[kind] })} />
         <span className="slider" /><span className="toggle-label"><strong>{t(`notifications.${kind}`)}</strong></span>
       </label>)}

@@ -1,5 +1,4 @@
 //! 本地通知策略。桌面与 Web Push 共用同一份运行结果、身份与去重。
-use std::collections::VecDeque;
 
 use pipi_agent::agent_loop::AgentEvent;
 use pipi_protocol::{Message, StopReason};
@@ -16,7 +15,6 @@ pub struct NotificationSettings {
     pub desktop_enabled: bool,
     pub completed: bool,
     pub failed: bool,
-    pub approval: bool,
 }
 
 impl Default for NotificationSettings {
@@ -25,7 +23,6 @@ impl Default for NotificationSettings {
             desktop_enabled: false,
             completed: true,
             failed: true,
-            approval: true,
         }
     }
 }
@@ -35,7 +32,6 @@ impl NotificationSettings {
         match kind {
             NotificationKind::Completed => self.completed,
             NotificationKind::Failed => self.failed,
-            NotificationKind::Approval => self.approval,
         }
     }
 }
@@ -45,7 +41,6 @@ impl NotificationSettings {
 pub enum NotificationKind {
     Completed,
     Failed,
-    Approval,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -73,48 +68,9 @@ impl NotificationEnvelope {
             body: match kind {
                 NotificationKind::Completed => "Reply completed",
                 NotificationKind::Failed => "Run failed. Open Pipi for details.",
-                NotificationKind::Approval => "Waiting for your approval",
             }
             .into(),
         }
-    }
-}
-
-#[derive(Default)]
-pub(crate) struct NotificationPolicy {
-    // 有界审批请求缓存；重发同一个审批 envelope 不会重复提醒。
-    seen: VecDeque<(String, String, usize, String)>,
-}
-
-impl NotificationPolicy {
-    pub(crate) fn observe(&mut self, event: &RuntimeEvent) -> Option<NotificationEnvelope> {
-        if let RuntimeEvent::SessionSwitched(meta) = event {
-            for (agent, session, run, _) in &mut self.seen {
-                if agent == &meta.agent_name && session == &meta.session_id && *run == meta.run_id {
-                    session.clone_from(&meta.to_session_id);
-                }
-            }
-            return None;
-        }
-        let (agent, session, run, kind, discriminator) = match event {
-            RuntimeEvent::ApprovalRequest(meta) => (
-                &meta.agent_name,
-                &meta.session_id,
-                meta.run_id,
-                NotificationKind::Approval,
-                meta.request_id.clone(),
-            ),
-            _ => return None,
-        };
-        let key = (agent.clone(), session.clone(), run, discriminator);
-        if self.seen.contains(&key) {
-            return None;
-        }
-        self.seen.push_back(key);
-        if self.seen.len() > 512 {
-            self.seen.pop_front();
-        }
-        Some(NotificationEnvelope::new(agent, session, run, kind))
     }
 }
 
@@ -171,7 +127,7 @@ pub(crate) fn run_emitter(sink: EventEmitter, temporary: bool) -> EventEmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{AgentEventEnvelope, SessionErrorEnvelope, SessionSwitchedEnvelope};
+    use crate::events::{AgentEventEnvelope, SessionErrorEnvelope};
 
     fn end(session: &str, run: usize, messages: Vec<Message>) -> RuntimeEvent {
         RuntimeEvent::AgentEvent(AgentEventEnvelope {
@@ -214,8 +170,6 @@ mod tests {
                     .any(|event| matches!(event, RuntimeEvent::Notification(_)))
             );
         }
-        let mut policy = NotificationPolicy::default();
-        assert!(policy.observe(&end("s", 1, vec![])).is_none());
     }
 
     #[test]
@@ -281,30 +235,5 @@ mod tests {
         assert_eq!(notices.len(), 1);
         assert_eq!(notices[0].kind, NotificationKind::Failed);
         assert!(!notices[0].body.contains("secret"));
-    }
-
-    #[test]
-    fn approval_rekey_preserves_dedup_and_sessions_are_independent() {
-        let mut policy = NotificationPolicy::default();
-        let approval = |s: &str| {
-            RuntimeEvent::ApprovalRequest(crate::events::ApprovalRequestEnvelope {
-                agent_name: "a".into(),
-                session_id: s.into(),
-                run_id: 1,
-                request_id: "request".into(),
-                command: "secret".into(),
-                missing: vec![],
-            })
-        };
-        assert!(policy.observe(&approval("old")).is_some());
-        policy.observe(&RuntimeEvent::SessionSwitched(SessionSwitchedEnvelope {
-            agent_name: "a".into(),
-            session_id: "old".into(),
-            run_id: 1,
-            to_session_id: "new".into(),
-            archived: true,
-        }));
-        assert!(policy.observe(&approval("new")).is_none());
-        assert!(policy.observe(&approval("other")).is_some());
     }
 }

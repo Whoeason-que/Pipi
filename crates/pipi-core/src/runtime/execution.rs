@@ -250,17 +250,6 @@ impl RuntimeState {
             }
         }
 
-        // 交互审批通道：桌面 / Web 的交互运行才接入；子 Agent 运行不注入，
-        // 白名单未命中一律拒绝（fail-closed）。
-        tool_context.approver = Some(Arc::new(InteractiveApprover::new(
-            self.approval.clone(),
-            event_sink.clone(),
-            def.name.clone(),
-            session_id.clone(),
-            run_id,
-            abort.clone(),
-        )));
-
         // 压缩预算集中一处（窗口 × Agent 的阈值百分比）：投影式与替换式共用
         let budget = pipi_context::compaction::Budget::from_window(
             model.context_window,

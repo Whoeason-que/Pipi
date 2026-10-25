@@ -108,13 +108,6 @@ export interface SessionErrorPayload extends SessionEventMeta {
   message: string;
 }
 
-/** bash 命令审批请求（RuntimeEvent::ApprovalRequest）。 */
-export interface ApprovalRequestPayload extends SessionEventMeta {
-  requestId: string;
-  command: string;
-  missing: string[];
-}
-
 /** 压缩换会话（RuntimeEvent::SessionSwitched）。
  *
  * envelope 的 `sessionId` 是**切换前**的 id（前端此刻的身份还是旧的）；新 id 在
@@ -124,8 +117,6 @@ export interface SessionSwitchedPayload extends SessionEventMeta {
   /** 原会话是否已移入归档。 */
   archived: boolean;
 }
-
-export type ApprovalDecisionValue = "allow" | "always" | "deny";
 
 export function eventMatchesSession(
   meta: SessionEventMeta,

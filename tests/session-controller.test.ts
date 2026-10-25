@@ -10,7 +10,7 @@ import type { AgentDefinition, SessionInfoView, SessionStatsView, PromptQueueSna
 
 const agent: AgentDefinition = {
   name: "fixture", description: "", model: "", provider: null, workspace: null,
-  permissions: { tools: ["read"], bash: { mode: "allowlist", commands: [] }, sandbox: "workspace-write" },
+  permissions: { tools: ["read"], sandbox: "workspace-write" },
   mcpServers: [], subagent: false, compactThresholdPercent: 75, systemPrompt: "both",
 };
 const stats: SessionStatsView = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, calls: 1 };
@@ -36,7 +36,6 @@ class Host implements RuntimeTransport {
   /** 非空时 send_prompt 的响应挂起，供「事件先于响应」的用例控制顺序。 */
   sendGate: Promise<void> | null = null;
   modelError: Error | null = null;
-  approvalError: Error | null = null;
   async invoke<K extends CommandName>(command: K, ...parameters: CommandArgs<K>): Promise<CommandResult<K>> {
     const args = parameters[0] as Record<string, unknown> | undefined;
     this.calls.push({ command, args });
@@ -45,9 +44,6 @@ class Host implements RuntimeTransport {
     switch (command) {
       case "set_session_model":
         if (this.modelError) throw this.modelError;
-        break;
-      case "resolve_approval":
-        if (this.approvalError) throw this.approvalError;
         break;
       case "open_session": {
         const currentInfo = this.infos.get(session) ?? info(session);
@@ -159,19 +155,15 @@ test("reasoning changes require an idle configured session and retain the previo
   runtime.disconnect();
 });
 
-test("transport recovery hydrates missed completion and clears obsolete approvals without stopping runs", async () => {
+test("transport recovery hydrates missed completion without stopping runs", async () => {
   const { host, runtime, controller } = await fixture();
   const unsubscribe = controller.subscribe(() => {});
   host.infos.set("s", info("s", 2, true));
   await controller.hydrate();
-  host.emit("approval-request", { agentName: agent.name, sessionId: "s", runId: 2,
-    requestId: "pending", command: "pwd", missing: [] });
-  assert.ok(controller.getSnapshot().approval);
   host.infos.set("s", info("s", 2, false));
   host.history = [message("completed while disconnected")];
   await runtime.resynchronize();
   assert.equal(controller.getSnapshot().chat.running, false);
-  assert.equal(controller.getSnapshot().approval, null);
   assert.ok(controller.getSnapshot().chat.entries.some(entry => entry.text === "completed while disconnected"));
   assert.equal(host.calls.some(call => call.command === "stop_run"), false);
   unsubscribe(); runtime.disconnect();
@@ -329,7 +321,7 @@ test("sessions of the same Agent receive isolated events and share one host subs
   host.event({ type: "message_update", message: message("only first") });
   assert.equal(other.getSnapshot().chat.entries.length, 0);
   assert.equal(other.getSnapshot().chat.running, false);
-  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 7);
+  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 6);
   runtime.disconnect();
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
 });
@@ -382,44 +374,12 @@ test("a late stop poll cannot finish a newly started run", async () => {
   runtime.disconnect();
 });
 
-test("old approval and error frames cannot cross the run boundary", async () => {
+test("old error frames cannot cross the run boundary", async () => {
   const { host, controller, runtime } = await fixture();
   await controller.hydrate();
   host.event({ type: "agent_start" }, "s", 3);
-  host.emit("approval-request", { agentName: agent.name, sessionId: "s", runId: 2, requestId: "old", command: "ls", missing: ["ls"] });
   host.emit("session-error", { agentName: agent.name, sessionId: "s", runId: 2, message: "old" });
-  assert.equal(controller.getSnapshot().approval, null);
   assert.equal(controller.getSnapshot().error, null);
-  host.emit("approval-request", { agentName: agent.name, sessionId: "s", runId: 3, requestId: "current", command: "ls", missing: ["ls"] });
-  assert.equal(controller.getSnapshot().approval?.requestId, "current");
-  host.event({ type: "agent_end" }, "s", 3);
-  assert.equal(controller.getSnapshot().approval, null);
-  runtime.disconnect();
-});
-
-test("a failed approval response keeps the request visible for retry", async () => {
-  const { host, controller, runtime } = await fixture();
-  await controller.hydrate();
-  host.event({ type: "agent_start" }, "s", 2);
-  host.emit("approval-request", { agentName: agent.name, sessionId: "s", runId: 2, requestId: "approve-1", command: "rm", missing: ["rm"] });
-  host.approvalError = new CommandTransportError("approval transport failed");
-  await assert.rejects(controller.resolveApproval("deny"), /approval transport failed/);
-  assert.equal(controller.getSnapshot().approval?.requestId, "approve-1");
-
-  host.approvalError = null;
-  await controller.resolveApproval("allow");
-  assert.equal(controller.getSnapshot().approval, null);
-  runtime.disconnect();
-});
-
-test("an expired approval response clears the stale request", async () => {
-  const { host, controller, runtime } = await fixture();
-  await controller.hydrate();
-  host.event({ type: "agent_start" }, "s", 2);
-  host.emit("approval-request", { agentName: agent.name, sessionId: "s", runId: 2, requestId: "approve-old", command: "rm", missing: ["rm"] });
-  host.approvalError = new Error("approval request is no longer pending");
-  await assert.rejects(controller.resolveApproval("deny"), /no longer pending/);
-  assert.equal(controller.getSnapshot().approval, null);
   runtime.disconnect();
 });
 
@@ -456,7 +416,7 @@ test("a failed host subscription cleans partial listeners and can reconnect with
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
   fail = false;
   await runtime.start();
-  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 7);
+  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 6);
   runtime.disconnect();
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
 });

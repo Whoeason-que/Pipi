@@ -13,9 +13,7 @@ use pipi_core::events::RuntimeEvent;
 use pipi_core::runtime::RuntimeState;
 use pipi_core::settings::{ApiMode, ProviderConfig, Settings, Theme, save_settings};
 use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
-use pipi_protocol::permissions::{
-    BACKGROUND_TASK_TOOLS, BashPermissions, PermissionsConfig, SandboxMode,
-};
+use pipi_protocol::permissions::{BACKGROUND_TASK_TOOLS, PermissionsConfig, SandboxMode};
 use pipi_protocol::session::SessionRepo;
 use pipi_protocol::tools::{AgentTool, ToolContext};
 use pipi_protocol::{AbortSignal, Api, Message, Model, ToolResultContent};
@@ -93,7 +91,6 @@ async fn create_run_and_read_agent_output() {
             "query_background_tasks".into(),
             "manage_background_task".into(),
         ],
-        bash: BashPermissions::default(),
         sandbox: SandboxMode::WorkspaceWrite,
     };
     let context = ToolContext {
@@ -104,7 +101,6 @@ async fn create_run_and_read_agent_output() {
         sandbox: SandboxMode::WorkspaceWrite,
         resolved_env: Arc::new(BTreeMap::new()),
         abort: AbortSignal::new(),
-        approver: None,
     };
 
     let create = CreateAgentTool::new(model);
@@ -227,7 +223,6 @@ async fn create_run_and_read_agent_output() {
         Some(workspace.to_str().unwrap()),
         Some(PermissionsConfig {
             tools: vec!["read".into()],
-            bash: BashPermissions::default(),
             sandbox: SandboxMode::WorkspaceWrite,
         }),
         None,
@@ -440,7 +435,6 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         Some(workspace.to_str().unwrap()),
         Some(PermissionsConfig {
             tools: vec!["read".into()],
-            bash: BashPermissions::default(),
             sandbox: SandboxMode::WorkspaceWrite,
         }),
         None,
@@ -453,7 +447,6 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         Some(workspace.to_str().unwrap()),
         Some(PermissionsConfig {
             tools: vec!["run_agent".into(), "read_agent".into()],
-            bash: BashPermissions::default(),
             sandbox: SandboxMode::WorkspaceWrite,
         }),
         None,
@@ -620,7 +613,6 @@ async fn resume_agent_in_existing_session_preserves_history() {
         Some(workspace.to_str().unwrap()),
         Some(PermissionsConfig {
             tools: vec!["read".into()],
-            bash: BashPermissions::default(),
             sandbox: SandboxMode::WorkspaceWrite,
         }),
         None,
@@ -723,7 +715,6 @@ async fn parent_run_agent_resumes_a_known_session_through_the_tool() {
         Some(workspace.to_str().unwrap()),
         Some(PermissionsConfig {
             tools: vec!["read".into()],
-            bash: BashPermissions::default(),
             sandbox: SandboxMode::WorkspaceWrite,
         }),
         None,
@@ -736,7 +727,6 @@ async fn parent_run_agent_resumes_a_known_session_through_the_tool() {
         Some(workspace.to_str().unwrap()),
         Some(PermissionsConfig {
             tools: vec!["run_agent".into(), "read_agent".into()],
-            bash: BashPermissions::default(),
             sandbox: SandboxMode::WorkspaceWrite,
         }),
         None,

@@ -519,20 +519,6 @@
     justify-content: flex-start;
   }
 
-  .approval-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .approval-actions {
-    flex-wrap: wrap;
-  }
-
-  .approval-actions .btn {
-    min-height: 40px;
-    flex: 1 1 110px;
-  }
-
   .chat-welcome {
     padding-inline: 18px;
   }
@@ -600,19 +586,6 @@
   .btn.stop {
     width: 40px;
     height: 40px;
-  }
-
-  .approval-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .approval-actions .btn {
-    width: 100%;
-  }
-
-  .approval-actions .btn:last-child {
-    grid-column: 1 / -1;
   }
 
   .settings-autosave {

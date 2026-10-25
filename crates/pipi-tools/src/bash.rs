@@ -14,8 +14,6 @@ use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncat
 use pipi_protocol::ToolResultContent;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 
-use crate::permissions::check_bash_command;
-
 pub struct BashTool;
 
 /// 超时 / 中止时终止整棵进程树（`killpg` 覆盖孙进程），并回收直接子进程。
@@ -114,10 +112,6 @@ impl AgentTool for BashTool {
     ) -> Result<ToolOutput, String> {
         let command = args["command"].as_str().ok_or("Missing command")?;
         let timeout = validate_timeout(args["timeout"].as_f64())?;
-
-        // 命令权限检查：沙箱生效时它直接放行（内核是唯一边界）；只有回退到
-        // 旧路径时才执行白/黑名单、危险命令与审批。
-        check_bash_command(ctx, command).await?;
 
         tokio::fs::create_dir_all(&ctx.workspace)
             .await
@@ -344,7 +338,6 @@ mod tests {
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: std::sync::Arc::new(resolved),
             abort: pipi_protocol::AbortSignal::new(),
-            approver: None,
         };
         let output = BashTool
             .execute(
@@ -377,7 +370,6 @@ mod tests {
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
             resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
             abort,
-            approver: None,
         }
     }
 

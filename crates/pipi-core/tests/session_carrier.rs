@@ -5,7 +5,7 @@
 //! 改写 HOME 前持 `pipi_test_support::HOME_LOCK`（全仓唯一的一把锁）。
 
 use pipi_protocol::Message;
-use pipi_protocol::permissions::{BashPermissions, PermissionsConfig, SandboxMode};
+use pipi_protocol::permissions::{PermissionsConfig, SandboxMode};
 use pipi_protocol::session::{EntryKind, SessionEntry, SessionRepo};
 use pipi_session::{GitSessionRepo, import_legacy_sessions};
 use pipi_venv::agents;
@@ -26,7 +26,6 @@ fn fixture_agent(name: &str) -> std::path::PathBuf {
         Some(workspace.to_str().unwrap()),
         Some(PermissionsConfig {
             tools: vec!["read".into()],
-            bash: BashPermissions::default(),
             sandbox: SandboxMode::WorkspaceWrite,
         }),
         None,

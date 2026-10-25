@@ -2,7 +2,7 @@ import type { WorkspaceListing, WorkspaceFile, WorkspaceChanges, WorkspaceDiff }
 import type { NotificationEnvelope } from "./notifications";
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
-import type { AgentEventPayload, ApprovalRequestPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
+import type { AgentEventPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
 import type { PromptQueueEnvelope, RemoteAccessConfig, RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
 
 export interface BackgroundTaskSnapshot {
@@ -57,7 +57,6 @@ export interface CommandMap {
   queue_prompt: { args: { agentName: string; sessionId: string; messageId: string; message: string; sendAt?: number | null }; result: PromptQueueEnvelope };
   cancel_queued_prompt: { args: { agentName: string; sessionId: string; messageId: string }; result: PromptQueueEnvelope };
   set_prompt_queue_paused: { args: { agentName: string; sessionId: string; paused: boolean }; result: PromptQueueEnvelope };
-  resolve_approval: { args: { requestId: string; decision: string }; result: void };
   set_session_model: { args: { agentName: string; sessionId: string; model?: ModelConfig | null }; result: void };
   session_messages: { args: { agentName: string; sessionId: string }; result: MessageView[] };
   session_stats: { args: { agentName: string; sessionId: string }; result: SessionStatsView };
@@ -97,7 +96,6 @@ export interface EventMap {
   "agent-event": AgentEventPayload;
   "session-stats": SessionStatsPayload;
   "session-error": SessionErrorPayload;
-  "approval-request": ApprovalRequestPayload;
   "session-switched": SessionSwitchedPayload;
   "session-changed": SessionChangedPayload;
 }
