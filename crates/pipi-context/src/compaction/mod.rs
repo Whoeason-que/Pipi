@@ -293,10 +293,6 @@ pub struct BoundaryPrune;
 impl BoundaryPrune {
     pub(super) const NAME: &'static str = "boundary-prune";
 
-    pub(super) fn applies(&self, prep: &Preparation<'_>) -> bool {
-        prep.over_budget()
-    }
-
     pub(super) fn plan(&self, prep: &Preparation<'_>) -> Plan {
         Plan {
             // 硬裁是最后一档：裁到触发线为止（裁完不该马上又触发压缩）
@@ -317,14 +313,12 @@ pub fn project(messages: Vec<Message>, budget: Budget) -> Vec<Message> {
         return messages;
     }
     let current = apply_projection(messages, budget, ToolOutputPrune::NAME, |prep| {
-        ToolOutputPrune
-            .applies(prep)
-            .then(|| ToolOutputPrune.plan(prep))
+        ToolOutputPrune.plan_if_applies(prep)
     });
+    // 硬裁的 `plan` 自己会回答「是否需要裁」（`prune_cut_index` 返回 None 即
+    // no-op），所以这里不必再先做一次全量 token 估算。
     apply_projection(current, budget, BoundaryPrune::NAME, |prep| {
-        BoundaryPrune
-            .applies(prep)
-            .then(|| BoundaryPrune.plan(prep))
+        Some(BoundaryPrune.plan(prep))
     })
 }
 

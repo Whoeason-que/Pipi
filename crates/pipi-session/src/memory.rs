@@ -15,6 +15,9 @@ use super::LedgerState;
 pub struct MemoryLog {
     session_id: String,
     ledger: LedgerState,
+    /// 上一次压缩追加前的账本快照（压缩提交失败时回滚用）。
+    /// 只压缩条目需要回滚；普通消息追加不克隆整份账本。
+    last_append_ledger: Option<LedgerState>,
 }
 
 impl MemoryLog {
@@ -24,6 +27,7 @@ impl MemoryLog {
         Self {
             session_id: format!("test-{}", new_id()),
             ledger: LedgerState::empty(),
+            last_append_ledger: None,
         }
     }
 
@@ -82,6 +86,7 @@ impl SessionLog for MemoryLog {
     }
 
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
+        self.last_append_ledger = Some(self.ledger.clone());
         Ok(self.append(record.to_entry_kind(), now_millis()))
     }
 
@@ -104,7 +109,16 @@ impl SessionLog for MemoryLog {
     }
 
     fn commit_point(&mut self) -> std::io::Result<()> {
+        self.last_append_ledger = None;
         Ok(())
+    }
+
+    fn rollback_last_entry(&mut self) -> std::io::Result<bool> {
+        let Some(previous) = self.last_append_ledger.take() else {
+            return Ok(false);
+        };
+        self.ledger = previous;
+        Ok(true)
     }
 }
 
@@ -161,5 +175,25 @@ mod tests {
 
         // 摘要消息占用压缩条目自身的 id 槽位，保留区间的 id 跟在后面
         assert_eq!(log.message_ids(), [summary, kept, last]);
+    }
+
+    #[test]
+    fn rollback_restores_the_previous_ledger_state() {
+        let mut log = MemoryLog::new();
+        let first = log.append_message(&Message::user_text("kept")).unwrap();
+        let second = log
+            .append_compaction(&CompactionRecord {
+                summary: "discarded",
+                strategy: "llm-summarize",
+                keep_from_entry: &first,
+                source_tip: &first,
+                usage: None,
+            })
+            .unwrap();
+        assert_eq!(log.message_ids(), [second, first.clone()]);
+        assert!(log.rollback_last_entry().unwrap());
+        assert_eq!(log.tip_id(), Some(first.as_str()));
+        assert_eq!(log.message_ids(), [first]);
+        assert!(!log.rollback_last_entry().unwrap());
     }
 }

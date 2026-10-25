@@ -15,8 +15,9 @@ use pipi_core::tools::agent::{AgentRunStatus, CreateAgentTool, ReadAgentTool};
 use pipi_protocol::permissions::{
     BACKGROUND_TASK_TOOLS, BashPermissions, PermissionsConfig, SandboxMode,
 };
+use pipi_protocol::session::SessionRepo;
 use pipi_protocol::tools::{AgentTool, ToolContext};
-use pipi_protocol::{AbortSignal, Api, Model, ToolResultContent};
+use pipi_protocol::{AbortSignal, Api, Message, Model, ToolResultContent};
 use serde_json::json;
 
 /// 该 Agent 当前打开的会话 id（测试里一般只有一条）。
@@ -347,6 +348,15 @@ fn drain_http_request(stream: &mut std::net::TcpStream) {
 /// 按请求序号回放剧本的本地 mock；返回（地址，请求计数）。
 fn spawn_scripted_mock(script: Vec<String>) -> (std::net::SocketAddr, Arc<AtomicUsize>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    spawn_scripted_mock_on(listener, script)
+}
+
+/// 在已绑定的 listener 上启动剧本 mock；调用方可以先用地址创建 Agent，
+/// 再准备会话与剧本，最后启动接受循环，避免动态 session id 无法提前写进剧本。
+fn spawn_scripted_mock_on(
+    listener: std::net::TcpListener,
+    script: Vec<String>,
+) -> (std::net::SocketAddr, Arc<AtomicUsize>) {
     let addr = listener.local_addr().unwrap();
     let counter = Arc::new(AtomicUsize::new(0));
     let script = Arc::new(script);
@@ -556,6 +566,274 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         1,
         "同步 run_agent 创建 child 后应立即通知宿主刷新会话列表"
     );
+
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个测试；这是进程级测试隔离锁
+async fn resume_agent_in_existing_session_preserves_history() {
+    let _home_guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = std::env::temp_dir().join(format!(
+        "pipi-agent-resume-{}-{}",
+        std::process::id(),
+        pipi_protocol::new_id()
+    ));
+    let workspace = home.join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    pipi_test_support::set_env_var("HOME", &home);
+
+    let (addr, counter) = spawn_scripted_mock(vec![sse_text("第一轮回复"), sse_text("第二轮回复")]);
+    let base_url = format!("http://{addr}/v1");
+    let model = Model {
+        id: "resume-model".into(),
+        name: "Resume Model".into(),
+        api: Api::OpenAICompletions,
+        base_url: base_url.clone(),
+        max_tokens: 512,
+        context_window: 0,
+        reasoning_effort: None,
+    };
+    save_settings(&Settings {
+        notifications: Default::default(),
+        theme: Theme::Dark,
+        providers: vec![ProviderConfig {
+            id: "resume-mock".into(),
+            name: "Resume Mock".into(),
+            api: Api::OpenAICompletions,
+            api_mode: ApiMode::Auto,
+            base_url,
+            env_key: None,
+            api_key: Some("test-key".into()),
+        }],
+        default_provider_id: None,
+        compaction: Default::default(),
+        retry: Default::default(),
+    })
+    .unwrap();
+
+    pipi_venv::agents::create_agent(
+        "resume-worker",
+        "A worker that can be resumed",
+        Some(workspace.to_str().unwrap()),
+        Some(PermissionsConfig {
+            tools: vec!["read".into()],
+            bash: BashPermissions::default(),
+            sandbox: SandboxMode::WorkspaceWrite,
+        }),
+        None,
+        Some(model),
+    )
+    .unwrap();
+
+    // 第一轮走独立 child 路径，落盘一条完整会话。
+    let first =
+        pipi_core::runtime::run_agent_once("resume-worker", "第一轮问题", AbortSignal::new())
+            .await
+            .unwrap();
+    assert_eq!(first.status, AgentRunStatus::Completed);
+    assert_eq!(first.response, "第一轮回复");
+
+    // 同一 id 交给宿主：必须载入原历史继续，而不是新建会话。
+    let runtime = RuntimeState::new(tokio::runtime::Handle::current());
+    let second = runtime
+        .run_agent_in_session(
+            "resume-worker",
+            &first.session_id,
+            "第二轮问题",
+            AbortSignal::new(),
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.session_id, first.session_id);
+    assert_eq!(second.status, AgentRunStatus::Completed);
+    assert_eq!(second.response, "第二轮回复");
+
+    let messages = runtime
+        .session_messages("resume-worker", &first.session_id)
+        .await
+        .unwrap();
+    let roles: Vec<&str> = messages.iter().map(|message| message.role()).collect();
+    assert_eq!(roles, vec!["user", "assistant", "user", "assistant"]);
+    let user_texts: Vec<&str> = messages
+        .iter()
+        .filter_map(|message| match message {
+            pipi_protocol::Message::User { content, .. } => Some(content.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(user_texts, vec!["第一轮问题", "第二轮问题"]);
+    assert_eq!(counter.load(Ordering::SeqCst), 2, "续聊应只发一次新请求");
+
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个测试；这是进程级测试隔离锁
+async fn parent_run_agent_resumes_a_known_session_through_the_tool() {
+    let _home_guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = std::env::temp_dir().join(format!(
+        "pipi-agent-tool-resume-{}-{}",
+        std::process::id(),
+        pipi_protocol::new_id()
+    ));
+    let workspace = home.join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    pipi_test_support::set_env_var("HOME", &home);
+
+    // 先绑定地址，让 Agent 的 provider 指向它；会话与剧本准备好后再开始接受请求。
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let base_url = format!("http://{addr}/v1");
+    let model = Model {
+        id: "tool-resume-model".into(),
+        name: "Tool Resume Model".into(),
+        api: Api::OpenAICompletions,
+        base_url: base_url.clone(),
+        max_tokens: 512,
+        context_window: 0,
+        reasoning_effort: None,
+    };
+    save_settings(&Settings {
+        notifications: Default::default(),
+        theme: Theme::Dark,
+        providers: vec![ProviderConfig {
+            id: "tool-resume-mock".into(),
+            name: "Tool Resume Mock".into(),
+            api: Api::OpenAICompletions,
+            api_mode: ApiMode::Auto,
+            base_url,
+            env_key: None,
+            api_key: Some("test-key".into()),
+        }],
+        default_provider_id: None,
+        compaction: Default::default(),
+        retry: Default::default(),
+    })
+    .unwrap();
+
+    pipi_venv::agents::create_agent(
+        "tool-resume-worker",
+        "A worker with an existing session",
+        Some(workspace.to_str().unwrap()),
+        Some(PermissionsConfig {
+            tools: vec!["read".into()],
+            bash: BashPermissions::default(),
+            sandbox: SandboxMode::WorkspaceWrite,
+        }),
+        None,
+        Some(model.clone()),
+    )
+    .unwrap();
+    pipi_venv::agents::create_agent(
+        "tool-resume-parent",
+        "A parent that resumes the worker",
+        Some(workspace.to_str().unwrap()),
+        Some(PermissionsConfig {
+            tools: vec!["run_agent".into(), "read_agent".into()],
+            bash: BashPermissions::default(),
+            sandbox: SandboxMode::WorkspaceWrite,
+        }),
+        None,
+        Some(model),
+    )
+    .unwrap();
+
+    // 预置一条已落盘的 worker 会话，父 Agent 的剧本里可以写死它的 id。
+    let worker = pipi_venv::agents::load_agent("tool-resume-worker").unwrap();
+    let repo =
+        pipi_session::GitSessionRepo::new(worker.dir().expect("worker dir").join("sessions.git"));
+    let mut log = repo.create().unwrap();
+    let worker_session = log.session_id().to_string();
+    log.append_message(&Message::user_text("seed question"))
+        .unwrap();
+    log.append_message(&Message::assistant_text("seed reply", "tool-resume-model"))
+        .unwrap();
+    log.commit_point().unwrap();
+
+    let (_, counter) = spawn_scripted_mock_on(
+        listener,
+        vec![
+            sse_tool_call(
+                "run_agent",
+                &json!({
+                    "name": "tool-resume-worker",
+                    "prompt": "second question",
+                    "sessionId": worker_session,
+                    "background": false
+                }),
+            ),
+            sse_text("second reply"),
+            sse_text("parent final"),
+        ],
+    );
+
+    let runtime = RuntimeState::new(tokio::runtime::Handle::current());
+    runtime
+        .send_prompt(
+            "tool-resume-parent",
+            None,
+            "resume the worker",
+            None,
+            Arc::new(|_| {}),
+        )
+        .unwrap();
+    for _ in 0..600 {
+        if !any_session_running(&runtime, "tool-resume-parent") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(
+        !any_session_running(&runtime, "tool-resume-parent"),
+        "父运行应在超时前结束"
+    );
+    assert_eq!(counter.load(Ordering::SeqCst), 3);
+
+    let parent_messages = runtime
+        .session_messages(
+            "tool-resume-parent",
+            &open_session_id(&runtime, "tool-resume-parent"),
+        )
+        .await
+        .unwrap();
+    let tool_result = parent_messages
+        .iter()
+        .find_map(|message| match message {
+            Message::ToolResult { content, .. } => Some(
+                content
+                    .iter()
+                    .filter_map(|block| match block {
+                        ToolResultContent::Text { text } => Some(text.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            _ => None,
+        })
+        .expect("应有 run_agent 的 toolResult");
+    assert!(tool_result.contains("second reply"), "{tool_result}");
+    assert!(
+        tool_result.contains(&worker_session),
+        "工具结果应保留原 session id: {tool_result}"
+    );
+
+    let worker_messages = runtime
+        .session_messages("tool-resume-worker", &worker_session)
+        .await
+        .unwrap();
+    let roles: Vec<&str> = worker_messages
+        .iter()
+        .map(|message| message.role())
+        .collect();
+    assert_eq!(roles, vec!["user", "assistant", "user", "assistant"]);
 
     let _ = std::fs::remove_dir_all(home);
 }

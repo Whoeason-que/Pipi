@@ -1443,6 +1443,21 @@ pre.code {
   line-height: 1.6;
 }
 
+.chat-load-failed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.chat-load-failed .btn {
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+}
+
 /* 待发箱与引导分开，消息真正起跑后才进入时间线。 */
 .composer-options { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 12px 8px; }
 .composer-delay-toggle { color: var(--muted); font-size: var(--text-xs); }

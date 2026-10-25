@@ -4,7 +4,7 @@
 //! （「标准 git 工具能读到什么」是验收的一部分）。载体一致性由
 //! `tests/backend_conformance.rs` 盯，这里盯 git 特有的性质。
 
-use pipi_protocol::session::{EntryKind, SessionEntry, SessionRepo};
+use pipi_protocol::session::{CompactionRecord, EntryKind, SessionEntry, SessionRepo};
 use pipi_protocol::{Message, new_id, now_millis};
 use pipi_session::{GitExec, GitSessionRepo, entry_path, load_session};
 
@@ -415,4 +415,38 @@ fn dir_size(path: &std::path::Path) -> u64 {
         }
     }
     total
+}
+
+#[test]
+fn uncommitted_compaction_entry_can_be_rolled_back() {
+    let dir = pipi_test_support::temp_dir("pipi-git-rollback");
+    let repo = GitSessionRepo::new(dir.join("sessions.git"));
+    let mut log = repo.create().expect("create session");
+    let session_id = log.session_id().to_string();
+    let kept = log
+        .append_message(&Message::user_text("keep me"))
+        .expect("append message");
+    log.commit_point().expect("commit message");
+    let source_tip = log.tip_id().expect("tip").to_string();
+
+    log.append_compaction(&CompactionRecord {
+        summary: "discarded summary",
+        strategy: "test",
+        keep_from_entry: &kept,
+        source_tip: &source_tip,
+        usage: None,
+    })
+    .expect("append compaction");
+    assert!(log.rollback_last_entry().expect("rollback"));
+    log.commit_point().expect("commit after rollback");
+    drop(log);
+
+    let entries = repo.entries(&session_id).expect("read entries");
+    assert_eq!(
+        entries.len(),
+        1,
+        "rolled back compaction must not reach git"
+    );
+    assert!(matches!(entries[0].kind, EntryKind::Message { .. }));
+    std::fs::remove_dir_all(dir).ok();
 }

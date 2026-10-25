@@ -435,6 +435,7 @@ async fn web_and_desktop_share_runs_events_and_stop_while_transport_can_restart(
         commands::StopRunArgs {
             agent_name: "shared".into(),
             session_id: id.into(),
+            run_id: None,
         },
     )
     .unwrap();

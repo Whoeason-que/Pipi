@@ -1,7 +1,9 @@
 //! 子运行的能力装配、进度适配与结果转换。
 use super::*;
+use crate::tools::agent::AgentRunStatus;
 
 pub(super) struct RuntimeAgentRunner {
+    pub(super) runtime: RuntimeState,
     pub(super) session_sink: Option<BackgroundAgentSessionSink>,
 }
 
@@ -23,6 +25,26 @@ impl AgentRunner for RuntimeAgentRunner {
             self.session_sink.clone(),
         )
         .await
+    }
+
+    async fn run_in_session(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        prompt: &str,
+        abort: AbortSignal,
+        progress: Option<ChildProgressTx>,
+    ) -> Result<AgentRunResult, String> {
+        self.runtime
+            .run_agent_in_session(
+                agent_name,
+                session_id,
+                prompt,
+                abort,
+                std::time::Duration::from_secs(CHILD_RUN_TIMEOUT_SECS),
+                progress,
+            )
+            .await
     }
 }
 
@@ -66,6 +88,248 @@ pub async fn run_agent_once(
         None,
     )
     .await
+}
+
+/// 宿主在已有会话上运行一轮并等待结束。
+///
+/// 复用 [`RuntimeState::send_prompt`] 的会话装载、模型解析、工具装配和排队语义，
+/// 因而不会为同一条 git 分支创建第二个 writer/运行守卫。事件流同时用于：
+/// - 把工具调用与轮次完成转发给父工具；
+/// - 捕获 `AgentEnd`（提交与运行守卫释放之后）作为本次运行的终态；
+/// - 在父运行中止时停止目标会话，避免 child 在后台继续跑。
+impl RuntimeState {
+    pub async fn run_agent_in_session(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        prompt: &str,
+        abort: AbortSignal,
+        timeout: std::time::Duration,
+        progress: Option<ChildProgressTx>,
+    ) -> Result<AgentRunResult, String> {
+        validate_session_id(session_id)?;
+        if prompt.trim().is_empty() {
+            return Err("Message cannot be empty".into());
+        }
+
+        let current_id = Arc::new(Mutex::new(session_id.to_string()));
+        let (completion_tx, mut completion_rx) = tokio::sync::mpsc::unbounded_channel();
+        let agent = agent_name.to_string();
+        let sink: EventEmitter = {
+            let agent = agent.clone();
+            let current_id = current_id.clone();
+            let completion_tx = completion_tx.clone();
+            let progress = progress.clone();
+            let turns = Arc::new(AtomicUsize::new(0));
+            Arc::new(move |event| match event {
+                RuntimeEvent::AgentEvent(envelope) => {
+                    let AgentEventEnvelope {
+                        agent_name,
+                        session_id,
+                        event,
+                        ..
+                    } = envelope;
+                    let matches_current = {
+                        let current = current_id
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        agent_name == agent && session_id == *current
+                    };
+                    if !matches_current {
+                        return;
+                    }
+                    if let Some(progress) = &progress {
+                        match &event {
+                            AgentEvent::ToolExecutionStart { tool_name, .. } => {
+                                let _ = progress.send(pipi_protocol::tools::ToolOutput::text(
+                                    format!("Subagent is calling tool {tool_name}"),
+                                ));
+                            }
+                            AgentEvent::MessageEnd { message } if message.role() == "assistant" => {
+                                let turn = turns.fetch_add(1, Ordering::AcqRel) + 1;
+                                let _ = progress.send(pipi_protocol::tools::ToolOutput::text(
+                                    format!("Subagent completed turn {turn}"),
+                                ));
+                            }
+                            _ => {}
+                        }
+                    }
+                    if let AgentEvent::AgentEnd { messages } = event {
+                        let _ = completion_tx.send(FollowEvent::End {
+                            session_id,
+                            messages,
+                        });
+                    }
+                }
+                RuntimeEvent::SessionSwitched(envelope) => {
+                    if envelope.agent_name == agent {
+                        let mut current = current_id
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if envelope.session_id == *current {
+                            *current = envelope.to_session_id;
+                        }
+                    }
+                }
+                RuntimeEvent::SessionError(envelope) => {
+                    let current = current_id
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if envelope.agent_name == agent && envelope.session_id == *current {
+                        let _ = completion_tx.send(FollowEvent::Error(envelope.message));
+                    }
+                }
+                _ => {}
+            })
+        };
+
+        let info = self.send_prompt(agent_name, Some(session_id), prompt, None, sink)?;
+        *current_id
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = info.session_id.clone();
+
+        // watcher 负责响应父运行的中止；guard 负责本 future 被直接丢弃/提前返回
+        // 时也不要留下仍在跑的 child。
+        let mut stop_guard = SessionStopGuard {
+            runtime: self.clone(),
+            agent: agent_name.to_string(),
+            current_id: current_id.clone(),
+            armed: true,
+        };
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let watcher = {
+            let runtime = self.clone();
+            let agent = agent.clone();
+            let current_id = current_id.clone();
+            let abort = abort.clone();
+            tokio::spawn(async move {
+                tokio::select! {
+                    biased;
+                    _ = abort.wait_aborted() => {
+                        let session_id = current_id
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .clone();
+                        if let Err(error) = runtime.stop_run(&agent, &session_id) {
+                            eprintln!(
+                                "pipi: failed to stop child session {session_id} after parent abort: {error}"
+                            );
+                        }
+                    }
+                    _ = done_rx => {}
+                }
+            })
+        };
+
+        let waited = tokio::time::timeout(timeout, wait_for_agent_end(&mut completion_rx)).await;
+        let timed_out = waited.is_err();
+        let mut stopped_after_timeout = false;
+        if timed_out {
+            let session_id = current_id
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
+            let stopped = self.stop_run(agent_name, &session_id).is_ok();
+            if stopped {
+                // 只有观察到 AgentEnd 才认为 child 真的结束；否则保留 guard，
+                // 让 drop 再尝试一次，并把超时报告为「未确认停止」。
+                stopped_after_timeout = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    wait_for_agent_end(&mut completion_rx),
+                )
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .is_some();
+            }
+        }
+        let _ = done_tx.send(());
+        watcher.abort();
+
+        match waited {
+            Ok(Ok((final_session_id, messages, error))) => {
+                stop_guard.armed = false;
+                if messages.is_empty()
+                    && let Some(error) = error
+                {
+                    return Err(error);
+                }
+                let result = result_from_messages(agent_name, &final_session_id, &messages);
+                if result.status == AgentRunStatus::Pending
+                    && let Some(error) = error
+                {
+                    return Err(error);
+                }
+                Ok(result)
+            }
+            Ok(Err(error)) => Err(error),
+            Err(_) if stopped_after_timeout => {
+                stop_guard.armed = false;
+                Ok(AgentRunResult {
+                    agent_name: agent_name.to_string(),
+                    session_id: current_id
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .clone(),
+                    status: AgentRunStatus::Failed,
+                    response: format!(
+                        "Subtask run timed out ({} seconds), terminated",
+                        timeout.as_secs()
+                    ),
+                })
+            }
+            Err(_) => Err(
+                "Subtask run timed out and could not be confirmed stopped; it may still be running"
+                    .into(),
+            ),
+        }
+    }
+}
+
+enum FollowEvent {
+    End {
+        session_id: String,
+        messages: Vec<Message>,
+    },
+    Error(String),
+}
+
+/// 本 future 被丢弃时停止目标会话，避免 child 在父运行已退出后继续写同一分支。
+struct SessionStopGuard {
+    runtime: RuntimeState,
+    agent: String,
+    current_id: Arc<Mutex<String>>,
+    armed: bool,
+}
+
+impl Drop for SessionStopGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let session_id = self
+            .current_id
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let _ = self.runtime.stop_run(&self.agent, &session_id);
+    }
+}
+
+async fn wait_for_agent_end(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<FollowEvent>,
+) -> Result<(String, Vec<Message>, Option<String>), String> {
+    let mut last_error = None;
+    while let Some(event) = rx.recv().await {
+        match event {
+            FollowEvent::Error(message) => last_error = Some(message),
+            FollowEvent::End {
+                session_id,
+                messages,
+            } => return Ok((session_id, messages, last_error)),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "Agent run ended without a terminal event".into()))
 }
 
 /// 子 Agent 单次运行的时间上限。到时终止并落盘终态，避免父会话无限阻塞。

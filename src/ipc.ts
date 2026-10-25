@@ -46,7 +46,7 @@ export interface CommandMap {
   session_info: { args: { agentName: string; sessionId: string }; result: SessionInfoView | null };
   session_infos: { args: {  }; result: SessionInfoView[] };
   open_workbench_session: { args: { agentName: string; reset?: boolean | null }; result: SessionInfoView };
-  stop_run: { args: { agentName: string; sessionId: string }; result: void };
+  stop_run: { args: { agentName: string; sessionId: string; runId?: number | null }; result: void };
   query_background_tasks: { args: { agentName: string; sessionId: string; jobId?: string | null; afterSeq?: number | null; waitMs?: number | null; includeCompleted?: boolean | null; limit?: number | null }; result: BackgroundTaskSnapshot[] };
   manage_background_task: { args: { agentName: string; sessionId: string; jobId: string; action: string; data?: string | null }; result: BackgroundTaskSnapshot };
   new_session: { args: { agentName: string }; result: void };

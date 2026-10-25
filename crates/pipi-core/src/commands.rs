@@ -549,10 +549,13 @@ pub fn open_workbench_session(
 pub struct StopRunArgs {
     pub agent_name: String,
     pub session_id: String,
+    /// 可选：只停止这一轮。超时后迟到的 stop 不会误停下一轮。
+    #[serde(default)]
+    pub run_id: Option<usize>,
 }
 
 pub fn stop_run(runtime: &RuntimeState, args: StopRunArgs) -> Result<(), String> {
-    runtime.stop_run(&args.agent_name, &args.session_id)
+    runtime.stop_run_if(&args.agent_name, &args.session_id, args.run_id)
 }
 
 #[derive(Debug, Deserialize)]

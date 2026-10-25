@@ -587,7 +587,18 @@ fn reserved_session_identity_survives_send_and_starts_idle() {
         open_session_ids(&state, "reserved"),
         vec![reserved.session_id.clone()]
     );
-    state.stop_run("reserved", &reserved.session_id).unwrap();
+    // 迟到/过期的 stop 带旧 run id：必须是无害 no-op，不能停掉新 run。
+    state
+        .stop_run_if(
+            "reserved",
+            &reserved.session_id,
+            Some(started.run_id.saturating_sub(1)),
+        )
+        .unwrap();
+    assert!(state.session_running("reserved", &reserved.session_id));
+    state
+        .stop_run_if("reserved", &reserved.session_id, Some(started.run_id))
+        .unwrap();
     assert!(wait_until(5_000, || !any_session_running(
         &state, "reserved"
     )));

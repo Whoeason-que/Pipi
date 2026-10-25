@@ -122,22 +122,26 @@ pub fn context_tokens(messages: &[Message]) -> u64 {
 /// 投影式压缩策略（如旧工具输出清理）需要「切在哪」而不是「切完是什么」，
 /// 所以决策与执行分开：本函数只回答切点，应用由调用方（`compaction`）完成。
 pub fn prune_cut_index(messages: &[Message], budget_tokens: u64) -> Option<usize> {
-    let budget = budget_tokens;
-    let total = estimate_context_tokens(messages);
-    if total <= budget || messages.is_empty() {
+    if messages.is_empty() {
+        return None;
+    }
+    // 先算每条消息一次的估算值；总量与逐条累计复用同一份结果，避免对
+    // 大历史做两遍字符扫描与工具参数序列化。
+    let estimates: Vec<u64> = messages.iter().map(estimate_tokens).collect();
+    let total: u64 = estimates.iter().sum();
+    if total <= budget_tokens {
         return None;
     }
 
-    // 前缀累计 token
     let mut cum = 0u64;
-    for (i, message) in messages.iter().enumerate() {
+    for (i, (message, estimate)) in messages.iter().zip(&estimates).enumerate() {
         if message.role() == "user" && i > 0 {
             let tail = total - cum;
-            if tail <= budget {
+            if tail <= budget_tokens {
                 return Some(i);
             }
         }
-        cum += estimate_tokens(message);
+        cum += estimate;
     }
     None
 }

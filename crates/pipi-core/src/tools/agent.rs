@@ -53,6 +53,19 @@ pub trait AgentRunner: Send + Sync {
         abort: AbortSignal,
         progress: Option<ChildProgressTx>,
     ) -> Result<AgentRunResult, String>;
+
+    /// 在目标 Agent 的已有会话上继续运行。宿主未实现时返回可读错误，
+    /// 而不是静默新建会话。
+    async fn run_in_session(
+        &self,
+        _agent_name: &str,
+        _session_id: &str,
+        _prompt: &str,
+        _abort: AbortSignal,
+        _progress: Option<ChildProgressTx>,
+    ) -> Result<AgentRunResult, String> {
+        Err("This host does not support resuming an existing session".into())
+    }
 }
 
 pub struct CreateAgentTool {
@@ -246,10 +259,10 @@ impl AgentTool for RunAgentTool {
 
     fn description(&self) -> String {
         if self.default_background {
-            "Submit an existing Pipi Agent as a managed background task in a fresh independent session. Return immediately with a job ID; use query_background_tasks to wait/read progress and manage_background_task to terminate it. Pass background:false only when the final output is needed before continuing."
+            "Submit an existing Pipi Agent as a managed background task in a fresh independent session, or resume a specific session in the foreground by passing sessionId. Return immediately with a job ID for background runs; use query_background_tasks to wait/read progress and manage_background_task to terminate it. Pass background:false only when the final output is needed before continuing."
                 .into()
         } else {
-            "Run an existing Pipi Agent in a fresh independent session. By default wait for completion and return its final output plus session ID; pass background:true to submit a managed task and return immediately."
+            "Run an existing Pipi Agent in a fresh independent session, or resume a specific session by passing sessionId. By default wait for completion and return its final output plus session ID; pass background:true to submit a managed task and return immediately. Background runs cannot resume an existing session."
                 .into()
         }
     }
@@ -266,9 +279,13 @@ impl AgentTool for RunAgentTool {
                     "type": "string",
                     "description": "Self-contained task and context for the Agent"
                 },
+                "sessionId": {
+                    "type": "string",
+                    "description": "Optional existing session ID to resume. Preserves history, model selection, and stats. Only supported for foreground runs."
+                },
                 "background": {
                     "type": "boolean",
-                    "description": "Submit and return immediately as a managed task. Defaults to the host's configured mode; false waits for the final output."
+                    "description": "Submit and return immediately as a managed task. Defaults to the host's configured mode; false waits for the final output. Forced to foreground when sessionId is provided."
                 }
             },
             "required": ["name", "prompt"],
@@ -299,6 +316,22 @@ impl AgentTool for RunAgentTool {
             .get("background")
             .and_then(Value::as_bool)
             .unwrap_or(self.default_background);
+        let session_id = args
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        if let Some(id) = session_id {
+            validate_session_id(id)?;
+        }
+        if session_id.is_some() && args.get("background").and_then(Value::as_bool) == Some(true) {
+            return Err(
+                "Background run_agent cannot resume an existing session; pass background:false or omit background"
+                    .into(),
+            );
+        }
+        // 省略 background 时，恢复已有会话始终走前台等待（后台恢复尚未实现）。
+        let background = background && session_id.is_none();
         if background {
             if !ctx.permissions.tool_enabled(BACKGROUND_TASK_TOOLS[1])
                 || !ctx.permissions.tool_enabled(BACKGROUND_TASK_TOOLS[2])
@@ -330,33 +363,62 @@ impl AgentTool for RunAgentTool {
             return background_agent_to_tool_output(&info);
         }
 
-        on_update(ToolOutput::text(format!("Running Agent {name}…")));
+        on_update(ToolOutput::text(if let Some(id) = session_id {
+            format!("Resuming Agent {name} session {id}…")
+        } else {
+            format!("Running Agent {name}…")
+        }));
         // 进度转发：子运行与转发循环同任务并发（select 双分支互不取消），
         // 运行结束后排空通道里剩余的里程碑再返回，避免丢最后几条。
-        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
         let runner = self.runner.clone();
         let abort = ctx.abort.clone();
-        let run_future = async move {
-            runner
-                .run_once(name, prompt, abort, Some(progress_tx.clone()))
+        let outcome = match session_id {
+            Some(session_id) => {
+                forward_child_run(
+                    runner.run_in_session(name, session_id, prompt, abort, Some(progress_tx)),
+                    progress_rx,
+                    on_update,
+                )
                 .await
-        };
-        tokio::pin!(run_future);
-        let outcome = loop {
-            tokio::select! {
-                result = &mut run_future => break result,
-                // 通道关闭且运行未结束：继续等结果（进度就此静默）
-                update = progress_rx.recv() => if let Some(update) = update {
-                    on_update(update);
-                },
+            }
+            None => {
+                forward_child_run(
+                    runner.run_once(name, prompt, abort, Some(progress_tx)),
+                    progress_rx,
+                    on_update,
+                )
+                .await
             }
         };
-        while let Ok(update) = progress_rx.try_recv() {
-            on_update(update);
-        }
         let result = outcome?;
         result_to_tool_output(&result)
     }
+}
+
+/// 转发子运行的里程碑更新，并等待子运行结束。
+async fn forward_child_run<F>(
+    future: F,
+    mut progress_rx: tokio::sync::mpsc::UnboundedReceiver<ToolOutput>,
+    on_update: &(dyn Fn(ToolOutput) + Send + Sync),
+) -> Result<AgentRunResult, String>
+where
+    F: std::future::Future<Output = Result<AgentRunResult, String>>,
+{
+    tokio::pin!(future);
+    let outcome = loop {
+        tokio::select! {
+            result = &mut future => break result,
+            // 通道关闭且运行未结束：继续等结果（进度就此静默）
+            update = progress_rx.recv() => if let Some(update) = update {
+                on_update(update);
+            },
+        }
+    };
+    while let Ok(update) = progress_rx.try_recv() {
+        on_update(update);
+    }
+    outcome
 }
 
 fn background_agent_to_tool_output(info: &BackgroundTaskInfo) -> Result<ToolOutput, String> {
@@ -643,6 +705,206 @@ mod tests {
         assert!(
             updates.iter().any(|text| text.contains("read")),
             "子运行里程碑应回流到父工具更新流: {updates:?}"
+        );
+    }
+
+    struct ResumingRunner {
+        seen: Mutex<Option<String>>,
+    }
+
+    #[async_trait]
+    impl AgentRunner for ResumingRunner {
+        async fn run_once(
+            &self,
+            _agent_name: &str,
+            _prompt: &str,
+            _abort: AbortSignal,
+            _progress: Option<ChildProgressTx>,
+        ) -> Result<AgentRunResult, String> {
+            Err("run_once must not be called when sessionId is present".into())
+        }
+
+        async fn run_in_session(
+            &self,
+            agent_name: &str,
+            session_id: &str,
+            _prompt: &str,
+            _abort: AbortSignal,
+            progress: Option<ChildProgressTx>,
+        ) -> Result<AgentRunResult, String> {
+            *self.seen.lock().unwrap() = Some(session_id.to_string());
+            if let Some(progress) = &progress {
+                let _ = progress.send(ToolOutput::text("resumed milestone"));
+            }
+            Ok(AgentRunResult {
+                agent_name: agent_name.into(),
+                session_id: session_id.into(),
+                status: AgentRunStatus::Completed,
+                response: "resumed output".into(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn run_tool_resumes_the_requested_session() {
+        let context = ToolContext {
+            workspace: std::env::temp_dir(),
+            memory_dir: None,
+            read_roots: Vec::new(),
+            permissions: Arc::new(Default::default()),
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            resolved_env: Arc::new(BTreeMap::new()),
+            abort: AbortSignal::new(),
+            approver: None,
+        };
+        let runner = Arc::new(ResumingRunner {
+            seen: Mutex::new(None),
+        });
+        let tool = RunAgentTool::new("parent".into(), runner.clone());
+        let output = tool
+            .execute(
+                &context,
+                &json!({
+                    "name": "worker",
+                    "prompt": "continue",
+                    "sessionId": "1730000000000-deadbeef"
+                }),
+                &|_| {},
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            runner.seen.lock().unwrap().as_deref(),
+            Some("1730000000000-deadbeef")
+        );
+        assert_eq!(
+            output.details.as_ref().unwrap()["sessionId"],
+            "1730000000000-deadbeef"
+        );
+        assert!(matches!(
+            &output.content[0],
+            ToolResultContent::Text { text } if text.contains("resumed output")
+        ));
+    }
+
+    #[tokio::test]
+    async fn run_tool_rejects_background_session_resume_and_unsafe_ids() {
+        let context = ToolContext {
+            workspace: std::env::temp_dir(),
+            memory_dir: None,
+            read_roots: Vec::new(),
+            permissions: Arc::new(Default::default()),
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            resolved_env: Arc::new(BTreeMap::new()),
+            abort: AbortSignal::new(),
+            approver: None,
+        };
+        let runner = Arc::new(ResumingRunner {
+            seen: Mutex::new(None),
+        });
+        let tool = RunAgentTool::new("parent".into(), runner.clone());
+        let error = tool
+            .execute(
+                &context,
+                &json!({
+                    "name": "worker",
+                    "prompt": "continue",
+                    "sessionId": "1730000000000-deadbeef",
+                    "background": true
+                }),
+                &|_| {},
+            )
+            .await
+            .expect_err("后台运行不得静默恢复会话");
+        assert!(error.contains("Background run_agent cannot resume"));
+        assert!(runner.seen.lock().unwrap().is_none());
+
+        let error = tool
+            .execute(
+                &context,
+                &json!({
+                    "name": "worker",
+                    "prompt": "continue",
+                    "sessionId": "../escape"
+                }),
+                &|_| {},
+            )
+            .await
+            .expect_err("非法会话 id 必须拒绝");
+        assert!(!error.is_empty());
+        assert!(runner.seen.lock().unwrap().is_none());
+    }
+
+    struct UnusedBackgroundService;
+
+    #[async_trait]
+    impl BackgroundTaskService for UnusedBackgroundService {
+        async fn submit(
+            &self,
+            _: crate::tools::background::BackgroundTaskSpec,
+        ) -> Result<pipi_protocol::BackgroundTaskInfo, String> {
+            Err("background service must not be used for session resume".into())
+        }
+
+        async fn query(
+            &self,
+            _: &BackgroundTaskOwner,
+            _: crate::tools::background::BackgroundTaskQuery,
+        ) -> Result<Vec<pipi_protocol::BackgroundTaskSnapshot>, String> {
+            Ok(Vec::new())
+        }
+
+        async fn manage(
+            &self,
+            _: &BackgroundTaskOwner,
+            _: &str,
+            _: crate::tools::background::BackgroundTaskCommand,
+        ) -> Result<pipi_protocol::BackgroundTaskSnapshot, String> {
+            Err("background service must not be used for session resume".into())
+        }
+
+        fn active_count(&self, _: &BackgroundTaskOwner) -> usize {
+            0
+        }
+    }
+
+    #[tokio::test]
+    async fn run_tool_forces_foreground_when_default_background_but_session_is_provided() {
+        let context = ToolContext {
+            workspace: std::env::temp_dir(),
+            memory_dir: None,
+            read_roots: Vec::new(),
+            permissions: Arc::new(Default::default()),
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            resolved_env: Arc::new(BTreeMap::new()),
+            abort: AbortSignal::new(),
+            approver: None,
+        };
+        let runner = Arc::new(ResumingRunner {
+            seen: Mutex::new(None),
+        });
+        let tool = RunAgentTool::new_managed(
+            "parent".into(),
+            BackgroundTaskOwner::new("parent", "session", 1),
+            runner.clone(),
+            Arc::new(UnusedBackgroundService),
+            true,
+        );
+        tool.execute(
+            &context,
+            &json!({
+                "name": "worker",
+                "prompt": "continue",
+                "sessionId": "1730000000000-deadbeef"
+            }),
+            &|_| {},
+        )
+        .await
+        .expect("省略 background 时必须为已有会话走前台");
+        assert_eq!(
+            runner.seen.lock().unwrap().as_deref(),
+            Some("1730000000000-deadbeef")
         );
     }
 }

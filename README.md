@@ -238,7 +238,9 @@ Agent 可以通过三项显式工具组合已有 Agent：
   `instructions` 写入新 Agent 的 `harness/AGENTS.md`，并写好 `agent.toml`
   （默认契约：三项素材位置）与 `harness/` 骨架。设置界面可将它改回普通 Agent。
   新 Agent 不继承三项 Agent 组合工具。
-- `run_agent`：在目标 Agent 下创建一个全新 session。若当前 Agent 同时启用了
+- `run_agent`：默认在目标 Agent 下创建一个全新 session；传入 `sessionId` 时
+  在已有 session 上继续（保留历史、模型选择与统计，运行中/归档会话会被拒绝，
+  且只支持前台等待）。若当前 Agent 同时启用了
   `query_background_tasks` 与 `manage_background_task`，默认提交为托管后台任务并
   立即返回 `jobId`；可用 `background:false` 保留同步等待并返回最终文本与
   `sessionId`。异步任务通过同一组后台任务工具查询输出、等待变化或终止。

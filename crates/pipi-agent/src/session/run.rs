@@ -286,13 +286,21 @@ async fn drive_run(
     // 释放之前、在 AgentEnd 之前（否则「running 已释放」≠「历史已落盘」，前端
     // 收到 AgentEnd 后立刻发的新一轮会与提交竞争同一分支）。提交失败不失败本轮：
     // 条目留在缓冲里，随下一轮再提交（自愈）。
-    if let Err(error) = commit::commit_log(&session).await {
-        eprintln!(
-            "pipi: session commit failed (entries remain in buffer, will retry next turn): {error}"
-        );
-        hooks.error(&id, run_id, format!("Session commit failed: {error}"));
-    }
-    if !session.abort.is_aborted()
+    let committed = match commit::commit_log(&session).await {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!(
+                "pipi: session commit failed (entries remain in buffer, will retry next turn): {error}"
+            );
+            hooks.error(&id, run_id, format!("Session commit failed: {error}"));
+            false
+        }
+    };
+    // 本轮没有提交成功时绝不能进入压缩：分叉会以旧 tip 为父并丢弃旧账本中
+    // 尚未提交的缓冲，原地压缩则会让磁盘在下次提交时落入一个 live 内存从未
+    // 应用过的压缩条目。两者都会让重启后的历史与本轮不一致。
+    if committed
+        && !session.abort.is_aborted()
         && let (Some(budget), Some(policy)) = (request.budget, request.compaction)
     {
         let compact = CompactionRequest {

@@ -36,6 +36,14 @@ pub(super) async fn run_compaction(
     if session.abort.is_aborted() {
         return Ok(false);
     }
+    // 压缩（尤其 fork）只能从已提交的 tip 出发。自动路径刚在轮末提交过；
+    // 手动路径可能还留着上一轮提交失败的缓冲 —— 先统一提交一次，失败就
+    // 拒绝压缩，避免分叉丢缓冲或回放出 live 从未应用过的历史。
+    if let Err(error) = super::commit::commit_log(session).await {
+        return Err(format!(
+            "Cannot compact with uncommitted session entries: {error}"
+        ));
+    }
     let history = session
         .messages
         .lock()
@@ -170,10 +178,17 @@ pub(super) fn persist_compaction(
     guard
         .append_compaction(record)
         .map_err(|error| format!("Cannot write compaction entry: {error}"))?;
-    // 提交点（原地压缩）：自动路径之后没有别的提交机会
-    guard
-        .commit_point()
-        .map_err(|error| format!("Cannot commit compaction entry: {error}"))?;
+    // 提交点（原地压缩）：自动路径之后没有别的提交机会。失败必须回滚刚追加的
+    // 压缩条目 —— 否则 live 内存仍是未压缩历史，而下一次成功提交会把压缩条目
+    // 一起写进去，重启后的回放与 live 分叉。
+    if let Err(error) = guard.commit_point() {
+        let rolled_back = guard.rollback_last_entry().unwrap_or(false);
+        return Err(if rolled_back {
+            format!("Cannot commit compaction entry: {error} (entry rolled back)")
+        } else {
+            format!("Cannot commit compaction entry: {error} (entry remains buffered)")
+        });
+    }
     if let Some(error) = fork_error {
         eprintln!("pipi: compaction fork failed, fell back to in-place: {error}");
     }

@@ -20,8 +20,17 @@ impl ToolOutputPrune {
     pub(super) const NAME: &'static str = "tool-output-prune";
 
     /// 前置条件：超预算且确有可清的输出；不满足则跳过（不算失败）。
+    #[cfg(test)]
     pub(super) fn applies(&self, prep: &Preparation<'_>) -> bool {
         prep.over_budget() && !clearable(prep).is_empty()
+    }
+
+    /// 一次扫描完成「是否适用 + 生成计划」：生产路径不必把 `clearable`
+    /// 的整段历史扫描和克隆做两遍。
+    pub(super) fn plan_if_applies(&self, prep: &Preparation<'_>) -> Option<Plan> {
+        prep.over_budget()
+            .then(|| self.plan(prep))
+            .filter(|plan| !plan.is_noop())
     }
 
     pub(super) fn plan(&self, prep: &Preparation<'_>) -> Plan {

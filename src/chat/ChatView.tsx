@@ -502,6 +502,14 @@ export default function ChatView({
             />
           </div>
 
+          {snapshot.load === "failed" && (
+            <div className="chat-load-failed" role="alert">
+              <span>{locale === "en" ? "Session failed to load." : "会话加载失败。"}</span>
+              <button type="button" className="btn" onClick={() => void controller.hydrate()}>
+                {locale === "en" ? "Retry" : "重试"}
+              </button>
+            </div>
+          )}
           {snapshot.operation === "uncertain" && (
             <div className="chat-send-uncertain" role="status">
               {t("chat.sendUncertain")}

@@ -69,6 +69,21 @@ pub(super) async fn stream_assistant_response(
         // 部分消息累积：Text/Thinking 增量填充；工具调用参数以 Value::String
         // （原始 JSON 片段）暂存，ToolCallEnd 时替换为解析后的块。
         let mut blocks: Vec<ContentBlock> = Vec::new();
+        // UI 快照合帧：模型 token 可能以远高于屏幕刷新率的频率到达。每次都
+        // 复制整段消息并触发前端重渲染没有收益，按 ~30Hz 限频；首个增量与
+        // 工具块边界仍然立即发出，超时快照最多滞后一个间隔。
+        let mut last_update: Option<std::time::Instant> = None;
+        let update_due = |last: &mut Option<std::time::Instant>| {
+            let now = std::time::Instant::now();
+            if last.is_none_or(|previous| {
+                now.duration_since(previous) >= std::time::Duration::from_millis(33)
+            }) {
+                *last = Some(now);
+                true
+            } else {
+                false
+            }
+        };
         // 本次尝试是否已经向用户输出过正文 —— 决定失败后能不能重放。
         let mut prose_visible = false;
         // 半截消息的身份：按本次尝试实际使用的协议/模型填
@@ -139,9 +154,11 @@ pub(super) async fn stream_assistant_response(
                         _ => blocks.push(ContentBlock::Text { text: delta }),
                     }
                     prose_visible = true;
-                    emit(AgentEvent::MessageUpdate {
-                        message: partial(&blocks),
-                    });
+                    if update_due(&mut last_update) {
+                        emit(AgentEvent::MessageUpdate {
+                            message: partial(&blocks),
+                        });
+                    }
                 }
                 Some(StreamEvent::ThinkingDelta { delta }) => {
                     if delta.is_empty() {
@@ -155,9 +172,11 @@ pub(super) async fn stream_assistant_response(
                         }),
                     }
                     prose_visible = true;
-                    emit(AgentEvent::MessageUpdate {
-                        message: partial(&blocks),
-                    });
+                    if update_due(&mut last_update) {
+                        emit(AgentEvent::MessageUpdate {
+                            message: partial(&blocks),
+                        });
+                    }
                 }
                 Some(StreamEvent::ToolCallStart { id, name }) => {
                     blocks.push(ContentBlock::ToolCall {
@@ -165,14 +184,19 @@ pub(super) async fn stream_assistant_response(
                         name,
                         arguments: json!({}),
                     });
+                    last_update = Some(std::time::Instant::now());
                     emit(AgentEvent::MessageUpdate {
                         message: partial(&blocks),
                     });
                 }
                 Some(StreamEvent::ToolCallDelta { delta }) => {
                     if let Some(ContentBlock::ToolCall { arguments, .. }) = blocks.last_mut() {
-                        let raw = arguments.as_str().map(str::to_string).unwrap_or_default();
-                        *arguments = Value::String(format!("{raw}{delta}"));
+                        if let Value::String(raw) = arguments {
+                            raw.push_str(&delta);
+                        } else {
+                            let raw = arguments.as_str().map(str::to_string).unwrap_or_default();
+                            *arguments = Value::String(format!("{raw}{delta}"));
+                        }
                     }
                 }
                 Some(StreamEvent::ToolCallEnd { call }) => {
@@ -184,6 +208,7 @@ pub(super) async fn stream_assistant_response(
                     } else {
                         blocks.push(call);
                     }
+                    last_update = Some(std::time::Instant::now());
                     emit(AgentEvent::MessageUpdate {
                         message: partial(&blocks),
                     });

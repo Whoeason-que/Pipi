@@ -64,6 +64,7 @@ fn truncate_chars(text: &str, max: usize) -> String {
 ///
 /// [`GitSink`]（git）与 [`MemoryLog`]（内存）共用这一套推进规则 —— 回放、压缩
 /// 的 id 换算与事件语义都依赖它。
+#[derive(Clone)]
 struct LedgerState {
     tip_id: Option<String>,
     seq: u64,

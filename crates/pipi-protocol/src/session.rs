@@ -192,6 +192,13 @@ pub trait SessionLog: Send {
     /// 时机由运行时决定（轮末，见 `docs/git-session-store.md`）。git 载体在这里
     /// 写一次提交；内存账本（设置工作台）没有持久化，是空操作。
     fn commit_point(&mut self) -> std::io::Result<()>;
+    /// 丢弃最后一条尚未提交的追加（压缩提交失败时回滚），并恢复账本游标。
+    ///
+    /// 默认返回 `false`：不支持的载体必须让调用方知道回滚没有发生，不能假装
+    /// 成功。
+    fn rollback_last_entry(&mut self) -> std::io::Result<bool> {
+        Ok(false)
+    }
 }
 
 /// 会话仓库：目录级操作（建 / 开 / 列 / 分叉 / 归档 / 删）。按 Agent 构造。

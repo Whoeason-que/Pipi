@@ -15,6 +15,22 @@ export interface SessionTransport {
 
 export const EMPTY_PROMPT_QUEUE: PromptQueueSnapshot = { revision: 0, paused: false, error: null, messages: [] };
 
+/** 会话控制命令的传输超时：后端/传输悬挂时不能让 UI 永久停在 loading/stopping。 */
+const HYDRATE_TIMEOUT_MS = 30_000;
+const STOP_TIMEOUT_MS = 15_000;
+const SESSION_INFO_TIMEOUT_MS = 5_000;
+
+/** 给任意 Promise 加一个可清理的截止时间；底层请求仍会完成，但调用方先恢复可重试状态。 */
+export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 export type SessionFrame =
   | { type: "prompt-queue"; payload: PromptQueueEnvelope }
   | { type: "agent-event"; payload: AgentEventPayload }
@@ -194,7 +210,11 @@ export class SessionController {
     const id = this.requireSessionId();
     const epoch = this.runEpoch;
     try {
-      const info = await this.transport.invoke("session_info", { agentName: this.agent.name, sessionId: id });
+      const info = await withTimeout(
+        this.transport.invoke("session_info", { agentName: this.agent.name, sessionId: id }),
+        SESSION_INFO_TIMEOUT_MS,
+        "Timed out refreshing session state",
+      );
       if (info && this.identity?.sessionId === id && this.runEpoch === epoch
         && (info.runId ?? 0) >= (this.identity.runId ?? 0)) this.adopt(info, true);
     } catch (error) { if (this.identity?.sessionId === id && this.runEpoch === epoch) this.fail(error); }
@@ -216,7 +236,11 @@ export class SessionController {
     } else {
       const args = { agentName: this.agent.name, sessionId: id };
       try {
-        const snapshot = await this.transport.invoke("open_session", args);
+        const snapshot = await withTimeout(
+          this.transport.invoke("open_session", args),
+          HYDRATE_TIMEOUT_MS,
+          "Timed out loading session",
+        );
         if (epoch !== this.loadEpoch) return;
         const info = snapshot.info;
         const identityValid = info !== null && info.agentName === this.agent.name && info.sessionId === id;
@@ -296,6 +320,15 @@ export class SessionController {
         || !Number.isSafeInteger(info.runId)) {
         throw new CommandTransportError("Invalid send response identity");
       }
+      // send_prompt 的响应是 run id 的权威；事件（AgentStart）可能还没到。
+      // 不更新的话，用户立刻点停止会带着上一轮的 run id，被后端当成迟到
+      // 请求 no-op。取 max，避免压缩重键或迟到响应把身份回退。
+      if (this.identity?.sessionId === requestedSession) {
+        this.identity = {
+          ...this.identity,
+          runId: Math.max(this.identity.runId ?? 0, info.runId ?? 0),
+        };
+      }
       // 压缩可能已通过事件切换身份，迟到的响应只补模型元信息。
       if (info.model !== undefined) {
         this.patch({ model: info.model ?? this.agent.provider ?? null, isCustomModel: Boolean(info.isCustomModel) });
@@ -314,9 +347,13 @@ export class SessionController {
       this.uncertainSend = { runId: baseline, key };
       this.patch({ operation: "uncertain" });
       try {
-        const info = await this.transport.invoke("session_info", {
-          agentName: this.agent.name, sessionId: this.requireSessionId(),
-        });
+        const info = await withTimeout(
+          this.transport.invoke("session_info", {
+            agentName: this.agent.name, sessionId: this.requireSessionId(),
+          }),
+          SESSION_INFO_TIMEOUT_MS,
+          "Timed out confirming the send result",
+        );
         if (info?.agentName === this.agent.name && info.sessionId === this.value.sessionId
           && (info.runId ?? 0) > baseline) {
           await this.hydrate();
@@ -332,14 +369,28 @@ export class SessionController {
   async stop(): Promise<void> {
     if (!this.value.chat.running || this.value.operation === "stopping") return;
     const epoch = this.runEpoch;
+    const uncertain = this.value.operation === "uncertain";
     this.patch({ operation: "stopping" });
     try {
-      await this.transport.invoke("stop_run", { agentName: this.agent.name, sessionId: this.requireSessionId() });
+      await withTimeout(
+        this.transport.invoke("stop_run", {
+          agentName: this.agent.name,
+          sessionId: this.requireSessionId(),
+          // uncertain 时没有权威 run id：省略前置条件，让用户仍能停止未知运行。
+          runId: uncertain ? null : (this.identity?.runId ?? null),
+        }),
+        STOP_TIMEOUT_MS,
+        "Timed out stopping the run",
+      );
       for (let attempt = 0; attempt <= 50; attempt++) {
         if (epoch !== this.runEpoch || this.getSnapshot().operation !== "stopping") return;
-        const info = await this.transport.invoke("session_info", {
-          agentName: this.agent.name, sessionId: this.requireSessionId(),
-        });
+        const info = await withTimeout(
+          this.transport.invoke("session_info", {
+            agentName: this.agent.name, sessionId: this.requireSessionId(),
+          }),
+          SESSION_INFO_TIMEOUT_MS,
+          "Timed out confirming the stopped session",
+        );
         if (epoch !== this.runEpoch || this.getSnapshot().operation !== "stopping") return;
         if (!info || info.agentName !== this.agent.name || info.sessionId !== this.value.sessionId) {
           throw new Error("Unable to confirm the stopped session");
@@ -429,8 +480,20 @@ export class SessionController {
   async resolveApproval(decision: ApprovalDecisionValue): Promise<void> {
     const request = this.value.approval;
     if (!request) return;
-    this.patch({ approval: null });
-    await this.transport.invoke("resolve_approval", { requestId: request.requestId, decision });
+    // 只有宿主确认收到决定后才移除审批条：传输失败时保留入口，
+    // 否则运行会停在等待审批，而用户已经无法再点允许/拒绝。
+    try {
+      await this.transport.invoke("resolve_approval", { requestId: request.requestId, decision });
+    } catch (error) {
+      // 传输失败 = 决定可能没送到，保留可重试；领域错误（请求过期/已被
+      // 其他客户端处理）= 这个审批条已经没有意义，移除以免误导。
+      if (!(error instanceof CommandTransportError)
+        && this.value.approval?.requestId === request.requestId) {
+        this.patch({ approval: null });
+      }
+      throw error;
+    }
+    if (this.value.approval?.requestId === request.requestId) this.patch({ approval: null });
   }
   async compact(): Promise<void> {
     if (this.uncertainSend) throw new Error("Please confirm or stop the pending run first");

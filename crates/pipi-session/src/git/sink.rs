@@ -20,6 +20,9 @@ pub struct GitSink {
     exec: Arc<GitExec>,
     /// tip / seq / 环境记账 / 消息 id 映射（与 JSONL 载体同一套规则）。
     ledger: LedgerState,
+    /// 上一次压缩追加前的账本快照（压缩提交失败时回滚用）。
+    /// 只压缩条目需要回滚；普通消息追加不克隆整份账本。
+    last_append_ledger: Option<LedgerState>,
     /// 尚未提交的条目（提交点一次 fast-import 落盘）。
     buffer: Vec<SessionEntry>,
     /// 已提交的轮数（`Turn:` trailer 的计数，按提交点递增，不按 user 条目数）。
@@ -36,6 +39,7 @@ impl GitSink {
             session_id: format!("{}-{}", now_millis(), new_id()),
             exec,
             ledger: LedgerState::empty(),
+            last_append_ledger: None,
             buffer: Vec::new(),
             turn: 0,
             root_parent: None,
@@ -56,6 +60,7 @@ impl GitSink {
             session_id,
             exec,
             ledger: LedgerState::from_entries(entries),
+            last_append_ledger: None,
             buffer: Vec::new(),
             turn,
             root_parent: None,
@@ -158,6 +163,9 @@ impl SessionLog for GitSink {
     }
 
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
+        // 只有压缩条目需要回滚；快照放在这里，普通消息/工具结果的热路径
+        // 不承担整份账本克隆。
+        self.last_append_ledger = Some(self.ledger.clone());
         Ok(self.append_entry(record.to_entry_kind(), now_millis()))
     }
 
@@ -198,12 +206,25 @@ impl SessionLog for GitSink {
         let stream = self.build_stream(parent.as_deref(), &message);
         self.exec.fast_import(stream).map_err(io_error)?;
         self.buffer.clear();
+        self.last_append_ledger = None;
         if has_user {
             self.turn += 1;
         }
         // 提交之后再跑节流 gc（自己取锁，失败忽略）
         self.exec.gc_auto();
         Ok(())
+    }
+
+    fn rollback_last_entry(&mut self) -> std::io::Result<bool> {
+        let Some(previous) = self.last_append_ledger.take() else {
+            return Ok(false);
+        };
+        if self.buffer.pop().is_none() {
+            self.last_append_ledger = Some(previous);
+            return Ok(false);
+        }
+        self.ledger = previous;
+        Ok(true)
     }
 }
 

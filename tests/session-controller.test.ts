@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentEvent, MessageView } from "../src/chat-runtime.ts";
 import { SessionRuntime, type RuntimeTransport } from "../src/session-runtime.ts";
+import { withTimeout } from "../src/session-controller.ts";
 import { CommandTransportError, decodeCommandResponse } from "../src/transport-error.ts";
 import { submitDraft } from "../src/drafts.ts";
 import type { AgentDefinition, SessionInfoView, SessionStatsView, PromptQueueSnapshot } from "../src/types.ts";
@@ -35,6 +36,7 @@ class Host implements RuntimeTransport {
   /** 非空时 send_prompt 的响应挂起，供「事件先于响应」的用例控制顺序。 */
   sendGate: Promise<void> | null = null;
   modelError: Error | null = null;
+  approvalError: Error | null = null;
   async invoke<K extends CommandName>(command: K, ...parameters: CommandArgs<K>): Promise<CommandResult<K>> {
     const args = parameters[0] as Record<string, unknown> | undefined;
     this.calls.push({ command, args });
@@ -43,6 +45,9 @@ class Host implements RuntimeTransport {
     switch (command) {
       case "set_session_model":
         if (this.modelError) throw this.modelError;
+        break;
+      case "resolve_approval":
+        if (this.approvalError) throw this.approvalError;
         break;
       case "open_session": {
         const currentInfo = this.infos.get(session) ?? info(session);
@@ -392,6 +397,52 @@ test("old approval and error frames cannot cross the run boundary", async () => 
   runtime.disconnect();
 });
 
+test("a failed approval response keeps the request visible for retry", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  host.event({ type: "agent_start" }, "s", 2);
+  host.emit("approval-request", { agentName: agent.name, sessionId: "s", runId: 2, requestId: "approve-1", command: "rm", missing: ["rm"] });
+  host.approvalError = new CommandTransportError("approval transport failed");
+  await assert.rejects(controller.resolveApproval("deny"), /approval transport failed/);
+  assert.equal(controller.getSnapshot().approval?.requestId, "approve-1");
+
+  host.approvalError = null;
+  await controller.resolveApproval("allow");
+  assert.equal(controller.getSnapshot().approval, null);
+  runtime.disconnect();
+});
+
+test("an expired approval response clears the stale request", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  host.event({ type: "agent_start" }, "s", 2);
+  host.emit("approval-request", { agentName: agent.name, sessionId: "s", runId: 2, requestId: "approve-old", command: "rm", missing: ["rm"] });
+  host.approvalError = new Error("approval request is no longer pending");
+  await assert.rejects(controller.resolveApproval("deny"), /no longer pending/);
+  assert.equal(controller.getSnapshot().approval, null);
+  runtime.disconnect();
+});
+
+test("withTimeout rejects a hung transport call without waiting for the promise", async () => {
+  await assert.rejects(
+    withTimeout(new Promise<never>(() => {}), 10, "fixture timed out"),
+    /fixture timed out/,
+  );
+  assert.equal(await withTimeout(Promise.resolve(42), 1000, "unused"), 42);
+});
+
+test("a send response advances the run identity so an immediate stop targets the new run", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  host.sendInfo = { runId: 5 };
+  await controller.send("hello");
+  assert.equal(controller.getSnapshot().chat.running, true);
+  await controller.stop();
+  const stop = host.calls.find(call => call.command === "stop_run");
+  assert.equal(stop?.args?.runId, 5);
+  runtime.disconnect();
+});
+
 test("a failed host subscription cleans partial listeners and can reconnect without duplicates", async () => {
   const host = new Host();
   const original = host.listen.bind(host);
@@ -474,6 +525,7 @@ test("an unknown send keeps the draft and stop control, and blocks duplicate sen
   assert.equal(controller.getSnapshot().chat.running, true);
   host.invoke = original;
   await controller.stop();
+  assert.equal(host.calls.find(call => call.command === "stop_run")?.args?.runId, null);
   assert.equal(controller.getSnapshot().chat.running, false);
   assert.equal(controller.getSnapshot().operation, "idle");
   assert.equal(draft.getSnapshot().text, "do not lose me");

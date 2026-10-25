@@ -515,8 +515,14 @@ impl Accumulator {
             },
         );
         if let ContentBlock::ToolCall { arguments, .. } = &mut self.blocks[idx] {
-            let raw = arguments.as_str().map(str::to_string).unwrap_or_default();
-            *arguments = Value::String(format!("{raw}{delta}"));
+            // 大参数会被拆成很多分片：直接在同一字符串上追加，避免每片都
+            // 复制一遍此前全部 JSON（O(n²)）。
+            if let Value::String(raw) = arguments {
+                raw.push_str(delta);
+            } else {
+                let raw = arguments.as_str().map(str::to_string).unwrap_or_default();
+                *arguments = Value::String(format!("{raw}{delta}"));
+            }
         }
     }
 

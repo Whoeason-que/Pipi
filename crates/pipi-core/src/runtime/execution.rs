@@ -170,6 +170,7 @@ impl RuntimeState {
                     def.name.clone(),
                     background_owner.clone(),
                     Arc::new(RuntimeAgentRunner {
+                        runtime: self.clone(),
                         session_sink: Some(make_session_change_sink(event_sink.clone())),
                     }),
                     Arc::new(self.background.clone()),

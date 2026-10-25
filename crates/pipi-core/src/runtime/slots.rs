@@ -365,8 +365,24 @@ impl RuntimeState {
     /// 停止某条会话的当前一轮；这条会话没有打开时是空操作。只停这一条 ——
     /// 同一个 Agent 的其他会话照跑。
     pub fn stop_run(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
+        self.stop_run_if(agent_name, session_id, None)
+    }
+
+    /// 停止会话当前运行；`expected_run_id` 非空时只停止匹配的轮次。
+    /// 传输超时后的迟到请求带旧 run id 时应是无害的 no-op。
+    pub fn stop_run_if(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        expected_run_id: Option<usize>,
+    ) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         if let Some(session) = sessions.get_mut(&SessionKey::new(agent_name, session_id)) {
+            if let Some(expected) = expected_run_id
+                && session.engine.snapshot()?.run_id != expected
+            {
+                return Ok(());
+            }
             if !session.queue.snapshot.messages.is_empty() {
                 session.queue.snapshot.paused = true;
                 self.publish_queue(session)?;

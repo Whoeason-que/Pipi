@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::tools::background::BackgroundTaskOwner;
 use pipi_protocol::{
@@ -11,6 +11,10 @@ use pipi_protocol::{
 };
 
 use super::MAX_OUTPUT_BYTES;
+
+/// 状态 JSONL 的进程内单写者：rekey、output、finished 可能来自不同任务，
+/// 不能让它们的 `write_all` 交错成半行。
+static STATE_WRITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct PersistedRecord {
@@ -34,6 +38,7 @@ pub(super) async fn append_log(path: &Path, text: &str) -> Result<(), String> {
 }
 
 pub(super) async fn append_record(path: &Path, record: &PersistedRecord) -> Result<(), String> {
+    let _state_guard = STATE_WRITE_LOCK.lock().await;
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -52,17 +57,24 @@ pub(super) async fn load_persisted_snapshot(
     owner: &BackgroundTaskOwner,
     after_seq: u64,
 ) -> Result<Option<BackgroundTaskSnapshot>, String> {
-    let content = match tokio::fs::read_to_string(path).await {
-        Ok(content) => content,
+    let file = match tokio::fs::File::open(path).await {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("Failed to read background task state: {error}")),
     };
+    let mut lines = BufReader::new(file).lines();
     let mut last = None;
     let mut output = VecDeque::new();
     let mut output_bytes = 0usize;
     let mut output_truncated = false;
-    for line in content.lines() {
-        if let Ok(record) = serde_json::from_str::<PersistedRecord>(line) {
+    // 流式扫描：长任务的状态文件可能很大，只保留最后一条任务元数据与末尾
+    // 输出窗口，不能先 read_to_string 把整个文件载入内存。
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|error| format!("Failed to read background task state: {error}"))?
+    {
+        if let Ok(record) = serde_json::from_str::<PersistedRecord>(&line) {
             if let Some(task) = record.task {
                 last = Some(task);
             }

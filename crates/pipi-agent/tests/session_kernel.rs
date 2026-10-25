@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 struct Ledger {
     entries: Mutex<Vec<SessionEntry>>,
     fail: AtomicBool,
+    fail_commit: AtomicBool,
     closed: AtomicBool,
     /// 提交点被调用的次数（git 载体下这就是「一轮一个 commit」的落地次数）。
     commits: AtomicUsize,
@@ -27,6 +28,7 @@ struct MemoryLog {
     id: String,
     temporary: bool,
     fail_compaction: bool,
+    last_append: Option<(Option<String>, Vec<String>, usize)>,
     trace: Option<Arc<Mutex<Vec<String>>>>,
 }
 
@@ -43,6 +45,7 @@ impl MemoryLog {
             id: "memory-session".into(),
             temporary: true,
             fail_compaction: false,
+            last_append: None,
             trace: None,
         }
     }
@@ -111,6 +114,9 @@ impl SessionLog for MemoryLog {
         if self.fail_compaction {
             return Err(std::io::Error::other("injected compaction failure"));
         }
+        let entries = self.data.entries.lock().unwrap();
+        self.last_append = Some((self.tip.clone(), self.ids.clone(), entries.len()));
+        drop(entries);
         self.append(EntryKind::Compaction {
             summary: r.summary.into(),
             keep_from_entry: r.keep_from_entry.into(),
@@ -120,8 +126,22 @@ impl SessionLog for MemoryLog {
         })
     }
     fn commit_point(&mut self) -> std::io::Result<()> {
+        if self.data.fail_commit.load(Ordering::SeqCst) {
+            return Err(std::io::Error::other("injected commit failure"));
+        }
         self.data.commits.fetch_add(1, Ordering::SeqCst);
+        self.last_append = None;
         Ok(())
+    }
+
+    fn rollback_last_entry(&mut self) -> std::io::Result<bool> {
+        let Some((tip, ids, len)) = self.last_append.take() else {
+            return Ok(false);
+        };
+        self.data.entries.lock().unwrap().truncate(len);
+        self.tip = tip;
+        self.ids = ids;
+        Ok(true)
     }
 }
 
@@ -526,6 +546,7 @@ enum Fault {
     Fork,
     ForkAppend,
     Append,
+    Commit,
     Archive,
 }
 
@@ -560,6 +581,10 @@ impl MemoryRepo {
     }
     fn log(&self, id: &str) -> Box<dyn SessionLog> {
         let data = self.ledgers.lock().unwrap().get(id).unwrap().clone();
+        data.fail_commit.store(
+            self.fault == Fault::Commit && id == "source",
+            Ordering::SeqCst,
+        );
         let mut log = MemoryLog::new(data);
         log.id = id.into();
         log.temporary = false;
@@ -705,11 +730,13 @@ async fn compaction_faults_preserve_ledger_identity_and_reopen_totals() {
         Fault::Fork,
         Fault::ForkAppend,
         Fault::Append,
+        Fault::Commit,
         Fault::Archive,
     ] {
         let repo = MemoryRepo::seeded(fault);
         let session = Arc::new(repo.session());
         let before = session.messages().await;
+        let entries_before = repo.entries("source").unwrap().len();
         let events = Arc::new(Mutex::new(Vec::new()));
         let provider = Arc::new(SummaryProvider::default());
         let event_sink = events.clone();
@@ -728,7 +755,10 @@ async fn compaction_faults_preserve_ledger_identity_and_reopen_totals() {
             .reserve_run(AbortPolicy::Reset)
             .unwrap()
             .prepare_compaction(
-                compact_request(provider.clone(), fault != Fault::Append),
+                compact_request(
+                    provider.clone(),
+                    !matches!(fault, Fault::Append | Fault::Commit),
+                ),
                 hooks,
             )
             .run()
@@ -738,12 +768,22 @@ async fn compaction_faults_preserve_ledger_identity_and_reopen_totals() {
         let messages = session.messages().await;
         let events = events.lock().unwrap().clone();
         let options = provider.options.lock().unwrap().clone();
-        assert_eq!(options.len(), 1, "{fault:?}");
-        assert!(!options[0].auto_protocol);
-        assert_eq!(options[0].session_id.as_deref(), Some("source"));
-        assert_eq!(options[0].timeout_secs, 300);
-        if fault == Fault::Append {
+        if fault == Fault::Commit {
+            // 提交失败在摘要请求之前就被拒绝，不应产生一次多余的模型调用。
+            assert!(options.is_empty(), "{fault:?}");
+        } else {
+            assert_eq!(options.len(), 1, "{fault:?}");
+            assert!(!options[0].auto_protocol);
+            assert_eq!(options[0].session_id.as_deref(), Some("source"));
+            assert_eq!(options[0].timeout_secs, 300);
+        }
+        if matches!(fault, Fault::Append | Fault::Commit) {
             assert_eq!(messages, before);
+            assert_eq!(
+                repo.entries("source").unwrap().len(),
+                entries_before,
+                "{fault:?}: 失败压缩不得把条目留在账本里"
+            );
             assert!(
                 events
                     .iter()
@@ -1118,4 +1158,94 @@ async fn the_turn_is_committed_before_the_final_event() {
     drop(session);
     prepared.run().await.unwrap();
     assert!(data.commits.load(Ordering::SeqCst) > baseline);
+}
+
+/// 轮末提交失败时不能进入自动压缩：分叉会丢掉旧账本里未提交的整轮，原地
+/// 压缩则会让磁盘在下次提交时出现 live 内存从未应用过的压缩条目。
+#[tokio::test]
+async fn commit_failure_skips_automatic_compaction() {
+    let data = Arc::new(Ledger::default());
+    let session = session(data.clone());
+    let baseline = data.commits.load(Ordering::SeqCst);
+    data.fail_commit.store(true, Ordering::SeqCst);
+
+    let mut req = request(false, false);
+    req.budget = Some(pipi_context::compaction::Budget::from_window(1, 75));
+    req.compaction = Some(CompactionPolicy {
+        fork_before_compact: true,
+        archive_original: true,
+    });
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let prepared = session
+        .reserve_run(AbortPolicy::Reset)
+        .unwrap()
+        .prepare(
+            req,
+            SessionHooks {
+                emit: Arc::new(move |event| captured.lock().unwrap().push(event)),
+                rekey: None,
+            },
+        )
+        .unwrap();
+    prepared.run().await.unwrap();
+
+    let events = events.lock().unwrap();
+    assert!(
+        !events.iter().any(|event| matches!(
+            event.kind,
+            SessionEventKind::Agent(
+                pipi_agent::agent_loop::AgentEvent::CompactionStart
+                    | pipi_agent::agent_loop::AgentEvent::CompactionEnd { .. }
+            )
+        )),
+        "提交失败后不得启动压缩: {events:?}"
+    );
+    assert!(
+        events.iter().any(|event| matches!(
+            event.kind,
+            SessionEventKind::Error(ref message) if message.contains("commit failed")
+        )),
+        "提交失败必须作为会话错误暴露: {events:?}"
+    );
+    assert_eq!(
+        data.commits.load(Ordering::SeqCst),
+        baseline,
+        "失败的提交不能计数为成功"
+    );
+    drop(events);
+
+    // 手动压缩入口也必须先提交未提交缓冲，失败则拒绝，不能靠 run_compaction
+    // 的调用方（自动路径）单独把关。
+    let manual_events = Arc::new(Mutex::new(Vec::new()));
+    let captured = manual_events.clone();
+    let outcome = session
+        .reserve_run(AbortPolicy::Reset)
+        .unwrap()
+        .prepare_compaction(
+            compact_request(Arc::new(SummaryProvider::default()), true),
+            SessionHooks {
+                emit: Arc::new(move |event| captured.lock().unwrap().push(event)),
+                rekey: None,
+            },
+        )
+        .run()
+        .await
+        .unwrap();
+    assert_eq!(outcome.session_id, session.snapshot().unwrap().session_id);
+    let manual_events = manual_events.lock().unwrap();
+    assert!(
+        !manual_events.iter().any(|event| matches!(
+            event.kind,
+            SessionEventKind::Agent(pipi_agent::agent_loop::AgentEvent::CompactionStart)
+        )),
+        "提交失败时手动压缩也必须被拒绝: {manual_events:?}"
+    );
+    assert!(
+        manual_events.iter().any(|event| matches!(
+            event.kind,
+            SessionEventKind::Error(ref message) if message.contains("uncommitted session entries")
+        )),
+        "手动压缩拒绝原因必须可诊断: {manual_events:?}"
+    );
 }
