@@ -14,6 +14,7 @@ tauri-build = { workspace = true }
 
 [dependencies]
 tauri = { workspace = true, features = ["tray-icon"] }
+tauri-plugin-notification = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 pipi-agent = { workspace = true }
 pipi-core = { workspace = true, features = ["server"] }

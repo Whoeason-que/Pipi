@@ -151,6 +151,14 @@ export interface Settings {
   defaultProviderId?: string | null;
   compaction: CompactionSettings;
   retry: RetrySettings;
+  notifications: NotificationSettings;
+}
+
+export interface NotificationSettings {
+  desktopEnabled: boolean;
+  completed: boolean;
+  failed: boolean;
+  approval: boolean;
 }
 
 // ---- 会话统计（hermes 设计，Rust stats::SessionStats 的序列化）----

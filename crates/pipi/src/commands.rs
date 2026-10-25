@@ -2,6 +2,56 @@
 //! 逻辑与参数结构体在 `pipi_core::commands`（宿主命令的单一事实来源）。
 
 use pipi_core::commands::{
+    PushSubscriptionStatusArgs, RegisterPushSubscriptionArgs, RemovePushSubscriptionArgs,
+    TestPushNotificationArgs,
+};
+
+#[tauri::command]
+pub async fn web_push_public_key(state: State<'_, Arc<RuntimeState>>) -> Result<String, String> {
+    pipi_core::commands::web_push_public_key(&state).await
+}
+
+#[tauri::command]
+pub async fn register_push_subscription(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<RegisterPushSubscriptionArgs>,
+) -> Result<(), String> {
+    pipi_core::commands::register_push_subscription(&state, args.0).await
+}
+
+#[tauri::command]
+pub async fn remove_push_subscription(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<RemovePushSubscriptionArgs>,
+) -> Result<(), String> {
+    pipi_core::commands::remove_push_subscription(&state, args.0).await
+}
+
+#[tauri::command]
+pub async fn push_subscription_status(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<PushSubscriptionStatusArgs>,
+) -> Result<bool, String> {
+    pipi_core::commands::push_subscription_status(&state, args.0).await
+}
+
+#[tauri::command]
+pub async fn test_push_notification(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<TestPushNotificationArgs>,
+) -> Result<(), String> {
+    pipi_core::commands::test_push_notification(&state, args.0).await
+}
+
+#[tauri::command]
+pub fn test_desktop_notification(state: State<'_, Arc<RuntimeState>>) -> Result<(), String> {
+    pipi_core::commands::test_desktop_notification(
+        &state,
+        pipi_core::remote::CommandSource::Desktop,
+    )
+}
+
+use pipi_core::commands::{
     AgentSkillsArgs, ConfigureRemoteAccessArgs, CreateAgentArgs, ForumPostArgs, ForumReadArgs,
     ForumReplyArgs, ForumSearchArgs, ForumThread, ForumThreadsArgs, InstallSkillArgs,
     ListAgentFilesArgs, ListAgentsArgs, ModelCatalogArgs, ReadAgentFileArgs, RemoteAccessTokenArgs,

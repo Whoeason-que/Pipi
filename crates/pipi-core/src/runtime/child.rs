@@ -238,6 +238,7 @@ mod tests {
 
         let base_url = format!("http://{addr}/v1");
         crate::settings::save_settings(&crate::settings::Settings {
+            notifications: Default::default(),
             theme: crate::settings::Theme::Dark,
             providers: vec![crate::settings::ProviderConfig {
                 id: "silent".into(),

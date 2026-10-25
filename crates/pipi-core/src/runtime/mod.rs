@@ -76,6 +76,8 @@ pub struct RuntimeState {
     approval: Arc<ApprovalGate>,
     background: BackgroundTaskManager,
     events: crate::events::EventHub,
+    #[cfg(feature = "server")]
+    push: Arc<crate::notifications::push::PushService>,
     remote: std::sync::OnceLock<Arc<dyn crate::remote::RemoteAccessControl>>,
 }
 

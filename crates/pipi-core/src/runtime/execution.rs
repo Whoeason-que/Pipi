@@ -111,6 +111,7 @@ impl RuntimeState {
         // 权威身份在起跑前就取好（纯内存快照）：此刻 session_id / run_id /
         // running / model 都已确定，失败也发生在新消息落盘之前。
         let info = self.session_info_of(session)?;
+        let event_sink = crate::notifications::run_emitter(event_sink, session.temporary);
 
         // 论坛：仅在启用任一 forum_* 工具时才解析根目录（避免无代价地创建目录），
         // 并把根目录加入受信任读取根，让 read/grep 也能直接看论坛文件。

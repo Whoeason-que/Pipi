@@ -261,6 +261,7 @@ fn fixture_agent(name: &str, base_url: &str) {
 
 fn write_settings(base_url: &str, api_mode: ApiMode) {
     save_settings(&Settings {
+        notifications: Default::default(),
         theme: Theme::Dark,
         providers: vec![ProviderConfig {
             id: "mock-gateway".into(),

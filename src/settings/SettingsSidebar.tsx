@@ -25,6 +25,7 @@ export default function SettingsSidebar({
     "appearance",
     "context",
     "retry",
+    "notifications",
     "providers",
   ];
   if (isTauriRuntime()) sections.push("remote");
@@ -40,6 +41,8 @@ export default function SettingsSidebar({
           : "原地压缩";
       case "retry":
         return `${settings.retry.maxAttempts} 次尝试 · ${formatRetryDelay(settings.retry.baseDelayMs)}起`;
+      case "notifications":
+        return t("notifications.thisDevice");
       case "providers": {
         const fallback = settings.providers.find(
           (item) => item.id === settings.defaultProviderId,

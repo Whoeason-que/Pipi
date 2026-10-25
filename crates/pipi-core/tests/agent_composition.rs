@@ -62,6 +62,7 @@ async fn create_run_and_read_agent_output() {
         context_window: 8192,
     };
     save_settings(&Settings {
+        notifications: Default::default(),
         theme: Theme::Dark,
         providers: vec![ProviderConfig {
             id: "local-refusing".into(),
@@ -403,6 +404,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         context_window: 0,
     };
     save_settings(&Settings {
+        notifications: Default::default(),
         theme: Theme::Dark,
         providers: vec![ProviderConfig {
             id: "e2e-mock".into(),

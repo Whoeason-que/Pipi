@@ -98,6 +98,8 @@ pub enum RuntimeEvent {
     SessionSwitched(SessionSwitchedEnvelope),
     #[serde(rename = "session-changed")]
     SessionChanged(SessionChangedEnvelope),
+    #[serde(rename = "notification")]
+    Notification(crate::notifications::NotificationEnvelope),
 }
 
 /// 运行时事件接收器。
@@ -108,6 +110,8 @@ pub type EventEmitter = Arc<dyn Fn(RuntimeEvent) + Send + Sync>;
 pub struct EventHub {
     sender: tokio::sync::broadcast::Sender<RuntimeEvent>,
     desktop: Arc<RwLock<Option<EventEmitter>>>,
+    notifications: Arc<std::sync::Mutex<crate::notifications::NotificationPolicy>>,
+    notification_sender: tokio::sync::broadcast::Sender<crate::notifications::NotificationEnvelope>,
 }
 
 impl Default for EventHub {
@@ -115,11 +119,31 @@ impl Default for EventHub {
         Self {
             sender: tokio::sync::broadcast::channel(1024).0,
             desktop: Arc::new(RwLock::new(None)),
+            notifications: Arc::new(std::sync::Mutex::new(Default::default())),
+            notification_sender: tokio::sync::broadcast::channel(128).0,
         }
     }
 }
 
 impl EventHub {
+    pub fn subscribe_notifications(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<crate::notifications::NotificationEnvelope> {
+        self.notification_sender.subscribe()
+    }
+
+    pub fn test_desktop_notification(&self) {
+        if let Some(sink) = self.desktop.read().ok().and_then(|sink| sink.clone()) {
+            sink(RuntimeEvent::Notification(
+                crate::notifications::NotificationEnvelope::new(
+                    "Pipi",
+                    "",
+                    0,
+                    crate::notifications::NotificationKind::Completed,
+                ),
+            ));
+        }
+    }
     pub fn set_desktop_sink(&self, sink: EventEmitter) {
         *self.desktop.write().expect("事件接收器锁损坏") = Some(sink);
     }
@@ -131,11 +155,28 @@ impl EventHub {
     pub fn emitter(&self) -> EventEmitter {
         let hub = self.clone();
         Arc::new(move |event| {
+            if let RuntimeEvent::Notification(notice) = &event {
+                let _ = hub.notification_sender.send(notice.clone());
+            }
+            let notification = hub
+                .notifications
+                .lock()
+                .ok()
+                .and_then(|mut policy| policy.observe(&event));
             let sink = hub.desktop.read().ok().and_then(|sink| sink.clone());
             if let Some(sink) = sink {
                 sink(event.clone());
             }
             let _ = hub.sender.send(event);
+            if let Some(notification) = notification {
+                let _ = hub.notification_sender.send(notification.clone());
+                let event = RuntimeEvent::Notification(notification);
+                let sink = hub.desktop.read().ok().and_then(|sink| sink.clone());
+                if let Some(sink) = sink {
+                    sink(event.clone());
+                }
+                let _ = hub.sender.send(event);
+            }
         })
     }
 }

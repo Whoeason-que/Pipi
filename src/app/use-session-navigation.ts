@@ -8,7 +8,7 @@ export interface SessionNavigationOptions {
   setError: (message: string | null) => void;
   selectedRef: { current: string | null };
   activeSessionRef: { current: SessionInfoView | null };
-  onOpenChat: (agentName: string, sessionId: string | null) => void;
+  onOpenChat: (agentName: string, sessionId: string | null, temporary?: boolean) => void;
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
   setExpandedAgents: Dispatch<SetStateAction<Record<string, boolean>>>;
   setActiveSession: Dispatch<SetStateAction<SessionInfoView | null>>;
@@ -89,7 +89,7 @@ export function useSessionNavigation(
         if (requestId !== navigationRequestRef.current) {
           return;
         }
-        onOpenChat(agentName, sessionId);
+        onOpenChat(agentName, sessionId, snapshot.info.temporary);
         setSidebarOpen(false);
         setExpandedAgents((prev) => ({ ...prev, [agentName]: true }));
         setChatKey((key) => key + 1);

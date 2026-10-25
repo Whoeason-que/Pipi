@@ -26,6 +26,10 @@ use crate::invoke_args::InvokeArgs;
 pub(crate) fn tauri_emitter(app: AppHandle) -> EventEmitter {
     Arc::new(move |event| {
         let result = match event {
+            RuntimeEvent::Notification(payload) => {
+                crate::desktop::notify(&app, payload);
+                Ok(())
+            }
             RuntimeEvent::AgentEvent(payload) => app.emit("agent-event", &payload),
             RuntimeEvent::SessionStats(payload) => app.emit("session-stats", &payload),
             RuntimeEvent::SessionError(payload) => app.emit("session-error", &payload),

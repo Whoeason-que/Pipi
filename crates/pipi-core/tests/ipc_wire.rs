@@ -93,6 +93,15 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
             session_id: "child-1".into(),
             run_id: 8,
         }),
+        RuntimeEvent::Notification(pipi_core::notifications::NotificationEnvelope {
+            agent_name: "fixture".into(),
+            session_id: "session-1".into(),
+            run_id: 7,
+            id: "notification-1".into(),
+            kind: pipi_core::notifications::NotificationKind::Completed,
+            title: "Pipi · fixture".into(),
+            body: "Reply completed".into(),
+        }),
     ];
     assert_eq!(serde_json::to_value(events).unwrap(), wire["events"]);
 }

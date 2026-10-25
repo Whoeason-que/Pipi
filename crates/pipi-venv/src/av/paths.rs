@@ -79,6 +79,10 @@ pub fn remote_token_path() -> Option<PathBuf> {
     pipi_home().map(|home| home.join("remote-token"))
 }
 
+pub fn push_store_path() -> Option<PathBuf> {
+    pipi_home().map(|home| home.join("web-push.json"))
+}
+
 pub fn host_lock_path() -> Option<PathBuf> {
     pipi_home().map(|home| home.join("host.lock"))
 }

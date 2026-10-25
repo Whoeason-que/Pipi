@@ -9,6 +9,7 @@ import AppNavigation, { NavigationToggle } from "./app/AppNavigation";
 import AgentSidebar from "./app/AgentSidebar";
 import { useArchiveActions, type ConfirmRequest } from "./app/use-archive-actions";
 import { useHostEvents } from "./app/use-host-events";
+import { useNotificationNavigation } from "./app/use-notification-navigation";
 import { useSessionList } from "./app/use-session-list";
 import { useSessionNavigation } from "./app/use-session-navigation";
 import { useSettings } from "./app/use-settings";
@@ -144,12 +145,16 @@ export default function App() {
   const collection: AgentSection = view.kind === "home" ? view.section ?? "agents"
     : current ? agentSection(current) : navSection === "subagents" ? "subagents" : "agents";
   const { settings, setSettings, updateSettings } = useSettings(setError);
-  const onOpenChat = useCallback((agentName: string, sessionId: string | null) => {
+  const onOpenChat = useCallback((agentName: string, sessionId: string | null, temporary = false) => {
     setNavSection(agentSection(agents.find(agent => agent.name === agentName)));
-    commitView({ kind: "chat", agentName, sessionId });
+    commitView(temporary ? { kind: "workbench", agentName } : { kind: "chat", agentName, sessionId });
   }, [commitView, agents]);
   const navigation = useSessionNavigation({ setError, selectedRef, activeSessionRef, onOpenChat,
     setSidebarOpen, setExpandedAgents, setActiveSession, setChatKey });
+  useNotificationNavigation(!authStatus.checking && authStatus.authenticated && agents.length > 0, async (agent, session) => {
+    setActiveWorkspace("all");
+    await navigation.openSession(agent, session);
+  });
   const { runningSessions, handleRunningChange, isConversationRunning, agentHasRunning,
     forgetRunningSession, forgetRunningAgent } = useHostEvents({ sessionRuntime, refreshSessions,
     safeSetError, setError, setActiveSession, selectedRef, activeSessionRef,

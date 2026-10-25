@@ -50,6 +50,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
     .expect("播种测试 Agent");
 
     let settings = Settings {
+        notifications: Default::default(),
         theme: Theme::Dark,
         providers: vec![ProviderConfig {
             id: "local-refusing".into(),
@@ -88,6 +89,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
                 RuntimeEvent::ApprovalRequest(_) => ("approval-request", None),
                 RuntimeEvent::SessionSwitched(_) => ("session-switched", None),
                 RuntimeEvent::SessionChanged(_) => ("session-changed", None),
+                RuntimeEvent::Notification(payload) => ("notification", Some(payload.session_id)),
             };
             events.lock().unwrap().push((name, session_id));
         })

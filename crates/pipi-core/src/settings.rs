@@ -235,6 +235,8 @@ pub struct Settings {
     /// 请求失败重发策略（字段级 default：旧 settings.json 缺这一段也能读）。
     #[serde(default)]
     pub retry: RetrySettings,
+    #[serde(default)]
+    pub notifications: crate::notifications::NotificationSettings,
 }
 
 impl Default for Settings {
@@ -264,6 +266,7 @@ impl Default for Settings {
             default_provider_id: None,
             compaction: CompactionSettings::default(),
             retry: RetrySettings::default(),
+            notifications: crate::notifications::NotificationSettings::default(),
         }
     }
 }
@@ -273,7 +276,11 @@ pub fn load_settings() -> Settings {
     let Some(path) = pipi_venv::av::paths::settings_path() else {
         return Settings::default();
     };
-    match fs::read_to_string(&path) {
+    load_settings_from(&path)
+}
+
+pub(crate) fn load_settings_from(path: &std::path::Path) -> Settings {
+    match fs::read_to_string(path) {
         Ok(text) => match serde_json::from_str(&text) {
             Ok(settings) => settings,
             Err(e) => {

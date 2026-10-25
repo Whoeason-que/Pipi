@@ -165,6 +165,7 @@ fn fixture(
     )
     .expect("播种测试 Agent");
     save_settings(&Settings {
+        notifications: Default::default(),
         theme: Theme::Dark,
         providers: vec![ProviderConfig {
             id: "local-mock".into(),
@@ -295,6 +296,7 @@ fn wait_for<F: Fn(&[RuntimeEvent]) -> bool>(
             let dump: Vec<String> = snapshot
                 .iter()
                 .map(|event| match event {
+                    RuntimeEvent::Notification(_) => "notification".to_string(),
                     RuntimeEvent::AgentEvent(envelope) => {
                         format!("{:?}", envelope.event).chars().take(80).collect()
                     }

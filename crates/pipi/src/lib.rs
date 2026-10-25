@@ -18,6 +18,7 @@ fn runtime_handle() -> tokio::runtime::Handle {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(Arc::new(pipi_core::runtime::RuntimeState::new(
             runtime_handle(),
         )))
@@ -30,6 +31,12 @@ pub fn run() {
             commands::save_agent,
             commands::get_settings,
             commands::save_settings,
+            commands::web_push_public_key,
+            commands::register_push_subscription,
+            commands::remove_push_subscription,
+            commands::push_subscription_status,
+            commands::test_push_notification,
+            commands::test_desktop_notification,
             commands::remote_access_status,
             commands::configure_remote_access,
             commands::set_remote_access_enabled,

@@ -51,6 +51,7 @@ fn fixture(agent: &str, api: Api, base_url: &str) {
     )
     .expect("播种测试 Agent");
     save_settings(&Settings {
+        notifications: Default::default(),
         theme: Theme::Dark,
         providers: vec![ProviderConfig {
             id: "refusing".into(),

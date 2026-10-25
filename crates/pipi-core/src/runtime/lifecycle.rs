@@ -7,19 +7,33 @@ impl RuntimeState {
     pub fn new(runtime: tokio::runtime::Handle) -> Self {
         let background =
             BackgroundTaskManager::new(runtime.clone(), Arc::new(super::RuntimeChildRunner));
+        let events = crate::events::EventHub::default();
+        #[cfg(feature = "server")]
+        let push = {
+            let push = Arc::new(crate::notifications::push::PushService::default());
+            crate::notifications::push::start(&runtime, &events, push.clone());
+            push
+        };
         Self {
             runtime,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             shutting_down: AtomicBool::new(false),
             approval: Arc::new(ApprovalGate::default()),
             background,
-            events: crate::events::EventHub::default(),
+            events,
+            #[cfg(feature = "server")]
+            push,
             remote: std::sync::OnceLock::new(),
         }
     }
 
     pub fn events(&self) -> &crate::events::EventHub {
         &self.events
+    }
+
+    #[cfg(feature = "server")]
+    pub fn push_service(&self) -> Arc<crate::notifications::push::PushService> {
+        self.push.clone()
     }
 
     pub fn pending_approvals(&self) -> Vec<crate::events::ApprovalRequestEnvelope> {

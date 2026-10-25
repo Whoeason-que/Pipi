@@ -10,6 +10,7 @@ export type SettingsSection =
   | "appearance"
   | "context"
   | "retry"
+  | "notifications"
   | "providers"
   | "remote"
   | "account";
@@ -28,6 +29,7 @@ const SECTION_ICONS = {
   appearance: IconGear,
   context: IconLayers,
   retry: IconArrowRepeat,
+  notifications: IconGear,
   providers: IconGrid,
   account: IconKey,
   remote: IconArrowRepeat,

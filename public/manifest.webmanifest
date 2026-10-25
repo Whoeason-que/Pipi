@@ -1,0 +1,14 @@
+{
+  "id": "/",
+  "name": "Pipi",
+  "short_name": "Pipi",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111318",
+  "theme_color": "#111318",
+  "icons": [
+    { "src": "/icon-128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "/icon-256.png", "sizes": "256x256", "type": "image/png" }
+  ]
+}

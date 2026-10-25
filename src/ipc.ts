@@ -1,4 +1,5 @@
 import type { WorkspaceListing, WorkspaceFile, WorkspaceChanges, WorkspaceDiff } from "./files/types";
+import type { NotificationEnvelope } from "./notifications";
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, ApprovalRequestPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
@@ -30,6 +31,12 @@ export interface CommandMap {
   workspace_diff: { args: { agentName: string; path: string }; result: WorkspaceDiff };
   get_settings: { args: {  }; result: Settings };
   save_settings: { args: { settings: Settings }; result: void };
+  web_push_public_key: { args: { }; result: string };
+  register_push_subscription: { args: { endpoint: string; p256dh: string; auth: string; origin: string }; result: void };
+  remove_push_subscription: { args: { endpoint: string }; result: void };
+  push_subscription_status: { args: { endpoint: string }; result: boolean };
+  test_push_notification: { args: { endpoint: string }; result: void };
+  test_desktop_notification: { args: { }; result: void };
   remote_access_status: { args: { }; result: RemoteAccessStatus };
   configure_remote_access: { args: { config: RemoteAccessConfig }; result: RemoteAccessStatus };
   set_remote_access_enabled: { args: { enabled: boolean }; result: RemoteAccessStatus };
@@ -81,6 +88,8 @@ export type CommandArgs<K extends CommandName> = {} extends CommandMap[K]["args"
 export type Invoke = <K extends CommandName>(command: K, ...args: CommandArgs<K>) => Promise<CommandResult<K>>;
 
 export interface EventMap {
+  "notification": NotificationEnvelope;
+  "notification-open": NotificationEnvelope;
   "agent-event": AgentEventPayload;
   "session-stats": SessionStatsPayload;
   "session-error": SessionErrorPayload;

@@ -10,7 +10,7 @@ default = []
 # Web/远程宿主（axum transport + 鉴权 + 静态资源）；桌面壳也使用同一个宿主。
 # tokio/net 显式声明（`server/mod.rs` 用 `tokio::net::TcpListener`），
 # 不靠 axum 的默认特性顺带打开。
-server = ["dep:axum", "dep:tower-http", "tokio/net"]
+server = ["dep:axum", "dep:tower-http", "dep:web-push", "dep:p256", "dep:reqwest", "tokio/net"]
 
 [[bin]]
 name = "pipi-server"
@@ -43,6 +43,9 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", 
 # 只有 server feature 用得到（tower 仅测试用）
 axum = { workspace = true, optional = true }
 tower-http = { workspace = true, optional = true }
+web-push = { workspace = true, optional = true }
+p256 = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true, features = ["rustls"] }
 
 [dev-dependencies]
 pipi-test-support = { workspace = true }

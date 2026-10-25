@@ -48,6 +48,12 @@ pub const COMMANDS: &[&str] = &[
     "workspace_diff",
     "get_settings",
     "save_settings",
+    "web_push_public_key",
+    "register_push_subscription",
+    "remove_push_subscription",
+    "push_subscription_status",
+    "test_push_notification",
+    "test_desktop_notification",
     "remote_access_status",
     "configure_remote_access",
     "set_remote_access_enabled",
@@ -271,6 +277,144 @@ pub fn save_settings(args: SaveSettingsArgs) -> Result<(), String> {
 }
 
 // ============ 桌面远程访问管理 ============
+
+pub async fn web_push_public_key(runtime: &RuntimeState) -> Result<String, String> {
+    #[cfg(feature = "server")]
+    {
+        let service = runtime.push_service();
+        tokio::task::spawn_blocking(move || service.public_key())
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = runtime;
+        Err("Web Push requires the server feature".into())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterPushSubscriptionArgs {
+    pub endpoint: String,
+    pub p256dh: String,
+    pub auth: String,
+    pub origin: String,
+}
+
+pub async fn register_push_subscription(
+    runtime: &RuntimeState,
+    args: RegisterPushSubscriptionArgs,
+) -> Result<(), String> {
+    #[cfg(feature = "server")]
+    {
+        let service = runtime.push_service();
+        tokio::task::spawn_blocking(move || {
+            service.subscribe(crate::notifications::push::PushSubscription {
+                endpoint: args.endpoint,
+                p256dh: args.p256dh,
+                auth: args.auth,
+                origin: args.origin,
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = (runtime, args);
+        Err("Web Push requires the server feature".into())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovePushSubscriptionArgs {
+    pub endpoint: String,
+}
+
+pub async fn remove_push_subscription(
+    runtime: &RuntimeState,
+    args: RemovePushSubscriptionArgs,
+) -> Result<(), String> {
+    #[cfg(feature = "server")]
+    {
+        let service = runtime.push_service();
+        tokio::task::spawn_blocking(move || service.unsubscribe(&args.endpoint))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = (runtime, args);
+        Err("Web Push requires the server feature".into())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushSubscriptionStatusArgs {
+    pub endpoint: String,
+}
+
+pub async fn push_subscription_status(
+    runtime: &RuntimeState,
+    args: PushSubscriptionStatusArgs,
+) -> Result<bool, String> {
+    #[cfg(feature = "server")]
+    {
+        let service = runtime.push_service();
+        tokio::task::spawn_blocking(move || service.contains(&args.endpoint))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = (runtime, args);
+        Err("Web Push requires the server feature".into())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestPushNotificationArgs {
+    pub endpoint: String,
+}
+
+pub async fn test_push_notification(
+    runtime: &RuntimeState,
+    args: TestPushNotificationArgs,
+) -> Result<(), String> {
+    #[cfg(feature = "server")]
+    {
+        runtime
+            .push_service()
+            .deliver(
+                crate::notifications::NotificationEnvelope::new(
+                    "Pipi",
+                    "",
+                    0,
+                    crate::notifications::NotificationKind::Completed,
+                ),
+                Some(args.endpoint),
+            )
+            .await
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = (runtime, args);
+        Err("Web Push requires the server feature".into())
+    }
+}
+
+pub fn test_desktop_notification(
+    runtime: &RuntimeState,
+    source: CommandSource,
+) -> Result<(), String> {
+    source.require_desktop()?;
+    runtime.events().test_desktop_notification();
+    Ok(())
+}
 
 pub async fn remote_access_status(
     runtime: &RuntimeState,
@@ -980,6 +1124,20 @@ pub async fn dispatch(
         "workspace_diff" => to_value(workspace_diff(parse(args)?).await?),
         "get_settings" => to_value(get_settings()),
         "save_settings" => to_value(save_settings(parse(args)?)?),
+        "web_push_public_key" => to_value(web_push_public_key(runtime).await?),
+        "register_push_subscription" => {
+            to_value(register_push_subscription(runtime, parse(args)?).await?)
+        }
+        "remove_push_subscription" => {
+            to_value(remove_push_subscription(runtime, parse(args)?).await?)
+        }
+        "push_subscription_status" => {
+            to_value(push_subscription_status(runtime, parse(args)?).await?)
+        }
+        "test_push_notification" => to_value(test_push_notification(runtime, parse(args)?).await?),
+        "test_desktop_notification" => {
+            to_value(test_desktop_notification(runtime, CommandSource::Web)?)
+        }
         "remote_access_status" => {
             to_value(remote_access_status(runtime, CommandSource::Web).await?)
         }
@@ -1061,8 +1219,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            55,
-            "宿主命令数应为 55（前端 CommandMap 同步）"
+            61,
+            "宿主命令数应为 61（前端 CommandMap 同步）"
         );
     }
 

@@ -6,6 +6,7 @@ import { catalogSourceLabel, type CatalogProvider } from "../catalog";
 import { loadCatalog, resetCatalog } from "../catalog-client";
 import { IconBack, IconLayers, IconPanelRight, IconPlus, IconRefresh } from "../icons";
 import RemoteAccessPanel from "./RemoteAccessPanel";
+import NotificationsPanel from "./NotificationsPanel";
 import { SettingsRail } from "./SettingsRail";
 import { isTauriRuntime, logout } from "../platform";
 import {
@@ -178,6 +179,7 @@ export default function SettingsView({
         </div>
 
         <div className="settings-main-body">
+          {section === "notifications" && <NotificationsPanel settings={draft.notifications} onChange={notifications => commit(previous => ({ ...previous, notifications }))} />}
           {section === "appearance" && (
             <>
               <section className="settings-block">

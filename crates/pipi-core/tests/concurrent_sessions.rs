@@ -180,6 +180,7 @@ fn write_settings(base_urls: &[String]) {
         })
         .collect();
     save_settings(&Settings {
+        notifications: Default::default(),
         theme: Theme::Dark,
         providers,
         default_provider_id: None,
@@ -238,6 +239,10 @@ fn recording_sink() -> (EventEmitter, EventLog) {
     let sink_log = log.clone();
     let sink: EventEmitter = Arc::new(move |event: RuntimeEvent| {
         let label = match &event {
+            RuntimeEvent::Notification(envelope) => format!(
+                "{}:{}:notification",
+                envelope.agent_name, envelope.session_id
+            ),
             RuntimeEvent::AgentEvent(envelope) => {
                 let kind = match &envelope.event {
                     pipi_agent::agent_loop::AgentEvent::AgentStart => "agent_start",

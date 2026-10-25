@@ -68,6 +68,8 @@ forbid = ["reqwest", "rig", "tauri"]
 # 复用同一个 RuntimeState / 事件中心；生命周期与远程设置仍由此层拥有。
 # 工作区预览也属于宿主：base64 传送有界媒体，sha2 标识读取版本，libc 提供
 # Unix 打开文件时的 NOFOLLOW/NONBLOCK 守卫；不进入 Agent 内核。
+# 通知策略与本地订阅属于宿主；server feature 的 web-push/p256 负责标准加密，
+# HTTP 复用 reqwest。Tauri 通知插件只属于桌面壳，不进入核心或内核。
 [crates.pipi-core]
 may-depend-on = [
     "pipi-agent",

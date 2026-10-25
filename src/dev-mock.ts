@@ -514,6 +514,7 @@ const demoCatalog: ModelCatalog = {
 };
 
 const settings: Settings = {
+  notifications: { desktopEnabled: false, completed: true, failed: true, approval: true },
   theme: localStorage.getItem("pipi-theme") || "ink-blue",
   providers: [
     {
