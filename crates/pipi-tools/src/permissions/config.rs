@@ -4,6 +4,7 @@
 //! 引擎都要读它。这里用扩展 trait 给它挂上评估逻辑：数据属契约，策略属实现。
 
 use std::path::Path;
+use std::sync::Once;
 
 use pipi_protocol::permissions::{BashAssessment, BashMode, PermissionsConfig, SandboxMode};
 
@@ -128,14 +129,31 @@ impl BashPolicy for PermissionsConfig {
     }
 }
 
-/// 统一检查待执行的 bash 命令权限与审批通道。
+/// 统一检查待执行的 bash 命令。
 ///
-/// 命令权限检查（切分 → 白/黑名单 → 危险命令 → 沙箱重定向）。
-/// 只有 Allowlist 未命中的非危险命令可以走交互审批救回；其余硬拒。
+/// **沙箱生效时这里直接放行**：Landlock/Seatbelt 已经在内核里限制了文件写与
+/// 网络，命令文本（`$()`、`eval`、管道喂给 shell……）不再参与安全判定。旧的
+/// 白/黑名单、危险命令与重定向检查只在没有沙箱可用时作为回退路径运行，
+/// 并通过交互审批处理 allowlist 未命中的段落。
 pub async fn check_bash_command(
     ctx: &pipi_protocol::tools::ToolContext,
     command: &str,
 ) -> Result<(), String> {
+    if pipi_sandbox::will_enforce(&ctx.sandbox_policy()) {
+        // 迁移期提示：沙箱接管后，旧的 allowlist/denylist 不再执行。
+        if ctx.permissions.bash.mode != BashMode::AllowAll
+            || !ctx.permissions.bash.commands.is_empty()
+        {
+            static NOTICE: Once = Once::new();
+            NOTICE.call_once(|| {
+                eprintln!(
+                    "pipi: OS sandbox is active; permissions.bash allowlist/denylist are only enforced when PIPI_SANDBOX=off or the helper is unavailable"
+                );
+            });
+        }
+        return Ok(());
+    }
+
     match ctx.permissions.assess_bash_classified(command, &ctx.workspace) {
         BashAssessment::Allowed => Ok(()),
         BashAssessment::HardDenied(message) => Err(message),

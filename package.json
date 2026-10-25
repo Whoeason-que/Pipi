@@ -9,8 +9,8 @@
     "test:frontend": "node --experimental-strip-types --test --experimental-test-isolation=none tests/*.test.ts",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev --config crates/pipi/tauri.conf.json",
-    "tauri:build": "tauri build --config crates/pipi/tauri.conf.json"
+    "tauri:dev": "cargo build -p pipi-sandbox && node scripts/prepare-sidecar.mjs debug && tauri dev --config crates/pipi/tauri.conf.json",
+    "tauri:build": "cargo build --release -p pipi-sandbox && node scripts/prepare-sidecar.mjs release && tauri build --config crates/pipi/tauri.conf.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

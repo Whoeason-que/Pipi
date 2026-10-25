@@ -22,6 +22,9 @@ crates/pipi-protocol/ 契约层：DTO 与 wire 形状、会话条目格式与存
                       以及跨层共用的零依赖助手（fs 守卫、文本转义、id、RetryHint）
 crates/pipi-tools/    内置工具实现（bash/read/write/edit/glob/grep/memory）与
                       bash 权限策略（切分 / 白黑名单 / 危险命令 / 沙箱重定向）
+crates/pipi-sandbox/  OS 级沙箱：SandboxPolicy → Landlock + seccomp（Linux）/
+                      Seatbelt（macOS），提供 pipi-sandbox helper 与库侧
+                      Command 包装（唯一安全边界）
 crates/pipi-provider/ 模型面：rig 的 HTTP/SSE 适配与错误分类（不做重发）+
                       models.dev 模型目录（拉取 / CURATION / 本地缓存）
 crates/pipi-context/  上下文与运行策略：token 预算 / 裁剪与配对修复 / 压缩
@@ -61,7 +64,14 @@ src/                 React + TypeScript 前端
 核心从 [pi](https://github.com/earendil-works/pi) 移植而来，模块映射与「有意
 不移植清单」见 README「与 pi 的关系」一节。改核心逻辑前先看上游对应实现。
 命令安全（`permissions/safety.rs`）与沙箱模式移植自 openai/codex，
-映射见 README「与 codex 的关系」。
+映射见 README「与 codex 的关系」。**安全边界是 `pipi-sandbox` 的 OS 沙箱**
+（Linux Landlock + seccomp，macOS Seatbelt）：bash 与后台任务在真正 spawn 处
+经 helper 挂沙箱，子进程自动继承。旧的白/黑名单与危险命令检测只在
+`PIPI_SANDBOX=off` 或 helper 不可用时作为回退路径，不要再把新安全规则加到
+命令文本解析上。`PIPI_SANDBOX=off|auto|require`、helper 路径
+`PIPI_SANDBOX_BIN`、网络临时开关 `PIPI_SANDBOX_NETWORK`、额外可写根
+`PIPI_SANDBOX_WRITABLE`；新增 spawn 点必须
+先想清楚它是否属于 Agent 可控执行（属于则走 `pipi_sandbox::tokio_command`）。
 
 ## 常用命令
 
@@ -72,6 +82,8 @@ src/                 React + TypeScript 前端
 | `npm run tauri:build` | 打包 |
 | `cargo test -p pipi-core` | 宿主单元测试 + 集成回归（改宿主必跑） |
 | `cargo test -p pipi-core --features server` | Web 宿主（鉴权 / 路由 / 静态回退）回归 |
+| `cargo test -p pipi-tools` | 工具、命令策略与沙箱门控回归 |
+| `cargo test -p pipi-sandbox` | OS 沙箱内核行为（Landlock/seccomp/helper 参数）回归；改沙箱必跑 |
 | `npm run test:frontend` | 前端状态机、会话控制器、IPC 与 DTO 契约 |
 | `cargo test -p pipi-venv` | 契约 / 技能 / 提示词测试（改 av 或技能必跑；含本地 git 安装端到端） |
 | `cargo run -p pipi-venv --bin av -- skill list` | 调试 av CLI（`check`/`env`/`doctor`/`skill …`；`AV_HOME` 可隔离） |

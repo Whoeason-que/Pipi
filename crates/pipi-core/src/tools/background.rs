@@ -11,6 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
+use pipi_protocol::permissions::SandboxPolicy;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_protocol::{BackgroundTaskInfo, BackgroundTaskSnapshot, ToolResultContent};
 
@@ -51,6 +52,9 @@ pub struct BackgroundTaskSpec {
     pub command: String,
     pub cwd: PathBuf,
     pub env: BTreeMap<String, String>,
+    /// 提交时的沙箱能力清单。后台任务在真正的 spawn 点（而不是提交点）
+    /// 经 helper 安装；否则「提交时校验通过、执行时无沙箱」。
+    pub sandbox: SandboxPolicy,
 }
 
 /// 应用层启动一个 child Agent 所需的输入。child 自己拥有独立 session，任务的
@@ -182,6 +186,7 @@ impl AgentTool for SubmitBackgroundTaskTool {
                 command: command.to_string(),
                 cwd,
                 env: (*ctx.resolved_env).clone(),
+                sandbox: ctx.sandbox_policy(),
             })
             .await?;
 

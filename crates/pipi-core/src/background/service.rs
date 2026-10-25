@@ -3,7 +3,6 @@ use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::tools::background::{
@@ -73,12 +72,13 @@ impl BackgroundTaskService for BackgroundTaskManager {
             error: None,
             result: None,
         };
+        // 在落盘任务之前先确认沙箱 helper 可用：构造失败就不留一个永远
+        // Queued 的孤儿任务。
+        let mut command_builder =
+            pipi_sandbox::tokio_command(&spec.sandbox, "bash", ["-c", command])?;
         self.persist_start(&metadata_path, &queued).await?;
 
-        let mut command_builder = Command::new("bash");
         command_builder
-            .arg("-c")
-            .arg(command)
             .current_dir(&cwd)
             .env_clear()
             .envs(spec.env)
@@ -442,6 +442,10 @@ mod tests {
         let spec = BackgroundTaskSpec {
             owner: owner.clone(),
             command: "printf ready; sleep 60".into(),
+            sandbox: pipi_protocol::permissions::SandboxPolicy::for_workspace(
+                pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+                &workspace,
+            ),
             cwd: workspace,
             env: Default::default(),
         };
@@ -514,6 +518,10 @@ mod tests {
             .submit(BackgroundTaskSpec {
                 owner: task_owner.clone(),
                 command: "printf first; sleep 0.1; printf second".into(),
+                sandbox: pipi_protocol::permissions::SandboxPolicy::for_workspace(
+                    pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+                    &workspace,
+                ),
                 cwd: workspace.clone(),
                 env: std::collections::BTreeMap::new(),
             })
@@ -591,6 +599,10 @@ mod tests {
             .submit(BackgroundTaskSpec {
                 owner: task_owner.clone(),
                 command: "read line; printf 'got:%s' \"$line\"".into(),
+                sandbox: pipi_protocol::permissions::SandboxPolicy::for_workspace(
+                    pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+                    &workspace,
+                ),
                 cwd: workspace.clone(),
                 env: std::collections::BTreeMap::new(),
             })
@@ -636,6 +648,10 @@ mod tests {
             .submit(BackgroundTaskSpec {
                 owner: task_owner.clone(),
                 command: "sleep 30".into(),
+                sandbox: pipi_protocol::permissions::SandboxPolicy::for_workspace(
+                    pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+                    &workspace,
+                ),
                 cwd: workspace.clone(),
                 env: std::collections::BTreeMap::new(),
             })

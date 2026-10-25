@@ -1,5 +1,11 @@
 //! bash 命令权限与沙箱策略（`pipi-tools` 的安全边界）。
 //!
+//! **现状（2026-10）**：真正的安全边界已经下沉到 `pipi-sandbox` 的 OS 沙箱
+//! （Linux Landlock + seccomp，macOS Seatbelt）。helper 可用时，bash 与后台任务
+//! 在 spawn 前挂沙箱，本模块的四层评估**只在回退路径**上运行
+//! （`PIPI_SANDBOX=off` 或 helper 缺失），不要再往命令文本解析里添加新的安全
+//! 规则——`$()`、`eval`、管道喂 shell 都能绕过它。
+//!
 //! 权限是 Pipi 新增的（pi 靠扩展/审批机制，codex 靠 OS 级沙箱）。Pipi 的
 //! 分层设计，按顺序评估，任何一层拒绝即拒绝（宁可拒绝不可放行）：
 //!

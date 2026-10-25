@@ -2,6 +2,7 @@ node_modules/
 dist/
 target/
 crates/pipi/gen/schemas
+crates/pipi/binaries/
 *.local
 .DS_Store
 .env

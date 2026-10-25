@@ -1,6 +1,6 @@
 //! `pipi-tools` 的 bash 工具。移植自 `packages/agent/src/harness/tools/bash.ts` 的核心：
 //! 合并 stdout/stderr、tail 截断（2000 行 / 50KB）、可选超时；在其上叠加
-//! Pipi 的命令权限检查（allowlist / denylist），并流式回报部分输出。
+//! OS 沙箱（`pipi-sandbox` helper；不可用时回退旧的命令权限层），并流式回报部分输出。
 
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::io::AsyncReadExt;
-use tokio::process::Command;
 
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
 use pipi_protocol::ToolResultContent;
@@ -81,9 +80,9 @@ impl AgentTool for BashTool {
     fn description(&self) -> String {
         format!(
             "Execute a bash command in the current working directory. Returns combined stdout and stderr. \
-             In workspace-write mode, write redirections (`> file`, `>> file`, `2> file`, `&> file`) are rejected — \
-             use the write / edit tools for file writes — and file-input redirections (`< file`, `<(cmd)`) are rejected; \
-             discarding or merging output (`2>/dev/null`, `2>&1`), pipes and heredocs (`<<EOF`) are allowed. \
+             Under the workspace-write sandbox, writes outside the workspace are rejected \
+             (by the OS sandbox when active, otherwise by redirection checks) and network access is off \
+             by default; use the write / edit tools for file edits. \
              For long-running work prefer one bounded foreground run with trimmed output, e.g. \
              `timeout 900 cargo test -p x 2>&1 | tail -40`; avoid detaching a job and polling it with sleep. \
              Output is truncated to last {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). \
@@ -116,18 +115,17 @@ impl AgentTool for BashTool {
         let command = args["command"].as_str().ok_or("Missing command")?;
         let timeout = validate_timeout(args["timeout"].as_f64())?;
 
-        // Pipi：命令权限检查（切分 → 白/黑名单 → 危险命令 → 沙箱重定向）。
-        // 只有 Allowlist 未命中的非危险命令可以走交互审批救回；其余硬拒。
+        // 命令权限检查：沙箱生效时它直接放行（内核是唯一边界）；只有回退到
+        // 旧路径时才执行白/黑名单、危险命令与审批。
         check_bash_command(ctx, command).await?;
 
         tokio::fs::create_dir_all(&ctx.workspace)
             .await
             .map_err(|e| format!("Workspace directory unavailable: {e}"))?;
 
-        let mut builder = Command::new("bash");
+        let mut builder =
+            pipi_sandbox::tokio_command(&ctx.sandbox_policy(), "bash", ["-c", command])?;
         builder
-            .arg("-c")
-            .arg(command)
             .current_dir(&ctx.workspace)
             // 环境整体来自 av 契约解析结果（会话启动时已定，含继承策略与 AV_* 注入）
             .env_clear()

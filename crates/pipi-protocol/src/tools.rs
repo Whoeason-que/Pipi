@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::permissions::{PermissionsConfig, SandboxMode};
+use crate::permissions::{PermissionsConfig, SandboxMode, SandboxPolicy};
 use crate::{AbortSignal, Tool, ToolResultContent};
 
 /// 工具执行结果。对应 pi 的 `AgentToolResult`。
@@ -57,6 +57,12 @@ pub struct ToolContext {
 }
 
 impl ToolContext {
+    /// 本次运行的能力清单。bash / 后台任务把它交给 `pipi-sandbox` helper，
+    /// 由内核执行；`danger-full-access` 返回的 policy 不启用（显式逃生门）。
+    pub fn sandbox_policy(&self) -> SandboxPolicy {
+        SandboxPolicy::for_workspace(self.sandbox, &self.workspace)
+    }
+
     /// 沙箱下的写入约束（移植自 codex 的 SandboxMode 语义）：
     /// - `danger-full-access`：不限制
     /// - `workspace-write`：只能写工作目录内

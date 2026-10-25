@@ -11,6 +11,7 @@ base64 = { workspace = true }
 glob = { workspace = true }
 infer = { workspace = true }
 pipi-protocol = { workspace = true }
+pipi-sandbox = { workspace = true }
 regex = { workspace = true }
 serde_json = { workspace = true }
 shlex = { workspace = true }

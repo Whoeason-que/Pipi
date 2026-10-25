@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/pipi-context",
     "crates/pipi-protocol",
+    "crates/pipi-sandbox",
     "crates/pipi-session",
     "crates/pipi-forum",
     "crates/pipi-tools",
@@ -35,6 +36,7 @@ pipi-agent = { path = "crates/pipi-agent" }
 pipi-context = { path = "crates/pipi-context" }
 pipi-core = { path = "crates/pipi-core" }
 pipi-protocol = { path = "crates/pipi-protocol" }
+pipi-sandbox = { path = "crates/pipi-sandbox" }
 pipi-session = { path = "crates/pipi-session" }
 pipi-forum = { path = "crates/pipi-forum" }
 pipi-provider = { path = "crates/pipi-provider" }
@@ -55,6 +57,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 glob = "0.3"
 http = "1"
 infer = "0.22"
+landlock = "0.4.4"
 nix = { version = "0.31", default-features = false, features = ["signal"] }
 regex = "1.13"
 # 与 rig 同一版本（0.13 起 TLS 特性改名为 rustls）：两个版本会让同一进程里
@@ -64,6 +67,7 @@ reqwest = { version = "0.13", default-features = false }
 rig = "0.43.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+seccompiler = "0.5.0"
 sha2 = "0.11"
 shlex = "2"
 similar = "3.2"

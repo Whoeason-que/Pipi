@@ -33,6 +33,58 @@ impl SandboxMode {
             SandboxMode::DangerFullAccess => "danger-full-access",
         }
     }
+
+    /// 这一档是否需要真正的内核边界。`danger-full-access` 是显式的逃生门，
+    /// 语义就是「不挂沙箱」。
+    pub fn is_enforced(&self) -> bool {
+        *self != SandboxMode::DangerFullAccess
+    }
+}
+
+/// 传给 OS 沙箱 helper 的能力清单（唯一的安全边界）。
+///
+/// 这是 `SandboxMode` 的可执行展开：模式决定默认集合，`writable_roots` 与
+/// `network_access` 是正交轴。helper 把它编译成 Landlock/Seatbelt 规则；
+/// 用户态不再对命令文本做安全判定。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SandboxPolicy {
+    pub mode: SandboxMode,
+    /// 默认关闭。开启后 helper 不安装网络过滤器（或允许 Seatbelt 网络）。
+    #[serde(default)]
+    pub network_access: bool,
+    /// `workspace-write` 下可写的目录（workspace 与临时目录由
+    /// [`SandboxPolicy::for_workspace`] 填入）。`read-only` 下为空。
+    #[serde(default)]
+    pub writable_roots: Vec<PathBuf>,
+}
+
+impl SandboxPolicy {
+    /// 由 Agent 的沙箱档位派生默认能力集合。
+    ///
+    /// `workspace-write` 同时放行进程的临时目录：大量工具链（编译器、包管理器、
+    /// 测试框架）离开 TMPDIR 无法工作；这是可用性取舍，不是工作区外写入的默许。
+    /// 需要更严格时在调用方把 `writable_roots` 收窄。
+    pub fn for_workspace(mode: SandboxMode, workspace: &Path) -> Self {
+        let mut writable_roots: Vec<PathBuf> = Vec::new();
+        if mode == SandboxMode::WorkspaceWrite {
+            writable_roots.push(workspace.to_path_buf());
+            let temp = std::env::temp_dir();
+            if temp != workspace {
+                writable_roots.push(temp);
+            }
+            writable_roots.dedup();
+        }
+        SandboxPolicy {
+            mode,
+            network_access: false,
+            writable_roots,
+        }
+    }
+
+    pub fn is_enforced(&self) -> bool {
+        self.mode.is_enforced()
+    }
 }
 
 /// 一个已切分的命令段：argv（供危险检测）与重组文本（供白名单匹配）。
@@ -233,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn permissions_json_roundtrip_keeps_the_wire_shape() {
+    fn sparse_permissions_json_roundtrips_without_new_fields() {
         let raw = r#"{"tools":["read"],"bash":{"mode":"allowlist","commands":["git"]},"sandbox":"workspace-write"}"#;
         let config: PermissionsConfig = serde_json::from_str(raw).unwrap();
         assert!(config.tool_enabled("read"));
@@ -243,5 +295,32 @@ mod tests {
         // 缺省段仍可反序列化（兼容旧 agent.json）
         let sparse: PermissionsConfig = serde_json::from_str("{}").unwrap();
         assert_eq!(sparse.tools.len(), DEFAULT_TOOLS.len());
+    }
+
+    #[test]
+    fn sandbox_policy_derives_writable_roots_from_mode() {
+        let workspace = Path::new("/tmp/pipi-policy-workspace");
+        let read_only = SandboxPolicy::for_workspace(SandboxMode::ReadOnly, workspace);
+        assert!(read_only.writable_roots.is_empty());
+        assert!(read_only.is_enforced());
+
+        let workspace_write = SandboxPolicy::for_workspace(SandboxMode::WorkspaceWrite, workspace);
+        assert!(
+            workspace_write
+                .writable_roots
+                .iter()
+                .any(|root| root == workspace)
+        );
+        assert_eq!(workspace_write.writable_roots.len(), 2);
+        assert!(workspace_write.is_enforced());
+
+        let full = SandboxPolicy::for_workspace(SandboxMode::DangerFullAccess, workspace);
+        assert!(full.writable_roots.is_empty());
+        assert!(!full.is_enforced());
+
+        let json = serde_json::to_string(&workspace_write).unwrap();
+        assert!(json.contains("writableRoots"));
+        let back: SandboxPolicy = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, workspace_write);
     }
 }

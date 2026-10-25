@@ -111,8 +111,8 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 技能 | `agent.toml` → `[resources.skills].sources` 声明的目录（默认 `harness/skills/`）；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
 | 记忆 | `agent.toml` → `[resources].memory` 声明的目录（默认 `harness/memory/`） | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
 | 系统提示词策略 | `agent.json` → `systemPrompt` | `both`（默认：Pipi 侧 + 工作区侧）/ `agent`（只取 Agent 侧素材）/ `workspace`（只取项目上下文）/ `none`（完全不发 system 消息，只发对话与工具定义）。策略只影响提示词：权限、沙箱、env 与受信任读取根不受影响，`workspace` 策略的 Agent 照样能用 memory 工具读写契约声明的记忆目录 |
-| 命令权限 | `agent.json` → `permissions.bash` | bash 白名单 / 黑名单；引号感知的复合命令逐段检查；Allowlist 模式下白名单外的非危险命令可交互审批救回（拒绝 / 允许一次 / 总是允许——按段写回白名单），黑名单命中、危险命令与沙箱约束不可审批 |
-| 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`（移植自 codex）：强制删除类命令、写入文件系统的重定向（`>` `>>` `2>文件`）与从文件读入的重定向（`<文件` `<(cmd)`）在非完全访问下被拒绝。`rm -f` 家族只放行「工作区内、非仓库根 / 工作区根」的绝对路径字面量；`2>/dev/null`、`2>&1`、管道与 heredoc 不受限 |
+| 命令权限 | `agent.json` → `permissions.bash` | **回退路径**：`PIPI_SANDBOX=off` 或 helper 不可用时才生效（白/黑名单、逐段危险检测、Allowlist 审批）。OS 沙箱生效时命令文本不参与安全判定，`$()`/`eval`/管道喂 shell 都由内核边界兜住 |
+| 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`。Linux 用 Landlock（文件系统）+ seccomp（默认禁网络），macOS 用 Seatbelt；由 `pipi-sandbox` helper 在 `exec` 前安装，子进程全部继承。`workspace-write` 只允许写工作目录、临时目录与 `/dev` 基础设备；`danger-full-access` 是显式逃生门（不挂沙箱） |
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |
 | Agent 分组 | `agent.json` → `subagent` | `false`（默认）显示在 AGENTS；Agent 的 `create_agent` 工具创建时写为 `true` 并显示在 SUBS；可在设置中更改 |
 | 压缩阈值 | `agent.json` → `compactThresholdPercent` | 上下文占用达到模型窗口的这个百分比时自动压缩（默认 75）；窗口未知（0）时不压缩 |
@@ -129,6 +129,30 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 使用与 pi 一致的思考预算：极低 1024、低 2048、中 8192、高及以上 16384 token，
 并受最大输出限制，至少为正文保留 1024 token。总输出少于 2048 token 时拒绝开启
 旧版扩展思考。各模型与兼容端点支持的档位不同，不支持的设置会作为请求错误展示。
+
+### OS 沙箱（当前边界）
+
+设计与迁移细节见 [os-sandbox.md](docs/os-sandbox.md)。沙箱是唯一的安全边界，
+命令文本只在**回退路径**上被旧策略检查：
+
+- **Linux**：`pipi-sandbox` helper 装 Landlock（全盘只读、`writable_roots` 可写）
+  与 seccomp（默认挡 `AF_INET`/`AF_INET6` socket），随后 `exec` 真实命令。
+  Landlock 需要 5.13+ 且 LSM 包含 `landlock`；不满足时按 `PIPI_SANDBOX` 的
+  模式回退或拒绝，不会静默放行。
+- **macOS**：同一 helper 生成 SBPL profile 并 `exec /usr/bin/sandbox-exec`。
+- **Windows**：暂无后端；`auto` 回退旧权限层，`require` 直接失败。
+
+开关：`PIPI_SANDBOX=off|auto|require`（默认 `auto`），helper 路径可用
+`PIPI_SANDBOX_BIN` 覆盖；`PIPI_SANDBOX_NETWORK=1` 可在保留文件系统沙箱的
+前提下放行网络，`PIPI_SANDBOX_WRITABLE` 可追加可写根（两者都是临时逃生阀，
+按 Agent/按次授权是下一步）。发布包把
+`pipi-sandbox` 作为 sidecar 分发：`npm run tauri:dev` / `tauri:build` 会先构建
+helper 并用 `scripts/prepare-sidecar.mjs` 准备 `externalBin`。
+
+边界说明：`workspace-write` 限制的是内容与目录结构，不是文件权限位——
+Landlock 不中介 `chmod`/`chown`/`utime`；授权范围内的破坏（删自己的仓库、
+把工作区内容发到已放行网络）也不在沙箱职责内。
+
 
 正式会话输入框底部也可直接选择思考程度，立即保存为当前会话的模型覆盖；运行中不可切换。
 
@@ -278,7 +302,8 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 ├──────────────────────────────────────┤
 │  pipi-protocol  契约层               │  DTO + 会话条目格式 + 端口（唯一被所有层依赖）
 │  pipi-session   会话载体             │  git 分支（一轮一 commit）+ 旧会话导入
-│  pipi-tools     工具实现             │  内置工具 + bash 权限策略
+│  pipi-tools     工具实现             │  内置工具 + bash 权限策略（回退路径）
+│  pipi-sandbox   OS 沙箱               │  Landlock/seccomp/Seatbelt + helper（唯一边界）
 │  pipi-provider  模型面               │  rig 适配 + models.dev 目录（唯一 HTTP）
 └──────────────────────────────────────┘
 ```
@@ -476,7 +501,8 @@ Alt+Enter 引导当前任务，Shift+Enter 换行。消息实际起跑前只显�
 
 有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/
 prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-tools::permissions`
-（命令权限）、`pipi-venv::agents`（Agent 注册表）、`pipi-provider::catalog`（模型目录，
+（命令权限，现为回退路径）、`pipi-sandbox`（OS 沙箱与 helper）、
+`pipi-venv::agents`（Agent 注册表）、`pipi-provider::catalog`（模型目录，
 models.dev）、`pipi-venv::skills`（技能中心）、
 memory 工具（含渐进召回注入）、glob/grep 检索工具。
 
@@ -528,7 +554,8 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
 （Apache-2.0，见 `crates/pipi-tools/src/permissions/safety.rs` 的 attribution）：
 
 - `SandboxMode`（read-only / workspace-write / danger-full-access）→
-  `pipi_tools::permissions::SandboxMode`，语义一致（kebab-case 序列化兼容）。
+  `pipi_protocol::permissions::SandboxMode`，语义一致（kebab-case 序列化兼容）；
+  落地实现变成 `pipi-sandbox` helper 的 Landlock/Seatbelt 规则。
 - `is_dangerous_command`（rm -f 家族 + sudo/env/trap/bash-c 包装器解包 +
   深度上限 fail-closed）→ `pipi_tools::permissions::safety`。上游用 tree-sitter 解析
   `bash -c` 脚本，我们不引入该依赖：脚本含语法关键字/命令替换时按危险
@@ -539,15 +566,14 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
   `context::environment_context`。
 - bash 输出截断时的 spill 文件来自 pi 的 output-capture：完整输出落盘、
   路径附在提示里。
-- 尚未移植：OS 级沙箱（Landlock/Seatbelt）—— Pipi 当前是用户态粗粒度
-  闸门（白/黑名单 + 危险启发式 + 重定向/写入路径约束），真正的强隔离
-  列入 M3 后的路线。
-- 用户态闸门的分工（有意为之）：重定向约束只覆盖**写入文件系统**（拦
+- 现已移植：OS 级沙箱（Linux Landlock + seccomp，macOS Seatbelt），入口是
+  `pipi-sandbox` helper；沙箱生效时旧的白/黑名单与危险启发式只作为回退路径。
+- 回退路径的分工（有意为之）：重定向约束只覆盖**写入文件系统**（拦
   `>` `>>` `2>文件`）与**从文件读入**（拦 `<文件` `<(cmd)`）；`2>/dev/null`、
   `2>&1`、`>&-`、heredoc 既不落盘也不读文件，一律放行。它保护的是「工作区
   写入必须走 `write` / `edit` 的 canonical containment」，**不是防逃逸**——
   `tee`、`python -c "open(p,'w')"` 本就在用户态闸门之外（见
-  `permissions` 模块文档的局限声明），多拦不含写入的构造只产生摩擦。
+  `permissions` 模块文档的局限声明）。
   `rm -f` 家族同理：只放行工作区内、非仓库根 / 工作区根的字面量绝对路径，
   用来清构建与缓存产物；含变量 / 通配符或经 `cd` 的相对路径照旧拒绝。
 

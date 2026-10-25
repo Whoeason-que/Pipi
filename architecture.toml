@@ -49,6 +49,13 @@ dev-may-depend-on = ["pipi-test-support"]
 
 # 内置工具实现与 bash 权限策略（端口与权限数据在契约层）。
 [crates.pipi-tools]
+may-depend-on = ["pipi-protocol", "pipi-sandbox"]
+dev-may-depend-on = ["pipi-test-support"]
+
+# OS 沙箱：把 SandboxPolicy 编译成内核能力（Linux: Landlock + seccomp；macOS:
+# Seatbelt），并提供 `pipi-sandbox` helper 二进制。依赖方向只到契约层，
+# 不反向依赖工具或宿主。
+[crates.pipi-sandbox]
 may-depend-on = ["pipi-protocol"]
 dev-may-depend-on = ["pipi-test-support"]
 
@@ -77,6 +84,7 @@ may-depend-on = [
     "pipi-forum",
     "pipi-protocol",
     "pipi-provider",
+    "pipi-sandbox",
     "pipi-session",
     "pipi-tools",
     "pipi-venv",
