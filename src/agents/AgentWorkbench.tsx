@@ -5,6 +5,7 @@ import { formatRuntimeError } from "../chat-runtime";
 import Inspector from "../chat/Inspector";
 import { IconBack } from "../icons";
 import { ModelPicker } from "../ModelPicker";
+import { ReasoningSelect } from "../ReasoningSelect";
 import { invoke } from "../platform";
 import { ChoiceSelect } from "../Select";
 import type { SessionRuntime } from "../session-runtime";
@@ -66,6 +67,8 @@ export default function AgentWorkbench({
   const {
     providerId,
     modelId,
+    reasoningEffort,
+    setReasoningEffort,
     pickedModel,
     description,
     workspace,
@@ -91,6 +94,7 @@ export default function AgentWorkbench({
           p.baseUrl === agent.provider.baseUrl,
       )?.id ?? "",
     modelId: agent.provider?.id ?? "",
+    reasoningEffort: agent.provider?.reasoningEffort,
     description: agent.description,
     workspace: agent.workspace ?? "",
     tools: agent.permissions.tools,
@@ -176,6 +180,7 @@ export default function AgentWorkbench({
   if (agentNameRef.current !== agent.name) {
     agentNameRef.current = agent.name;
     setDescription(agent.description);
+    setReasoningEffort(agent.provider?.reasoningEffort ?? null);
     setSubagent(agent.subagent);
     setWorkspace(agent.workspace ?? "");
     setTools(agent.permissions.tools);
@@ -201,6 +206,7 @@ export default function AgentWorkbench({
           pickedModel,
           savedLimits.contextWindow,
         ),
+        reasoningEffort,
       }
     : null;
   const boundProviderId =
@@ -217,7 +223,9 @@ export default function AgentWorkbench({
     (draftProvider?.maxTokens ?? 8192) !==
       (agent.provider?.maxTokens ?? 8192) ||
     (draftProvider?.contextWindow ?? 0) !==
-      (agent.provider?.contextWindow ?? 0);
+      (agent.provider?.contextWindow ?? 0) ||
+    (draftProvider?.reasoningEffort ?? null) !==
+      (agent.provider?.reasoningEffort ?? null);
 
   const saveConfiguration = async (running: boolean) => {
     if (saving || running || tools.length === 0) return;
@@ -417,6 +425,14 @@ export default function AgentWorkbench({
                       {draftProvider.api} · {draftProvider.baseUrl}
                     </span>
                   )}
+                </div>
+                <div className="settings-field">
+                  <ReasoningSelect
+                    id="agent-reasoning-effort"
+                    value={reasoningEffort}
+                    onChange={setReasoningEffort}
+                    disabled={saving || !providerId || !modelId.trim()}
+                  />
                 </div>
                 <div className="settings-field">
                   <label htmlFor="agent-description">描述</label>

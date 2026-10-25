@@ -272,6 +272,7 @@ mod tests {
                 base_url,
                 max_tokens: 64,
                 context_window: 4096,
+                reasoning_effort: None,
             }),
         )
         .unwrap();

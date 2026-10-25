@@ -1012,6 +1012,7 @@
 @media (max-width: 720px) {
   .composer-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; }
   .composer-bar .composer-model-pill { grid-column: 1 / -1; max-width: 100%; justify-self: start; }
+  .composer-reasoning { grid-column: 1; grid-row: 2; width: 165px; max-width: 100%; }
   .composer-bar .composer-state, .composer-bar .spacer { display: none; }
   .composer-bar .stop { grid-column: 2; grid-row: 2; }
   .composer-bar .composer-steer { grid-column: 3; grid-row: 2; }

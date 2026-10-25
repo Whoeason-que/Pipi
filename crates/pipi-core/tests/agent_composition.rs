@@ -60,6 +60,7 @@ async fn create_run_and_read_agent_output() {
         base_url: "http://127.0.0.1:1/v1".into(),
         max_tokens: 512,
         context_window: 8192,
+        reasoning_effort: None,
     };
     save_settings(&Settings {
         notifications: Default::default(),
@@ -402,6 +403,7 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
         base_url: base_url.clone(),
         max_tokens: 512,
         context_window: 0,
+        reasoning_effort: None,
     };
     save_settings(&Settings {
         notifications: Default::default(),

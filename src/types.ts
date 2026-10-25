@@ -61,6 +61,8 @@ export interface McpServer {
   enabled: boolean;
 }
 
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface ModelConfig {
   id: string;
   name: string;
@@ -68,6 +70,8 @@ export interface ModelConfig {
   baseUrl: string;
   maxTokens: number;
   contextWindow: number;
+  /** 未设置时沿用模型默认思考行为；随模型绑定持久化。 */
+  reasoningEffort?: ReasoningEffort | null;
 }
 
 export interface AgentDefinition {

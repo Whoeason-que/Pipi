@@ -227,6 +227,7 @@ mod tests {
                     base_url: "https://api.anthropic.com".into(),
                     max_tokens: 8192,
                     context_window: 200_000,
+                    reasoning_effort: None,
                 },
             },
         );
@@ -256,6 +257,7 @@ mod tests {
                     base_url: "https://example.test".into(),
                     max_tokens: 1,
                     context_window: 1,
+                    reasoning_effort: None,
                 },
             },
         );

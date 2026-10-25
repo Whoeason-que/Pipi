@@ -15,7 +15,8 @@ import { submitDraft, type DraftBuffer } from "../drafts";
 import { useI18n } from "../i18n";
 import { IconArrowDown, IconSend, IconStop } from "../icons";
 import ComposerQueue from "./ComposerQueue";
-import type { ModelConfig, PromptQueueSnapshot } from "../types";
+import { ReasoningSelect } from "../ReasoningSelect";
+import type { ModelConfig, PromptQueueSnapshot, ReasoningEffort } from "../types";
 
 interface ChatComposerProps {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -40,6 +41,7 @@ interface ChatComposerProps {
   onStop: () => void;
   onResolveApproval: (decision: ApprovalDecisionValue) => void;
   onOpenModel: () => void;
+  onReasoningChange: (effort: ReasoningEffort | null) => Promise<void>;
   onScrollToLatest: () => void;
   onError: (message: string) => void;
 }
@@ -68,6 +70,7 @@ export default function ChatComposer({
   onStop,
   onResolveApproval,
   onOpenModel,
+  onReasoningChange,
   onScrollToLatest,
   onError,
 }: ChatComposerProps) {
@@ -79,6 +82,8 @@ export default function ChatComposer({
   const validDelay = !delayOpen || (delayMinutes.trim() !== "" && Number.isInteger(Number(delayMinutes)) && Number.isSafeInteger(delayMs) && delayMs >= 60_000 && delayMs <= 30 * 86400000);
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
+  const [updatingReasoning, setUpdatingReasoning] = useState(false);
+  const updatingReasoningRef = useRef(false);
   const mountedRef = useRef(true);
   const compositionEndedAt = useRef(0);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -99,7 +104,7 @@ export default function ChatComposer({
   }, [text]);
 
   const send = async (steering = false) => {
-    if (!ready || uncertain || stopping || !text.trim() || sendingRef.current || (!steering && !validDelay)) return;
+    if (!ready || uncertain || stopping || !text.trim() || sendingRef.current || updatingReasoningRef.current || (!steering && !validDelay)) return;
     sendingRef.current = true;
     setSending(true);
     onBeforeSend();
@@ -112,6 +117,20 @@ export default function ChatComposer({
     } finally {
       sendingRef.current = false;
       if (mountedRef.current) setSending(false);
+    }
+  };
+
+  const changeReasoning = async (effort: ReasoningEffort | null) => {
+    if (!ready || running || stopping || uncertain || !model || sendingRef.current || updatingReasoningRef.current) return;
+    updatingReasoningRef.current = true;
+    setUpdatingReasoning(true);
+    try {
+      await onReasoningChange(effort);
+    } catch (error) {
+      if (mountedRef.current) onError(formatRuntimeError(error));
+    } finally {
+      updatingReasoningRef.current = false;
+      if (mountedRef.current) setUpdatingReasoning(false);
     }
   };
 
@@ -230,7 +249,7 @@ export default function ChatComposer({
               type="button"
               className="model-pill composer-model-pill"
               onClick={onOpenModel}
-              disabled={running}
+              disabled={!ready || running || sending || updatingReasoning || uncertain}
               title={
                 running
                   ? locale === "en"
@@ -257,9 +276,22 @@ export default function ChatComposer({
               {modelName}
             </span>
           )}
+          {!temporary && (
+            <div className="composer-reasoning">
+              <ReasoningSelect
+                id="composer-reasoning-effort"
+                compact
+                value={model?.reasoningEffort}
+                disabled={!ready || !model || running || stopping || sending || updatingReasoning || uncertain}
+                onChange={(effort) => void changeReasoning(effort)}
+              />
+            </div>
+          )}
           <span className="spacer" />
           <span className="composer-state" role="status">
-            {stopping
+            {updatingReasoning
+              ? locale === "en" ? "Saving…" : "正在保存…"
+              : stopping
               ? locale === "en"
                 ? "Stopping…"
                 : "正在停止…"
@@ -298,14 +330,14 @@ export default function ChatComposer({
           {running && <button
             type="button"
             className="btn composer-steer"
-            disabled={!ready || uncertain || !text.trim() || sending || stopping}
+            disabled={!ready || uncertain || !text.trim() || sending || stopping || updatingReasoning}
             onClick={() => void send(true)}
             title={locale === "en" ? "Guide the current task · Alt+Enter" : "在当前任务中引导方向 · Alt+Enter"}
           >{locale === "en" ? "Guide" : "引导"}</button>}
           <button
             type="button"
             className="btn send composer-send"
-            disabled={!ready || uncertain || !text.trim() || sending || stopping || !validDelay}
+            disabled={!ready || uncertain || !text.trim() || sending || stopping || updatingReasoning || !validDelay}
             onClick={() => void send()}
             title={sendLabel}
             aria-label={sendLabel}

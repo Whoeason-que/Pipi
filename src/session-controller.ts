@@ -7,7 +7,7 @@ import {
 } from "./chat-runtime.ts";
 import { CommandTransportError } from "./transport-error.ts";
 import type { Invoke } from "./ipc.ts";
-import type { AgentDefinition, ModelConfig, SessionInfoView, PromptQueueSnapshot, PromptQueueEnvelope } from "./types.ts";
+import type { AgentDefinition, ModelConfig, ReasoningEffort, SessionInfoView, PromptQueueSnapshot, PromptQueueEnvelope } from "./types.ts";
 
 export interface SessionTransport {
   invoke: Invoke;
@@ -451,5 +451,13 @@ export class SessionController {
       agentName: this.agent.name, sessionId: this.identity.sessionId, model: isCustom ? model : null,
     });
     this.patch({ model: isCustom ? model : this.agent.provider ?? null, isCustomModel: isCustom });
+  }
+
+  async setReasoningEffort(effort: ReasoningEffort | null): Promise<void> {
+    if (this.value.load !== "ready" || this.value.chat.running || this.sending || this.value.operation !== "idle") {
+      throw new Error("Wait until the session is idle before changing reasoning effort");
+    }
+    if (!this.value.model) throw new Error("Select a model before changing reasoning effort");
+    await this.setModel(true, { ...this.value.model, reasoningEffort: effort });
   }
 }

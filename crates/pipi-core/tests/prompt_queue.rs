@@ -141,6 +141,7 @@ fn fixture(base: &str) {
         base_url: base.into(),
         max_tokens: 256,
         context_window: 0,
+        reasoning_effort: None,
     };
     agents::create_agent(
         "queued",

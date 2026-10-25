@@ -533,6 +533,7 @@ export default function ChatView({
             onStop={stop}
             onResolveApproval={resolveApproval}
             onOpenModel={() => setModelModalOpen(true)}
+            onReasoningChange={(effort) => controller.setReasoningEffort(effort)}
             onScrollToLatest={scrollToLatest}
             onError={onError}
           />

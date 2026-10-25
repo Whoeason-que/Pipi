@@ -80,6 +80,7 @@ async fn drain_stream(addr: std::net::SocketAddr, timeout_secs: u64) -> (bool, O
         base_url: format!("http://{addr}/v1"),
         max_tokens: 64,
         context_window: 0,
+        reasoning_effort: None,
     };
     let context = Context {
         system_prompt: None,
@@ -184,6 +185,7 @@ async fn dropping_the_event_receiver_closes_the_upstream_connection() {
         base_url: format!("http://{addr}/v1"),
         max_tokens: 64,
         context_window: 0,
+        reasoning_effort: None,
     };
     let context = Context {
         system_prompt: None,

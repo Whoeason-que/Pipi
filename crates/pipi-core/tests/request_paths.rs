@@ -40,6 +40,7 @@ fn fixture(agent: &str, api: Api, base_url: &str) {
         base_url: base_url.into(),
         max_tokens: 512,
         context_window: 8192,
+        reasoning_effort: None,
     };
     agents::create_agent(
         agent,

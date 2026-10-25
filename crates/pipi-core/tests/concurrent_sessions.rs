@@ -160,6 +160,7 @@ fn fixture_agent(name: &str, base_url: &str) {
         base_url: base_url.into(),
         max_tokens: 256,
         context_window: 0,
+        reasoning_effort: None,
     };
     agents::create_agent(name, "并发回归", None, None, Some(&model_id), Some(model))
         .expect("播种测试 Agent");
@@ -1236,6 +1237,7 @@ fn temporary_test_keeps_real_tool_side_effects() {
         base_url: base.clone(),
         max_tokens: 256,
         context_window: 0,
+        reasoning_effort: None,
     };
     agents::create_agent(
         "agent-tool-test",

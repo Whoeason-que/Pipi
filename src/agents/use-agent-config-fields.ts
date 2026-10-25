@@ -5,12 +5,13 @@
 //! 仍由各自组件拥有。
 import { useCallback, useState } from "react";
 import type { CatalogModel } from "../catalog";
-import type { BashMode, SandboxMode } from "../types";
+import type { BashMode, ReasoningEffort, SandboxMode } from "../types";
 
 export interface AgentConfigFieldsInit {
   /** 当前选中的供应商 id（空串 = 未绑定） */
   providerId: string;
   modelId: string;
+  reasoningEffort?: ReasoningEffort | null;
   description: string;
   workspace: string;
   tools: string[];
@@ -22,6 +23,7 @@ export interface AgentConfigFieldsInit {
 export function useAgentConfigFields(init: AgentConfigFieldsInit) {
   const [providerId, setProviderId] = useState(init.providerId);
   const [modelId, setModelId] = useState(init.modelId);
+  const [reasoningEffort, setReasoningEffort] = useState(init.reasoningEffort ?? null);
   // 目录里选的模型：用它回填 maxTokens / contextWindow（手填的模型保持调用方给定的原值）
   const [pickedModel, setPickedModel] = useState<CatalogModel | undefined>(undefined);
   const [description, setDescription] = useState(init.description);
@@ -36,15 +38,17 @@ export function useAgentConfigFields(init: AgentConfigFieldsInit) {
   const changeProvider = useCallback((nextProviderId: string) => {
     setProviderId(nextProviderId);
     setModelId("");
+    setReasoningEffort(null);
     setPickedModel(undefined);
   }, []);
 
   // 手填（model 为 undefined）时由调用方保留已有限额：不能因为改了个 ID 就静默把
   // 目录/用户先前的 maxTokens、contextWindow 复位成默认值。
   const changeModel = useCallback((nextModelId: string, model?: CatalogModel) => {
+    if (nextModelId !== modelId) setReasoningEffort(null);
     setModelId(nextModelId);
     setPickedModel(model);
-  }, []);
+  }, [modelId]);
 
   const toggleTool = useCallback((tool: string) => {
     setTools((previous) =>
@@ -55,6 +59,8 @@ export function useAgentConfigFields(init: AgentConfigFieldsInit) {
   return {
     providerId,
     modelId,
+    reasoningEffort,
+    setReasoningEffort,
     pickedModel,
     description,
     workspace,

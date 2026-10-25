@@ -54,10 +54,11 @@ export function ChoiceSelect({
   placeholder,
   disabled,
   isClearable,
+  menuPlacement,
   menuInPortal,
   autoFocus,
   ariaLabel,
-}: ChoiceProps & { isClearable?: boolean }) {
+}: ChoiceProps & { isClearable?: boolean; menuPlacement?: "auto" | "top" | "bottom" }) {
   const all = flatten(choices, groups);
   return (
     <Select<Choice, false>
@@ -66,6 +67,8 @@ export function ChoiceSelect({
     unstyled
     isSearchable
     isClearable={isClearable}
+    menuPlacement={menuPlacement}
+    menuPosition={menuInPortal && menuPlacement === "auto" ? "fixed" : undefined}
     isDisabled={disabled}
     autoFocus={autoFocus}
     placeholder={placeholder}

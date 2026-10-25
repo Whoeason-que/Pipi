@@ -154,6 +154,7 @@ fn fixture(
         base_url: base_url.into(),
         max_tokens: 256,
         context_window,
+        reasoning_effort: None,
     };
     agents::create_agent(
         agent,

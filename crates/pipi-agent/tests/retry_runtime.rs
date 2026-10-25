@@ -115,6 +115,7 @@ fn test_model(addr: std::net::SocketAddr) -> Model {
         base_url: format!("http://{addr}/v1"),
         max_tokens: 1024,
         context_window: 0,
+        reasoning_effort: None,
     }
 }
 

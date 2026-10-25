@@ -105,6 +105,7 @@ pub(super) fn resolve_model(
                 target.max_tokens
             },
             context_window: target.context_window,
+            reasoning_effort: target.reasoning_effort,
         },
         api_key,
         auto_protocol,
@@ -132,6 +133,7 @@ mod tests {
             base_url: "https://api.openai.com/v1".into(),
             max_tokens: 4096,
             context_window: 128000,
+            reasoning_effort: None,
         };
         let session_model = Model {
             id: "claude-sonnet-4-5".into(),
@@ -140,6 +142,7 @@ mod tests {
             base_url: "https://api.anthropic.com".into(),
             max_tokens: 8192,
             context_window: 200000,
+            reasoning_effort: Some(pipi_protocol::ReasoningEffort::High),
         };
 
         let def = AgentDefinition {
@@ -173,6 +176,10 @@ mod tests {
         let resolved = super::resolve_model(&def, Some(&session_model), None).unwrap();
         assert_eq!(resolved.model.id, "claude-sonnet-4-5");
         assert_eq!(resolved.api_key, "test-key");
+        assert_eq!(
+            resolved.model.reasoning_effort,
+            session_model.reasoning_effort
+        );
         // 没配目录缓存 + auto：协议保持绑定里的声明
         assert!(resolved.auto_protocol);
         assert_eq!(resolved.model.api, pipi_protocol::Api::AnthropicMessages);

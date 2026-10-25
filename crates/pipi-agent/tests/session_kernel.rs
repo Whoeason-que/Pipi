@@ -167,6 +167,7 @@ fn model() -> Model {
         base_url: String::new(),
         max_tokens: 32,
         context_window: 0,
+        reasoning_effort: None,
     }
 }
 fn storage(data: Arc<Ledger>) -> SessionStorage {

@@ -1278,6 +1278,40 @@ pre.code {
   color: var(--faint);
 }
 
+.composer-reasoning {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 165px;
+  min-width: 0;
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+}
+
+.composer-reasoning-label {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.composer-reasoning > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer-reasoning .pipi-select__control {
+  min-height: 32px;
+  padding: 0 7px;
+  border-color: transparent;
+  border-radius: var(--r-full);
+  background: transparent;
+  font-size: var(--text-xs);
+}
+
+.composer-reasoning .pipi-select__control:hover {
+  border-color: var(--line);
+  background: var(--hover);
+}
+
 .find-hit .row-inner {
   background: var(--warn-soft);
   box-shadow: 0 0 0 6px var(--warn-soft);

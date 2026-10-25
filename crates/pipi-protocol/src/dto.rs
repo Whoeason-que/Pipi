@@ -306,6 +306,19 @@ pub struct BackgroundTaskSnapshot {
     pub next_seq: u64,
 }
 
+/// 用户选择的推理强度；未设置时由供应商沿用自己的默认行为。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReasoningEffort {
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
 /// 模型描述。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -320,6 +333,8 @@ pub struct Model {
     pub max_tokens: u32,
     #[serde(default)]
     pub context_window: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 fn default_max_tokens() -> u32 {
@@ -412,6 +427,31 @@ impl Default for StreamOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_reasoning_is_optional_but_explicit_levels_are_validated() {
+        let old = serde_json::json!({"id":"m", "api":"openai-completions"});
+        let model: Model = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(model.reasoning_effort, None);
+        assert!(
+            serde_json::to_value(model)
+                .unwrap()
+                .get("reasoningEffort")
+                .is_none()
+        );
+        for level in ["none", "minimal", "low", "medium", "high", "xhigh", "max"] {
+            let mut wire = old.clone();
+            wire["reasoningEffort"] = level.into();
+            let model: Model = serde_json::from_value(wire).unwrap();
+            assert_eq!(
+                serde_json::to_value(model).unwrap()["reasoningEffort"],
+                level
+            );
+        }
+        let mut invalid = old;
+        invalid["reasoningEffort"] = "typo".into();
+        assert!(serde_json::from_value::<Model>(invalid).is_err());
+    }
 
     #[test]
     fn message_wire_shape_keeps_pi_tags() {

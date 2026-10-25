@@ -34,12 +34,16 @@ class Host implements RuntimeTransport {
   sendInfo: Partial<SessionInfoView> = {};
   /** 非空时 send_prompt 的响应挂起，供「事件先于响应」的用例控制顺序。 */
   sendGate: Promise<void> | null = null;
+  modelError: Error | null = null;
   async invoke<K extends CommandName>(command: K, ...parameters: CommandArgs<K>): Promise<CommandResult<K>> {
     const args = parameters[0] as Record<string, unknown> | undefined;
     this.calls.push({ command, args });
     const session = String(args?.sessionId ?? "s");
     let value: unknown;
     switch (command) {
+      case "set_session_model":
+        if (this.modelError) throw this.modelError;
+        break;
       case "open_session": {
         const currentInfo = this.infos.get(session) ?? info(session);
         const messages = this.held ? await this.held : [...this.history];
@@ -104,6 +108,51 @@ async function fixture() {
   await runtime.start();
   return { host, runtime, controller: runtime.get(agent, "s") };
 }
+
+test("session reasoning overrides survive hydration and sending, and following the Agent clears the override", async () => {
+  const { host, runtime, controller } = await fixture();
+  const model = {
+    id: "reasoner", name: "Reasoner", api: "openai-completions" as const,
+    baseUrl: "https://example.com/v1", maxTokens: 8192, contextWindow: 128000,
+    reasoningEffort: "high" as const,
+  };
+  host.infos.set("s", { ...info(), model, isCustomModel: true });
+  await controller.hydrate();
+  assert.equal(controller.getSnapshot().model?.reasoningEffort, "high");
+  await controller.setReasoningEffort("low");
+  assert.deepEqual(controller.getSnapshot().model, { ...model, reasoningEffort: "low" });
+  assert.equal((host.calls.find(call => call.command === "set_session_model")?.args?.model as typeof model)?.reasoningEffort, "low");
+  await controller.send("hello");
+  assert.equal((host.calls.find(call => call.command === "send_prompt")?.args?.model as typeof model)?.reasoningEffort, "low");
+  host.event({ type: "agent_end", messages: [] });
+  await controller.setModel(false, null);
+  assert.equal(host.calls.filter(call => call.command === "set_session_model").at(-1)?.args?.model, null);
+  assert.equal(controller.getSnapshot().isCustomModel, false);
+  runtime.disconnect();
+});
+
+test("reasoning changes require an idle configured session and retain the previous value when saving fails", async () => {
+  const { host, runtime, controller } = await fixture();
+  await controller.hydrate();
+  await assert.rejects(controller.setReasoningEffort("high"), /Select a model/);
+  const model = {
+    id: "reasoner", name: "Reasoner", api: "openai-completions" as const,
+    baseUrl: "https://example.com/v1", maxTokens: 8192, contextWindow: 128000,
+    reasoningEffort: "high" as const,
+  };
+  await controller.setModel(true, model);
+  host.modelError = new Error("Cannot save model");
+  await assert.rejects(controller.setReasoningEffort("low"), /Cannot save model/);
+  assert.deepEqual(controller.getSnapshot().model, model);
+  host.modelError = null;
+  await controller.setReasoningEffort(null);
+  assert.equal(controller.getSnapshot().model?.reasoningEffort, null);
+  host.event({ type: "agent_start" });
+  const before = host.calls.length;
+  await assert.rejects(controller.setReasoningEffort("low"), /idle/);
+  assert.equal(host.calls.length, before);
+  runtime.disconnect();
+});
 
 test("transport recovery hydrates missed completion and clears obsolete approvals without stopping runs", async () => {
   const { host, runtime, controller } = await fixture();

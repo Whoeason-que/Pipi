@@ -12,8 +12,9 @@ import {
   formatTokens
 } from "../chat-runtime";
 import { ModelPicker } from "../ModelPicker";
+import { ReasoningSelect } from "../ReasoningSelect";
 import { ChoiceSelect } from "../Select";
-import { API_LABELS, pinnedProtocolHint, type ModelConfig, type ProviderConfig } from "../types";
+import { API_LABELS, pinnedProtocolHint, type ModelConfig, type ProviderConfig, type ReasoningEffort } from "../types";
 import { useCatalog } from "../use-catalog";
 
 
@@ -52,13 +53,16 @@ export default function ModelSelectModal({
 
   const [selectedProviderId, setSelectedProviderId] = useState<string>(initialProvider?.id || "");
   const [modelId, setModelId] = useState<string>(
-    isCustomModel && currentModel ? currentModel.id : ""
+    (isCustomModel ? currentModel : agentDefaultModel)?.id ?? ""
   );
   const [maxTokens, setMaxTokens] = useState<number>(
-    isCustomModel && currentModel ? currentModel.maxTokens : 8192
+    (isCustomModel ? currentModel : agentDefaultModel)?.maxTokens ?? 8192
   );
   const [contextWindow, setContextWindow] = useState<number>(
-    isCustomModel && currentModel ? currentModel.contextWindow : 0
+    (isCustomModel ? currentModel : agentDefaultModel)?.contextWindow ?? 0
+  );
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(
+    (isCustomModel ? currentModel : agentDefaultModel)?.reasoningEffort ?? null,
   );
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -78,6 +82,7 @@ export default function ModelSelectModal({
     setModelId("");
     setMaxTokens(8192);
     setContextWindow(0);
+    setReasoningEffort(null);
   };
   const pickedModel = findCatalogModel(entry, modelId);
   // 目录标注的模型级协议：auto 时后端按它请求；钉死时只提醒、不改写。
@@ -112,6 +117,7 @@ export default function ModelSelectModal({
           baseUrl: provider.baseUrl || "",
           maxTokens: maxTokens > 0 ? maxTokens : 8192,
           contextWindow: contextWindow > 0 ? contextWindow : 0,
+          reasoningEffort,
         };
         await onConfirm({ isCustom: true, model: targetModel });
       }
@@ -199,12 +205,22 @@ export default function ModelSelectModal({
                 disabled={saving}
                 placeholder="如 gpt-4o、deepseek-chat、anthropic/claude-sonnet-4.5"
                 onModelChange={(nextId, model) => {
+                  if (nextId !== modelId) setReasoningEffort(null);
                   setModelId(nextId);
                   // 手填（model 为 undefined）时保留已有限额：不能因为改了个 ID 就静默把
                   // 目录/用户先前的 maxTokens、contextWindow 复位成默认值。
                   setMaxTokens(resolveMaxTokens(model, maxTokens));
                   setContextWindow(resolveContextWindow(model, contextWindow));
                 }}
+              />
+            </div>
+
+            <div className="form-row">
+              <ReasoningSelect
+                id="session-reasoning-effort"
+                value={reasoningEffort}
+                onChange={setReasoningEffort}
+                disabled={saving || !modelId.trim() || !selectedProviderId}
               />
             </div>
 

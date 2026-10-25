@@ -347,6 +347,7 @@ async fn web_and_desktop_share_runs_events_and_stop_while_transport_can_restart(
         base_url: base_url.clone(),
         max_tokens: 128,
         context_window: 0,
+        reasoning_effort: None,
     };
     pipi_venv::agents::create_agent(
         "shared",

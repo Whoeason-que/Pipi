@@ -84,6 +84,7 @@ async fn run_once(addr: std::net::SocketAddr) -> (Usage, Message) {
         base_url: format!("http://{addr}/v1"),
         max_tokens: 64,
         context_window: 1_000_000,
+        reasoning_effort: None,
     };
     let context = Context {
         system_prompt: None,

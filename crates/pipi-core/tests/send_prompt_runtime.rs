@@ -38,6 +38,7 @@ fn send_prompt_runs_without_an_ambient_reactor() {
         base_url: "http://127.0.0.1:1/v1".into(),
         max_tokens: 512,
         context_window: 8192,
+        reasoning_effort: None,
     };
     agents::create_agent(
         "spawn-regression",

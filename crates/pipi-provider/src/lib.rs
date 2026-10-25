@@ -52,6 +52,7 @@ pub mod catalog;
 pub use catalog::normalize_endpoint;
 mod classify;
 mod diagnostics;
+mod reasoning;
 
 use classify::{RetryVerdict, classify_rig_error};
 use pipi_protocol::RetryHint;
@@ -585,17 +586,24 @@ impl Accumulator {
 fn build_completion_request(
     context: &Context,
     options: &StreamOptions,
-    api: Api,
+    model: &Model,
 ) -> Result<CompletionRequest, StreamError> {
     // rig 语义：请求的 prompt 是最后一条消息，messages 是它之前的历史
-    let mut msgs = to_rig_messages(context, api);
+    let mut msgs = to_rig_messages(context, model.api);
     let Some(prompt) = msgs.pop() else {
         return Err(StreamError::terminal("Empty message history"));
     };
     let mut request = CompletionRequest::new(prompt)
         .messages(msgs)
         .temperature(options.temperature.map(f64::from));
-    if let Some(max_tokens) = options.max_tokens {
+    if let Some(parameters) = reasoning::parameters(model, options)? {
+        request = request.additional_params(parameters);
+    }
+    // 思考预算按 Model 的输出上限计算时，wire 也必须使用同一上限，不能回落到 rig 默认值。
+    if let Some(max_tokens) = options
+        .max_tokens
+        .or_else(|| model.reasoning_effort.map(|_| model.max_tokens))
+    {
         request = request.max_tokens(max_tokens as u64);
     }
     if let Some(system) = &context.system_prompt {
@@ -758,7 +766,7 @@ impl Provider for RigProvider {
                     options.session_id.as_deref(),
                 ))
                 .with_middleware(trace.clone());
-                let request = build_completion_request(&context, &options, api)?;
+                let request = build_completion_request(&context, &options, &model)?;
                 let stream = match api {
                     Api::AnthropicMessages => {
                         let mut config = AnthropicConfig::new(key);

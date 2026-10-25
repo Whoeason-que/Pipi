@@ -11,6 +11,7 @@ import {
   IconBack
 } from "../icons";
 import { ModelPicker } from "../ModelPicker";
+import { ReasoningSelect } from "../ReasoningSelect";
 import {
   invoke
 } from "../platform";
@@ -80,6 +81,7 @@ export default function CreateAgentForm({
             baseUrl: selectedProvider.baseUrl,
             maxTokens: resolveMaxTokens(fields.pickedModel, 8192),
             contextWindow: resolveContextWindow(fields.pickedModel, 0),
+            reasoningEffort: fields.reasoningEffort,
           }
         : null;
 
@@ -165,6 +167,15 @@ export default function CreateAgentForm({
               />
             </div>
             <div className="hint">新建会话时将默认使用此模型；也可留空稍后在详情页配置</div>
+          </div>
+
+          <div className="field">
+            <ReasoningSelect
+              id="agent-create-reasoning-effort"
+              value={fields.reasoningEffort}
+              onChange={fields.setReasoningEffort}
+              disabled={submitting || !fields.providerId || !fields.modelId.trim()}
+            />
           </div>
 
           <div className="field">

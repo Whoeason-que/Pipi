@@ -539,6 +539,7 @@ mod tests {
             base_url: "https://api.anthropic.com".into(),
             max_tokens: 8192,
             context_window: 200000,
+            reasoning_effort: Some(pipi_protocol::ReasoningEffort::High),
         };
         let def = create_agent(
             "model-agent",
@@ -550,10 +551,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(def.model, "claude-3-7-sonnet-20250219");
-        assert_eq!(def.provider, Some(provider));
+        assert_eq!(def.provider, Some(provider.clone()));
         let loaded = load_agent("model-agent").unwrap();
         assert_eq!(loaded.model, "claude-3-7-sonnet-20250219");
-        assert!(loaded.provider.is_some());
+        assert_eq!(loaded.provider, Some(provider));
 
         pipi_test_support::set_env_var("HOME", &prev);
         let _ = std::fs::remove_dir_all(&home);

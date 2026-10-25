@@ -424,6 +424,7 @@ mod tests {
             base_url: String::new(),
             max_tokens: model_max,
             context_window: 1_000_000,
+            reasoning_effort: None,
         };
         let options = StreamOptions::default();
         let env = StrategyEnv {
@@ -492,6 +493,7 @@ mod tests {
             base_url: String::new(),
             max_tokens: 8_192,
             context_window: 100_000,
+            reasoning_effort: None,
         };
         let options = StreamOptions::default();
         let env = StrategyEnv {

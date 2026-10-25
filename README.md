@@ -106,6 +106,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | --- | --- | --- |
 | 工作目录 | `agent.json` → `workspace` | Agent 可操作的文件系统范围，可指向任意本地项目（如 `~/projects/my-app`），缺省为 Agent 目录内的 `workspace/` |
 | 模型 | `agent.json` → `provider` | OpenAI / Anthropic 兼容 API（流式）；`model` 字段仅作展示标签 |
+| 思考程度 | `agent.json` → `provider.reasoningEffort`（会话可覆盖） | 模型默认（缺字段）/ 关闭 / 极低 / 低 / 中 / 高 / 极高 / 最高；在新建 Agent、工作台默认模型与会话模型选择中配置，随模型绑定保存 |
 | 系统指令 | `agent.toml` → `[resources].instructions` 声明的文件（默认 `harness/AGENTS.md`） | 人直接读写的 Markdown，每次运行注入为系统提示（是否取材由 `systemPrompt` 策略决定） |
 | 技能 | `agent.toml` → `[resources.skills].sources` 声明的目录（默认 `harness/skills/`）；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
 | 记忆 | `agent.toml` → `[resources].memory` 声明的目录（默认 `harness/memory/`） | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
@@ -121,6 +122,15 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 环境契约 | `agent.toml`（Agent 定义目录，**必需**；项目根可选）+ `agent.local.toml` + `agent.lock` | av 标准：env 声明、工具链断言、资源覆盖与技能包管理（`av skill`）；**Agent 层契约还负责编排 Agent 侧素材的路径**（`instructions` / `memory` / `skills.sources` 三项必须显式声明，`[]` = 不要），项目层不得声明 `memory`；会话启动解析一次，秘密值永不内联 |
 | 会话 | `sessions.git/`（git 分支） | 一轮一个 commit，一条 entry 一个文件（内容就是那一行 JSON）；压缩＝新建分支、`git log` 即对话。旧 `sessions/*.jsonl` 只经 Agent 工作台「文件」页的显式导入迁到分支（原文件改名保留），运行时不再直接读它们 |
 | 后台任务 | `jobs/<job-id>.jsonl` + `.log` | shell 进程与 child Agent 的生命周期、状态和输出；任务按 Agent/session 所有，重启只显示 orphaned，不按旧 PID 或 future 自动接管 |
+
+思考程度默认不发送额外参数，保留已有模型行为。OpenAI 兼容协议发送
+`reasoning_effort`；Claude 4.6 及后续型号使用 adaptive thinking 与
+`output_config.effort`（极低对应 low，4.6 的极高对应 max）；旧版 Claude
+使用与 pi 一致的思考预算：极低 1024、低 2048、中 8192、高及以上 16384 token，
+并受最大输出限制，至少为正文保留 1024 token。总输出少于 2048 token 时拒绝开启
+旧版扩展思考。各模型与兼容端点支持的档位不同，不支持的设置会作为请求错误展示。
+
+正式会话输入框底部也可直接选择思考程度，立即保存为当前会话的模型覆盖；运行中不可切换。
 
 ### 默认 Agent
 

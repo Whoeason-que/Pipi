@@ -392,6 +392,7 @@ mod tests {
             api: Api::OpenAICompletions,
             base_url: String::new(),
             context_window: 0,
+            reasoning_effort: None,
             max_tokens: 64,
         };
         let mut success = Message::assistant_text("answer", "m");

@@ -110,6 +110,7 @@ mod tests {
             base_url: "http://localhost".into(),
             max_tokens: 1024,
             context_window: 0,
+            reasoning_effort: None,
         }
     }
 
