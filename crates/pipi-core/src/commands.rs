@@ -30,7 +30,7 @@ use pipi_venv::skills::{
 };
 
 use crate::approval::ApprovalDecision;
-use crate::events::EventEmitter;
+use crate::events::{EventEmitter, PromptQueueEnvelope};
 use crate::runtime::{self, RuntimeState, SessionInfo, SessionSnapshot, agent_repo};
 
 /// 全部宿主命令名，顺序与前端 `src/ipc.ts` 的 `CommandMap` 一致。
@@ -71,6 +71,9 @@ pub const COMMANDS: &[&str] = &[
     "send_prompt",
     "compact_now",
     "steer",
+    "queue_prompt",
+    "cancel_queued_prompt",
+    "set_prompt_queue_paused",
     "resolve_approval",
     "set_session_model",
     "session_messages",
@@ -692,6 +695,59 @@ pub fn steer(runtime: &RuntimeState, args: SteerArgs) -> Result<(), String> {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct QueuePromptArgs {
+    pub agent_name: String,
+    pub session_id: String,
+    pub message_id: String,
+    pub message: String,
+    pub send_at: Option<u64>,
+}
+
+pub fn queue_prompt(
+    runtime: &RuntimeState,
+    args: QueuePromptArgs,
+) -> Result<PromptQueueEnvelope, String> {
+    runtime.queue_prompt(
+        &args.agent_name,
+        &args.session_id,
+        &args.message_id,
+        &args.message,
+        args.send_at,
+    )
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelQueuedPromptArgs {
+    pub agent_name: String,
+    pub session_id: String,
+    pub message_id: String,
+}
+
+pub fn cancel_queued_prompt(
+    runtime: &RuntimeState,
+    args: CancelQueuedPromptArgs,
+) -> Result<PromptQueueEnvelope, String> {
+    runtime.cancel_queued_prompt(&args.agent_name, &args.session_id, &args.message_id)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetPromptQueuePausedArgs {
+    pub agent_name: String,
+    pub session_id: String,
+    pub paused: bool,
+}
+
+pub fn set_prompt_queue_paused(
+    runtime: &RuntimeState,
+    args: SetPromptQueuePausedArgs,
+) -> Result<PromptQueueEnvelope, String> {
+    runtime.set_prompt_queue_paused(&args.agent_name, &args.session_id, args.paused)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolveApprovalArgs {
     pub request_id: String,
     pub decision: String,
@@ -1163,6 +1219,9 @@ pub async fn dispatch(
         "send_prompt" => to_value(send_prompt(runtime, emitter, parse(args)?)?),
         "compact_now" => to_value(compact_now(runtime, emitter, parse(args)?)?),
         "steer" => to_value(steer(runtime, parse(args)?)?),
+        "queue_prompt" => to_value(queue_prompt(runtime, parse(args)?)?),
+        "cancel_queued_prompt" => to_value(cancel_queued_prompt(runtime, parse(args)?)?),
+        "set_prompt_queue_paused" => to_value(set_prompt_queue_paused(runtime, parse(args)?)?),
         "resolve_approval" => to_value(resolve_approval(runtime, parse(args)?)?),
         "set_session_model" => to_value(set_session_model(runtime, parse(args)?)?),
         "session_messages" => to_value(session_messages(runtime, parse(args)?).await?),
@@ -1219,8 +1278,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            61,
-            "宿主命令数应为 61（前端 CommandMap 同步）"
+            64,
+            "宿主命令数应为 64（前端 CommandMap 同步）"
         );
     }
 

@@ -70,6 +70,33 @@ pub struct SessionChangedEnvelope {
     pub run_id: usize,
 }
 
+/// 尚未写入会话的用户消息；send_at 是最早发送的 Unix 毫秒时间。
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedPrompt {
+    pub id: String,
+    pub text: String,
+    pub send_at: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptQueueSnapshot {
+    pub revision: u64,
+    pub paused: bool,
+    pub error: Option<String>,
+    pub messages: Vec<QueuedPrompt>,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptQueueEnvelope {
+    pub agent_name: String,
+    pub session_id: String,
+    pub run_id: usize,
+    pub queue: PromptQueueSnapshot,
+}
+
 /// 发给宿主的审批请求。`missing` 是白名单未命中的段落，「总是允许」时按段写入。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +125,8 @@ pub enum RuntimeEvent {
     SessionSwitched(SessionSwitchedEnvelope),
     #[serde(rename = "session-changed")]
     SessionChanged(SessionChangedEnvelope),
+    #[serde(rename = "prompt-queue")]
+    PromptQueue(PromptQueueEnvelope),
     #[serde(rename = "notification")]
     Notification(crate::notifications::NotificationEnvelope),
 }

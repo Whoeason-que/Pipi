@@ -431,6 +431,18 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
   提交失败会保留应用，再次关闭可重试。仅隐藏到托盘时继续后台运行；强杀与崩溃
   不属于这条正常退出保障。
 
+### 发送、引导与待发消息
+
+运行中输入框有两个独立按钮：**引导**把消息交给当前任务的下一次上下文，
+**排队**等当前任务结束后再启动新一轮，每条消息各跑一轮。Enter 默认发送或排队，
+Alt+Enter 引导当前任务，Shift+Enter 换行。消息实际起跑前只显示在待发箱中。
+
+「延迟发送」可设置 1–43200 分钟：到时后等待这条会话空闲，再进入发送队列；
+尚未到时的消息不会挡住其他已到时的消息。待发箱支持暂停、继续及逐条取消。
+停止当前任务或本轮失败会暂停未发消息，需显式继续；压缩分叉后待发箱跟随新会话。
+桌面与 iPhone Web 共用宿主队列，切换页面、断开浏览器不影响发送，**宿主必须在线；
+退出 Pipi 会清空尚未发送的消息**。详情见 [message-queue.md](docs/message-queue.md)。
+
 ### 与 pi 的关系
 
 核心从 [pi](https://github.com/earendil-works/pi) 移植为 Rust，模块映射：
@@ -439,7 +451,7 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
 | --- | --- | --- |
 | `packages/ai` types | `pipi-protocol` | 消息/内容块/事件协议，JSON 字段名与上游一致 |
 | `packages/ai` api adapters | `pipi-provider` | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
-| `packages/agent` agent-loop | `pipi-agent::agent_loop` | 事件流 + steering/follow-up + 工具批次执行；steering 已接线到 UI（运行中插话，迟到消息在运行结束收割、下次运行重放，不丢失） |
+| `packages/agent` agent-loop | `pipi-agent::agent_loop` | 事件流 + steering + 工具批次执行；引导作用于当前任务，宿主待发箱以独立新运行实现排队/延迟发送，迟到引导由内核收割保留 |
 | `packages/agent` harness/tools | `pipi-tools` + `pipi-core::tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/glob/grep；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
 | `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness prompt/resources | `pipi-venv::prompt` | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |

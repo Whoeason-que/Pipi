@@ -9,14 +9,14 @@ use tauri::{AppHandle, Emitter, State};
 
 use pipi_agent::stats::SessionStats;
 use pipi_core::commands::{
-    ArchiveAgentArgs, ArchiveSessionArgs, CompactNowArgs, CreateSessionArgs, DeleteAgentArgs,
-    DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs, ListSessionsArgs,
-    ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs, OpenWorkbenchSessionArgs,
-    QueryBackgroundTasksArgs, ResolveApprovalArgs, RestoreAgentArgs, RestoreSessionArgs,
-    SendPromptArgs, SessionInfoArgs, SessionMessagesArgs, SessionStatsArgs, SetSessionModelArgs,
-    SteerArgs, StopRunArgs,
+    ArchiveAgentArgs, ArchiveSessionArgs, CancelQueuedPromptArgs, CompactNowArgs,
+    CreateSessionArgs, DeleteAgentArgs, DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs,
+    ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs,
+    OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs, QueuePromptArgs, ResolveApprovalArgs,
+    RestoreAgentArgs, RestoreSessionArgs, SendPromptArgs, SessionInfoArgs, SessionMessagesArgs,
+    SessionStatsArgs, SetPromptQueuePausedArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
 };
-use pipi_core::events::{EventEmitter, RuntimeEvent};
+use pipi_core::events::{EventEmitter, PromptQueueEnvelope, RuntimeEvent};
 use pipi_core::runtime::{RuntimeState, SessionInfo, SessionSnapshot};
 use pipi_protocol::session::SessionSummary;
 use pipi_protocol::{BackgroundTaskSnapshot, Message};
@@ -36,6 +36,7 @@ pub(crate) fn tauri_emitter(app: AppHandle) -> EventEmitter {
             RuntimeEvent::ApprovalRequest(payload) => app.emit("approval-request", &payload),
             RuntimeEvent::SessionSwitched(payload) => app.emit("session-switched", &payload),
             RuntimeEvent::SessionChanged(payload) => app.emit("session-changed", &payload),
+            RuntimeEvent::PromptQueue(payload) => app.emit("prompt-queue", &payload),
         };
         let _ = result;
     })
@@ -141,6 +142,30 @@ pub fn compact_now(
 #[tauri::command]
 pub fn steer(state: State<Arc<RuntimeState>>, args: InvokeArgs<SteerArgs>) -> Result<(), String> {
     pipi_core::commands::steer(&state, args.0)
+}
+
+#[tauri::command]
+pub fn queue_prompt(
+    state: State<Arc<RuntimeState>>,
+    args: InvokeArgs<QueuePromptArgs>,
+) -> Result<PromptQueueEnvelope, String> {
+    pipi_core::commands::queue_prompt(&state, args.0)
+}
+
+#[tauri::command]
+pub fn cancel_queued_prompt(
+    state: State<Arc<RuntimeState>>,
+    args: InvokeArgs<CancelQueuedPromptArgs>,
+) -> Result<PromptQueueEnvelope, String> {
+    pipi_core::commands::cancel_queued_prompt(&state, args.0)
+}
+
+#[tauri::command]
+pub fn set_prompt_queue_paused(
+    state: State<Arc<RuntimeState>>,
+    args: InvokeArgs<SetPromptQueuePausedArgs>,
+) -> Result<PromptQueueEnvelope, String> {
+    pipi_core::commands::set_prompt_queue_paused(&state, args.0)
 }
 
 /// 回传 bash 命令审批请求的用户决定。

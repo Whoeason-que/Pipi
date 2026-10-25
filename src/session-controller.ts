@@ -7,13 +7,16 @@ import {
 } from "./chat-runtime.ts";
 import { CommandTransportError } from "./transport-error.ts";
 import type { Invoke } from "./ipc.ts";
-import type { AgentDefinition, ModelConfig, SessionInfoView } from "./types.ts";
+import type { AgentDefinition, ModelConfig, SessionInfoView, PromptQueueSnapshot, PromptQueueEnvelope } from "./types.ts";
 
 export interface SessionTransport {
   invoke: Invoke;
 }
 
+export const EMPTY_PROMPT_QUEUE: PromptQueueSnapshot = { revision: 0, paused: false, error: null, messages: [] };
+
 export type SessionFrame =
+  | { type: "prompt-queue"; payload: PromptQueueEnvelope }
   | { type: "agent-event"; payload: AgentEventPayload }
   | { type: "session-stats"; payload: SessionStatsPayload }
   | { type: "session-error"; payload: SessionErrorPayload }
@@ -21,6 +24,7 @@ export type SessionFrame =
   | { type: "session-switched"; payload: SessionSwitchedPayload };
 
 export interface SessionSnapshot {
+  queue: PromptQueueSnapshot;
   chat: ChatState;
   load: "idle" | "loading" | "ready" | "failed";
   operation: "idle" | "stopping" | "uncertain";
@@ -42,6 +46,7 @@ export class SessionController {
   private settledRun: number | null = null;
   private awaitingRun: number | null = null;
   private sending = false;
+  private pendingQueue: { text: string; delayMs: number; id: string; sendAt: number | null } | null = null;
   private uncertainSend: { runId: number; key: string } | null = null;
   private runEpoch = 0;
   private loadEpoch = 0;
@@ -68,7 +73,7 @@ export class SessionController {
     this.delay = delay;
     this.identity = sessionId ? { sessionId } : null;
     this.value = {
-      chat: INITIAL_CHAT_STATE, load: "idle", operation: "idle", sessionId,
+      queue: EMPTY_PROMPT_QUEUE, chat: INITIAL_CHAT_STATE, load: "idle", operation: "idle", sessionId,
       model: agent.provider ?? null, isCustomModel: false, approval: null, change: null, error: null,
     };
   }
@@ -147,6 +152,13 @@ export class SessionController {
   }
 
   private apply(frame: SessionFrame): void {
+    if (frame.type === "prompt-queue") {
+      const { agentName, sessionId, queue } = frame.payload;
+      // 队列有自己的版本：当前 run 已结束也可取消/排队，不能走 settledRun 过滤。
+      if (agentName === this.agent.name && sessionId === this.value.sessionId
+        && queue.revision >= this.value.queue.revision) this.patch({ queue });
+      return;
+    }
     if (frame.type === "agent-event") {
       const meta = frame.payload;
       const event = meta.event;
@@ -214,6 +226,7 @@ export class SessionController {
           this.fail("无法确认当前会话身份，请返回后重试");
           return;
         }
+        this.patch({ queue: snapshot.queue ?? EMPTY_PROMPT_QUEUE });
         const knownRun = this.identity?.runId ?? 0;
         const stale = (info.runId ?? 0) < knownRun;
         if (!stale) {
@@ -254,12 +267,8 @@ export class SessionController {
   async send(text: string): Promise<boolean> {
     text = text.trim();
     if (!text || this.value.load !== "ready" || this.sending || this.uncertainSend) return false;
+    if (this.value.chat.running || this.value.queue.messages.length) return this.enqueue(text);
     this.sending = true;
-    if (this.value.chat.running) {
-      try { await this.transport.invoke("steer", { agentName: this.agent.name, sessionId: this.requireSessionId(), message: text }); }
-      finally { this.sending = false; }
-      return true;
-    }
     // 先取得稳定身份：响应丢失后仍能查到同一条会话，且不会误认其他窗口的运行。
     if (!this.identity) {
       try {
@@ -361,6 +370,62 @@ export class SessionController {
     }
   }
 
+  /** 引导只影响当前运行；普通发送和排队都不会隐式进入 steering。 */
+  async steer(text: string): Promise<boolean> {
+    text = text.trim();
+    if (!text || this.value.load !== "ready" || !this.value.chat.running || this.sending || this.uncertainSend) return false;
+    this.sending = true;
+    try {
+      await this.transport.invoke("steer", { agentName: this.agent.name, sessionId: this.requireSessionId(), message: text });
+      return true;
+    } finally { this.sending = false; }
+  }
+
+  async enqueue(text: string, delayMs = 0): Promise<boolean> {
+    text = text.trim();
+    if (!text || this.value.load !== "ready" || this.sending || this.uncertainSend) return false;
+    if (!Number.isSafeInteger(delayMs) || delayMs < 0 || delayMs > 30 * 86400000) throw new Error("Delay must be between 0 and 30 days");
+    this.sending = true;
+    try {
+      if (!this.identity) {
+        const info = this.temporary
+          ? await this.transport.invoke("open_workbench_session", { agentName: this.agent.name })
+          : await this.transport.invoke("create_session", { agentName: this.agent.name });
+        if (info.agentName !== this.agent.name || !info.sessionId || info.running) throw new Error("Unable to establish an idle session");
+        this.adopt({ ...info, model: undefined }, true);
+      }
+      if (!this.value.chat.running && this.value.isCustomModel) await this.setModel(true, this.value.model);
+      const previous = this.pendingQueue;
+      const request = previous?.text === text && previous.delayMs === delayMs ? previous
+        : { text, delayMs, id: createEntryKey(`queued-${Date.now().toString(36)}`), sendAt: delayMs ? Date.now() + delayMs : null };
+      this.pendingQueue = request;
+      const payload = await this.transport.invoke("queue_prompt", {
+        agentName: this.agent.name, sessionId: this.requireSessionId(), messageId: request.id,
+        message: text, sendAt: request.sendAt,
+      });
+      this.receive({ type: "prompt-queue", payload });
+      this.pendingQueue = null;
+      return true;
+    } catch (error) {
+      if (!(error instanceof CommandTransportError)) this.pendingQueue = null;
+      throw error;
+    } finally { this.sending = false; }
+  }
+
+  async cancelQueued(id: string): Promise<void> {
+    const payload = await this.transport.invoke("cancel_queued_prompt", {
+      agentName: this.agent.name, sessionId: this.requireSessionId(), messageId: id,
+    });
+    if (this.pendingQueue?.id === id) this.pendingQueue = null;
+    this.receive({ type: "prompt-queue", payload });
+  }
+  async pauseQueue(paused: boolean): Promise<void> {
+    const payload = await this.transport.invoke("set_prompt_queue_paused", {
+      agentName: this.agent.name, sessionId: this.requireSessionId(), paused,
+    });
+    this.receive({ type: "prompt-queue", payload });
+  }
+
   async resolveApproval(decision: ApprovalDecisionValue): Promise<void> {
     const request = this.value.approval;
     if (!request) return;
@@ -378,7 +443,7 @@ export class SessionController {
     });
     this.adopt(info, true);
     this.settledRun = null;
-    this.patch({ chat: INITIAL_CHAT_STATE });
+    this.patch({ chat: INITIAL_CHAT_STATE, queue: EMPTY_PROMPT_QUEUE });
     await this.hydrate();
   }
   async setModel(isCustom: boolean, model: ModelConfig | null): Promise<void> {

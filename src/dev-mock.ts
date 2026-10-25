@@ -1,6 +1,6 @@
 // 仅开发环境生效：在普通浏览器（无 Tauri 后端）里提供最小 invoke 桩，
 // 让前端 UI 可以脱离桌面壳独立开发调试。Tauri 生产构建不受影响。
-import type { AgentDefinition, Settings, RemoteAccessStatus } from "./types";
+import type { AgentDefinition, Settings, RemoteAccessStatus, PromptQueueSnapshot } from "./types";
 import type { ModelCatalog } from "./catalog";
 
 const demoAgent: AgentDefinition = {
@@ -163,6 +163,8 @@ interface DemoConversation {
   runId: number;
   runTimer: ReturnType<typeof setTimeout> | null;
   approvalId?: string;
+  queue: PromptQueueSnapshot;
+  queueTimer?: ReturnType<typeof setTimeout>;
 }
 
 const conversationKey = (agentName: string, sessionId: string) => `${agentName}\u0000${sessionId}`;
@@ -185,6 +187,7 @@ function openConversation(agentName: string, sessionId: string): DemoConversatio
     running: false,
     runId: 0,
     runTimer: null,
+    queue: { revision: 0, paused: false, error: null, messages: [] },
   };
   demoConversations.set(key, conversation);
   return conversation;
@@ -202,6 +205,7 @@ function createTestConversation(agentName: string): DemoConversation {
     running: false,
     runId: 0,
     runTimer: null,
+    queue: { revision: 0, paused: false, error: null, messages: [] },
   };
   demoConversations.set(conversationKey(agentName, sessionId), conversation);
   return conversation;
@@ -263,6 +267,26 @@ function listenDevEvent(name: string, listener: DevEventListener): () => void {
   };
 }
 
+function publishDemoQueue(conversation: DemoConversation) {
+  conversation.queue.revision += 1;
+  const payload = { agentName: conversation.agentName, sessionId: conversation.sessionId, runId: conversation.runId,
+    queue: { ...conversation.queue, messages: [...conversation.queue.messages] } };
+  emitDevEvent("prompt-queue", payload);
+  return payload;
+}
+function scheduleDemoQueue(conversation: DemoConversation) {
+  if (conversation.queueTimer) clearTimeout(conversation.queueTimer);
+  if (conversation.queue.paused || !conversation.queue.messages.length) return;
+  conversation.queueTimer = setTimeout(() => {
+    if (conversation.running) { scheduleDemoQueue(conversation); return; }
+    const index = conversation.queue.messages.findIndex(message => message.sendAt <= Date.now());
+    if (index < 0) { scheduleDemoQueue(conversation); return; }
+    const [message] = conversation.queue.messages.splice(index, 1);
+    publishDemoQueue(conversation);
+    startDemoRun(conversation, message.text);
+  }, 200);
+}
+
 function startDemoRun(conversation: DemoConversation, prompt: string): void {
   const state = stateFor(conversation.agentName);
   if (conversation.runTimer) clearTimeout(conversation.runTimer);
@@ -274,7 +298,8 @@ function startDemoRun(conversation: DemoConversation, prompt: string): void {
       state.titles.get(conversation.sessionId) ?? prompt,
     );
   }
-  conversation.messages.push({ role: "user", content: prompt, timestamp: Date.now() });
+  const userMessage = { role: "user", content: prompt, timestamp: Date.now() };
+  conversation.messages.push(userMessage);
 
   // 演示剧本：thinking → bash（成功）→ thinking → bash（失败）→ 正文，
   // 覆盖标签行折叠、同名计数（thinking ×2 / bash ×2）与失败标红。
@@ -309,7 +334,11 @@ function startDemoRun(conversation: DemoConversation, prompt: string): void {
   };
 
   const steps: Array<() => void> = [
-    () => emitDemoAgentEvent(conversation, { type: "agent_start" }),
+    () => {
+      emitDemoAgentEvent(conversation, { type: "agent_start" });
+      emitDemoAgentEvent(conversation, { type: "message_start", message: userMessage });
+      emitDemoAgentEvent(conversation, { type: "message_end", message: userMessage });
+    },
     // 第 1 条助手消息：thinking + bash 调用
     () => emitDemoAgentEvent(conversation, { type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } }),
     () => emitDemoAgentEvent(conversation, {
@@ -430,6 +459,7 @@ function startDemoRun(conversation: DemoConversation, prompt: string): void {
     if (stepIndex >= steps.length) {
       conversation.runTimer = null;
       conversation.running = false;
+      scheduleDemoQueue(conversation);
       return;
     }
     steps[stepIndex]();
@@ -856,6 +886,7 @@ export function installDevMock(): void {
               running: conversation.running,
               runId: conversation.runId,
             },
+            queue: { ...conversation.queue, messages: [...conversation.queue.messages] },
             messages: conversation.messages ?? [],
             stats: {
               input: 70,
@@ -996,6 +1027,20 @@ export function installDevMock(): void {
           });
           return Promise.resolve(null);
         }
+        case "queue_prompt":
+        case "cancel_queued_prompt":
+        case "set_prompt_queue_paused": {
+          const conversation = conversationOf(String(args.agentName ?? demoAgent.name), String(args.sessionId ?? ""));
+          if (!conversation) return Promise.reject(new Error("Session is not open"));
+          if (cmd === "queue_prompt" && !conversation.queue.messages.some(message => message.id === args.messageId)) {
+            conversation.queue.messages.push({ id: String(args.messageId), text: String(args.message), sendAt: Number(args.sendAt ?? Date.now()) });
+          } else if (cmd === "cancel_queued_prompt") {
+            conversation.queue.messages = conversation.queue.messages.filter(message => message.id !== args.messageId);
+          } else if (cmd === "set_prompt_queue_paused") conversation.queue.paused = Boolean(args.paused);
+          const payload = publishDemoQueue(conversation);
+          scheduleDemoQueue(conversation);
+          return Promise.resolve(payload);
+        }
         case "resolve_approval": {
           const conversation = [...demoConversations.values()].find(item => item.approvalId === args.requestId);
           if (conversation) {
@@ -1016,6 +1061,7 @@ export function installDevMock(): void {
           );
           if (!conversation) return Promise.resolve(null);
           delete conversation.approvalId;
+          if (conversation.queue.messages.length) { conversation.queue.paused = true; publishDemoQueue(conversation); }
           if (conversation.runTimer) clearTimeout(conversation.runTimer);
           conversation.runTimer = null;
           if (conversation.running) emitDemoAgentEvent(conversation, { type: "agent_end" });

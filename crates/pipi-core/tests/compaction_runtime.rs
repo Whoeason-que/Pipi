@@ -296,6 +296,7 @@ fn wait_for<F: Fn(&[RuntimeEvent]) -> bool>(
             let dump: Vec<String> = snapshot
                 .iter()
                 .map(|event| match event {
+                    RuntimeEvent::PromptQueue(_) => "prompt-queue".to_string(),
                     RuntimeEvent::Notification(_) => "notification".to_string(),
                     RuntimeEvent::AgentEvent(envelope) => {
                         format!("{:?}", envelope.event).chars().take(80).collect()
@@ -683,6 +684,21 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
     state
         .open_session("compaction-e2e", &old_id)
         .expect("打开会话");
+    // 待发消息跟随同一个会话对象换键，不能留在即将归档的旧会话上。
+    let due = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + 60_000;
+    state
+        .queue_prompt(
+            "compaction-e2e",
+            &old_id,
+            "after-compaction",
+            "next task",
+            Some(due),
+        )
+        .unwrap();
     let (sink, seen) = collect_events();
     state
         .compact_now("compaction-e2e", &old_id, sink)
@@ -731,6 +747,12 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
         "结束后必须不再是运行中"
     );
     assert_ne!(new_id, old_id, "手动压缩同样分叉到新会话");
+    let queue = state.open_session("compaction-e2e", &new_id).unwrap().queue;
+    assert_eq!(queue.messages.len(), 1);
+    assert_eq!(queue.messages[0].id, "after-compaction");
+    state
+        .cancel_queued_prompt("compaction-e2e", &new_id, "after-compaction")
+        .unwrap();
     let repo = session_repo(&sessions_dir);
     assert!(repo.exists(&new_id).expect("查询新会话"));
     assert!(!repo.exists(&old_id).expect("查询原会话"), "原会话应已归档");

@@ -1,0 +1,450 @@
+//! 待发箱黑盒回归：实际宿主运行、HTTP provider 与会话账本，不用前端计时器。
+use pipi_core::runtime::RuntimeState;
+use pipi_core::settings::{ApiMode, ProviderConfig, Settings, save_settings};
+use pipi_protocol::{Api, Message, Model};
+use pipi_venv::agents;
+use serde_json::{Value, json};
+use std::io::{Read, Write};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+struct Endpoint {
+    base: String,
+    requests: Arc<Mutex<Vec<(u64, Value)>>>,
+    release: Option<mpsc::Sender<()>>,
+    stop: Arc<AtomicBool>,
+}
+impl Drop for Endpoint {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+fn endpoint(gated: bool, fail_first: bool) -> Endpoint {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let seen = requests.clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let done = stop.clone();
+    let (release, wait) = mpsc::channel();
+    std::thread::spawn(move || {
+        while !done.load(Ordering::Acquire) {
+            let Ok((mut stream, _)) = listener.accept() else {
+                std::thread::sleep(Duration::from_millis(5));
+                continue;
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut headers = Vec::new();
+            let mut byte = [0];
+            while !headers.ends_with(b"\r\n\r\n") {
+                if stream.read_exact(&mut byte).is_err() {
+                    return;
+                }
+                headers.push(byte[0]);
+            }
+            let size = String::from_utf8_lossy(&headers)
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .and_then(|s| s.trim().parse::<usize>().ok())
+                })
+                .unwrap();
+            let mut body = vec![0; size];
+            stream.read_exact(&mut body).unwrap();
+            let request: Value = serde_json::from_slice(&body).unwrap();
+            let index = {
+                let mut seen = seen.lock().unwrap();
+                let index = seen.len();
+                seen.push((now_ms(), request));
+                index
+            };
+            if index == 0 && gated {
+                let _ = wait.recv_timeout(Duration::from_secs(5));
+            }
+            if index == 0 && fail_first {
+                let body = r#"{"error":{"message":"fixture failure","type":"server_error"}}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                continue;
+            }
+            let chunk = json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":null}]});
+            let end = json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]});
+            let body = format!("data: {chunk}\n\ndata: {end}\n\ndata: [DONE]\n\n");
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    Endpoint {
+        base,
+        requests,
+        release: Some(release),
+        stop,
+    }
+}
+
+struct Environment(
+    Vec<(&'static str, Option<std::ffi::OsString>)>,
+    std::path::PathBuf,
+);
+impl Environment {
+    fn new() -> Self {
+        let home = pipi_test_support::temp_dir("pipi-prompt-queue");
+        let mut vars = Vec::new();
+        for (key, path) in [
+            ("HOME", home.clone()),
+            ("PIPI_HOME", home.join("pipi")),
+            ("AV_HOME", home.join("av")),
+        ] {
+            vars.push((key, std::env::var_os(key)));
+            pipi_test_support::set_env_var(key, path);
+        }
+        Self(vars, home)
+    }
+}
+impl Drop for Environment {
+    fn drop(&mut self) {
+        for (key, previous) in &self.0 {
+            if let Some(value) = previous {
+                pipi_test_support::set_env_var(key, value);
+            } else {
+                pipi_test_support::remove_env_var(key);
+            }
+        }
+        let _ = std::fs::remove_dir_all(&self.1);
+    }
+}
+fn fixture(base: &str) {
+    let model = Model {
+        id: "fixture".into(),
+        name: "Fixture".into(),
+        api: Api::OpenAICompletions,
+        base_url: base.into(),
+        max_tokens: 256,
+        context_window: 0,
+    };
+    agents::create_agent(
+        "queued",
+        "queue test",
+        None,
+        None,
+        Some("fixture"),
+        Some(model),
+    )
+    .unwrap();
+    let mut settings = Settings::default();
+    settings.retry.max_attempts = 1;
+    settings.providers = vec![ProviderConfig {
+        id: "local".into(),
+        name: "Local".into(),
+        api: Api::OpenAICompletions,
+        api_mode: ApiMode::Manual,
+        base_url: base.into(),
+        env_key: None,
+        api_key: Some("fixture-key".into()),
+    }];
+    save_settings(&settings).unwrap();
+}
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap()
+}
+#[track_caller]
+fn until(mut predicate: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !predicate() {
+        assert!(Instant::now() < deadline, "condition timed out");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+fn users(request: &Value) -> String {
+    request["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["role"] == "user")
+        .map(|m| m["content"].to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn queue_waits_for_task_and_guidance_then_starts_one_run_per_message_without_duplicates() {
+    let _lock = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _env = Environment::new();
+    let mut endpoint = endpoint(true, false);
+    fixture(&endpoint.base);
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let id = state.create_session("queued").unwrap().session_id;
+    state
+        .send_prompt("queued", Some(&id), "start", None, state.events().emitter())
+        .unwrap();
+    until(|| endpoint.requests.lock().unwrap().len() == 1);
+    state
+        .queue_prompt("queued", &id, "first", "queue-a", None)
+        .unwrap();
+    state
+        .queue_prompt("queued", &id, "first", "queue-a", None)
+        .unwrap();
+    state
+        .queue_prompt("queued", &id, "second", "queue-b", None)
+        .unwrap();
+    state.steer("queued", &id, "guide-current").unwrap();
+    assert_eq!(endpoint.requests.lock().unwrap().len(), 1);
+    assert_eq!(
+        state
+            .open_session("queued", &id)
+            .unwrap()
+            .queue
+            .messages
+            .len(),
+        2
+    );
+    assert!(
+        !state
+            .open_session("queued", &id)
+            .unwrap()
+            .messages
+            .iter()
+            .any(|m| matches!(m, Message::User { .. })
+                && serde_json::to_string(m).unwrap().contains("queue-a"))
+    );
+    endpoint.release.take().unwrap().send(()).unwrap();
+    until(|| {
+        state
+            .session_info("queued", &id)
+            .unwrap()
+            .is_some_and(|s| !s.running && endpoint.requests.lock().unwrap().len() == 4)
+    });
+    let requests = endpoint.requests.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    assert!(!users(&requests[1].1).contains("queue-a"));
+    assert!(users(&requests[1].1).contains("guide-current"));
+    assert!(users(&requests[2].1).contains("queue-a"));
+    assert!(!users(&requests[2].1).contains("queue-b"));
+    assert!(users(&requests[3].1).contains("queue-b"));
+    drop(requests);
+    // 已经发送的提交也幂等；同 id 不允许换内容。
+    state
+        .queue_prompt("queued", &id, "first", "queue-a", None)
+        .unwrap();
+    assert!(
+        state
+            .queue_prompt("queued", &id, "first", "different", None)
+            .is_err()
+    );
+    assert!(
+        state
+            .open_session("queued", &id)
+            .unwrap()
+            .queue
+            .messages
+            .is_empty()
+    );
+    rt.block_on(state.shutdown()).unwrap();
+}
+
+#[test]
+fn delay_does_not_block_ready_messages_or_other_sessions_and_queued_slots_cannot_be_released() {
+    let _lock = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _env = Environment::new();
+    let endpoint = endpoint(false, false);
+    fixture(&endpoint.base);
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let id = state.create_session("queued").unwrap().session_id;
+    let other = state.create_session("queued").unwrap().session_id;
+    let due = now_ms() + 700;
+    state
+        .queue_prompt("queued", &id, "delayed", "later", Some(due))
+        .unwrap();
+    state.new_session("queued").unwrap();
+    assert!(state.session_info("queued", &id).unwrap().is_some());
+    assert!(state.archive_session("queued", &id).is_err());
+    assert!(state.delete_agent("queued").is_err());
+    // new_session 可以释放别的空闲槽；重新打开另一条仍可独立发送。
+    state.open_session("queued", &other).unwrap();
+    state
+        .queue_prompt("queued", &id, "ready", "now", None)
+        .unwrap();
+    state
+        .queue_prompt("queued", &other, "other", "parallel", None)
+        .unwrap();
+    until(|| endpoint.requests.lock().unwrap().len() >= 2);
+    {
+        let requests = endpoint.requests.lock().unwrap();
+        assert!(
+            requests[..2]
+                .iter()
+                .all(|(_, r)| !users(r).contains("later"))
+        );
+    }
+    until(|| {
+        state
+            .session_info("queued", &id)
+            .unwrap()
+            .is_some_and(|s| !s.running && endpoint.requests.lock().unwrap().len() == 3)
+    });
+    let requests = endpoint.requests.lock().unwrap();
+    let delayed = requests
+        .iter()
+        .find(|(_, r)| users(r).contains("later"))
+        .unwrap();
+    assert!(delayed.0 >= due, "delayed message was sent early");
+    drop(requests);
+    state
+        .queue_prompt("queued", &id, "cancel", "never", Some(now_ms() + 60_000))
+        .unwrap();
+    state.cancel_queued_prompt("queued", &id, "cancel").unwrap();
+    assert!(
+        state
+            .open_session("queued", &id)
+            .unwrap()
+            .queue
+            .messages
+            .is_empty()
+    );
+    rt.block_on(state.shutdown()).unwrap();
+    assert!(
+        state
+            .queue_prompt("queued", &id, "quit", "must reject", None)
+            .is_err()
+    );
+}
+
+#[test]
+fn stop_and_failure_pause_pending_messages_until_explicit_resume() {
+    let _lock = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _env = Environment::new();
+    let endpoint = endpoint(false, true);
+    fixture(&endpoint.base);
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let id = state.create_session("queued").unwrap().session_id;
+    state.set_prompt_queue_paused("queued", &id, true).unwrap();
+    state
+        .queue_prompt("queued", &id, "fail", "will fail", None)
+        .unwrap();
+    state
+        .queue_prompt("queued", &id, "next", "after failure", None)
+        .unwrap();
+    state.set_prompt_queue_paused("queued", &id, false).unwrap();
+    until(|| {
+        let q = state.open_session("queued", &id).unwrap().queue;
+        q.paused && q.error.is_some()
+    });
+    assert_eq!(endpoint.requests.lock().unwrap().len(), 1);
+    assert_eq!(
+        state
+            .open_session("queued", &id)
+            .unwrap()
+            .queue
+            .messages
+            .len(),
+        1
+    );
+    state.set_prompt_queue_paused("queued", &id, false).unwrap();
+    until(|| {
+        state
+            .session_info("queued", &id)
+            .unwrap()
+            .is_some_and(|s| !s.running && endpoint.requests.lock().unwrap().len() == 2)
+    });
+    state
+        .queue_prompt("queued", &id, "future", "after stop", Some(now_ms() + 100))
+        .unwrap();
+    state.stop_run("queued", &id).unwrap();
+    std::thread::sleep(Duration::from_millis(160));
+    assert_eq!(endpoint.requests.lock().unwrap().len(), 2);
+    assert!(state.open_session("queued", &id).unwrap().queue.paused);
+    state.set_prompt_queue_paused("queued", &id, false).unwrap();
+    until(|| {
+        state
+            .session_info("queued", &id)
+            .unwrap()
+            .is_some_and(|s| !s.running && endpoint.requests.lock().unwrap().len() == 3)
+    });
+    rt.block_on(state.shutdown()).unwrap();
+}
+
+#[test]
+fn queue_rejects_invalid_inputs_and_bounds_pending_memory() {
+    let _lock = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _env = Environment::new();
+    fixture("http://127.0.0.1:1/v1");
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let id = state.create_session("queued").unwrap().session_id;
+    state.set_prompt_queue_paused("queued", &id, true).unwrap();
+    assert!(
+        state
+            .queue_prompt("queued", &id, "bad/id", "text", None)
+            .is_err()
+    );
+    assert!(
+        state
+            .queue_prompt("queued", &id, "empty", "  ", None)
+            .is_err()
+    );
+    assert!(
+        state
+            .queue_prompt("queued", &id, "large", &"x".repeat(65537), None)
+            .is_err()
+    );
+    assert!(
+        state
+            .queue_prompt("queued", &id, "future", "text", Some(u64::MAX))
+            .is_err()
+    );
+    for index in 0..100 {
+        state
+            .queue_prompt("queued", &id, &format!("q-{index}"), "text", None)
+            .unwrap();
+    }
+    assert!(
+        state
+            .queue_prompt("queued", &id, "overflow", "text", None)
+            .is_err()
+    );
+    assert_eq!(
+        state
+            .open_session("queued", &id)
+            .unwrap()
+            .queue
+            .messages
+            .len(),
+        100
+    );
+    rt.block_on(state.shutdown()).unwrap();
+}

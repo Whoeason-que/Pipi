@@ -3,7 +3,7 @@ import type { NotificationEnvelope } from "./notifications";
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, ApprovalRequestPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
-import type { RemoteAccessConfig, RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
+import type { PromptQueueEnvelope, RemoteAccessConfig, RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
 
 export interface BackgroundTaskSnapshot {
   task: {
@@ -54,6 +54,9 @@ export interface CommandMap {
   send_prompt: { args: { agentName: string; sessionId?: string | null; prompt: string; model?: ModelConfig | null }; result: SessionInfoView };
   compact_now: { args: { agentName: string; sessionId: string }; result: void };
   steer: { args: { agentName: string; sessionId: string; message: string }; result: void };
+  queue_prompt: { args: { agentName: string; sessionId: string; messageId: string; message: string; sendAt?: number | null }; result: PromptQueueEnvelope };
+  cancel_queued_prompt: { args: { agentName: string; sessionId: string; messageId: string }; result: PromptQueueEnvelope };
+  set_prompt_queue_paused: { args: { agentName: string; sessionId: string; paused: boolean }; result: PromptQueueEnvelope };
   resolve_approval: { args: { requestId: string; decision: string }; result: void };
   set_session_model: { args: { agentName: string; sessionId: string; model?: ModelConfig | null }; result: void };
   session_messages: { args: { agentName: string; sessionId: string }; result: MessageView[] };
@@ -88,6 +91,7 @@ export type CommandArgs<K extends CommandName> = {} extends CommandMap[K]["args"
 export type Invoke = <K extends CommandName>(command: K, ...args: CommandArgs<K>) => Promise<CommandResult<K>>;
 
 export interface EventMap {
+  "prompt-queue": PromptQueueEnvelope;
   "notification": NotificationEnvelope;
   "notification-open": NotificationEnvelope;
   "agent-event": AgentEventPayload;

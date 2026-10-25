@@ -14,7 +14,8 @@ import {
 import { submitDraft, type DraftBuffer } from "../drafts";
 import { useI18n } from "../i18n";
 import { IconArrowDown, IconSend, IconStop } from "../icons";
-import type { ModelConfig } from "../types";
+import ComposerQueue from "./ComposerQueue";
+import type { ModelConfig, PromptQueueSnapshot } from "../types";
 
 interface ChatComposerProps {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -30,6 +31,11 @@ interface ChatComposerProps {
   approval: ApprovalRequestPayload | null;
   composingRef: RefObject<boolean>;
   onSend: (text: string) => Promise<boolean>;
+  onSteer: (text: string) => Promise<boolean>;
+  onQueue: (text: string, delayMs: number) => Promise<boolean>;
+  queue: PromptQueueSnapshot;
+  onCancelQueued: (id: string) => Promise<void>;
+  onPauseQueue: (paused: boolean) => Promise<void>;
   onBeforeSend: () => void;
   onStop: () => void;
   onResolveApproval: (decision: ApprovalDecisionValue) => void;
@@ -53,6 +59,11 @@ export default function ChatComposer({
   approval,
   composingRef,
   onSend,
+  onSteer,
+  onQueue,
+  queue,
+  onCancelQueued,
+  onPauseQueue,
   onBeforeSend,
   onStop,
   onResolveApproval,
@@ -62,11 +73,17 @@ export default function ChatComposer({
 }: ChatComposerProps) {
   const { locale, t } = useI18n();
   const { text } = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
+  const [delayOpen, setDelayOpen] = useState(false);
+  const [delayMinutes, setDelayMinutes] = useState("5");
+  const delayMs = delayOpen ? Number(delayMinutes) * 60_000 : 0;
+  const validDelay = !delayOpen || (delayMinutes.trim() !== "" && Number.isInteger(Number(delayMinutes)) && Number.isSafeInteger(delayMs) && delayMs >= 60_000 && delayMs <= 30 * 86400000);
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const mountedRef = useRef(true);
   const compositionEndedAt = useRef(0);
   const input = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { setDelayOpen(false); }, [draft]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -81,13 +98,15 @@ export default function ChatComposer({
     input.current.style.height = `${Math.min(input.current.scrollHeight, 180)}px`;
   }, [text]);
 
-  const send = async () => {
-    if (!ready || uncertain || !text.trim() || sendingRef.current) return;
+  const send = async (steering = false) => {
+    if (!ready || uncertain || stopping || !text.trim() || sendingRef.current || (!steering && !validDelay)) return;
     sendingRef.current = true;
     setSending(true);
     onBeforeSend();
     try {
-      await submitDraft(draft, onSend);
+      const accepted = await submitDraft(draft, steering ? onSteer
+        : delayOpen || running || queue.messages.length ? value => onQueue(value, delayMs) : onSend);
+      if (accepted && !steering && mountedRef.current) setDelayOpen(false);
     } catch (error) {
       if (mountedRef.current) onError(formatRuntimeError(error));
     } finally {
@@ -97,7 +116,8 @@ export default function ChatComposer({
   };
 
   const sendLabel = uncertain ? t("chat.sendPending")
-    : running ? (locale === "en" ? "Send steering" : "插话") : t("chat.send");
+    : delayOpen ? (locale === "en" ? "Send later" : "延迟发送")
+    : running || queue.messages.length ? (locale === "en" ? "Queue" : "排队") : t("chat.send");
   const modelName = model?.id || (locale === "en" ? "No model" : "未配置模型");
   return (
     <div className="composer" ref={containerRef}>
@@ -153,6 +173,7 @@ export default function ChatComposer({
           工具仍按当前权限真实运行，对工作区造成的改动会保留。
         </div>
       )}
+      <ComposerQueue queue={queue} onCancel={onCancelQueued} onPause={onPauseQueue} onError={onError} />
       <div className={`composer-box${running ? " is-running" : ""}`}>
         <textarea
           ref={input}
@@ -164,8 +185,8 @@ export default function ChatComposer({
             ready
               ? running
                 ? locale === "en"
-                  ? "Adjust the direction while your Agent works…"
-                  : "Agent 正在工作，可以在这里插话调整方向…"
+                  ? "Guide the current task, or queue the next message…"
+                  : "引导当前任务，或排队发送下一条消息…"
                 : locale === "en"
                   ? "Describe what you want to get done…"
                   : "描述你想完成的工作…"
@@ -191,9 +212,18 @@ export default function ChatComposer({
             )
               return;
             event.preventDefault();
-            void send();
+            void send(event.altKey && running);
           }}
         />
+        <div className="composer-options">
+          <button type="button" className={`btn composer-delay-toggle${delayOpen ? " active" : ""}`} aria-expanded={delayOpen} onClick={() => setDelayOpen(!delayOpen)}>
+            {locale === "en" ? "Send later" : "延迟发送"}
+          </button>
+          {delayOpen && <label className="composer-delay-input">
+            <input type="number" min="1" max="43200" step="1" value={delayMinutes} aria-invalid={!validDelay} aria-label={locale === "en" ? "Delay in minutes" : "延迟分钟数"} onChange={event => setDelayMinutes(event.target.value)} />
+            <span>{locale === "en" ? "minutes, then wait until idle" : "分钟后，空闲时发送"}</span>
+          </label>}
+        </div>
         <div className="composer-bar">
           {!temporary ? (
             <button
@@ -241,8 +271,8 @@ export default function ChatComposer({
                   ? t("chat.sendPending")
                   : running
                     ? locale === "en"
-                      ? "Running · Steering available"
-                      : "运行中 · 可插话"
+                      ? "Enter to queue · Alt+Enter to guide"
+                      : "Enter 排队 · Alt+Enter 引导"
                     : locale === "en"
                       ? "Enter to send"
                       : "Enter 发送"}
@@ -265,15 +295,22 @@ export default function ChatComposer({
               <IconStop />
             </button>
           )}
+          {running && <button
+            type="button"
+            className="btn composer-steer"
+            disabled={!ready || uncertain || !text.trim() || sending || stopping}
+            onClick={() => void send(true)}
+            title={locale === "en" ? "Guide the current task · Alt+Enter" : "在当前任务中引导方向 · Alt+Enter"}
+          >{locale === "en" ? "Guide" : "引导"}</button>}
           <button
             type="button"
-            className="btn send"
-            disabled={!ready || uncertain || !text.trim() || sending || stopping}
+            className="btn send composer-send"
+            disabled={!ready || uncertain || !text.trim() || sending || stopping || !validDelay}
             onClick={() => void send()}
             title={sendLabel}
             aria-label={sendLabel}
           >
-            <IconSend />
+            <IconSend /><span>{sendLabel}</span>
           </button>
         </div>
       </div>

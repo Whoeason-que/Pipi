@@ -18,6 +18,7 @@ impl RuntimeState {
             let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
             self.shutting_down.store(true, Ordering::Release);
             for session in sessions.values() {
+                session.queue.wake.notify_one();
                 session.engine.stop()?;
             }
         }

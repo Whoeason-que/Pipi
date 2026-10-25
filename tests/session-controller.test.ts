@@ -5,7 +5,7 @@ import type { AgentEvent, MessageView } from "../src/chat-runtime.ts";
 import { SessionRuntime, type RuntimeTransport } from "../src/session-runtime.ts";
 import { CommandTransportError, decodeCommandResponse } from "../src/transport-error.ts";
 import { submitDraft } from "../src/drafts.ts";
-import type { AgentDefinition, SessionInfoView, SessionStatsView } from "../src/types.ts";
+import type { AgentDefinition, SessionInfoView, SessionStatsView, PromptQueueSnapshot } from "../src/types.ts";
 
 const agent: AgentDefinition = {
   name: "fixture", description: "", model: "", provider: null, workspace: null,
@@ -28,6 +28,7 @@ class Host implements RuntimeTransport {
   listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
   infos = new Map<string, SessionInfoView>([["s", info()]]);
   history: MessageView[] = [];
+  queues = new Map<string, PromptQueueSnapshot>();
   held: Promise<MessageView[]> | null = null;
   /** send_prompt 响应附加字段（模型元信息等）；默认不带 model，避免影响其他用例。 */
   sendInfo: Partial<SessionInfoView> = {};
@@ -42,7 +43,20 @@ class Host implements RuntimeTransport {
       case "open_session": {
         const currentInfo = this.infos.get(session) ?? info(session);
         const messages = this.held ? await this.held : [...this.history];
-        value = { info: currentInfo, messages, stats };
+        value = { info: currentInfo, messages, stats, queue: this.queues.get(session) ?? { revision: 0, paused: false, error: null, messages: [] } };
+        break;
+      }
+      case "queue_prompt":
+      case "cancel_queued_prompt":
+      case "set_prompt_queue_paused": {
+        const queue = structuredClone(this.queues.get(session) ?? { revision: 0, paused: false, error: null, messages: [] });
+        if (command === "queue_prompt" && !queue.messages.some(message => message.id === args?.messageId)) {
+          queue.messages.push({ id: String(args?.messageId), text: String(args?.message), sendAt: Number(args?.sendAt ?? Date.now()) });
+        } else if (command === "cancel_queued_prompt") queue.messages = queue.messages.filter(message => message.id !== args?.messageId);
+        else if (command === "set_prompt_queue_paused") queue.paused = Boolean(args?.paused);
+        queue.revision++;
+        this.queues.set(session, queue);
+        value = { agentName: agent.name, sessionId: session, runId: this.infos.get(session)?.runId ?? 0, queue };
         break;
       }
       case "session_messages": value = this.held ? await this.held : [...this.history]; break;
@@ -261,7 +275,7 @@ test("sessions of the same Agent receive isolated events and share one host subs
   host.event({ type: "message_update", message: message("only first") });
   assert.equal(other.getSnapshot().chat.entries.length, 0);
   assert.equal(other.getSnapshot().chat.running, false);
-  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 6);
+  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 7);
   runtime.disconnect();
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
 });
@@ -342,7 +356,7 @@ test("a failed host subscription cleans partial listeners and can reconnect with
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
   fail = false;
   await runtime.start();
-  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 6);
+  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 7);
   runtime.disconnect();
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
 });
@@ -568,4 +582,76 @@ test("stop cannot settle a newer host run that starts during final hydration", a
   assert.equal(controller.getSnapshot().chat.running, true);
   assert.equal(controller.getSnapshot().operation, "idle");
   runtime.disconnect();
+});
+
+test("running sends are queued while guidance uses its own command and neither fakes a delivered user message", async () => {
+  const host = new Host();
+  host.infos.set("s", info("s", 2, true));
+  const runtime = new SessionRuntime(host);
+  const controller = runtime.get(agent, "s");
+  await controller.hydrate();
+  assert.equal(await controller.send("next task"), true);
+  assert.equal(host.calls.at(-1)?.command, "queue_prompt");
+  assert.equal(controller.getSnapshot().queue.messages[0].text, "next task");
+  assert.equal(controller.getSnapshot().chat.entries.length, 0);
+  assert.equal(await controller.steer("change direction"), true);
+  assert.equal(host.calls.at(-1)?.command, "steer");
+  assert.equal(controller.getSnapshot().queue.messages.length, 1);
+});
+
+test("delayed submission reserves a session and retries a lost response with the same message identity and due time", async () => {
+  const host = new Host();
+  const invoke = host.invoke.bind(host);
+  let lose = true;
+  host.invoke = async (command, ...args) => {
+    const result = await invoke(command, ...args);
+    if (command === "queue_prompt" && lose) { lose = false; throw new CommandTransportError("Response lost"); }
+    return result;
+  };
+  const runtime = new SessionRuntime(host);
+  const controller = runtime.get(agent, null);
+  await controller.hydrate();
+  const before = Date.now();
+  await assert.rejects(controller.enqueue("later", 300_000), /Response lost/);
+  assert.equal(controller.getSnapshot().sessionId, "created");
+  assert.equal(await controller.enqueue("later", 300_000), true);
+  const calls = host.calls.filter(call => call.command === "queue_prompt");
+  assert.deepEqual(calls[0].args, calls[1].args);
+  assert.ok(Number(calls[0].args?.sendAt) >= before + 300_000);
+  assert.equal(controller.getSnapshot().queue.messages.length, 1);
+  assert.equal(host.calls.some(call => call.command === "send_prompt"), false);
+  assert.equal(controller.getSnapshot().chat.running, false);
+});
+
+test("queue revisions reject late responses, accept idle changes after agent_end and recover from a host restart", async () => {
+  const host = new Host();
+  const runtime = new SessionRuntime(host);
+  const controller = runtime.get(agent, "s");
+  await controller.hydrate();
+  controller.receive({ type: "agent-event", payload: { ...info(), runId: 1, event: { type: "agent_end", messages: [] } } });
+  const payload = { agentName: agent.name, sessionId: "s", runId: 1,
+    queue: { revision: 2, paused: true, error: null, messages: [{ id: "q", text: "later", sendAt: 123 }] } };
+  controller.receive({ type: "prompt-queue", payload });
+  assert.equal(controller.getSnapshot().queue.messages.length, 1);
+  controller.receive({ type: "prompt-queue", payload: { ...payload, queue: { ...payload.queue, revision: 3, messages: [] } } });
+  controller.receive({ type: "prompt-queue", payload });
+  assert.equal(controller.getSnapshot().queue.messages.length, 0);
+  await controller.reconnect();
+  assert.equal(controller.getSnapshot().queue.revision, 0);
+  assert.equal(controller.getSnapshot().queue.paused, false);
+});
+
+test("a queued draft follows compaction and cancellation targets only its new identity", async () => {
+  const host = new Host();
+  host.infos.set("s", info("s", 2, true));
+  const runtime = new SessionRuntime(host);
+  const controller = runtime.get(agent, "s");
+  await controller.hydrate();
+  await controller.enqueue("next");
+  const queued = controller.getSnapshot().queue.messages[0];
+  host.infos.set("new", info("new", 2, true));
+  controller.receive({ type: "session-switched", payload: { agentName: agent.name, sessionId: "s", runId: 2, toSessionId: "new", archived: true } });
+  await controller.cancelQueued(queued.id);
+  assert.equal(host.calls.at(-1)?.args?.sessionId, "new");
+  assert.equal(controller.getSnapshot().queue.messages.length, 0);
 });

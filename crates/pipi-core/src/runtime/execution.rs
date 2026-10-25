@@ -22,6 +22,27 @@ impl RuntimeState {
         model: Option<Model>,
         event_sink: EventEmitter,
     ) -> Result<SessionInfo, String> {
+        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.send_prompt_locked(
+            &mut sessions,
+            agent_name,
+            session_id,
+            prompt,
+            model,
+            event_sink,
+        )
+    }
+
+    /// 排队取出与运行预约共享 sessions 锁，避免取消/停止与发送之间留下竞态。
+    pub(super) fn send_prompt_locked(
+        &self,
+        sessions: &mut HashMap<SessionKey, HostSession>,
+        agent_name: &str,
+        session_id: Option<&str>,
+        prompt: &str,
+        model: Option<Model>,
+        event_sink: EventEmitter,
+    ) -> Result<SessionInfo, String> {
         if let Some(id) = session_id {
             validate_session_id(id)?;
         }
@@ -30,7 +51,6 @@ impl RuntimeState {
             return Err("Message cannot be empty".into());
         }
 
-        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         self.ensure_not_shutting_down()?;
         let def = agents::load_agent(agent_name)?;
         // 目标会话：显式指定且已打开 → 复用；否则要载入或新建
@@ -69,9 +89,9 @@ impl RuntimeState {
             created = Some((key, session));
         }
         let session = created
-            .as_ref()
+            .as_mut()
             .map(|(_, session)| session)
-            .or_else(|| reuse_key.as_ref().map(|key| &sessions[key]))
+            .or_else(|| reuse_key.as_ref().and_then(|key| sessions.get_mut(key)))
             .ok_or("Failed to create session")?;
         // 若复用已有会话且传入了明确的模型变更请求
         if reuse_key.is_some()
@@ -271,10 +291,15 @@ impl RuntimeState {
             },
             hooks,
         )?;
+        let wake = session.queue.wake.clone();
+        session.queue.active_run = Some(run_id);
+        let runtime = self.clone();
         self.spawn_run(async move {
-            if let Err(error) = prepared.run().await {
+            let result = prepared.run().await;
+            if let Err(error) = &result {
                 eprintln!("pipi: session run failed: {error}");
             }
+            runtime.finish_queued_run(&wake, run_id, result);
         });
 
         if let Some((key, session)) = created {

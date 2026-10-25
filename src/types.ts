@@ -212,7 +212,26 @@ export interface SessionInfoView {
   isCustomModel?: boolean;
 }
 
+export interface QueuedPrompt {
+  id: string;
+  text: string;
+  sendAt: number;
+}
+export interface PromptQueueSnapshot {
+  revision: number;
+  paused: boolean;
+  error: string | null;
+  messages: QueuedPrompt[];
+}
+export interface PromptQueueEnvelope {
+  agentName: string;
+  sessionId: string;
+  runId: number;
+  queue: PromptQueueSnapshot;
+}
+
 export interface SessionSnapshotView {
+  queue: PromptQueueSnapshot;
   info: SessionInfoView;
   messages: MessageView[];
   stats: SessionStatsView;

@@ -8,6 +8,7 @@ pub struct SessionSnapshot {
     pub info: SessionInfo,
     pub messages: Vec<Message>,
     pub stats: pipi_agent::stats::SessionStats,
+    pub queue: crate::events::PromptQueueSnapshot,
 }
 
 /// 列出指定 Agent 的会话摘要。
@@ -38,6 +39,7 @@ impl RuntimeState {
             agent: def.clone(),
             engine,
             temporary: false,
+            queue: Default::default(),
         })
     }
     pub(super) fn create_session_object(
@@ -61,6 +63,7 @@ impl RuntimeState {
                 agent: def.clone(),
                 engine,
                 temporary: false,
+                queue: Default::default(),
             },
             id,
         ))
@@ -80,6 +83,7 @@ impl RuntimeState {
                 agent: def.clone(),
                 engine,
                 temporary: true,
+                queue: Default::default(),
             },
             id,
         )
@@ -154,6 +158,7 @@ impl RuntimeState {
             info,
             messages,
             stats,
+            queue: session.queue.snapshot.clone(),
         })
     }
 
@@ -217,6 +222,7 @@ impl RuntimeState {
             agent: def,
             engine,
             temporary: false,
+            queue: Default::default(),
         };
         let info = self.session_info_of(&session)?;
         sessions.insert(SessionKey::new(agent_name, &new_session_id), session);
@@ -287,6 +293,7 @@ impl RuntimeState {
 
     pub(super) fn session_occupied(&self, session: &HostSession) -> bool {
         session.engine.snapshot().map(|s| s.running).unwrap_or(true)
+            || !session.queue.snapshot.messages.is_empty()
             || self.session_has_active_background_tasks(session)
     }
 
@@ -308,7 +315,7 @@ impl RuntimeState {
             .is_some_and(|session| self.session_occupied(session))
         {
             return Err(format!(
-                "Session \"{session_id}\" is running or has managed background tasks; please stop or terminate them before {operation}"
+                "Session \"{session_id}\" is running, has queued messages or managed background tasks; please cancel queued messages and stop or terminate tasks before {operation}"
             ));
         }
         sessions.remove(&key);
@@ -358,8 +365,13 @@ impl RuntimeState {
     /// 停止某条会话的当前一轮；这条会话没有打开时是空操作。只停这一条 ——
     /// 同一个 Agent 的其他会话照跑。
     pub fn stop_run(&self, agent_name: &str, session_id: &str) -> Result<(), String> {
-        let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        if let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) {
+        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        if let Some(session) = sessions.get_mut(&SessionKey::new(agent_name, session_id)) {
+            if !session.queue.snapshot.messages.is_empty() {
+                session.queue.snapshot.paused = true;
+                self.publish_queue(session)?;
+            }
+            session.queue.wake.notify_one();
             session.engine.stop()?;
         }
         Ok(())

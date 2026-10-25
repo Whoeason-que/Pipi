@@ -17,13 +17,13 @@ impl RuntimeState {
         Self {
             runtime,
             sessions: Arc::new(Mutex::new(HashMap::new())),
-            shutting_down: AtomicBool::new(false),
+            shutting_down: Arc::new(AtomicBool::new(false)),
             approval: Arc::new(ApprovalGate::default()),
             background,
             events,
             #[cfg(feature = "server")]
             push,
-            remote: std::sync::OnceLock::new(),
+            remote: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
@@ -143,7 +143,7 @@ impl RuntimeState {
             .any(|(key, session)| key.agent_name == agent_name && self.session_occupied(session))
         {
             return Err(format!(
-                "Agent \"{agent_name}\" still has sessions running or uncompleted managed background tasks; please stop or terminate them before importing"
+                "Agent \"{agent_name}\" still has running sessions, queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before importing"
             ));
         }
         sessions.retain(|key, _session| key.agent_name != agent_name);
@@ -163,7 +163,7 @@ impl RuntimeState {
             .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
         {
             return Err(format!(
-                "Agent \"{name}\" still has sessions running or uncompleted managed background tasks; please stop or terminate them before archiving"
+                "Agent \"{name}\" still has running sessions, queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before archiving"
             ));
         }
         // 空闲正式会话的 writer 也在这里释放，避免归档后仍有打开的文件句柄；
@@ -185,7 +185,7 @@ impl RuntimeState {
             .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
         {
             return Err(format!(
-                "Agent \"{name}\" still has sessions running or uncompleted managed background tasks; please stop or terminate them before deleting"
+                "Agent \"{name}\" still has running sessions, queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before deleting"
             ));
         }
         // 与归档相同：先释放所有空闲会话槽，再做不可逆删除。
@@ -203,7 +203,7 @@ impl RuntimeState {
         if sessions.iter().any(|(key, session)| {
             key.agent_name == def.name && session.temporary && self.session_occupied(session)
         }) {
-            return Err("Temporary test is still running or has uncompleted managed background tasks; please stop or terminate them before saving settings".into());
+            return Err("Temporary test is still running, has queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before saving settings".into());
         }
         agents::save_agent(def)?;
         // 已打开的正式会话持有 Agent 快照；只刷新压缩控制项，让用户保存后
@@ -231,7 +231,7 @@ impl RuntimeState {
         if sessions.iter().any(|(key, session)| {
             key.agent_name == agent_name && session.temporary && self.session_occupied(session)
         }) {
-            return Err("Temporary test is still running or has uncompleted managed background tasks; please stop or terminate them before saving files".into());
+            return Err("Temporary test is still running, has queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before saving files".into());
         }
         agents::write_agent_file(agent_name, rel_path, content)?;
         sessions.retain(|key, session| !(key.agent_name == agent_name && session.temporary));

@@ -8,11 +8,11 @@ impl RuntimeState {
         session_id: &str,
         event_sink: EventEmitter,
     ) -> Result<(), String> {
-        let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         self.ensure_not_shutting_down()?;
         let key = SessionKey::new(agent_name, session_id);
         let session = sessions
-            .get(&key)
+            .get_mut(&key)
             .ok_or_else(|| format!("Session \"{session_id}\" is not open"))?;
         let snapshot = session.engine.snapshot()?;
         if snapshot.running {
@@ -46,14 +46,18 @@ impl RuntimeState {
             def.name.clone(),
             Some(make_rekey(self.sessions.clone(), self.background.clone())),
         );
-        let prepared = session
-            .engine
-            .reserve_run(AbortPolicy::Reset)?
-            .prepare_compaction(request, hooks);
+        let reservation = session.engine.reserve_run(AbortPolicy::Reset)?;
+        let run_id = reservation.run_id();
+        let prepared = reservation.prepare_compaction(request, hooks);
+        let wake = session.queue.wake.clone();
+        session.queue.active_run = Some(run_id);
+        let runtime = self.clone();
         self.spawn_run(async move {
-            if let Err(error) = prepared.run().await {
+            let result = prepared.run().await;
+            if let Err(error) = &result {
                 eprintln!("pipi: manual compaction failed: {error}");
             }
+            runtime.finish_queued_run(&wake, run_id, result);
         });
         Ok(())
     }

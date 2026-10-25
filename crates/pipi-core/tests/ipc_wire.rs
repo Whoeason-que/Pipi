@@ -29,6 +29,7 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
     roundtrip::<AgentDefinition>(&wire["agent"]);
     roundtrip::<pipi_venv::agents::AgentEditableFiles>(&wire["agentFiles"]);
     roundtrip::<Model>(&wire["model"]);
+    roundtrip::<pipi_core::runtime::SessionSnapshot>(&wire["snapshot"]);
     roundtrip::<Settings>(&wire["settings"]);
     roundtrip::<pipi_core::remote::RemoteAccessStatus>(&wire["remoteAccess"]);
     roundtrip::<Vec<Message>>(&wire["messages"]);
@@ -92,6 +93,21 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
             agent_name: "fixture".into(),
             session_id: "child-1".into(),
             run_id: 8,
+        }),
+        RuntimeEvent::PromptQueue(pipi_core::events::PromptQueueEnvelope {
+            agent_name: "fixture".into(),
+            session_id: "session-1".into(),
+            run_id: 7,
+            queue: pipi_core::events::PromptQueueSnapshot {
+                revision: 1,
+                paused: false,
+                error: None,
+                messages: vec![pipi_core::events::QueuedPrompt {
+                    id: "queued-1".into(),
+                    text: "next task".into(),
+                    send_at: 12345,
+                }],
+            },
         }),
         RuntimeEvent::Notification(pipi_core::notifications::NotificationEnvelope {
             agent_name: "fixture".into(),

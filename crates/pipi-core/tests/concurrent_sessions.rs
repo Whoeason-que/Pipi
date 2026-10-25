@@ -239,6 +239,10 @@ fn recording_sink() -> (EventEmitter, EventLog) {
     let sink_log = log.clone();
     let sink: EventEmitter = Arc::new(move |event: RuntimeEvent| {
         let label = match &event {
+            RuntimeEvent::PromptQueue(envelope) => format!(
+                "{}:{}:prompt-queue",
+                envelope.agent_name, envelope.session_id
+            ),
             RuntimeEvent::Notification(envelope) => format!(
                 "{}:{}:notification",
                 envelope.agent_name, envelope.session_id

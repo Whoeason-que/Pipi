@@ -521,6 +521,11 @@ export default function ChatView({
             approval={pendingApproval}
             composingRef={composingRef}
             onSend={(text) => controller.send(text)}
+            onSteer={(text) => controller.steer(text)}
+            onQueue={(text, delayMs) => controller.enqueue(text, delayMs)}
+            queue={snapshot.queue}
+            onCancelQueued={(id) => controller.cancelQueued(id)}
+            onPauseQueue={(paused) => controller.pauseQueue(paused)}
             onBeforeSend={() => {
               followTailRef.current = true;
               setAtTail(true);

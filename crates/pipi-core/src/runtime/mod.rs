@@ -34,6 +34,7 @@ struct HostSession {
     agent: AgentDefinition,
     engine: AgentSession,
     temporary: bool,
+    queue: queue::PromptQueue,
 }
 
 /// 打开中的会话的键：**Agent 名 + 会话 id**。
@@ -60,6 +61,8 @@ impl SessionKey {
 pub type SessionRekey = Arc<dyn Fn(&SessionKey, &str) + Send + Sync>;
 
 /// 共享会话状态。同一个宿主中的 Tauri 与 Web transport 持有同一个实例。
+/// Clone 只复制共享句柄，供宿主自身的异步调度使用，不创建第二套会话或服务。
+#[derive(Clone)]
 pub struct RuntimeState {
     /// 跑 Agent 循环用的 Tokio 运行时句柄，由宿主注入（桌面壳用 Tauri 的运行时，
     /// Web 服务用自己的运行时）。核心不依赖宿主框架，也不能假设「调用线程已在
@@ -72,13 +75,13 @@ pub struct RuntimeState {
     /// `Arc` 是为了让压缩分叉换会话 id 时能在运行任务里把条目搬到新键（见
     /// `SessionRekey`）。
     sessions: Arc<Mutex<HashMap<SessionKey, HostSession>>>,
-    shutting_down: AtomicBool,
+    shutting_down: Arc<AtomicBool>,
     approval: Arc<ApprovalGate>,
     background: BackgroundTaskManager,
     events: crate::events::EventHub,
     #[cfg(feature = "server")]
     push: Arc<crate::notifications::push::PushService>,
-    remote: std::sync::OnceLock<Arc<dyn crate::remote::RemoteAccessControl>>,
+    remote: Arc<std::sync::OnceLock<Arc<dyn crate::remote::RemoteAccessControl>>>,
 }
 
 mod child;
@@ -87,6 +90,7 @@ mod events;
 mod execution;
 mod lifecycle;
 mod model;
+mod queue;
 mod shutdown;
 mod slots;
 mod store;
