@@ -159,6 +159,7 @@ async fn ready(addr: SocketAddr) -> bool {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #![allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个异步测试
     use super::*;
     use crate::remote::test_support::tunnel_fixture as fixture;
     use std::{fs, os::unix::fs::PermissionsExt};

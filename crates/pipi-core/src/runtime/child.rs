@@ -472,6 +472,7 @@ pub(crate) async fn run_agent_once_with_sink(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个异步测试
     use super::*;
     use crate::tools::agent::AgentRunStatus;
     /// 子 Agent 挂死（端点接受连接但不回包）时，运行时限必须终止本轮并把

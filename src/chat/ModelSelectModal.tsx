@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errorMessage } from "../errors.ts";
 import {
   catalogSourceLabel,
   findCatalogModel,
@@ -122,7 +123,7 @@ export default function ModelSelectModal({
         await onConfirm({ isCustom: true, model: targetModel });
       }
     } catch (err: unknown) {
-      setModalError(err instanceof Error ? err.message : String(err));
+      setModalError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -183,7 +184,7 @@ export default function ModelSelectModal({
                   value={selectedProviderId}
                   choices={providers.map((p) => ({
                     value: p.id,
-                    label: `${p.name || p.id}（${p.api === "anthropic-messages" ? "Anthropic" : "OpenAI"} 协议）`,
+                    label: `${p.name || p.id}（${API_LABELS[p.api]} 协议）`,
                   }))}
                   onChange={handleProviderChange}
                   menuInPortal

@@ -1,4 +1,5 @@
 //! 走公开命令入口验证路径边界、普通/未出生仓库、删除/特殊文件名与子工作区。
+#![allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个异步测试
 use std::{ffi::OsString, path::Path};
 
 use pipi_core::commands::{

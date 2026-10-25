@@ -587,11 +587,13 @@ pub async fn query_background_tasks(
         .query_background_tasks(
             &agent_name,
             &session_id,
-            job_id,
-            after_seq.unwrap_or(0),
-            wait_ms.unwrap_or(0),
-            include_completed.unwrap_or(true),
-            limit.unwrap_or(20),
+            crate::tools::background::BackgroundTaskQuery {
+                job_id,
+                after_seq: after_seq.unwrap_or(0),
+                wait_ms: wait_ms.unwrap_or(0),
+                include_completed: include_completed.unwrap_or(true),
+                limit: limit.unwrap_or(20),
+            },
         )
         .await
 }
@@ -1270,6 +1272,7 @@ fn to_value<T: Serialize>(value: T) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个异步测试
     use std::collections::HashSet;
     use std::sync::Arc;
 

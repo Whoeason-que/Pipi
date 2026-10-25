@@ -337,7 +337,9 @@ pub fn run() -> ExitCode {
 mod tests {
     use super::*;
 
-    fn rules(entries: &[(&str, &[&str], &[&str], &[&str])]) -> BTreeMap<String, CrateRule> {
+    type RuleSpec<'a> = (&'a str, &'a [&'a str], &'a [&'a str], &'a [&'a str]);
+
+    fn rules(entries: &[RuleSpec<'_>]) -> BTreeMap<String, CrateRule> {
         entries
             .iter()
             .map(|(name, may, dev, forbid)| {

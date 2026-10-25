@@ -11,6 +11,24 @@ use pipi_protocol::{
 };
 
 use super::MAX_OUTPUT_BYTES;
+use super::state::JobCore;
+
+/// 把一条任务输出追加到内存快照并落盘元数据；空输出由 `append_output` 忽略。
+/// 写盘失败保持现有「只忽略、不影响任务」语义。
+pub(super) async fn record_output(core: &JobCore, stream: &'static str, text: String) {
+    let Ok(Some(output)) = core.append_output(stream, text) else {
+        return;
+    };
+    let _ = append_record(
+        &core.metadata_path,
+        &PersistedRecord {
+            kind: "output".into(),
+            task: None,
+            output: Some(output),
+        },
+    )
+    .await;
+}
 
 /// 状态 JSONL 的进程内单写者：rekey、output、finished 可能来自不同任务，
 /// 不能让它们的 `write_all` 交错成半行。

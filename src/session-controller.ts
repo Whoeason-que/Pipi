@@ -279,7 +279,7 @@ export class SessionController {
         if (epoch !== this.loadEpoch) return;
         this.pending = [];
         this.patch({ load: "failed" });
-        this.fail(error instanceof Error ? error.message : String(error));
+        this.fail(error);
         return;
       }
     }

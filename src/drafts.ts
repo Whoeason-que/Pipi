@@ -1,12 +1,9 @@
+import { safeSessionStorage } from "./storage.ts";
+
 /** 窗口级输入缓存。Buffer 在会话换 id 时保持身份，迟到的发送确认只清理提交版本。 */
 export interface DraftSnapshot { text: string; revision: number }
 export interface DraftStorage { getItem(key: string): string | null; setItem(key: string, value: string): void }
 const STORAGE_KEY = "pipi-composer-drafts-v1";
-
-function windowStorage(): DraftStorage | undefined {
-  try { return typeof window === "undefined" ? undefined : window.sessionStorage; }
-  catch { return undefined; }
-}
 
 export class DraftBuffer {
   private snapshot: DraftSnapshot;
@@ -35,7 +32,7 @@ const keyOf = (agent: string, session: string | null, temporary: boolean) => JSO
 export class DraftStore {
   private records = new Map<string, RecordValue>();
   private storage: DraftStorage | undefined;
-  constructor(storage: DraftStorage | undefined = windowStorage()) {
+  constructor(storage: DraftStorage | undefined = safeSessionStorage()) {
     this.storage = storage;
     try {
       const saved: unknown = JSON.parse(storage?.getItem(STORAGE_KEY) ?? "[]");

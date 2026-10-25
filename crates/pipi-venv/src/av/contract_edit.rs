@@ -207,7 +207,7 @@ mod tests {
         // 非法技能名（大写）在落盘前被 schema 拦下
         let text = "schema = 1\n";
         let error = edit_use_names(text, &["PDF".into()], &[]).unwrap_err();
-        assert!(error.contains("形状非法"), "{error}");
+        assert!(error.contains("Invalid skill name"), "{error}");
 
         // 缺 schema 的文本无法通过校验（调用方负责先补齐 schema = 1）
         let error = edit_use_names("", &["pdf".into()], &[]).unwrap_err();

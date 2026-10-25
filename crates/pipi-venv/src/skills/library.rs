@@ -105,9 +105,7 @@ pub fn verify_store_skills(names: Option<&[String]>) -> Result<Vec<SkillVerify>,
 
 /// 某技能在各个 Agent 上的启用情况（含未启用的 Agent）。
 pub fn skill_usage(name: &str) -> Result<Vec<SkillUsage>, String> {
-    if !crate::av::skills::valid_skill_name(name) {
-        return Err(format!("技能名 {name:?} 形状非法"));
-    }
+    crate::av::skills::validate_skill_name(name)?;
     let mut usage = Vec::new();
     for def in agents::list_agents()? {
         let context = declared_context(&def)?;

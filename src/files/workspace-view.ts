@@ -1,4 +1,5 @@
 import type { AgentDefinition } from "../types";
+import { safeSessionStorage } from "../storage.ts";
 
 export type WorkspaceMode = "files" | "git";
 export interface WorkspaceView {
@@ -9,9 +10,6 @@ export interface WorkspaceView {
   showHidden: boolean;
 }
 interface Storage { getItem(key: string): string | null; setItem(key: string, value: string): void }
-function windowStorage(): Storage | undefined {
-  try { return typeof window === "undefined" ? undefined : window.sessionStorage; } catch { return undefined; }
-}
 const empty = (): WorkspaceView => ({ tabs: [], selected: null, expanded: [], query: "", showHidden: false });
 const paths = (value: unknown): string[] => Array.isArray(value)
   ? [...new Set(value.filter((path): path is string => typeof path === "string" && path.length > 0 && path.length <= 4096))] : [];
@@ -23,7 +21,7 @@ export class WorkspaceViewStore {
   private listeners = new Set<() => void>();
   private scrolls: Record<string, number> = {};
   private storage: Storage | undefined;
-  constructor(agent: Pick<AgentDefinition, "name" | "workspace">, mode: WorkspaceMode, storage: Storage | undefined = windowStorage()) {
+  constructor(agent: Pick<AgentDefinition, "name" | "workspace">, mode: WorkspaceMode, storage: Storage | undefined = safeSessionStorage()) {
     this.storage = storage;
     this.key = `pipi-workspace-view-v2:${JSON.stringify([agent.name, agent.workspace, mode])}`;
     try {

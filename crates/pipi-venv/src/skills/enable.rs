@@ -23,9 +23,7 @@ pub fn set_skill_enabled(
     name: &str,
     enabled: bool,
 ) -> Result<AgentSkills, String> {
-    if !crate::av::skills::valid_skill_name(name) {
-        return Err(format!("Invalid skill name {name:?}"));
-    }
+    crate::av::skills::validate_skill_name(name)?;
     let def = agents::load_agent(agent_name)?;
     let context = declared_context(&def)?;
 

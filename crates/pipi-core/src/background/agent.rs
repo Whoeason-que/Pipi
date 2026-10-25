@@ -6,7 +6,7 @@ use pipi_protocol::tools::ToolOutput;
 use pipi_protocol::{AbortSignal, BackgroundTaskStatus, ToolResultContent};
 
 use super::ChildAgentRunner;
-use super::persist::{PersistedRecord, append_record};
+use super::persist::{PersistedRecord, append_record, record_output};
 use super::state::JobCore;
 
 pub(super) struct AgentJobEntry {
@@ -73,36 +73,14 @@ pub(super) async fn run_agent_job(
             result = &mut child => break result,
             update = progress_rx.recv() => match update {
                 Some(update) => {
-                    let text = tool_output_text(&update);
-                    if let Ok(Some(output)) = entry.core.append_output("agent", text) {
-                        let _ = append_record(
-                            &entry.core.metadata_path,
-                            &PersistedRecord {
-                                kind: "output".into(),
-                                task: None,
-                                output: Some(output),
-                            },
-                        )
-                        .await;
-                    }
+                    record_output(&entry.core, "agent", tool_output_text(&update)).await;
                 }
                 None => break child.await,
             },
         }
     };
     while let Ok(update) = progress_rx.try_recv() {
-        let text = tool_output_text(&update);
-        if let Ok(Some(output)) = entry.core.append_output("agent", text) {
-            let _ = append_record(
-                &entry.core.metadata_path,
-                &PersistedRecord {
-                    kind: "output".into(),
-                    task: None,
-                    output: Some(output),
-                },
-            )
-            .await;
-        }
+        record_output(&entry.core, "agent", tool_output_text(&update)).await;
     }
 
     let (status, result, error) = match outcome {

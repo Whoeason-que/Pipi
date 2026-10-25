@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../errors.ts";
 import { useI18n } from "../i18n";
 import { invoke, isTauriRuntime } from "../platform";
 import { currentPushSubscription, disableWebPush, enableWebPush, supportsWebPush } from "../notifications-client";
@@ -17,12 +18,12 @@ export default function NotificationsPanel({ settings, onChange }: { settings: N
     setSubscribed(Boolean(subscription && await invoke("push_subscription_status", { endpoint: subscription.endpoint })));
   };
   useEffect(() => {
-    if (!desktop && supported) void refresh().catch(reason => setError(String(reason)));
+    if (!desktop && supported) void refresh().catch(reason => setError(errorMessage(reason)));
   }, [desktop, supported]);
   const perform = async (operation: () => Promise<void>) => {
     setBusy(true); setError(null); setNote(null);
     try { await operation(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   };
   return <section className="settings-block">

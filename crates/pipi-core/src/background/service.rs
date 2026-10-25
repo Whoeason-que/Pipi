@@ -390,6 +390,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个异步测试
     use super::*;
     use crate::tools::background::BackgroundAgentSessionSink;
     use std::sync::Mutex;

@@ -2,6 +2,7 @@
 //! 取数语义在 catalog-client.ts（IO 层），本模块只管加载状态与重试出口；
 //! 错误怎么展示由调用方决定（ModelPicker 写进提示行，其余静默退化为手填）。
 import { useCallback, useEffect, useState } from "react";
+import { errorMessage } from "./errors.ts";
 import type { ModelCatalog } from "./catalog";
 import { loadCatalog, peekCatalog } from "./catalog-client";
 
@@ -32,7 +33,7 @@ export function useCatalog(): CatalogState {
         setError(null);
       })
       .catch((reason: unknown) => {
-        if (alive) setError(reason instanceof Error ? reason.message : String(reason));
+        if (alive) setError(errorMessage(reason));
       })
       .finally(() => {
         if (alive) setLoading(false);

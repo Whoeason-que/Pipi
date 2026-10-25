@@ -3,6 +3,7 @@
 
 import { useMemo } from "react";
 import { useRightRail, RightRail } from "../app/right-rail";
+import { RightRailEmpty } from "../components/RightRailEmpty";
 import { useCopyFeedback } from "../components/use-copy";
 import { IconCopy, IconFile, IconGit, IconFolder } from "../icons";
 import type { WorkspaceChanges, WorkspaceDiff, WorkspaceFile } from "./types";
@@ -78,11 +79,11 @@ function CurrentInfo({ label, selectedPath, source, status, loading, error, pars
 }) {
   if (loading) return <p className="right-rail-note" role="status">正在读取…</p>;
   if (error && !source) return <p className="field-error" role="alert">{error}</p>;
-  if (!selectedPath || !source) return <div className="right-rail-empty">
-    {mode === "files" ? <IconFile /> : <IconGit />}
-    <strong>还没有打开文件</strong>
-    <p>{mode === "files" ? "在左侧文件树中选择文件，这里会显示类型、大小和版本。" : "在左侧改动列表中选择文件，这里会显示状态、比较基准和增删行数。"}</p>
-  </div>;
+  if (!selectedPath || !source) return <RightRailEmpty
+    icon={mode === "files" ? <IconFile /> : <IconGit />}
+    title="还没有打开文件"
+    description={mode === "files" ? "在左侧文件树中选择文件，这里会显示类型、大小和版本。" : "在左侧改动列表中选择文件，这里会显示状态、比较基准和增删行数。"}
+  />;
   return <>
     {error && <p className="right-rail-note" role="status">刷新失败，显示上次信息：{error}</p>}
     <section className="right-rail-section">

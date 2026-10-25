@@ -1,4 +1,5 @@
 #![cfg(feature = "server")]
+#![allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个异步测试
 //! 真实回环 HTTP/WS 与单个运行时的黑盒回归，不调用外部模型。
 use pipi_core::{
     commands,

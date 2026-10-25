@@ -135,7 +135,7 @@ impl SessionSearchTool {
             );
         }
         out.retain(|c| self.current_session_id.as_deref() != Some(c.summary.id.as_str()));
-        out.sort_by(|a, b| b.summary.last_active.cmp(&a.summary.last_active));
+        out.sort_by_key(|candidate| std::cmp::Reverse(candidate.summary.last_active));
         out
     }
 }

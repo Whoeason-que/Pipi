@@ -1,4 +1,5 @@
 import type { SessionStatsView } from "./types";
+import { errorMessage } from "./errors.ts";
 
 export interface UsageView {
   input: number;
@@ -380,13 +381,7 @@ export function assistantFooter(message: MessageView): string | null {
 }
 
 export function formatRuntimeError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim()) return message;
-  }
-  return "未知错误";
+  return errorMessage(error);
 }
 
 /**

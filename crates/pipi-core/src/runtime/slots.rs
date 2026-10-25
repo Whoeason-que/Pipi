@@ -399,11 +399,7 @@ impl RuntimeState {
         &self,
         agent_name: &str,
         session_id: &str,
-        job_id: Option<String>,
-        after_seq: u64,
-        wait_ms: u64,
-        include_completed: bool,
-        limit: usize,
+        query: crate::tools::background::BackgroundTaskQuery,
     ) -> Result<Vec<pipi_protocol::BackgroundTaskSnapshot>, String> {
         let run_id = {
             let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
@@ -413,18 +409,7 @@ impl RuntimeState {
             session.engine.snapshot()?.run_id
         };
         let owner = BackgroundTaskOwner::new(agent_name, session_id, run_id);
-        self.background
-            .query(
-                &owner,
-                crate::tools::background::BackgroundTaskQuery {
-                    job_id,
-                    after_seq,
-                    wait_ms,
-                    include_completed,
-                    limit,
-                },
-            )
-            .await
+        self.background.query(&owner, query).await
     }
 
     /// 由宿主终止或向指定后台任务写入 stdin；实际控制仍由 app manager 执行。

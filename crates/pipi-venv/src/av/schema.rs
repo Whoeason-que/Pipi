@@ -171,11 +171,8 @@ impl SkillsFilter {
         };
         let mut seen = std::collections::HashSet::new();
         for name in names {
-            if !crate::av::skills::valid_skill_name(name) {
-                return Err(format!(
-                    "use 中的技能名 {name:?} 形状非法（小写字母/数字/-，不以 - 开头结尾、无连续 --，≤64 字符）"
-                ));
-            }
+            crate::av::skills::validate_skill_name(name)
+                .map_err(|error| format!("{error} (in [resources.skills].use)"))?;
             if !seen.insert(name.as_str()) {
                 return Err(format!("use 中出现重复技能名：{name:?}"));
             }

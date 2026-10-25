@@ -3,6 +3,7 @@
 //! 本集成测试在自己的进程中改写 HOME（写前持 `pipi_test_support::HOME_LOCK`），
 //! 不接触用户真实的 ~/.pipi。模型端点指向本地 mock（必然拒绝连接或按剧本回放），
 //! 不依赖外网。
+#![allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个异步测试
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -571,7 +572,6 @@ async fn parent_runs_child_agent_through_real_provider_stack() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个测试；这是进程级测试隔离锁
 async fn resume_agent_in_existing_session_preserves_history() {
     let _home_guard = pipi_test_support::HOME_LOCK
         .lock()
@@ -673,7 +673,6 @@ async fn resume_agent_in_existing_session_preserves_history() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个测试；这是进程级测试隔离锁
 async fn parent_run_agent_resumes_a_known_session_through_the_tool() {
     let _home_guard = pipi_test_support::HOME_LOCK
         .lock()

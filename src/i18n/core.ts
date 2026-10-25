@@ -3,11 +3,6 @@ import { en } from "./en.ts";
 
 export type Locale = "zh" | "en";
 
-export const LOCALES: { id: Locale; label: string }[] = [
-  { id: "zh", label: "简体中文" },
-  { id: "en", label: "English" },
-];
-
 export const dictionaries: Record<Locale, I18nSchema> = { zh, en };
 
 export const STORAGE_LOCALE_KEY = "pipi-locale";

@@ -1,4 +1,5 @@
 import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
+import { errorMessage } from "../errors.ts";
 import { LayoutContext } from "../app/layout-context";
 import { NavigationToggle } from "../app/AppNavigation";
 import { useRightRail } from "../app/right-rail";
@@ -65,7 +66,7 @@ export default function SettingsView({
       );
     } catch (reason) {
       setCatalogNote(
-        `刷新失败：${reason instanceof Error ? reason.message : String(reason)}`,
+        `刷新失败：${errorMessage(reason)}`,
       );
     } finally {
       setRefreshingCatalog(false);

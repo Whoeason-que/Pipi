@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 
 use pipi_protocol::BackgroundTaskStatus;
 
-use super::persist::{PersistedRecord, append_log, append_record};
+use super::persist::{PersistedRecord, append_log, append_record, record_output};
 use super::state::{JobCommand, JobCore};
 use super::{READER_DRAIN_TIMEOUT, TERMINATE_GRACE};
 
@@ -92,17 +92,7 @@ pub(super) async fn run_job(
             chunk = output_rx.recv() => match chunk {
                 Some((stream, text)) => {
                     let _ = append_log(&entry.log_path, &text).await;
-                    if let Ok(Some(output)) = entry.core.append_output(stream, text) {
-                        let _ = append_record(
-                            &entry.core.metadata_path,
-                            &PersistedRecord {
-                                kind: "output".into(),
-                                task: None,
-                                output: Some(output),
-                            },
-                        )
-                        .await;
-                    }
+                    record_output(&entry.core, stream, text).await;
                 }
                 None => break child.wait().await,
             },
@@ -115,17 +105,7 @@ pub(super) async fn run_job(
     .await;
     while let Ok((stream, text)) = output_rx.try_recv() {
         let _ = append_log(&entry.log_path, &text).await;
-        if let Ok(Some(output)) = entry.core.append_output(stream, text) {
-            let _ = append_record(
-                &entry.core.metadata_path,
-                &PersistedRecord {
-                    kind: "output".into(),
-                    task: None,
-                    output: Some(output),
-                },
-            )
-            .await;
-        }
+        record_output(&entry.core, stream, text).await;
     }
 
     let (status, exit_code, error) = match status {

@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatRuntimeError } from "../chat-runtime";
+import { RightRailEmpty } from "../components/RightRailEmpty";
 import { IconRefresh, IconSkill } from "../icons";
 import { invoke } from "../platform";
 import type { SkillUsage, SkillVerify, StoreSkill } from "../types";
@@ -110,11 +111,11 @@ export function SkillRail({
     activeTab={tab}
     onTabChange={setTab}
   >
-    {!skill && <div className="right-rail-empty">
-      <IconSkill />
-      <strong>还没有选中技能</strong>
-      <p>在主区选择一张技能卡片，这里会显示版本、来源、校验结果和启用它的 Agent。</p>
-    </div>}
+    {!skill && <RightRailEmpty
+      icon={<IconSkill />}
+      title="还没有选中技能"
+      description="在主区选择一张技能卡片，这里会显示版本、来源、校验结果和启用它的 Agent。"
+    />}
   </RightRail>;
 }
 
@@ -161,7 +162,7 @@ function Usage({ usage, usageError, busy, working, onToggle }: {
 }) {
   if (usageError) return <p className="field-error">{usageError}</p>;
   if (!usage) return <p className="right-rail-note">读取启用情况…</p>;
-  if (usage.length === 0) return <div className="right-rail-empty"><strong>还没有 Agent</strong><p>创建 Agent 后可以在这里启用技能。</p></div>;
+  if (usage.length === 0) return <RightRailEmpty title="还没有 Agent" description="创建 Agent 后可以在这里启用技能。" />;
   return <>
     <section className="right-rail-section">
       <h3>Agent · {usage.filter((row) => row.enabled).length} 个已启用</h3>

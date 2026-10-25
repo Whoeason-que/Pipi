@@ -1063,10 +1063,12 @@ mod tests {
 
     // ----- 发送前配对修复：provider 实际收到的历史必须合法 -----
 
+    type SeenHistory = Arc<Mutex<Vec<Vec<(String, String)>>>>;
+
     /// 记录 provider 每次请求看到的消息角色/toolCallId 的 provider。
     struct CaptureProvider {
         inner: ScriptedProvider,
-        seen: Arc<Mutex<Vec<Vec<(String, String)>>>>,
+        seen: SeenHistory,
     }
 
     #[async_trait::async_trait]

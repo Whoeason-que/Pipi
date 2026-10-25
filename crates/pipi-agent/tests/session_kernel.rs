@@ -1190,30 +1190,31 @@ async fn commit_failure_skips_automatic_compaction() {
         .unwrap();
     prepared.run().await.unwrap();
 
-    let events = events.lock().unwrap();
-    assert!(
-        !events.iter().any(|event| matches!(
-            event.kind,
-            SessionEventKind::Agent(
-                pipi_agent::agent_loop::AgentEvent::CompactionStart
-                    | pipi_agent::agent_loop::AgentEvent::CompactionEnd { .. }
-            )
-        )),
-        "提交失败后不得启动压缩: {events:?}"
-    );
-    assert!(
-        events.iter().any(|event| matches!(
-            event.kind,
-            SessionEventKind::Error(ref message) if message.contains("commit failed")
-        )),
-        "提交失败必须作为会话错误暴露: {events:?}"
-    );
-    assert_eq!(
-        data.commits.load(Ordering::SeqCst),
-        baseline,
-        "失败的提交不能计数为成功"
-    );
-    drop(events);
+    {
+        let events = events.lock().unwrap();
+        assert!(
+            !events.iter().any(|event| matches!(
+                event.kind,
+                SessionEventKind::Agent(
+                    pipi_agent::agent_loop::AgentEvent::CompactionStart
+                        | pipi_agent::agent_loop::AgentEvent::CompactionEnd { .. }
+                )
+            )),
+            "提交失败后不得启动压缩: {events:?}"
+        );
+        assert!(
+            events.iter().any(|event| matches!(
+                event.kind,
+                SessionEventKind::Error(ref message) if message.contains("commit failed")
+            )),
+            "提交失败必须作为会话错误暴露: {events:?}"
+        );
+        assert_eq!(
+            data.commits.load(Ordering::SeqCst),
+            baseline,
+            "失败的提交不能计数为成功"
+        );
+    }
 
     // 手动压缩入口也必须先提交未提交缓冲，失败则拒绝，不能靠 run_compaction
     // 的调用方（自动路径）单独把关。

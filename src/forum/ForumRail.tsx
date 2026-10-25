@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useRightRail, RightRail } from "../app/right-rail";
+import { RightRailEmpty } from "../components/RightRailEmpty";
 import { IconArrowDown, IconForum, IconLock } from "../icons";
 import type { AgentDefinition, ForumThreadView } from "../types";
 import { formatFullTime, formatRelativeTime } from "./time";
@@ -66,15 +67,15 @@ export function ForumRail({
     activeTab={tab}
     onTabChange={setTab}
   >
-    {composing ? <div className="right-rail-empty">
-      <IconForum />
-      <strong>正在新建主题</strong>
-      <p>标题、标签和首帖会保存为本地文件。发布后这里会显示参与者与楼层大纲。</p>
-    </div> : !thread && !loading ? <div className="right-rail-empty">
-      <IconForum />
-      <strong>还没有打开主题</strong>
-      <p>从左侧选择一个讨论主题，右栏会显示状态、参与者和快速跳转。</p>
-    </div> : null}
+    {composing ? <RightRailEmpty
+      icon={<IconForum />}
+      title="正在新建主题"
+      description="标题、标签和首帖会保存为本地文件。发布后这里会显示参与者与楼层大纲。"
+    /> : !thread && !loading ? <RightRailEmpty
+      icon={<IconForum />}
+      title="还没有打开主题"
+      description="从左侧选择一个讨论主题，右栏会显示状态、参与者和快速跳转。"
+    /> : null}
   </RightRail>;
 }
 

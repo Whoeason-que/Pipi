@@ -24,9 +24,7 @@ pub fn install_skill(
         (Some(_), true) => return Err("Cannot specify both skills list and 'all'".into()),
         (Some(names), false) if !names.is_empty() => {
             for name in names {
-                if !crate::av::skills::valid_skill_name(name) {
-                    return Err(format!("Invalid skill name {name:?}"));
-                }
+                crate::av::skills::validate_skill_name(name)?;
             }
             crate::av::install::Selection::Only(names.to_vec())
         }
@@ -66,9 +64,7 @@ pub fn install_skill(
 /// **拒绝移除仍被任何 Agent 声明启用的技能** —— 先在各 Agent 的技能页禁用，
 /// 否则会话启动会 fail-closed。返回移除的版本数。
 pub fn remove_store_skill(name: &str) -> Result<usize, String> {
-    if !crate::av::skills::valid_skill_name(name) {
-        return Err(format!("Invalid skill name {name:?}"));
-    }
+    crate::av::skills::validate_skill_name(name)?;
     let declaring = agents_declaring(name)?;
     if !declaring.is_empty() {
         return Err(format!(

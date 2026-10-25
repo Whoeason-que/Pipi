@@ -165,6 +165,10 @@ pub fn create_agent(
 /// 创建 Agent，并允许调用方在创建时直接写入 `AGENTS.md` 的指令正文及分组标记。
 /// UI 的既有创建入口继续调用 [`create_agent`]（普通 Agent）；Agent 组合工具走本入口
 /// 并传入 `subagent = true`，两者共享名称、路径、权限和清单校验。
+///
+/// 参数与 `agent.json` 的显式字段一一对应；保持扁平签名让创建路径的取值
+/// （名称/描述/工作区/权限/模型/指令/类型）在调用点一眼可见。
+#[allow(clippy::too_many_arguments)]
 pub fn create_agent_with_instructions(
     name: &str,
     description: &str,

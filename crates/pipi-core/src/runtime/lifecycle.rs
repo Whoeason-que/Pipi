@@ -131,23 +131,34 @@ impl RuntimeState {
         Self::session_repo_for(agent_name)?.list_archived()
     }
 
-    /// 导入前的占用检查与脱离槽位（宿主命令 `commands::import_sessions` 在锁内
-    /// 同步调用，随后把读会话与 spawn git 的阻塞部分放上阻塞线程池）：运行中或
-    /// 仍有托管后台任务的会话必须先停止；空闲会话在这里自动脱离槽位 —— 关掉
-    /// 它们的文件句柄，否则导入改名后打开的句柄会继续往旧文件追加。
-    pub fn prepare_session_import(&self, agent_name: &str) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+    /// 导入/归档/删除共用的占用检查与槽位脱离；调用方必须已持有 sessions 锁，
+    /// 且在本函数返回后继续持有到载体操作完成（避免检查与 IO 之间被抢跑）。
+    fn detach_agent_sessions_locked(
+        &self,
+        sessions: &mut HashMap<SessionKey, HostSession>,
+        agent_name: &str,
+        action: &str,
+    ) -> Result<(), String> {
         self.ensure_not_shutting_down()?;
         if sessions
             .iter()
             .any(|(key, session)| key.agent_name == agent_name && self.session_occupied(session))
         {
             return Err(format!(
-                "Agent \"{agent_name}\" still has running sessions, queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before importing"
+                "Agent \"{agent_name}\" still has running sessions, queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before {action}"
             ));
         }
         sessions.retain(|key, _session| key.agent_name != agent_name);
         Ok(())
+    }
+
+    /// 导入前的占用检查与脱离槽位（宿主命令 `commands::import_sessions` 在锁内
+    /// 同步调用，随后把读会话与 spawn git 的阻塞部分放上阻塞线程池）：运行中或
+    /// 仍有托管后台任务的会话必须先停止；空闲会话在这里自动脱离槽位 —— 关掉
+    /// 它们的文件句柄，否则导入改名后打开的句柄会继续往旧文件追加。
+    pub fn prepare_session_import(&self, agent_name: &str) -> Result<(), String> {
+        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.detach_agent_sessions_locked(&mut sessions, agent_name, "importing")
     }
 
     // ============ Agent 归档 / 恢复 / 删除（运行时占用检查） ============
@@ -157,18 +168,9 @@ impl RuntimeState {
     /// sessions 锁内，避免检查后被并发打开抢跑。
     pub fn archive_agent(&self, name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        self.ensure_not_shutting_down()?;
-        if sessions
-            .iter()
-            .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
-        {
-            return Err(format!(
-                "Agent \"{name}\" still has running sessions, queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before archiving"
-            ));
-        }
         // 空闲正式会话的 writer 也在这里释放，避免归档后仍有打开的文件句柄；
         // 临时测试同样一并清掉。前端不需要先退出会话界面。
-        sessions.retain(|key, _session| key.agent_name != name);
+        self.detach_agent_sessions_locked(&mut sessions, name, "archiving")?;
         // `open_session` 也必须先取得这把锁；不要在检查与目录移动之间释放它，
         // 否则并发打开会把一个仍指向活跃目录的 Session 插入 map，再由这里把
         // 目录移走。归档是罕见的同步文件操作，短暂持锁优先于留下悬空会话。
@@ -179,17 +181,8 @@ impl RuntimeState {
     /// 会话必须先停止/终止；不可恢复。
     pub fn delete_agent(&self, name: &str) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        self.ensure_not_shutting_down()?;
-        if sessions
-            .iter()
-            .any(|(key, session)| key.agent_name == name && self.session_occupied(session))
-        {
-            return Err(format!(
-                "Agent \"{name}\" still has running sessions, queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before deleting"
-            ));
-        }
         // 与归档相同：先释放所有空闲会话槽，再做不可逆删除。
-        sessions.retain(|key, _session| key.agent_name != name);
+        self.detach_agent_sessions_locked(&mut sessions, name, "deleting")?;
         // 与归档相同：占用检查和不可逆删除是同一个临界区，不能让
         // `open_session` 在两者之间抢跑。
         agents::delete_agent(name)

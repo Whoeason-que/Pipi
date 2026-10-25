@@ -85,9 +85,7 @@ pub struct SkillLockEntry {
 impl SkillLockEntry {
     /// 逐字段 fail-closed 校验。
     pub fn validate(&self) -> Result<(), String> {
-        if !skills::valid_skill_name(&self.name) {
-            return Err(format!("锁条目技能名 {:?} 形状非法", self.name));
-        }
+        skills::validate_skill_name(&self.name).map_err(|error| format!("Lock entry {error}"))?;
         if self.source.trim().is_empty() {
             return Err(format!("技能 {:?} 的 source 为空", self.name));
         }
@@ -466,9 +464,8 @@ pub fn entry_dir(name: &str, content_hash: &str) -> Result<PathBuf, String> {
 }
 
 fn entry_dir_in(store_root: &Path, name: &str, content_hash: &str) -> Result<PathBuf, String> {
-    if !skills::valid_skill_name(name) {
-        return Err(format!("技能名 {name:?} 形状非法，拒绝落盘（fail-closed）"));
-    }
+    skills::validate_skill_name(name)
+        .map_err(|error| format!("{error}; refusing to write to the global skill store"))?;
     Ok(store_root.join(name).join(content_dir_name(content_hash)?))
 }
 

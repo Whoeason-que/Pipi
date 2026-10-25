@@ -188,7 +188,7 @@ invoke("set_skill_enabled", {agentName:"fixture",name:"pdf",enabled:"yes"});
 const result: Promise<boolean> = invoke("session_info", {agentName:"fixture",sessionId:"session-1"});
 void wire;
 `;
-  const options: ts.CompilerOptions = { noEmit: true, strict: true, skipLibCheck: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler };
+  const options: ts.CompilerOptions = { noEmit: true, strict: true, skipLibCheck: true, allowImportingTsExtensions: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler };
   const host = ts.createCompilerHost(options);
   const original = host.getSourceFile.bind(host);
   host.getSourceFile = (file, languageVersion, onError, shouldCreate) => file === filename

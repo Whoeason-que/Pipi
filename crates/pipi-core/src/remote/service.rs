@@ -260,6 +260,7 @@ impl RemoteAccessControl for RemoteAccess {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #![allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个异步测试
     use super::*;
     use crate::remote::test_support::{Environment, tunnel_fixture};
     use crate::server::WebAsset;

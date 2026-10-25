@@ -63,9 +63,7 @@ fn selection_from(parsed: &super::ParsedArgs) -> Result<Selection, String> {
     }
     if !names.is_empty() {
         for name in &names {
-            if !crate::av::skills::valid_skill_name(name) {
-                return Err(format!("技能名 {name:?} 形状非法"));
-            }
+            crate::av::skills::validate_skill_name(name)?;
         }
         return Ok(Selection::Only(names));
     }
@@ -501,9 +499,7 @@ fn cmd_remove(args: &[String]) -> Result<(), String> {
     let Some(name) = parsed.first_positional() else {
         return Err("用法：av skill remove <名称> [--purge] [--contract 文件] [--yes]".into());
     };
-    if !crate::av::skills::valid_skill_name(name) {
-        return Err(format!("技能名 {name:?} 形状非法"));
-    }
+    crate::av::skills::validate_skill_name(name)?;
     let contract = choose_contract(parsed.value("contract"))?;
     let lock_path = lock_path_for(&contract);
 

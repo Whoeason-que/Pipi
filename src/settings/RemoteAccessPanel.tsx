@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { errorMessage } from "../errors.ts";
 import { useI18n } from "../i18n";
 import { invoke } from "../platform";
 import type { RemoteAccessConfig, RemoteAccessStatus } from "../types";
@@ -29,7 +30,7 @@ export default function RemoteAccessPanel() {
           setConfig(next.config);
           setPort(String(next.config.port));
         }
-      } catch (reason) { if (active) setError(String(reason)); }
+      } catch (reason) { if (active) setError(errorMessage(reason)); }
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2500);
@@ -40,7 +41,7 @@ export default function RemoteAccessPanel() {
     if (busy) return;
     setBusy(true); setError(null); setNotice(null);
     try { await action(); }
-    catch (reason) { setError(String(reason)); }
+    catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   };
   const copy = (value: string) => void act(async () => {

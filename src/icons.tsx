@@ -62,15 +62,6 @@ export function IconClose() {
   );
 }
 
-/** 菜单（窄屏侧栏开关） */
-export function IconMenu() {
-  return (
-    <IconBase>
-      <path d="M4 7h16M4 12h16M4 17h16" />
-    </IconBase>
-  );
-}
-
 export function IconMore() {
   return (
     <IconBase>
@@ -311,17 +302,6 @@ export function IconArchive() {
       <path d="M4 5h16v4H4z" />
       <path d="M5 9v10h14V9" />
       <path d="M12 13v5M9.5 15.5 12 18l2.5-2.5" />
-    </IconBase>
-  );
-}
-
-/** 恢复（从箱子取出） */
-export function IconRestore() {
-  return (
-    <IconBase>
-      <path d="M4 5h16v4H4z" />
-      <path d="M5 9v10h14V9" />
-      <path d="M12 18v-5M9.5 15.5 12 13l2.5 2.5" />
     </IconBase>
   );
 }

@@ -163,6 +163,20 @@ pub fn valid_skill_name(name: &str) -> bool {
         && !name.contains("--")
 }
 
+/// 统一技能名错误文案；调用点只决定是否追加上下文，不再各自拼规则说明。
+///
+/// 上层命令（Tauri/Web）直接透传这条英文错误；CLI 若需要本地化，应在展示层
+/// 翻译，不能在下层维护多套规则文案。
+pub fn validate_skill_name(name: &str) -> Result<(), String> {
+    if valid_skill_name(name) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Invalid skill name {name:?}: expected lowercase ASCII letters, digits or '-', at most 64 characters, no leading/trailing '-' and no '--'"
+        ))
+    }
+}
+
 /// 解析 frontmatter：开头 `---` 块内的简单 `key: value` 行。
 /// 返回 (键值对, 正文)。不引入 YAML 依赖 —— pi 的技能 frontmatter
 /// 实际只用平铺的字符串字段。
