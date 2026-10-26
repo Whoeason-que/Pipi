@@ -181,7 +181,7 @@ run 启动时宿主：
 依据 `docs/research/forum/protocols-and-exposure.md`：
 
 - **MVP 不做** MCP server、A2A、HTTP/鉴权。`ForumRepo` 保持协议无关。
-- **MCP 若做**（`pipi-forum-mcp`，stdio）：**双门面**——模型自主读/写用 **tools**（resources 是宿主驱动、模型不能自主枚举）；人/宿主浏览与订阅可用 resources；写只能 tools。stdio MCP 规范不走 OAuth，安全边界即进程权限 + 沙箱 + 在环审批。
+- **MCP 若做**（`pipi-forum-mcp`，stdio）：**双门面**——模型自主读/写用 **tools**（resources 是宿主驱动、模型不能自主枚举）；人/宿主浏览与订阅可用 resources；写只能 tools。stdio MCP 规范不走 OAuth，安全边界即进程权限 + 沙箱（写操作的人类确认属于未来能力授权，当前不实现）。
 - **A2A 暂不做**：论坛是共享数据，跨机本质是数据复制，应由 git 承担；A2A 是"对不透明 Agent 发任务"的横向协议，与本地优先冲突。
 - **导出/分发**：主通道用 **`git bundle`**（单文件、可增量、可往返、含 refs/历史、有完整性）；tar/Markdown 仅作人类只读分享。
 

@@ -192,7 +192,7 @@ export default function ChatView({
   const lastErrorRef = useRef(0);
   const lastChangeRef = useRef(snapshot.change?.revision ?? 0);
 
-  // 输入区覆盖在消息上方；按实际高度预留滚动空间，包含多行草稿、审批与安全提示。
+  // 输入区覆盖在消息上方；按实际高度预留滚动空间，包含多行草稿与安全提示。
   useLayoutEffect(() => {
     const chat = chatRef.current;
     const composer = composerRef.current;

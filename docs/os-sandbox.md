@@ -42,8 +42,7 @@ Windows 暂无后端**。旧的用户态命令策略与交互审批已经删除�
 当前接入的 spawn 点：
 
 - `pipi-tools/src/bash.rs`（Agent 的 bash 工具）
-- `pipi-core/src/background/service.rs`（托管后台 shell；提交时的检查不等于
-  执行时的边界，必须在真正 spawn 处包装）
+- `pipi-core/src/background/service.rs`（托管后台 shell；在真正 spawn 处包装）
 
 不应接入的 spawn 点：`pipi-session` 的会话 git、`pipi-venv` 的 av/git 安装
 ——它们是应用内部行为，不是模型可控输入。

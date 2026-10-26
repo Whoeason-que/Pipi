@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use pipi_protocol::permissions::SandboxPolicy;
 
 #[cfg(target_os = "linux")]
-pub mod linux;
+mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
 
@@ -28,7 +28,7 @@ pub mod macos;
 ///
 /// 顺序：`PIPI_SANDBOX_BIN` → 当前可执行文件附近（开发 target/、Tauri sidecar、
 /// macOS .app 的 MacOS/Resources）→ `PATH`。
-pub fn binary() -> Option<PathBuf> {
+fn binary() -> Option<PathBuf> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         binary_on_supported_platform()
@@ -110,7 +110,7 @@ fn policy_json(policy: &SandboxPolicy) -> Result<String, String> {
 /// - `PIPI_SANDBOX_NETWORK=1`：保留文件系统沙箱、放行网络；
 /// - `PIPI_SANDBOX_WRITABLE`：额外的可写根（`split_paths` 分隔，必须是绝对路径）。
 ///
-/// 正式的按 Agent/按次授权（审批提升能力）是下一步；这里只解决「不关沙箱就
+/// 正式的按 Agent/按次能力授权是下一步；这里只解决「不关沙箱就
 /// 无法用工具链缓存」的过渡问题。
 fn effective_policy(policy: &SandboxPolicy) -> SandboxPolicy {
     let allow_network = std::env::var("PIPI_SANDBOX_NETWORK")
@@ -127,36 +127,6 @@ fn effective_policy(policy: &SandboxPolicy) -> SandboxPolicy {
         }
     }
     effective
-}
-
-/// 构造一个 std [`std::process::Command`]，必要时经 helper 包装。
-pub fn std_command<I, S>(
-    policy: &SandboxPolicy,
-    program: impl AsRef<OsStr>,
-    args: I,
-) -> Result<std::process::Command, String>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    let policy = effective_policy(policy);
-    match helper_for(&policy)? {
-        Some(binary) => {
-            let mut command = std::process::Command::new(binary);
-            command
-                .arg("--policy")
-                .arg(policy_json(&policy)?)
-                .arg("--")
-                .arg(program);
-            command.args(args);
-            Ok(command)
-        }
-        None => {
-            let mut command = std::process::Command::new(program);
-            command.args(args);
-            Ok(command)
-        }
-    }
 }
 
 /// 构造一个 tokio [`tokio::process::Command`]，必要时经 helper 包装。

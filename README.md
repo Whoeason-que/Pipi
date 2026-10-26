@@ -747,7 +747,7 @@ Pipi 也可以把 React 前端和宿主运行时以浏览器服务方式启动�
 ## 路线图
 
 - [x] **M0 — 项目骨架**：Tauri 2.0 跑通，设计文档定稿
-- [x] **M1½ — 核心移植**：pi 的 agent loop / 工具 / provider / session 移植为 Rust（现为 `pipi-agent` / `pipi-core` 等 crate），命令权限与工作目录进 `agent.json`
+- [x] **M1½ — 核心移植**：pi 的 agent loop / 工具 / provider / session 移植为 Rust（现为 `pipi-agent` / `pipi-core` 等 crate），沙箱与工作目录进 `agent.json`
 - [x] **M2 — Agent 管理**：UI 全字段编辑 `agent.json` / `harness/AGENTS.md` 双向同步，memory 渐进召回（索引常驻 + 按需读取）
 - [ ] **M3 — Skills 与 MCP**：Skills 渐进注入已实现；技能库与 Agent 技能页已接线（安装 / 校验 / 启用 / 同步）；stdio MCP 服务器接入未动
 - [x] **M4（部分）— 会话树状分叉**：`fork_session` 已实现并接线 UI；LLM 摘要式 compaction 已实现（turn 边界触发，摘要落盘可回放）。模板市场、多语言未动

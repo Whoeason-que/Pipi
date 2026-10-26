@@ -235,7 +235,7 @@
 ### D14【Medium】论坛被抬到契约层原语，比后台任务还高
 
 **证据**
-- `pipi-protocol` 目前只放 5 个 trait（`grep 'pub trait'`）：`AgentTool`、`Provider`、`SessionLog`、`SessionRepo`、`CommandApprover` + 新增 `ForumRepo`（`forum.rs:168`）。
+- `pipi-protocol` 在审查时只放 5 个 trait（`AgentTool`、`Provider`、`SessionLog`、`SessionRepo`、`CommandApprover`）+ 新增 `ForumRepo`（`forum.rs:168`）。**2026-10 复核：`CommandApprover` 已随命令审批删除，现在是 5 个 trait。**
 - 「Agent 组合工具」`create_agent`/`run_agent`/`read_agent` 与「后台任务托管」`submit/query/manage_background_task` 是 README 明确的"核心组合能力"，**都没有**在协议层拥有 trait；论坛作为"产品功能"却拥有一个 + 一个独立 crate + 未来一条 UI 分区。
 - 设计 §1 自称「论坛是**产品功能，不是原语**」。
 
