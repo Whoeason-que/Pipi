@@ -417,7 +417,7 @@ export function IconLayers({ size }: { size?: number }) {
   );
 }
 
-/** 盾牌告警（权限拒绝 / 安全策略） */
+/** 盾牌告警（沙箱拒绝） */
 export function IconShieldAlert({ size }: { size?: number }) {
   return (
     <IconBase size={size}>

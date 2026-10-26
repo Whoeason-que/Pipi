@@ -651,10 +651,10 @@ test("classifyChatError correctly identifies all error categories with actionabl
   assert.equal(protocol.badge, "协议错误");
   assert.ok(protocol.suggestion?.includes("自动"));
 
-  // 权限拦截
-  const permission = classifyChatError({ errorMessage: "命令被拒绝：检测到安全策略拦截" });
+  // 沙箱拒绝
+  const permission = classifyChatError({ errorMessage: "命令被沙箱拒绝：write outside workspace" });
   assert.equal(permission.category, "permission");
-  assert.equal(permission.badge, "权限拦截");
+  assert.equal(permission.badge, "沙箱拒绝");
 
   // 网络超时与中断
   const timeout = classifyChatError({ errorMessage: "请求超时（timeout after 30s）：流提前结束" });

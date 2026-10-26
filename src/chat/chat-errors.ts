@@ -20,7 +20,7 @@ function legacyCategory(raw: string): ChatErrorCategory {
   if (/rate.?limit|too many requests|(?:^|http[ :]+)429\b|限流/i.test(raw)) return "rate_limit";
   if (/invalid.?authentication|unauthorized|invalid api key|incorrect api key|invalid_api_key|(?:^|http[ :]+)(?:401|403)\b|鉴权失败/i.test(raw)) return "auth";
   if (/modelprotocolunsupported|does not support this protocol|协议已固定|协议均已尝试|协议不匹配/i.test(raw)) return "protocol";
-  if (/permission denied|权限拦截|命令被拒绝|安全策略|沙箱重定向/i.test(raw)) return "permission";
+  if (/permission denied|operation not permitted|os sandbox|pipi-sandbox|沙箱|权限拦截|命令被拒绝/i.test(raw)) return "permission";
   if (/timeout|timed out|connection|econnrefused|etimedout|stream ended|stream closed|ended before the provider ended it|fetch failed|network|reset by peer|流提前结束|请求超时|连接被中断|连接重置/i.test(raw)) return "network";
   return "generic";
 }
