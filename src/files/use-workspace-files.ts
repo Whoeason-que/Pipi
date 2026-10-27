@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { invoke, onHostReconnect } from "../platform";
 import type { AgentDefinition } from "../types";
 import type { WorkspaceChanges, WorkspaceDiff, WorkspaceFile, WorkspaceListing } from "./types";
@@ -36,7 +36,15 @@ const emptySnapshot = () => noView;
 export type WorkspaceFileTarget = Pick<AgentDefinition, "name" | "workspace">;
 
 export function useWorkspaceFiles(target: WorkspaceFileTarget | null, mode: WorkspaceMode, active: boolean, running: boolean) {
-  const store = useMemo(() => target ? new WorkspaceViewStore(target, mode) : null, [target?.name, target?.workspace, mode]);
+  const stores = useRef(new Map<string, WorkspaceViewStore>());
+  const getStore = useCallback((workspace: WorkspaceFileTarget, workspaceMode: WorkspaceMode) => {
+    const candidate = new WorkspaceViewStore(workspace, workspaceMode);
+    const existing = stores.current.get(candidate.key);
+    if (existing) return existing;
+    stores.current.set(candidate.key, candidate);
+    return candidate;
+  }, []);
+  const store = useMemo(() => target ? getStore(target, mode) : null, [target?.name, target?.workspace, mode, getStore]);
   const view = useSyncExternalStore(store?.subscribe ?? noSubscribe, store?.getSnapshot ?? emptySnapshot);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(value => value + 1), []);
@@ -55,7 +63,7 @@ export function useWorkspaceFiles(target: WorkspaceFileTarget | null, mode: Work
     () => invoke("workspace_changes", { agentName: lookupTarget }));
   const preview = useFileResource<WorkspaceFile | WorkspaceDiff>(key && view.selected ? JSON.stringify(["preview", key, view.selected]) : null, revision,
     () => mode === "files" ? invoke("preview_workspace_file", { agentName: lookupTarget, path: view.selected! }) : invoke("workspace_diff", { agentName: lookupTarget, path: view.selected! }));
-  return { target, agent: target, mode, active, store, view, revision, refresh, rootListing, changes, preview };
+  return { target, agent: target, mode, active, store, getStore, view, revision, refresh, rootListing, changes, preview };
 }
 
 export type WorkspaceFilesState = ReturnType<typeof useWorkspaceFiles>;

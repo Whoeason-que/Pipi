@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentEvent, MessageView } from "../src/chat-runtime.ts";
 import { SessionRuntime, type RuntimeTransport } from "../src/session-runtime.ts";
+import { NavigationMemory } from "../src/app/navigation-memory.ts";
 import { withTimeout } from "../src/session-controller.ts";
 import { CommandTransportError, decodeCommandResponse } from "../src/transport-error.ts";
 import { submitDraft } from "../src/drafts.ts";
@@ -438,6 +439,27 @@ test("composer drafts follow authoritative creation and compaction without cross
   runtime.forget(agent.name, "compact");
   assert.equal(draft.getSnapshot().text, "");
   assert.equal(runtime.composerDrafts.get(agent.name, "peer").getSnapshot().text, "peer draft");
+});
+
+test("navigation remembers a background draft's creation and accepted compaction", async () => {
+  const { host, runtime } = await fixture();
+  const memory = new NavigationMemory();
+  const draft = runtime.get(agent, null);
+  memory.remember({ kind: "chat", agentName: agent.name, sessionId: null }, [agent]);
+  memory.bindController(agent.name, null, draft);
+  const unsubscribe = runtime.subscribeRekeys((controller, previous, next, temporary) => {
+    if (!temporary) memory.rekey(controller.agentName, previous, next, controller);
+  });
+  await draft.hydrate();
+  await draft.send("start");
+  assert.deepEqual(memory.restore("agents", [agent]), { kind: "chat", agentName: agent.name, sessionId: "created" });
+  host.emit("session-switched", { agentName: agent.name, sessionId: "created", runId: 3, toSessionId: "compact" });
+  assert.deepEqual(memory.restore("agents", [agent]), { kind: "chat", agentName: agent.name, sessionId: "compact" });
+  host.emit("session-switched", { agentName: agent.name, sessionId: "created", runId: 2, toSessionId: "stale" });
+  assert.deepEqual(memory.restore("agents", [agent]), { kind: "chat", agentName: agent.name, sessionId: "compact" });
+  assert.equal(memory.controllerFor(agent.name, "compact"), draft);
+  unsubscribe();
+  runtime.disconnect();
 });
 
 

@@ -27,6 +27,8 @@ export interface ArchiveActionOptions {
   setActiveSession: Dispatch<SetStateAction<SessionInfoView | null>>;
   forgetRunningSession: (agentName: string, sessionId: string) => void;
   forgetRunningAgent: (agentName: string) => void;
+  forgetNavigationSession: (agentName: string, sessionId: string) => void;
+  forgetNavigationAgent: (agentName: string) => void;
   archivedSessionsExpanded: Record<string, boolean>;
   setArchivedSessions: Dispatch<SetStateAction<Record<string, SessionSummaryView[]>>>;
   setArchivedSessionsExpanded: Dispatch<SetStateAction<Record<string, boolean>>>;
@@ -67,6 +69,8 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
     setActiveSession,
     forgetRunningSession,
     forgetRunningAgent,
+    forgetNavigationSession,
+    forgetNavigationAgent,
     archivedSessionsExpanded,
     setArchivedSessions,
     setArchivedSessionsExpanded,
@@ -75,6 +79,7 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
   const finishSessionMutation = (agentName: string, sessionId: string) => {
     sessionRuntime.forget(agentName, sessionId);
     forgetRunningSession(agentName, sessionId);
+    forgetNavigationSession(agentName, sessionId);
     if (
       selectedRef.current !== agentName
       || viewRef.current.kind !== "chat"
@@ -91,6 +96,7 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
   const forgetAgentRuntime = (agentName: string) => {
     sessionRuntime.forgetAgent(agentName);
     forgetRunningAgent(agentName);
+    forgetNavigationAgent(agentName);
     if (selectedRef.current !== agentName) return;
     invalidateNavigation();
     activeSessionRef.current = null;

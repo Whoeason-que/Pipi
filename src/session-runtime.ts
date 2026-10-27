@@ -20,6 +20,7 @@ export class SessionRuntime {
   private drafts = new Set<SessionController>();
   private replay = new Map<string, { runId: number; frames: SessionFrame[] }>();
   private listeners = new Set<(frame: RuntimeFrame) => void>();
+  private rekeyListeners = new Set<(controller: SessionController, previous: string | null, next: string, temporary: boolean) => void>();
   private unlisten: Array<() => void> = [];
   private connection: Promise<void> | null = null;
   private connectionEpoch = 0;
@@ -81,6 +82,16 @@ export class SessionRuntime {
     return () => { this.listeners.delete(listener); };
   }
 
+  subscribeRekeys(listener: (controller: SessionController, previous: string | null, next: string, temporary: boolean) => void): () => void {
+    this.rekeyListeners.add(listener);
+    return () => { this.rekeyListeners.delete(listener); };
+  }
+
+  /** 返回未落盘的会话时重新登记控制器，允许它接收先于创建响应到达的事件。 */
+  retainDraft(controller: SessionController): void {
+    if (controller.getSnapshot().sessionId === null) this.drafts.add(controller);
+  }
+
   get(agent: AgentDefinition, sessionId: string | null, temporary = false): SessionController {
     if (sessionId) {
       const existing = this.sessions.get(key(agent.name, sessionId));
@@ -94,6 +105,7 @@ export class SessionRuntime {
         this.drafts.delete(current);
         const nextKey = key(current.agentName, next);
         this.sessions.set(nextKey, current);
+        if (previous !== next) this.rekeyListeners.forEach(listener => listener(current, previous, next, temporary));
         const replay = this.replay.get(nextKey);
         this.replay.delete(nextKey);
         replay?.frames.forEach(frame => current.receive(frame));

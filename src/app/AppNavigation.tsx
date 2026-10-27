@@ -20,6 +20,7 @@ export default function AppNavigation({
   navSection,
   settingsOpen,
   onOpenSection,
+  onHome,
   onToggleSettings,
   running,
   activeWorkspace = "all",
@@ -28,6 +29,7 @@ export default function AppNavigation({
   navSection: NavSection;
   settingsOpen: boolean;
   onOpenSection: (section: NavSection) => void;
+  onHome: () => void;
   onToggleSettings: () => void;
   running: Record<AgentSection, boolean>;
   activeWorkspace?: string;
@@ -43,7 +45,7 @@ export default function AppNavigation({
         className="rail-brand"
         aria-label={t("nav.home")}
         title="Pipi"
-        onClick={() => onOpenSection("agents")}
+        onClick={onHome}
       >
         <PipiMark />
       </button>

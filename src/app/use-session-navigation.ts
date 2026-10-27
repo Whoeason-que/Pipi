@@ -19,6 +19,8 @@ export interface SessionNavigationState {
   openSession: (agentName: string, sessionId: string) => Promise<void>;
   startNewSession: (agentName: string) => Promise<void>;
   createSessionFromChat: (previousSessionId?: string) => Promise<boolean>;
+  /** 释放离开的空闲会话，与后续打开请求串行，避免释放迟于重新打开。 */
+  releaseIdle: (agentName: string) => Promise<void>;
   /** 让在途的打开/新建请求作废（Archive / 切换 Agent / 返回时调用）。 */
   invalidateNavigation: () => void;
   blockedSessionIdsRef: { current: Set<string> };
@@ -56,10 +58,7 @@ export function useSessionNavigation(
     sessionInfoRequestRef.current += 1;
   };
 
-  const enqueueNavigation = async (
-    requestId: number,
-    operation: () => Promise<void>,
-  ): Promise<void> => {
+  const enqueue = async (operation: () => Promise<void>): Promise<void> => {
     const previous = navigationQueueRef.current;
     let release!: () => void;
     navigationQueueRef.current = new Promise<void>((resolve) => {
@@ -67,11 +66,18 @@ export function useSessionNavigation(
     });
     await previous;
     try {
-      if (requestId === navigationRequestRef.current) await operation();
+      await operation();
     } finally {
       release();
     }
   };
+
+  const enqueueNavigation = (requestId: number, operation: () => Promise<void>): Promise<void> =>
+    enqueue(async () => { if (requestId === navigationRequestRef.current) await operation(); });
+
+  const releaseIdle = (agentName: string): Promise<void> => enqueue(async () => {
+    try { await invoke("new_session", { agentName }); } catch { /* 释放失败不影响导航。 */ }
+  });
 
   /// 打开（查看）一条会话。会话之间互不影响：别的会话在跑也能打开、切换、
   /// 查看 —— 每条会话是独立的一路。
@@ -161,6 +167,7 @@ export function useSessionNavigation(
     openSession,
     startNewSession,
     createSessionFromChat,
+    releaseIdle,
     invalidateNavigation,
     blockedSessionIdsRef,
     sessionInfoRequestRef,

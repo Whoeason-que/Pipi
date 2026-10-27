@@ -29,6 +29,7 @@ import ChatToolbar from "./ChatToolbar";
 import ChatComposer from "./ChatComposer";
 import { useResizableWidth } from "../resizable";
 import type { SessionRuntime } from "../session-runtime";
+import type { SessionController } from "../session-controller";
 import type {
   AgentDefinition,
   ModelConfig,
@@ -51,6 +52,9 @@ interface ChatViewProps {
   onRunningChange: () => void;
   /** 新会话：传 null 表示无会话；分叉/重建后传新的会话信息以同步侧栏高亮。 */
   onSessionReset: (info?: SessionInfoView | null) => void;
+  /** 保存当前控制器身份，以便后台新会话取得 id 时更新导航记忆。 */
+  onControllerReady?: (controller: SessionController) => void;
+  initialController?: SessionController;
   /** 设置工作台复用同一套对话状态机，但不暴露正式会话专属操作。 */
   mode?: "session" | "test";
   /** 临时测试的显式清空入口；返回后父组件用新 sessionId 重挂本视图。 */
@@ -74,6 +78,8 @@ export default function ChatView({
   onNewSession,
   onRunningChange,
   onSessionReset,
+  onControllerReady,
+  initialController,
   mode = "session",
   onClearTest,
   renderInspector,
@@ -82,8 +88,8 @@ export default function ChatView({
   const { locale, t } = useI18n();
   const isTest = mode === "test";
   const controller = useMemo(
-    () => sessions.get(agent, initialSessionId, isTest),
-    [sessions, agent.name, initialSessionId, isTest],
+    () => initialController ?? sessions.get(agent, initialSessionId, isTest),
+    [sessions, agent.name, initialSessionId, isTest, initialController],
   );
   const layout = useContext(LayoutContext);
   const draft = useMemo(
@@ -215,11 +221,20 @@ export default function ChatView({
     controller.updateAgent(agent);
   }, [controller, agent]);
   useEffect(() => {
+    onControllerReady?.(controller);
+  }, [controller, onControllerReady]);
+  useEffect(() => {
     let active = true;
     mountedRef.current = true;
+    if (initialController) sessions.retainDraft(initialController);
     void sessions
       .start()
-      .then(() => controller.hydrate())
+      .then(() => {
+        // 新会话可能正在后台获取身份；重进视图时不能把它重置为空会话。
+        const current = controller.getSnapshot();
+        if (current.sessionId === null && current.load === "ready") return;
+        return controller.hydrate();
+      })
       .catch((error) => {
         if (active) onError(formatRuntimeError(error));
       });
@@ -227,7 +242,7 @@ export default function ChatView({
       active = false;
       mountedRef.current = false;
     };
-  }, [controller, sessions, onError]);
+  }, [controller, sessions, onError, initialController]);
   useEffect(() => {
     if (snapshot.error && snapshot.error.revision > lastErrorRef.current) {
       lastErrorRef.current = snapshot.error.revision;

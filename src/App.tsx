@@ -4,6 +4,7 @@ import CreateAgentForm from "./agents/CreateAgentForm";
 import CommandPalette from "./app/CommandPalette";
 import { LayoutContext } from "./app/layout-context";
 import { agentSection, agentsInSection, quickItems, type AgentSection, type AppView, type NavSection, type QuickTarget } from "./app/navigation";
+import { NavigationMemory } from "./app/navigation-memory";
 import WorkspaceOverview from "./app/WorkspaceOverview";
 import AppNavigation, { NavigationToggle } from "./app/AppNavigation";
 import AgentSidebar from "./app/AgentSidebar";
@@ -17,7 +18,6 @@ import ChatView from "./chat/ChatView";
 import { useWorkspaceFiles } from "./files/use-workspace-files";
 import { WorkspaceSidebar } from "./files/WorkspaceSidebar";
 import { WorkspaceView } from "./files/WorkspaceView";
-import { WorkspaceViewStore } from "./files/workspace-view";
 import { ForumSidebar } from "./forum/ForumSidebar";
 import ForumView from "./forum/ForumView";
 import { ForumProvider } from "./forum/forum-state";
@@ -45,17 +45,20 @@ import { getAuthStatus, invoke, isTauriRuntime, listen, onAuthRequired } from ".
 import { useResizableWidth } from "./resizable";
 import { SearchPanel } from "./SearchPanel";
 import { SessionRuntime } from "./session-runtime";
+import type { SessionController } from "./session-controller";
 import SettingsView from "./settings/SettingsView";
 import SettingsSidebar from "./settings/SettingsSidebar";
 import type { SettingsSection } from "./settings/settings-sections";
 import { SkillsSidebar } from "./skills/SkillsSidebar";
 import { SkillsView } from "./skills/SkillsView";
 import { applyTheme } from "./theme";
-import type { SessionInfoView, SessionSummaryView, SkillLibrary } from "./types";
+import type { AgentDefinition, SessionInfoView, SessionSummaryView, SkillLibrary } from "./types";
 
 export default function App() {
   const { t } = useI18n();
   const [sessionRuntime] = useState(() => new SessionRuntime({ invoke, listen }));
+  const [navigationMemory] = useState(() => new NavigationMemory());
+  const agentsRef = useRef<AgentDefinition[]>([]);
   const [view, setView] = useState<AppView>({ kind: "home" });
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("appearance");
   const viewRef = useRef(view);
@@ -76,14 +79,13 @@ export default function App() {
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [forumVisited, setForumVisited] = useState(false);
   const [skillLibrary, setSkillLibrary] = useState<SkillLibrary | null>(null);
   const [skillSelected, setSkillSelected] = useState<string | null>(null);
   const [skillLoadError, setSkillLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmRequest | null>(null);
   const selected = "agentName" in view ? view.agentName : null;
-  const lastWorkspaceAgent = useRef<string | null>(null);
-  const lastViewedSessions = useRef(new Map<string, string | null>());
   const selectedRef = useRef<string | null>(selected);
   const activeSessionRef = useRef(activeSession);
   viewRef.current = view;
@@ -91,14 +93,13 @@ export default function App() {
   activeSessionRef.current = activeSession;
   const sidebarResize = useResizableWidth({ storageKey: "sidebar-width", initial: 248, min: 200, max: 460, edge: "right" });
 
-  const commitView = useCallback((next: AppView) => {
+  const commitView = useCallback((next: AppView, remember = true) => {
     viewRef.current = next;
     selectedRef.current = "agentName" in next ? next.agentName : null;
-    if ("agentName" in next) lastWorkspaceAgent.current = next.agentName;
-    if (next.kind === "chat") lastViewedSessions.current.set(next.agentName, next.sessionId);
+    if (remember) navigationMemory.remember(next, agentsRef.current);
     setView(next);
     setSidebarOpen(false);
-  }, []);
+  }, [navigationMemory]);
   const safeSetError = useCallback((message: string | null) => {
     if (message?.includes("需要 PIPI_AUTH_TOKEN") || message?.includes("PIPI_AUTH_TOKEN")) return;
     if (message?.includes("当前会话仍在运行") || message?.includes("is running")) message = "当前会话正在运行，请先停止或使用插话继续沟通";
@@ -107,10 +108,19 @@ export default function App() {
   }, []);
   const { agents, archivedAgents, sessionsByAgent, refresh, refreshSessions, refreshArchived,
     removeAgentSessions, sessionsFor } = useSessionList(safeSetError);
+  agentsRef.current = agents;
+
+  useEffect(() => sessionRuntime.subscribeRekeys((controller, previous, next, temporary) => {
+    if (temporary || !navigationMemory.rekey(controller.agentName, previous, next, controller)) return;
+    const saved = previousView.current;
+    if (saved.kind === "chat" && saved.agentName === controller.agentName && saved.sessionId === previous) {
+      previousView.current = { ...saved, sessionId: next };
+    }
+  }), [navigationMemory, sessionRuntime]);
 
   const [customWorkspaces, setCustomWorkspaces] = useState(() => loadCustomWorkspaces());
   const [activeWorkspace, setActiveWorkspace] = useState(() => loadActiveWorkspace());
-  const [previewWorkspacePath, setPreviewWorkspacePath] = useState<string | null>(null);
+  const [previewWorkspacePaths, setPreviewWorkspacePaths] = useState<{ files: string | null; git: string | null }>({ files: null, git: null });
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
 
   const workspaces = useMemo(
@@ -147,8 +157,9 @@ export default function App() {
   const { settings, setSettings, updateSettings } = useSettings(setError);
   const onOpenChat = useCallback((agentName: string, sessionId: string | null, temporary = false) => {
     setNavSection(agentSection(agents.find(agent => agent.name === agentName)));
+    if (!temporary && sessionId === null) navigationMemory.unbindDraft(agentName);
     commitView(temporary ? { kind: "workbench", agentName } : { kind: "chat", agentName, sessionId });
-  }, [commitView, agents]);
+  }, [commitView, agents, navigationMemory]);
   const navigation = useSessionNavigation({ setError, selectedRef, activeSessionRef, onOpenChat,
     setSidebarOpen, setExpandedAgents, setActiveSession, setChatKey });
   useNotificationNavigation(!authStatus.checking && authStatus.authenticated && agents.length > 0, async (agent, session) => {
@@ -160,19 +171,19 @@ export default function App() {
     safeSetError, setError, setActiveSession, selectedRef, activeSessionRef,
     blockedSessionIdsRef: navigation.blockedSessionIdsRef, sessionInfoRequestRef: navigation.sessionInfoRequestRef });
 
-  const navigate = (next: AppView) => {
+  const navigate = (next: AppView, remember = true) => {
     if (next.kind === "home" && !next.section) next = { ...next, section: collection };
     if (next.kind === "settings" && viewRef.current.kind !== "settings") {
       previousView.current = viewRef.current;
-      setSettingsSection("appearance");
       setSidebarCollapsed(false);
     }
+    if (next.kind === "forum") setForumVisited(true);
     navigation.invalidateNavigation();
     const previous = viewRef.current;
     // 释放离开视图的空闲宿主槽；运行中的会话由核心保留，视图卸载不会停止它。
     if ((previous.kind === "chat" || previous.kind === "workbench") && (next.kind !== previous.kind
       || !("agentName" in next) || next.agentName !== previous.agentName)) {
-      void invoke("new_session", { agentName: previous.agentName }).catch(() => {});
+      void navigation.releaseIdle(previous.agentName);
     }
     if (next.kind === "files" || next.kind === "git") setNavSection(next.kind);
     else if (next.kind === "skills") setNavSection("skills");
@@ -181,7 +192,7 @@ export default function App() {
     else if (next.kind === "home") setNavSection(next.section ?? "agents");
     else if (next.kind === "create") setNavSection("agents");
     else if ("agentName" in next) setNavSection(agentSection(agents.find(agent => agent.name === next.agentName)));
-    commitView(next);
+    commitView(next, remember);
   };
 
   const handleSelectWorkspace = (nextWorkspace: string) => {
@@ -195,9 +206,9 @@ export default function App() {
 
     if (selected && !nextFiltered.some((a) => a.name === selected)) {
       const fallback = nextFiltered[0]?.name ?? null;
-      selectAgent(fallback);
       if (view.kind === "chat" || view.kind === "workbench" || view.kind === "agent") {
-        navigate({ kind: "home", section: collection });
+        // 工作区过滤暂时隐藏 Agent，不抹掉返回原工作区时要恢复的页面。
+        navigate({ kind: "home", section: collection }, false);
       } else if (view.kind === "files" || view.kind === "git") {
         navigate({ kind: view.kind, agentName: fallback });
       }
@@ -229,7 +240,17 @@ export default function App() {
   };
   const archive = useArchiveActions({ sessionRuntime, safeSetError, setConfirmState, refresh, refreshArchived,
     refreshSessions, removeAgentSessions, selectedRef, activeSessionRef, viewRef, onNavigate: navigate,
-    setActiveSession, forgetRunningSession, forgetRunningAgent, archivedSessionsExpanded,
+    setActiveSession, forgetRunningSession, forgetRunningAgent,
+    forgetNavigationSession: (agentName, sessionId) => {
+      navigationMemory.forgetSession(agentName, sessionId);
+      const saved = previousView.current;
+      if (saved.kind === "chat" && saved.agentName === agentName && saved.sessionId === sessionId) previousView.current = { kind: "agent", agentName };
+    },
+    forgetNavigationAgent: agentName => {
+      navigationMemory.forgetAgent(agentName);
+      const saved = previousView.current;
+      if ("agentName" in saved && saved.agentName === agentName) previousView.current = { kind: "home" };
+    }, archivedSessionsExpanded,
     setArchivedSessions, setArchivedSessionsExpanded, invalidateNavigation: navigation.invalidateNavigation });
   const selectAgent = (agentName: string) => navigate({ kind: "agent", agentName });
   const configureAgent = (agentName: string) => navigate({ kind: "workbench", agentName });
@@ -289,14 +310,22 @@ export default function App() {
   }, [skillLibrary, skillSelected]);
 
   const toggleSettings = () => {
-    if (view.kind === "settings") navigate(previousView.current);
-    else navigate({ kind: "settings" });
+    if (view.kind !== "settings") {
+      navigate({ kind: "settings" });
+      return;
+    }
+    const previous = previousView.current;
+    if (previous.kind === "chat" && previous.sessionId !== null) {
+      void navigation.openSession(previous.agentName, previous.sessionId);
+    } else {
+      navigate(previous);
+    }
   };
   const chooseQuick = (target: QuickTarget) => {
     if (target.kind === "agent") selectAgent(target.agentName);
     else if (target.kind === "chat") openSession(target.agentName, target.sessionId);
     else if (target.action === "new-session") { if (selected) void navigation.startNewSession(selected); }
-    else if (target.action === "files" || target.action === "git") navigate({ kind: target.action, agentName: null });
+    else if (target.action === "files" || target.action === "git") openSection(target.action);
     else if (target.action === "workspaces") navigate({ kind: "workspaces" });
     else navigate({ kind: target.action });
   };
@@ -307,6 +336,8 @@ export default function App() {
   }, [current?.name, current?.subagent, view.kind]);
 
   const currentWorkspaceTarget = useMemo(() => {
+    const mode = view.kind === "git" ? "git" : "files";
+    const previewWorkspacePath = previewWorkspacePaths[mode];
     let wsPath: string | null = null;
     if (activeWorkspace !== "all") {
       wsPath = activeWorkspace;
@@ -323,7 +354,7 @@ export default function App() {
     const info = workspaces.find((w) => normalizeWorkspacePath(w.path) === norm);
     const name = info?.name || getWorkspaceBasename(wsPath);
     return { name, workspace: wsPath };
-  }, [activeWorkspace, previewWorkspacePath, current?.workspace, workspaces]);
+  }, [activeWorkspace, previewWorkspacePaths, current?.workspace, workspaces, view.kind]);
 
   const workspaceAgents = useMemo(() => {
     if (!currentWorkspaceTarget) return [];
@@ -348,13 +379,52 @@ export default function App() {
     if (!workspacePath) return;
     const info = workspaces.find(item => normalizeWorkspacePath(item.path) === workspacePath);
     const target = { name: info?.name || getWorkspaceBasename(workspacePath), workspace: workspacePath };
-    const destination = new WorkspaceViewStore(target, "files");
-    // 同一 File 视图使用现有订阅；跨模式/工作区时把选择写入目标视图，再导航。
-    const store = workspace.store?.key === destination.key ? workspace.store : destination;
+    // 即使浏览器存储不可用，也复用目标工作区的内存视图。
+    const store = workspace.getStore(target, "files");
     store.open(path);
-    setPreviewWorkspacePath(workspacePath);
+    setPreviewWorkspacePaths(previous => ({ ...previous, files: workspacePath }));
     navigate({ kind: "files", agentName: agent?.name ?? null });
   };
+  const openSection = (section: NavSection) => {
+    if (section === "search") {
+      if (viewRef.current.kind === "settings") navigate(previousView.current);
+      else navigation.invalidateNavigation();
+      setNavSection(section);
+      setSidebarCollapsed(false);
+      setSidebarOpen(true);
+      return;
+    }
+    if (section === "agents" || section === "subagents") {
+      const target = navigationMemory.restore(section, filteredAgents);
+      const currentView = viewRef.current;
+      if (target.kind === "chat" && target.sessionId !== null && !(currentView.kind === "chat"
+        && currentView.agentName === target.agentName && currentView.sessionId === target.sessionId)) {
+        void navigation.openSession(target.agentName, target.sessionId);
+      } else if (target.kind === "chat" && target.sessionId === null) {
+        setActiveSession(null);
+        navigate(target);
+      } else {
+        // 回退总览可能只是当前工作区过滤了原 Agent，保留原有记忆。
+        navigate(target, target.kind !== "home");
+      }
+    } else if (section === "files" || section === "git") {
+      if (!previewWorkspacePaths[section] && currentWorkspaceTarget?.workspace) {
+        setPreviewWorkspacePaths(previous => ({ ...previous, [section]: currentWorkspaceTarget.workspace }));
+      }
+      navigate({ kind: section, agentName: null });
+    } else {
+      navigate({ kind: section });
+    }
+    setNavSection(section);
+    setSidebarCollapsed(false);
+    setSidebarOpen(false);
+  };
+  const bindChatController = useCallback((controller: SessionController) => {
+    const active = viewRef.current;
+    if (active.kind === "chat" && active.agentName === controller.agentName) {
+      navigationMemory.bindController(active.agentName, active.sessionId, controller);
+    }
+  }, [navigationMemory]);
   const referenceToSession = (text: string, sessionId: string | null) => {
     const targetAgent = sessionId === null
       ? workspaceAgents.find(agent => agent.name === current?.name) ?? workspaceAgents[0]
@@ -388,17 +458,11 @@ export default function App() {
         style={{ "--sidebar-width": `${sidebarResize.width}px` } as React.CSSProperties}>
     <div className="app-body">
       <AppNavigation navSection={navSection} settingsOpen={view.kind === "settings"} onToggleSettings={toggleSettings}
+        onHome={() => navigate({ kind: "home", section: "agents" })}
         activeWorkspace={activeWorkspace} activeWorkspaceName={workspaceDisplayName}
         running={{ agents: agentsInSection(filteredAgents, "agents").some(agent => agentHasRunning(agent.name)),
           subagents: agentsInSection(filteredAgents, "subagents").some(agent => agentHasRunning(agent.name)) }}
-        onOpenSection={section => {
-          if (section === "files" || section === "git") navigate({ kind: section, agentName: null });
-          else if (section === "skills") navigate({ kind: "skills" });
-          else if (section === "forum") navigate({ kind: "forum" });
-          else if (section === "workspaces") navigate({ kind: "workspaces" });
-          else if (section === "agents" || section === "subagents") navigate({ kind: "home", section });
-          setNavSection(section); setSidebarCollapsed(false); setSidebarOpen(true);
-        }} />
+        onOpenSection={openSection} />
       <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "files" || navSection === "git" ? "工作区文件与 Git 改动" : "Agent 与会话列表"}>
         <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
         {view.kind === "settings" ? settings && <SettingsSidebar settings={settings} section={settingsSection}
@@ -417,7 +481,7 @@ export default function App() {
               startCreating();
             }} />
           : (navSection === "files" || navSection === "git") && (view.kind === "files" || view.kind === "git") ? <WorkspaceSidebar key={workspace.store?.key ?? "no-workspace"} state={workspace} workspaces={workspaces} activeWorkspace={activeWorkspace}
-            onSelectWorkspace={wsPath => { setPreviewWorkspacePath(wsPath); if (mobile) setSidebarOpen(true); }} />
+            onSelectWorkspace={wsPath => { setPreviewWorkspacePaths(previous => ({ ...previous, [view.kind === "git" ? "git" : "files"]: wsPath })); if (mobile) setSidebarOpen(true); }} />
           : navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={filteredAgents}
           sessionsByAgent={filteredSessionsByAgent} isRunning={isConversationRunning} onSelectAgent={selectAgent} onOpenSession={openSession} />
           : navSection === "skills" ? <SkillsSidebar library={skillLibrary} selected={skillSelected} error={skillLoadError}
@@ -470,7 +534,7 @@ export default function App() {
               startCreating();
             }}
             onNavigateSection={(sec) => {
-              if (sec === "files" || sec === "git") navigate({ kind: sec, agentName: current?.name ?? filteredAgents[0]?.name ?? null });
+              if (sec === "files" || sec === "git") openSection(sec);
               else navigate({ kind: "home", section: sec });
             }}
           />
@@ -479,12 +543,13 @@ export default function App() {
             onCreated={async name => { await refresh(); selectAgent(name); }} onCancel={() => navigate({ kind: "home" })} onError={safeSetError} />
           : view.kind === "skills" ? <SkillsView library={skillLibrary} loadError={skillLoadError} selected={skillSelected}
             onSelect={setSkillSelected} onRefresh={loadSkillLibrary} onError={safeSetError} />
-          : view.kind === "forum" ? <ForumView />
+          : view.kind === "forum" ? null
           : (view.kind === "files" || view.kind === "git") ? <WorkspaceView key={workspace.store?.key ?? "no-workspace"} state={workspace}
             sessions={workspaceSessions} canReference={workspaceAgents.length > 0} defaultSession={workspaceSessions[0]?.id ?? null}
             onOpenFile={path => { openWorkspaceFile(currentWorkspaceTarget?.workspace ?? "", path); }} onReference={referenceToSession}
-            onModeChange={mode => navigate({ kind: mode, agentName: view.agentName })} />
+            onModeChange={mode => openSection(mode)} />
           : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
+            initialController={view.sessionId === null ? navigationMemory.controllerFor(current.name, null) : undefined} onControllerReady={bindChatController}
             onOpenFile={path => openWorkspaceFile(current.name, path)}
             title={sessionTitle || t("chat.newSessionTitle")} sessionId={view.sessionId} sessions={sessionRuntime}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} onBack={() => selectAgent(current.name)} onError={safeSetError}
@@ -500,6 +565,9 @@ export default function App() {
             onSaved={async () => { await refresh(); }} onBack={() => selectAgent(current.name)} onError={safeSetError}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} sessions={sessionRuntime} onRunningChange={handleRunningChange} />
           : <WorkspaceOverview {...overviewProps} agent={view.kind === "agent" ? current : undefined} />}
+        {forumVisited && <div className="screen" inert={view.kind !== "forum"} style={{ display: view.kind === "forum" ? "flex" : "none" }}>
+          <ForumView />
+        </div>}
       </main>
     </div>
     {paletteOpen && <CommandPalette items={quickItems(filteredAgents, filteredSessionsByAgent, selected)} onChoose={chooseQuick} onClose={closePalette} />}
