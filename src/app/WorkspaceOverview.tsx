@@ -274,6 +274,10 @@ export default function WorkspaceOverview({
                 >
                   <div className="agent-card-top">
                     <AgentAvatar name={item.name} subagent={item.subagent} />
+                    <div className="agent-card-identity">
+                      <b>{item.name}</b>
+                      <span>{item.subagent ? "Subagent" : "Agent"}</span>
+                    </div>
                     <span
                       className={`agent-card-state${active ? " running" : ""}`}
                     >
@@ -287,12 +291,18 @@ export default function WorkspaceOverview({
                     </span>
                   </div>
                   <div className="agent-card-copy">
-                    <b>{item.name}</b>
                     <p>{item.description || t("workspace.agentPlaceholder")}</p>
                   </div>
+                  <div className="agent-card-model">
+                    <span>{t("workspace.defaultModel")}</span>
+                    <strong title={item.provider?.id || item.model || undefined}>
+                      {item.provider?.id || item.model || t("workspace.noModel")}
+                    </strong>
+                  </div>
                   <div className="agent-card-footer">
-                    <span className="agent-kind">
-                      {item.subagent ? "Subagent" : "Agent"}
+                    <span className="agent-card-directory" title={item.workspace || t("workspace.defaultDirectory")}>
+                      <IconFolder />
+                      <span>{item.workspace || t("workspace.defaultDirectory")}</span>
                     </span>
                     <span>
                       <IconMessage />

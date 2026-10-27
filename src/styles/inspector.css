@@ -93,7 +93,7 @@
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--nav-divider);
-  border-radius: var(--r-xl) 0 0 var(--r-xl);
+  border-radius: 0;
   padding-bottom: var(--safe-bottom);
   background: var(--nav-bg);
 }

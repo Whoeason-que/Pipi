@@ -61,6 +61,7 @@ export function ThemeOption({
         <span>{theme.label}</span>
         <SelectionMark active={active} />
       </span>
+      <span className="theme-description">{theme.description}</span>
     </button>
   );
 }

@@ -101,7 +101,7 @@
   max-width: 70%;
   background: var(--hover-2);
   border: 0;
-  border-radius: var(--r-xl);
+  border-radius: var(--r-xl) var(--r-xl) var(--r-sm) var(--r-xl);
   padding: var(--space-3) var(--space-4);
 }
 
@@ -831,7 +831,8 @@ pre.code {
   isolation: isolate;
   margin: 0 auto;
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--r-xl);
+  box-shadow: var(--composer-shadow);
   background: transparent;
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
@@ -851,7 +852,7 @@ pre.code {
 }
 
 .composer-box:focus-within {
-  border-color: var(--line-2);
+  border-color: var(--accent-border);
 }
 
 .composer textarea {
@@ -1000,7 +1001,7 @@ pre.code {
 .chat-toolbar {
   flex-shrink: 0;
   gap: 12px;
-  border-bottom: 0;
+  border-bottom: 1px solid var(--line-soft);
   display: flex;
   align-items: center;
   position: relative;

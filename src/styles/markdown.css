@@ -30,7 +30,7 @@
 .md h4,
 .md h5,
 .md h6 {
-  margin: 18px 0 8px;
+  margin: 28px 0 12px;
   font-weight: 650;
   line-height: 1.4;
   color: var(--fg);
@@ -56,7 +56,7 @@
 }
 
 .md li {
-  margin: 3px 0;
+  margin: 5px 0;
 }
 
 .md a {
@@ -80,7 +80,8 @@
 
 /* 代码块容器：头部（语言 + 复制）由 Markdown.tsx 的 <Pre> 渲染 */
 .codeblock {
-  margin: 10px 0;
+  margin: 16px 0;
+  border: 1px solid var(--line-soft);
   border-radius: var(--r);
   background: var(--code-bg);
   overflow: hidden;
@@ -137,15 +138,18 @@
 }
 
 .md blockquote {
-  margin: 10px 0;
-  padding: 2px 14px;
-  border-left: 3px solid var(--line-2);
+  margin: 16px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--accent-border);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--stripe);
   color: var(--text);
 }
 
 .md table {
   border-collapse: collapse;
-  margin: 10px 0;
+  margin: 16px 0;
+  max-width: 100%;
   font-size: var(--text-md);
   display: block;
   overflow-x: auto;
@@ -153,15 +157,19 @@
 
 .md th,
 .md td {
-  border: 1px solid var(--line-2);
-  padding: 6px 12px;
+  border: 1px solid var(--line);
+  padding: 10px 14px;
+  vertical-align: top;
   text-align: left;
 }
 
 .md th {
   font-weight: 600;
   color: var(--fg);
+  background: var(--panel);
 }
+
+.md tbody tr:nth-child(even) { background: var(--stripe); }
 
 .md hr {
   border: none;

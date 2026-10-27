@@ -168,8 +168,8 @@
 
 .settings-main-head p {
   margin-top: 6px;
-  color: var(--faint);
-  font-size: var(--text-sm);
+  color: var(--muted);
+  font-size: var(--text-md);
   line-height: 1.7;
 }
 
@@ -186,9 +186,9 @@
   max-width: 760px;
   margin: 0 auto var(--space-6);
   padding: var(--space-6);
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  background: var(--panel);
+  background: var(--card);
 }
 
 .settings-block > .label {
@@ -207,7 +207,7 @@
 
 .theme-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
   gap: 14px;
 }
 
@@ -222,6 +222,7 @@
   flex: 1;
   min-width: 0;
   padding: 10px;
+  box-shadow: var(--card-shadow);
   border: 1px solid var(--line);
   border-radius: var(--r);
   background: var(--bg);
@@ -243,6 +244,22 @@
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent-text);
+}
+
+.theme-option {
+  display: flex;
+  flex-direction: column;
+}
+.theme-option .theme-preview,
+.theme-option .option-caption {
+  width: 100%;
+}
+.theme-description {
+  display: block;
+  margin: 6px 4px 4px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.65;
 }
 
 .option-caption {
