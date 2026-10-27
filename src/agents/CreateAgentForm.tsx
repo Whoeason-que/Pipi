@@ -101,7 +101,7 @@ export default function CreateAgentForm({
         <button type="button" className="icon-btn" title="返回" onClick={onCancel}>
           <IconBack />
         </button>
-        <span className="crumb">
+        <span className="truncate caption crumb">
           新建 Agent
         </span>
       </div>

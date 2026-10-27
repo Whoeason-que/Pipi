@@ -141,24 +141,24 @@ export default function ForumView() {
 
   return (
     <div className={`forum${rail.open ? " rail-open" : ""}`} style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
-      <div className="forum-main-shell">
+      <div className="content-pane forum-main-shell">
       <header className="workspace-toolbar">
         <NavigationToggle />
         <span className="toolbar-divider" />
         {composing ? (
-          <span className="forum-toolbar-title">新建主题</span>
+          <span className="truncate forum-toolbar-title">新建主题</span>
         ) : thread ? (
           <div className="forum-toolbar-thread">
-            <span className="forum-toolbar-title" title={thread.thread.title}>
+            <span className="truncate forum-toolbar-title" title={thread.thread.title}>
               {thread.thread.pinned ? "📌 " : ""}
               {thread.thread.title}
             </span>
-            <span className={`forum-status-tag ${thread.thread.status}`}>
+            <span className={`badge forum-status-tag ${thread.thread.status === "open" ? "ok" : "neutral"}`}>
               {thread.thread.status === "open" ? "进行中" : "已关闭"}
             </span>
           </div>
         ) : (
-          <span className="forum-toolbar-title">论坛</span>
+          <span className="truncate forum-toolbar-title">论坛</span>
         )}
         <span className="spacer" />
         <button
@@ -174,7 +174,7 @@ export default function ForumView() {
         {composing ? (
           <button
             type="button"
-            className="forum-btn forum-btn-ghost"
+            className="btn"
             onClick={cancelComposing}
           >
             取消
@@ -195,7 +195,7 @@ export default function ForumView() {
             </button>
             <button
               type="button"
-              className="forum-btn forum-btn-primary"
+              className="btn primary"
               onClick={startComposing}
             >
               <IconPlus />
@@ -222,7 +222,7 @@ export default function ForumView() {
       <div className="forum-main-content" ref={scrollerRef} onScroll={onScroller}>
         {composing ? (
           <div className="forum-content-container">
-            <div className="forum-compose-box">
+            <div className="surface forum-compose-box">
               <div className="forum-compose-head">
                 <h2>新建讨论主题</h2>
                 <p className="forum-compose-desc">
@@ -231,10 +231,11 @@ export default function ForumView() {
               </div>
 
               <div className="forum-field">
-                <label className="forum-field-label">主题标题</label>
+                <label className="forum-field-label" htmlFor="forum-title">主题标题</label>
                 <input
                   type="text"
-                  className="forum-input"
+                  id="forum-title"
+                  className="text-input"
                   placeholder="清晰简明的主题标题…"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
@@ -243,10 +244,11 @@ export default function ForumView() {
               </div>
 
               <div className="forum-field">
-                <label className="forum-field-label">标签（可选）</label>
+                <label className="forum-field-label" htmlFor="forum-tags">标签（可选）</label>
                 <input
                   type="text"
-                  className="forum-input"
+                  id="forum-tags"
+                  className="text-input"
                   placeholder="标签以逗号或空格分隔，例如：bug, refactor, discussion…"
                   value={newTags}
                   onChange={(e) => setNewTags(e.target.value)}
@@ -273,7 +275,7 @@ export default function ForumView() {
 
               <div className="forum-field">
                 <div className="forum-editor-header">
-                  <label className="forum-field-label">主题正文</label>
+                  <label className="forum-field-label" htmlFor="forum-body">主题正文</label>
                   <div className="forum-tabs">
                     <button
                       type="button"
@@ -295,7 +297,8 @@ export default function ForumView() {
                 {composeTab === "edit" ? (
                   <textarea
                     ref={composeTextareaRef}
-                    className="forum-textarea"
+                    id="forum-body"
+                    className="text-input forum-textarea"
                     placeholder="输入正文内容（支持 Markdown 语法与 @AgentName 提及）…"
                     value={newBody}
                     onChange={(e) => setNewBody(e.target.value)}
@@ -324,18 +327,18 @@ export default function ForumView() {
               </div>
 
               <div className="forum-compose-actions">
-                <span className="forum-kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发布</span>
+                <span className="caption forum-kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发布</span>
                 <span className="spacer" />
                 <button
                   type="button"
-                  className="forum-btn forum-btn-ghost"
+                  className="btn"
                   onClick={cancelComposing}
                 >
                   取消
                 </button>
                 <button
                   type="button"
-                  className="forum-btn forum-btn-primary"
+                  className="btn primary"
                   disabled={busy || !newTitle.trim() || !newBody.trim()}
                   onClick={() => void handlePublish()}
                 >
@@ -348,13 +351,13 @@ export default function ForumView() {
         ) : thread ? (
           <div className="forum-content-container">
             {/* 主题顶部信息卡片 */}
-            <div className="forum-thread-hero">
+            <div className="surface forum-thread-hero">
               <div className="forum-hero-top">
                 <h1 className="forum-hero-title">
                   {thread.thread.pinned && <span className="forum-hero-pin" title="置顶">📌 </span>}
                   {thread.thread.title}
                 </h1>
-                <span className={`forum-status-pill ${thread.thread.status}`}>
+                <span className={`badge forum-status-pill ${thread.thread.status === "open" ? "ok" : "neutral"}`}>
                   {thread.thread.status === "open" ? (
                     <>
                       <span className="status-dot-pulse" />
@@ -381,7 +384,7 @@ export default function ForumView() {
                         {isHuman ? <IconUser size={14} /> : isSubagent ? <IconSubagent /> : <IconAgent />}
                       </span>
                       <span className="forum-author-name">{thread.thread.author}</span>
-                      <span className="forum-role-tag">
+                      <span className="caption forum-role-tag">
                         {isHuman ? "用户" : isSubagent ? "Subagent" : "Agent"}
                       </span>
                     </div>
@@ -420,7 +423,7 @@ export default function ForumView() {
                 return (
                   <article
                     key={post.id}
-                    className={`forum-post-card${isOp ? " op" : ""}`}
+                    className={`surface forum-post-card${isOp ? " op" : ""}`}
                     id={`post-${post.seq}`}
                   >
                     <div className="forum-post-card-head">
@@ -431,11 +434,11 @@ export default function ForumView() {
                           {isHuman ? <IconUser size={14} /> : isSubagent ? <IconSubagent /> : <IconAgent />}
                         </span>
                         <span className="forum-post-author-name">{post.author}</span>
-                        {isSubagent && <span className="forum-role-tag">Subagent</span>}
+                        {isSubagent && <span className="caption forum-role-tag">Subagent</span>}
                         {isOp ? (
-                          <span className="forum-floor-tag op">#1 楼主</span>
+                          <span className="caption forum-floor-tag op">#1 楼主</span>
                         ) : (
-                          <span className="forum-floor-tag">#{post.seq}</span>
+                          <span className="caption forum-floor-tag">#{post.seq}</span>
                         )}
                         {post.via && post.via !== "other" && (
                           <span className={`forum-via-tag ${post.via}`}>
@@ -446,7 +449,7 @@ export default function ForumView() {
                       </div>
 
                       <div className="forum-post-actions-group">
-                        <span className="forum-post-time" title={formatFullTime(post.created)}>
+                        <span className="caption forum-post-time" title={formatFullTime(post.created)}>
                           {formatRelativeTime(post.created)}
                         </span>
                         {thread.thread.status !== "closed" && (
@@ -489,7 +492,7 @@ export default function ForumView() {
                   <span>此讨论主题已被设为关闭状态，不可追加回复。</span>
                 </div>
               ) : (
-                <div className="forum-reply-card">
+                <div className="surface forum-reply-card">
                   <div className="forum-reply-header">
                     <span className="forum-reply-title">发表回复</span>
                     <div className="forum-tabs">
@@ -513,7 +516,7 @@ export default function ForumView() {
                   {replyTab === "edit" ? (
                     <textarea
                       ref={replyTextareaRef}
-                      className="forum-reply-textarea"
+                      className="text-input forum-reply-textarea"
                       placeholder="写下你的回复…（支持 Markdown 语法与代码块，可用 @Agent 提及对应助手）"
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
@@ -549,12 +552,12 @@ export default function ForumView() {
                   )}
 
                   <div className="forum-reply-footer">
-                    <span className="forum-reply-hint">
+                    <span className="caption forum-reply-hint">
                       正文中写入 <code>@名字</code> 将通知该 Agent 参与协作 · <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发送
                     </span>
                     <button
                       type="button"
-                      className="forum-btn forum-btn-primary"
+                      className="btn primary"
                       disabled={busy || !replyText.trim()}
                       onClick={() => void handleSendReply()}
                     >
@@ -571,8 +574,8 @@ export default function ForumView() {
             <span className="forum-loading-text">正在加载主题讨论…</span>
           </div>
         ) : (
-          <div className="forum-empty-view">
-            <div className="forum-empty-icon">
+          <div className="empty-state forum-empty-view">
+            <div className="icon-tile forum-empty-icon">
               <IconForum />
             </div>
             <h3>欢迎使用本地论坛讨论区</h3>
@@ -581,7 +584,7 @@ export default function ForumView() {
             </p>
             <button
               type="button"
-              className="forum-btn forum-btn-primary"
+              className="btn primary"
               onClick={startComposing}
             >
               <IconPlus />

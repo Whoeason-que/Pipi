@@ -141,7 +141,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
                       className={`activity-dot${props.isConversationRunning(agent.name, session.id) ? " running" : ""}`}
                     />
                   </span>
-                  <span className="session-title">
+                  <span className="truncate session-title">
                     {session.title || "未命名会话"}
                   </span>
                 </button>
@@ -161,10 +161,10 @@ export default function AgentSidebar(props: AgentSidebarProps) {
                 />
               </div>
             ))}
-            {!sessions.length && <div className="sidebar-note">尚无会话</div>}
+            {!sessions.length && <div className="caption sidebar-note">尚无会话</div>}
             <button
               type="button"
-              className="archive-toggle"
+              className="caption archive-toggle"
               aria-expanded={Boolean(
                 props.archivedSessionsExpanded[agent.name],
               )}
@@ -186,7 +186,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
                   <span className="session-marker">
                     <span className="activity-dot" />
                   </span>
-                  <span className="session-title" title={session.title}>
+                  <span className="truncate session-title" title={session.title}>
                     {session.title}
                   </span>
                   <ActionMenu
@@ -215,7 +215,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
   return (
     <nav className="agents agent-sidebar" aria-label={`${group} 与会话`}>
       <section className="agent-sidebar-group">
-        <div className="sb-sec agent-group-heading">
+        <div className="caption sb-sec agent-group-heading">
           <button
             type="button"
             aria-expanded={!collapsed}
@@ -223,7 +223,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
           >
             <IconChevronRight expanded={!collapsed} />
             <span>{group}</span>
-            <span className="sb-count">{props.agents.length}</span>
+            <span className="caption sb-count">{props.agents.length}</span>
           </button>
           {!subagents && (
             <button
@@ -241,7 +241,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
           <>
             {props.agents.map(renderAgent)}
             {!props.agents.length && (
-              <div className="sidebar-note">
+              <div className="caption sidebar-note">
                 {t(
                   subagents
                     ? "workspace.subagentsEmpty"
@@ -256,7 +256,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
         <section className="agent-sidebar-group">
           <button
             type="button"
-            className="archive-toggle"
+            className="caption archive-toggle"
             aria-expanded={props.archivedOpen}
             onClick={props.onToggleArchivedOpen}
           >
@@ -269,7 +269,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
           {props.archivedOpen &&
             props.archivedAgents.map((agent) => (
               <div className="agent-row archived-agent" key={agent.name}>
-                <span className="session-title">{agent.name}</span>
+                <span className="truncate session-title">{agent.name}</span>
                 <ActionMenu
                   label={`已归档 Agent ${agent.name} 的操作`}
                   actions={[

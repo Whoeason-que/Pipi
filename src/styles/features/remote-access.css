@@ -1,0 +1,138 @@
+/* 远程访问配置、连接状态与登录。 */
+/* ============ 登录 ============ */
+
+.login-container {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.login-card {
+  width: min(420px, 100%);
+  padding: 28px 24px 22px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.wordmark-lg {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: 0.3px;
+}
+
+.login-desc {
+  margin-top: 8px;
+  font-size: var(--text-md);
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.login-input-wrap {
+  position: relative;
+}
+
+.login-input-wrap input {
+  width: 100%;
+  background: var(--chat-surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--fg);
+  font-size: var(--text-md);
+  padding: 9px 36px 9px 11px;
+  outline: 0;
+  transition: border-color 0.15s;
+}
+
+.login-input-wrap input:focus {
+  border-color: var(--line-2);
+}
+
+.login-toggle-pw {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  padding: 4px 6px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.login-error {
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+  font-size: var(--text-md);
+}
+
+.login-hint {
+  margin-top: 16px;
+  font-size: var(--text-sm);
+  color: var(--faint);
+  text-align: center;
+  line-height: 1.7;
+}
+
+.login-hint code {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.remote-access-panel { display: flex; flex-direction: column; gap: 20px; min-width: 0; max-width: 760px; margin: 0 auto; }
+
+.remote-access-panel .settings-block { width: 100%; margin: 0; }
+
+.remote-access-panel .badge.ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-border); }
+
+.remote-status-row,
+.remote-address-row,
+.remote-actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+
+.remote-address-row { padding: 12px 0; min-width: 0; }
+
+.remote-address-row .mono { overflow-wrap: anywhere; font-size: var(--text-sm); }
+
+.remote-config { display: flex; flex-direction: column; gap: 16px; }
+
+.remote-checkbox { display: flex; align-items: center; gap: 10px; font-size: var(--text-md); }
+
+.remote-checkbox input { width: 15px; height: 15px; accent-color: var(--accent); }
+
+.remote-actions { justify-content: flex-start; margin-top: 10px; }
+
+.remote-token { width: 100%; font-size: var(--text-sm); }
+
+.remote-rotate-confirm { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r); }
+
+.remote-rotate-confirm p { margin: 0; font-size: var(--text-md); }
+
+.remote-error { color: var(--danger); overflow-wrap: anywhere; font-size: var(--text-md); }

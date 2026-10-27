@@ -128,7 +128,7 @@ export default function ChatView({
   const [inspectorOpen, setInspectorOpen] = useState(
     () => isTest && (typeof window === "undefined" || window.innerWidth > 1100),
   );
-  // 检查器宽度可拖拽调节（窄屏抽屉模式下由媒体查询接管，见 responsive.css）
+  // 检查器宽度可拖拽调节（窄屏抽屉模式由 styles/components/panels.css 接管）。
   const inspectorResize = useResizableWidth({
     storageKey: isTest ? "agent-settings-width" : "inspector-width",
     initial: isTest ? 400 : 320,
@@ -412,7 +412,7 @@ export default function ChatView({
         } as React.CSSProperties
       }
     >
-      <div className="chat-main">
+      <div className="content-pane chat-main">
       <ChatToolbar
         agentName={agent.name}
         title={title}
@@ -463,7 +463,7 @@ export default function ChatView({
                       subagent={agent.subagent}
                       className="welcome-avatar"
                     />
-                    <span className="welcome-kicker">{agent.name}</span>
+                    <span className="caption welcome-kicker">{agent.name}</span>
                     <h2>
                       {locale === "en"
                         ? "What are we working on?"

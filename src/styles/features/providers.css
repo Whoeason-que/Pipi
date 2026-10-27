@@ -1,0 +1,302 @@
+/* 供应商配置、预设与模型绑定。 */
+
+.bind-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bind-row input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.bind-row select {
+  flex: 0 0 auto;
+  min-width: 150px;
+}
+
+/* 模型选择器：选项来自模型目录（react-select 封装，见 Select.tsx） */
+
+.bind-row .provider-picker {
+  flex: 0 1 210px;
+  min-width: 160px;
+}
+
+.bind-row .model-picker {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* ============ 提供商预设选择器 / 模型列表 ============ */
+
+.preset-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.preset-picker {
+  margin-top: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.preset-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.preset-picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.preset-banner {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+}
+
+.preset-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-banner-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.preset-banner .hint {
+  color: var(--muted);
+}
+
+.preset-banner .hint + .hint,
+.preset-banner > .hint {
+  margin-top: 4px;
+  display: block;
+}
+
+.settings-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.provider-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+}
+
+.provider-row.is-default {
+  border-color: var(--accent-border);
+}
+
+.provider-monogram {
+  display: grid;
+  place-items: center;
+  align-self: flex-start;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--stripe);
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.provider-row .info {
+  flex: 1;
+  min-width: 0;
+}
+
+.provider-row .p-name,
+.p-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.provider-row .p-name {
+  font-size: var(--text-md);
+  font-weight: 550;
+}
+
+.provider-row .p-url {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.p-badges {
+  margin-top: 10px;
+}
+
+.provider-row .badge {
+  padding: 1px 6px;
+  font-family: inherit;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.provider-row .provider-default {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+
+.provider-row .p-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.p-actions .link {
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: var(--text-xs);
+}
+
+.p-actions .link:hover {
+  background: var(--hover);
+}
+
+.settings-block .preset-actions {
+  gap: 10px;
+  padding-top: 18px;
+  flex-wrap: wrap;
+}
+
+.settings-block .preset-actions .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.provider-form {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+}
+
+.provider-form .grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.provider-form .actions {
+  position: sticky;
+  bottom: 0;
+  margin: 18px -18px -18px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--r) var(--r);
+  background: var(--bg);
+}
+
+@media (max-width: 860px) {
+
+  .provider-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .provider-row .p-actions {
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .preset-actions {
+    flex-wrap: wrap;
+  }
+
+  .preset-actions .spacer {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .provider-form .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-row .p-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+
+  .provider-row {
+    padding: 14px 12px;
+    gap: 10px;
+  }
+
+  .provider-monogram {
+    width: 28px;
+    height: 28px;
+    font-size: var(--text-body);
+  }
+
+  .provider-row .p-actions {
+    padding-top: 8px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .provider-form {
+    padding: 14px;
+  }
+
+  .provider-form .actions {
+    margin-inline: -14px;
+    margin-bottom: -14px;
+    padding-inline: 14px;
+  }
+
+  .bind-row {
+    align-items: stretch;
+  }
+
+  .bind-row input,
+.bind-row select,
+.bind-row .provider-picker,
+.bind-row .model-picker {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}

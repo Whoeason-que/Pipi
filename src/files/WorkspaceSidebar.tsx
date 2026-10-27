@@ -151,7 +151,7 @@ export function WorkspaceSidebar({
       {/* 顶部标题栏：VS Code 风格小字全大写与右侧工具栏 */}
       <div className="file-workbench-header scm-header-bar">
         <div className="workspace-sidebar-title scm-title">
-          <span className={`workspace-sidebar-icon ${mode}`}>
+          <span className={`icon-tile workspace-sidebar-icon ${mode}`}>
             {mode === "files" ? <IconFile /> : <IconGit />}
           </span>
           <div className="scm-title-text">
@@ -228,12 +228,12 @@ export function WorkspaceSidebar({
       ) : currentWorkspacePath ? (
         <div className="workspace-current-badge" title={currentWorkspacePath}>
           <IconFolder />
-          <span className="workspace-current-name">{currentWorkspaceName}</span>
+          <span className="truncate workspace-current-name">{currentWorkspaceName}</span>
         </div>
       ) : null}
 
       {!target ? (
-        <div className="workspace-sidebar-empty">
+        <div className="empty-state workspace-sidebar-empty">
           <IconFolder />
           <p>暂无可预览的工作区</p>
           <small>请先在工作区列表创建或关联工作区。</small>
@@ -265,8 +265,8 @@ export function WorkspaceSidebar({
               ) : activeRepo ? (
                 <div className="scm-branch-badge" title={`仓库路径：${activeRepo.path || "."}`}>
                   <IconGitBranch />
-                  <span className="scm-repo-name">{activeRepo.name}</span>
-                  {activeRepo.branch && <code className="scm-branch-name">{activeRepo.branch}</code>}
+                  <span className="truncate scm-repo-name">{activeRepo.name}</span>
+                  {activeRepo.branch && <code className="truncate scm-branch-name">{activeRepo.branch}</code>}
                 </div>
               ) : null}
             </div>
@@ -296,7 +296,7 @@ export function WorkspaceSidebar({
           </div>
 
           {mode === "files" && (
-            <label className="file-hidden">
+            <label className="caption file-hidden">
               <input
                 type="checkbox"
                 checked={view.showHidden}
@@ -337,7 +337,7 @@ export function WorkspaceSidebar({
                 {changes.error}
               </p>
             ) : !changes.value?.isRepo ? (
-              <div className="workspace-sidebar-empty scm-empty-guide">
+              <div className="empty-state workspace-sidebar-empty scm-empty-guide">
                 <IconGit />
                 <p>非 Git 仓库</p>
                 <small>当前工作区未检测到 Git 仓库。</small>
@@ -349,7 +349,7 @@ export function WorkspaceSidebar({
                 </div>
               </div>
             ) : !changes.value.files.length ? (
-              <div className="workspace-sidebar-empty scm-clean-state">
+              <div className="empty-state workspace-sidebar-empty scm-clean-state">
                 <IconGit />
                 <p>没有未提交的更改</p>
                 <small>工作区干净 (Working tree clean)。</small>
@@ -372,7 +372,7 @@ export function WorkspaceSidebar({
                         onClick={() => toggleGroup(group.id)}
                       >
                         <IconCaret expanded={!isCollapsed} />
-                        <span className="scm-group-title">{group.name}</span>
+                        <span className="truncate scm-group-title">{group.name}</span>
                         <span className="scm-count-pill">{group.files.length}</span>
                       </button>
                       {!isCollapsed && (
@@ -434,7 +434,7 @@ export function WorkspaceSidebar({
           ) : (
             <div className="scm-footer">
               <span className="scm-footer-base"><IconGitBranch /> HEAD <span>↔</span> 工作区</span>
-              <p className="file-sidebar-hint">已暂存与未暂存差异合并展示</p>
+              <p className="caption file-sidebar-hint">已暂存与未暂存差异合并展示</p>
               {clipboard.state === "failed" && <p className="file-error" role="status">{clipboard.label}</p>}
             </div>
           )}
@@ -489,11 +489,11 @@ function GitRow({
           <FileGlyph path={file.path} size="sm" />
         </span>
         <span className={`scm-row-label ${meta.tone}`}>
-          <span className="scm-filename">{name}</span>
-          {dir && <span className="scm-dirname">{dir}</span>}
+          <span className="truncate scm-filename">{name}</span>
+          {dir && <span className="truncate scm-dirname">{dir}</span>}
         </span>
         {multiRepo && file.repository && (
-          <span className="scm-repo-tag" title={`仓库：${file.repository}`}>
+          <span className="truncate scm-repo-tag" title={`仓库：${file.repository}`}>
             {file.repository}
           </span>
         )}
@@ -687,10 +687,10 @@ function GitTree({
                 <FileGlyph path={file.path} size="sm" />
               </span>
               <span className={`scm-row-label ${meta.tone}`}>
-                <span className="scm-filename">{node.name}</span>
+                <span className="truncate scm-filename">{node.name}</span>
               </span>
               {multiRepo && file.repository && (
-                <span className="scm-repo-tag" title={`仓库：${file.repository}`}>
+                <span className="truncate scm-repo-tag" title={`仓库：${file.repository}`}>
                   {file.repository}
                 </span>
               )}
@@ -801,7 +801,7 @@ function Directory({
                   <FileGlyph path={item.path} size="sm" />
                 </>
               )}
-              <span className="file-row-name">{item.name}</span>
+              <span className="truncate file-row-name">{item.name}</span>
               {!directory && <small>{formatSize(item.size)}</small>}
             </button>
             {expanded && (

@@ -11,7 +11,7 @@ export function RightRailEmpty({
   description?: ReactNode;
 }) {
   return (
-    <div className="right-rail-empty">
+    <div className="empty-state right-rail-empty">
       {icon}
       <strong>{title}</strong>
       {description ? <p>{description}</p> : null}

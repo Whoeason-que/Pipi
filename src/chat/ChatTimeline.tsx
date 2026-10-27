@@ -92,7 +92,7 @@ export default function ChatTimeline({
                     </div>
                     <div className="row-meta">
                       {entry.timestamp ? (
-                        <span className="time">{formatClock(entry.timestamp)}</span>
+                        <span className="caption time">{formatClock(entry.timestamp)}</span>
                       ) : null}
                       <CopyButton text={entry.text} />
                     </div>
@@ -135,10 +135,10 @@ export default function ChatTimeline({
                   {!entry.streaming && (
                     // 统计信息与时间、按钮同一行；时间与按钮靠右（hover 时淡入）
                     <div className="row-meta">
-                      {footer && <span className="hint meta-info">{footer}</span>}
+                      {footer && <span className="hint truncate meta-info">{footer}</span>}
                       <span className="spacer" />
                       {entry.timestamp ? (
-                        <span className="time">{formatClock(entry.timestamp)}</span>
+                        <span className="caption time">{formatClock(entry.timestamp)}</span>
                       ) : null}
                       {cleanText ? <CopyButton text={cleanText} /> : null}
                       {onFork ? (

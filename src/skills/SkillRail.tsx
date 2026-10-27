@@ -139,7 +139,7 @@ function Overview({ skill, current, verifyRows }: {
           const rows = verifyRows.filter((row) => row.contentHash === version.contentHash);
           const active = version.contentHash === skill.currentHash;
           return <div className={`right-rail-item${active ? " active" : ""}`} key={version.contentHash}>
-            <span className="mono right-rail-item-main" title={version.contentHash}>{shortHash(version.contentHash)}</span>
+            <span className="mono truncate right-rail-item-main" title={version.contentHash}>{shortHash(version.contentHash)}</span>
             {active && <small>当前</small>}
             {version.present ? <span className="tag ok">在</span> : <span className="tag error">缺失</span>}
             {rows.map((row) => <span key={`${row.status}:${row.actualHash ?? ""}`}
@@ -148,7 +148,7 @@ function Overview({ skill, current, verifyRows }: {
           </div>;
         })}
       </div>
-      <p className="right-rail-note">校验会重算 store 内容哈希；漂移需要重新安装来源才能消除。</p>
+      <p className="caption right-rail-note">校验会重算 store 内容哈希；漂移需要重新安装来源才能消除。</p>
     </section>
   </>;
 }
@@ -161,7 +161,7 @@ function Usage({ usage, usageError, busy, working, onToggle }: {
   onToggle: (agentName: string, enabled: boolean) => void;
 }) {
   if (usageError) return <p className="field-error">{usageError}</p>;
-  if (!usage) return <p className="right-rail-note">读取启用情况…</p>;
+  if (!usage) return <p className="caption right-rail-note">读取启用情况…</p>;
   if (usage.length === 0) return <RightRailEmpty title="还没有 Agent" description="创建 Agent 后可以在这里启用技能。" />;
   return <>
     <section className="right-rail-section">
@@ -169,7 +169,7 @@ function Usage({ usage, usageError, busy, working, onToggle }: {
       <div className="right-rail-list">
         {usage.map((row) => <div className="right-rail-item" key={row.agentName}>
           <span className="right-rail-avatar">{row.agentName.slice(0, 1).toUpperCase()}</span>
-          <span className="right-rail-item-main mono">{row.agentName}</span>
+          <span className="truncate right-rail-item-main mono">{row.agentName}</span>
           {row.enabled && row.status ? <span className={toneClass(AGENT_SKILL_STATUS_TONES[row.status])}
             title={row.filter ?? AGENT_SKILL_STATUS_HINTS[row.status]}>{AGENT_SKILL_STATUS_LABELS[row.status]}</span>
             : <small>未启用</small>}
@@ -180,7 +180,7 @@ function Usage({ usage, usageError, busy, working, onToggle }: {
         </div>)}
       </div>
     </section>
-    <p className="right-rail-note">启用会写入该 Agent 生效的最高声明层契约与同层 agent.lock，下一个会话启动时生效。</p>
+    <p className="caption right-rail-note">启用会写入该 Agent 生效的最高声明层契约与同层 agent.lock，下一个会话启动时生效。</p>
   </>;
 }
 

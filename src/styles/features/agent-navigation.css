@@ -1,0 +1,311 @@
+/* Agent 头像与身份颜色。 */
+.agent-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 41px;
+  height: 41px;
+  flex-shrink: 0;
+  border-radius: 12px;
+}
+
+.agent-avatar svg {
+  width: 21px;
+  height: 21px;
+}
+
+.avatar-blue {
+  background: var(--avatar-blue);
+  color: var(--avatar-blue-fg);
+}
+
+.avatar-teal {
+  background: var(--avatar-teal);
+  color: var(--avatar-teal-fg);
+}
+
+.avatar-amber {
+  background: var(--avatar-amber);
+  color: var(--avatar-amber-fg);
+}
+
+.avatar-rose {
+  background: var(--avatar-rose);
+  color: var(--avatar-rose-fg);
+}
+
+/* Agent 和会话导航条目、归档与后台运行入口。 */
+.agents {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.agent-sidebar {
+  --sidebar-marker-size: 23px;
+  min-height: 0;
+  padding: 0 9px 20px;
+}
+
+.agent-sidebar-group + .agent-sidebar-group {
+  margin-top: 24px;
+}
+
+.agent-group-heading {
+  height: 34px;
+  padding: 0 3px 7px 11px;
+  user-select: none;
+}
+
+.agent-group-heading > button:first-child {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  text-align: left;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.agent {
+  margin: 3px 0;
+}
+
+.agent-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 44px;
+  gap: 1px;
+  padding: 3px 4px 3px 8px;
+  border-radius: 8px;
+  transition: background 0.13s;
+}
+
+.agent-row:hover,
+.session:hover {
+  background: var(--hover);
+}
+
+.agent-row.selected {
+  color: var(--fg);
+  background: var(--accent-soft);
+}
+
+.agent-name {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.agent-name > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-name .sidebar-avatar {
+  width: var(--sidebar-marker-size);
+  height: var(--sidebar-marker-size);
+  border-radius: 7px;
+}
+
+.sidebar-avatar svg,
+.session-marker svg {
+  width: 14px;
+  height: 14px;
+}
+
+.agent-expand-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 27px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--faint);
+  background: transparent;
+  cursor: pointer;
+}
+
+.agent-expand-btn:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.agent-row-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.13s;
+}
+
+.agent-row:hover .agent-row-actions,
+.agent-row:focus-within .agent-row-actions,
+.session:hover > .more-trigger,
+.session:focus-within > .more-trigger {
+  opacity: 1;
+}
+
+.agent-row-actions .icon-btn {
+  width: 23px;
+  height: 26px;
+}
+
+.agent-row-actions .icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.sessions {
+  margin: 2px 0 7px;
+}
+
+.session {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  min-height: 38px;
+  gap: var(--space-2);
+  margin: 2px 0;
+  padding: 2px 4px 2px 8px;
+  border: 0;
+  border-radius: var(--r);
+  color: var(--muted);
+  background: none;
+}
+
+.session.active {
+  background: var(--accent-soft);
+}
+
+.session-link {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  padding: 3px 0;
+  border: 0;
+  color: var(--muted);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session.active .session-link,
+.archive-toggle:hover {
+  color: var(--fg);
+}
+
+.session-title {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.session-marker {
+  display: grid;
+  place-items: center;
+  flex: 0 0 var(--sidebar-marker-size);
+  width: var(--sidebar-marker-size);
+}
+
+.session > .more-trigger {
+  flex-shrink: 0;
+  width: 25px;
+  height: 25px;
+  opacity: 0;
+}
+
+.session.pending {
+  font-size: var(--text-sm);
+  color: var(--faint);
+}
+
+.archive-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.archive-toggle-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.archive-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.archived-agent {
+  padding-left: 10px;
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  /* 触屏没有 hover：侧栏里的归档/删除动作必须始终可见。 */
+
+  .agent-row,
+.session {
+    min-height: 38px;
+  }
+
+  .agent-row-actions,
+.session > .more-trigger {
+    opacity: 1;
+  }
+
+  .agent-row-actions .icon-btn,
+.agent-expand-btn,
+.session > .more-trigger {
+    width: 30px;
+    height: 32px;
+  }
+
+  .agent-row {
+    min-height: 42px;
+  }
+
+  .session {
+    min-height: 40px;
+  }
+
+  .agent-sidebar {
+    --sidebar-marker-size: 25px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .agent-row-actions,
+.session > .more-trigger { opacity: 1; }
+}

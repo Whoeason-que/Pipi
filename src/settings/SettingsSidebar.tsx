@@ -63,7 +63,7 @@ export default function SettingsSidebar({
       aria-label={t("settings.title")}
       aria-orientation="vertical"
     >
-      <span className="settings-nav-title">{t("settings.title")}</span>
+      <span className="caption settings-nav-title">{t("settings.title")}</span>
       {sections.map((id) => (
         <button
           key={id}

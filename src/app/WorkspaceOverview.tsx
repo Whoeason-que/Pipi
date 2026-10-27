@@ -45,7 +45,7 @@ function SessionActivity({
     minute: "2-digit",
   });
   return (
-    <div className="activity-list">
+    <div className="surface activity-list">
       {items.map(({ agent, session }) => {
         const active = running.has(sessionKey(agent.name, session.id));
         return (
@@ -55,7 +55,7 @@ function SessionActivity({
             className="activity-row"
             onClick={() => onSession(agent.name, session.id)}
           >
-            <span className={`activity-icon${active ? " running" : ""}`}>
+            <span className={`icon-tile activity-icon${active ? " running" : ""}`}>
               <IconMessage />
             </span>
             <span className="activity-name">
@@ -224,7 +224,7 @@ export default function WorkspaceOverview({
       </div>
 
       {agent && (
-        <section className="agent-facts" aria-label={t("workspace.agentInfo")}>
+        <section className="surface agent-facts" aria-label={t("workspace.agentInfo")}>
           <div>
             <span>{t("workspace.directory")}</span>
             <strong title={agent.workspace ?? undefined}>
@@ -268,7 +268,7 @@ export default function WorkspaceOverview({
               return (
                 <button
                   type="button"
-                  className="agent-card"
+                  className="surface surface-interactive agent-card"
                   key={item.name}
                   onClick={() => onAgent(item.name)}
                 >
@@ -279,7 +279,7 @@ export default function WorkspaceOverview({
                       <span>{item.subagent ? "Subagent" : "Agent"}</span>
                     </div>
                     <span
-                      className={`agent-card-state${active ? " running" : ""}`}
+                      className={`caption agent-card-state${active ? " running" : ""}`}
                     >
                       <i
                         className={`activity-dot${active ? " running" : ""}`}
@@ -299,7 +299,7 @@ export default function WorkspaceOverview({
                       {item.provider?.id || item.model || t("workspace.noModel")}
                     </strong>
                   </div>
-                  <div className="agent-card-footer">
+                  <div className="caption agent-card-footer">
                     <span className="agent-card-directory" title={item.workspace || t("workspace.defaultDirectory")}>
                       <IconFolder />
                       <span>{item.workspace || t("workspace.defaultDirectory")}</span>
@@ -389,7 +389,7 @@ export default function WorkspaceOverview({
           </div>
         )}
       </section>
-      <footer className="overview-footer">
+      <footer className="caption overview-footer">
         <span>
           {t("workspace.shortcutHint")} <kbd>Ctrl / ⌘ K</kbd>
         </span>

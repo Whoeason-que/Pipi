@@ -210,14 +210,14 @@ export default function Inspector({
     >
       {hideHeaderTabs ? (
         <div className="inspector-head">
-          <span className="inspector-heading-icon">
+          <span className="icon-tile inspector-heading-icon">
             <InspectorTabIcon tab={tab} />
           </span>
           <span className="inspector-heading">
             <span className="inspector-title" id={`inspector-heading-${tab}`}>
               {getInspectorTabLabel(tab)}
             </span>
-            <span className="inspector-subtitle">
+            <span className="truncate caption inspector-subtitle">
               {agent.name}
               {temporary ? " · 临时测试" : " · 当前会话"}
             </span>
@@ -277,8 +277,8 @@ export default function Inspector({
               onUnpin={onUnpinChip}
             />
           ) : (
-            <div className="detail-empty">
-              <span className="inspector-empty-icon">
+            <div className="empty-state detail-empty">
+              <span className="icon-tile inspector-empty-icon">
                 <InspectorTabIcon tab="detail" />
               </span>
               <strong>查看调用过程</strong>
@@ -305,7 +305,7 @@ export default function Inspector({
                       {Math.round(stats.contextPercent * 10) / 10}
                       <small>%</small>
                     </strong>
-                    <span className="context-usage mono">
+                    <span className="caption context-usage mono">
                       {formatTokens(stats.contextUsed)} /{" "}
                       {formatTokens(stats.contextMax)}
                     </span>
@@ -588,7 +588,7 @@ export default function Inspector({
                 </button>
               )}
             </div>
-            <div className="search-stats-bar">
+            <div className="caption search-stats-bar">
               <span className="search-stats-count">
                 {searchQuery.trim()
                   ? `共找到 ${searchHits.length} 条匹配`
@@ -604,17 +604,17 @@ export default function Inspector({
             onMouseLeave={() => onPreviewFind?.(null)}
           >
             {!searchQuery.trim() ? (
-              <div className="search-empty-state">
-                <span className="search-empty-icon">
+              <div className="empty-state search-empty-state">
+                <span className="icon-tile search-empty-icon">
                   <IconSearch />
                 </span>
                 <p className="search-empty-text">输入关键词检索当前会话消息</p>
-                <span className="search-empty-kbd">
+                <span className="caption search-empty-kbd">
                   <kbd>Enter</kbd> / <kbd>↓</kbd> 切换下一条
                 </span>
               </div>
             ) : searchHits.length === 0 ? (
-              <div className="search-empty-state">
+              <div className="empty-state search-empty-state">
                 <p className="search-empty-text">
                   未找到与 “{searchQuery}” 相关的消息
                 </p>
@@ -638,7 +638,7 @@ export default function Inspector({
                         {hit.role === "user" ? "用户" : "助手"}
                       </span>
                       {hit.timestamp ? (
-                        <span className="search-hit-time">
+                        <span className="caption search-hit-time">
                           {formatClock(hit.timestamp)}
                         </span>
                       ) : null}

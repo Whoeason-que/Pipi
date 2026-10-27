@@ -115,11 +115,11 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
       >
         <span className="tool-name">{toolName}</span>
         {summary && (
-          <span className="tool-cmd" title={summary}>
+          <span className="truncate tool-cmd" title={summary}>
             {summary}
           </span>
         )}
-        <span className="tool-meta">
+        <span className="caption tool-meta">
           {running ? (
             <span className="run">● 运行中</span>
           ) : failed ? (
@@ -135,12 +135,12 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
         <div className="tool-body">
           {argsText && (
             <div className="tpane">
-              <div className="plabel">参数</div>
+              <div className="caption plabel">参数</div>
               <pre className="code">{argsText}</pre>
             </div>
           )}
           <div className={`tpane${argsText ? "" : " full"}`}>
-            <div className="plabel">输出</div>
+            <div className="caption plabel">输出</div>
             {hasDiff ? (
               <pre className="code">
                 {details!.diff!.split("\n").map((line, index) => {
@@ -201,7 +201,7 @@ export function ChipDetailPane({
     <div className="detail-pane">
       <div className="tool-detail-head">
         <span className={`detail-name chip-${chip.status}`}>{chip.name}</span>
-        <span className="detail-mode">{mode === "preview" ? "预览" : "已固定"}</span>
+        <span className="caption detail-mode">{mode === "preview" ? "预览" : "已固定"}</span>
         <span className="spacer" />
         {canUnpin && (
           <button
@@ -221,7 +221,7 @@ export function ChipDetailPane({
         ) : entry ? (
           <ToolResultCard entry={entry} />
         ) : (
-          <div className="detail-empty">该条目的记录已不在当前会话中。</div>
+          <div className="empty-state detail-empty">该条目的记录已不在当前会话中。</div>
         )}
       </div>
     </div>

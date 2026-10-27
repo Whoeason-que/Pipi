@@ -68,7 +68,7 @@ export function WorkspacesView({
 
   return (
     <div className="workspaces-view" style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
-      <div className="workspaces-main">
+      <div className="content-pane workspaces-main">
       <header className="workspace-toolbar">
         <NavigationToggle />
         <span className="toolbar-divider" />
@@ -100,8 +100,8 @@ export function WorkspacesView({
         {isAll ? (
           // ================= 全部工作区视图 =================
           <div className="workspaces-all-container">
-            <div className="workspaces-hero-card">
-              <div className="workspaces-hero-icon-all">
+            <div className="surface workspaces-hero-card">
+              <div className="icon-tile workspaces-hero-icon-all">
                 <IconHome />
               </div>
               <div className="workspaces-hero-content">
@@ -146,16 +146,16 @@ export function WorkspacesView({
                   );
                   const name = w.name || getWorkspaceBasename(w.path);
                   return (
-                    <div key={w.path} className="workspace-card">
+                    <div key={w.path} className="surface workspace-card">
                       <div className="workspace-card-head">
                         <div className="workspace-card-icon">
                           <IconFolder />
                         </div>
                         <div className="workspace-card-titles">
-                          <h4 className="workspace-card-name" title={name}>
+                          <h4 className="truncate workspace-card-name" title={name}>
                             {name}
                           </h4>
-                          <span className="workspace-card-path" title={w.path}>
+                          <span className="truncate caption workspace-card-path" title={w.path}>
                             {w.path}
                           </span>
                         </div>
@@ -178,13 +178,13 @@ export function WorkspacesView({
                               </span>
                             ))}
                             {wAgents.length > 4 && (
-                              <span className="workspace-card-agent-more">
+                              <span className="caption workspace-card-agent-more">
                                 +{wAgents.length - 4}
                               </span>
                             )}
                           </div>
                         ) : (
-                          <span className="workspace-card-empty-agents">
+                          <span className="caption workspace-card-empty-agents">
                             暂无关联 Agent
                           </span>
                         )}
@@ -217,8 +217,8 @@ export function WorkspacesView({
         ) : (
           // ================= 单个工作区视图 =================
           <div className="workspace-detail-container">
-            <div className="workspaces-hero-card">
-              <div className="workspaces-hero-icon">
+            <div className="surface workspaces-hero-card">
+              <div className="icon-tile workspaces-hero-icon">
                 <IconFolder />
               </div>
               <div className="workspaces-hero-content">
@@ -300,7 +300,7 @@ export function WorkspacesView({
               </div>
 
               {workspaceAgents.length === 0 ? (
-                <div className="workspace-empty-card">
+                <div className="empty-state workspace-empty-card">
                   <p>当前工作区下还没有关联任何 Agent。</p>
                   <button
                     type="button"
@@ -314,12 +314,12 @@ export function WorkspacesView({
               ) : (
                 <div className="workspaces-agents-grid">
                   {workspaceAgents.map((agent) => (
-                    <div key={agent.name} className="workspace-agent-card">
+                    <div key={agent.name} className="surface workspace-agent-card">
                       <div className="workspace-agent-header">
                         <AgentAvatar name={agent.name} subagent={agent.subagent} />
                         <div className="workspace-agent-info">
-                          <h4 className="workspace-agent-name">{agent.name}</h4>
-                          <span className="workspace-agent-model">
+                          <h4 className="truncate workspace-agent-name">{agent.name}</h4>
+                          <span className="truncate workspace-agent-model">
                             {agent.model ?? "默认模型"}
                           </span>
                         </div>

@@ -34,12 +34,12 @@ export default function CommandPalette({ items, onChoose, onClose }: {
         {results.map((item, position) => <div key={item.id} id={`${id}-${position}`} role="option"
           aria-selected={selected === position} className={`palette-item${selected === position ? " selected" : ""}`}
           onMouseEnter={() => setIndex(position)} onClick={() => choose(item)}>
-          <span className="palette-kind">{item.target.kind === "agent" ? "Agent" : item.target.kind === "chat" ? "会话" : "操作"}</span>
+          <span className="caption palette-kind">{item.target.kind === "agent" ? "Agent" : item.target.kind === "chat" ? "会话" : "操作"}</span>
           <span><b>{item.label}</b><small>{item.detail}</small></span><span className="palette-return">↵</span>
         </div>)}
         {!results.length && <div className="palette-empty">没有匹配结果，试试其他关键词。</div>}
       </div>
-      <div className="palette-footer"><span>↑ ↓ 选择</span><span>Enter 打开</span><span>Esc 关闭</span></div>
+      <div className="caption palette-footer"><span>↑ ↓ 选择</span><span>Enter 打开</span><span>Esc 关闭</span></div>
     </div>
   </div>;
 }

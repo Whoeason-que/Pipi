@@ -121,7 +121,7 @@ export function AgentSkillsTab({ agentName, onError, onChanged }: AgentSkillsTab
   return (
     <section className="settings-section agent-skills">
       <div className="agent-skills-overview">
-        <span className="agent-skills-overview-icon"><IconSkill /></span>
+        <span className="icon-tile agent-skills-overview-icon"><IconSkill /></span>
         <div>
           <strong>{view.declared.length > 0 ? `${view.declared.length} 个技能已启用` : "尚未启用技能"}</strong>
           <p>技能内容来自全局 store；这里只管理当前 Agent 的声明与解析锁。</p>

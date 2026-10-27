@@ -37,7 +37,7 @@ export function WorkspaceView({ state, sessions, canReference, defaultSession, o
   const remember = useCallback((top: number) => { if (view.selected) store?.rememberScroll(view.selected, top); }, [store, view.selected]);
 
   return <div className={`file-workbench workspace-files-page${mode === "git" ? " workspace-git-page" : ""}`} style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
-    <div className="workspace-main">
+    <div className="content-pane workspace-main">
     <header className="workspace-files-toolbar">
       <NavigationToggle />
       <div className="workspace-mode-switch" role="tablist" aria-label="工作区视图">
@@ -65,8 +65,8 @@ export function WorkspaceView({ state, sessions, canReference, defaultSession, o
     </header>
     <div className="workspace-page-body">
     {target && mode === "git" && changes.value?.isRepo === false
-      ? <div className="file-preview-empty workspace-state">
-        <span className="file-empty-icon"><IconGit /></span>
+      ? <div className="empty-state file-preview-empty workspace-state">
+        <span className="icon-tile file-empty-icon"><IconGit /></span>
         <strong>此工作区不属于 Git 仓库</strong>
         <p>初始化 Git 或在项目根目录创建 <code>pipi.toml</code> 声明子仓库后，改动会显示在这里。</p>
         <button type="button" className="btn" onClick={() => onModeChange?.("files")}><IconFile /> 浏览文件</button>
@@ -93,8 +93,8 @@ export function WorkspaceView({ state, sessions, canReference, defaultSession, o
           <option value="null">新会话草稿</option>
           {sessions.map(session => <option key={session.id} value={JSON.stringify(session.id)}>{session.title || session.id}</option>)}
         </select>
-      </label> : undefined} /> : <div className="file-preview-empty workspace-state">
-        <span className="file-empty-icon"><IconFile /></span>
+      </label> : undefined} /> : <div className="empty-state file-preview-empty workspace-state">
+        <span className="icon-tile file-empty-icon"><IconFile /></span>
         <strong>暂无可预览的工作区</strong>
         <p>请先在工作区列表创建或选择一个工作区。Agent 的工作区也可以直接在这里浏览。</p>
       </div>}

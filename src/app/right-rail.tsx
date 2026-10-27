@@ -135,7 +135,7 @@ export function RightRail({
       aria-label={label}
     >
       <header className="right-rail-head">
-        {icon && <span className="right-rail-head-icon">{icon}</span>}
+        {icon && <span className="icon-tile right-rail-head-icon">{icon}</span>}
         <div className="right-rail-heading">
           <strong>{label}</strong>
           {subtitle && <small>{subtitle}</small>}
@@ -149,7 +149,7 @@ export function RightRail({
         <div className="right-rail-tabs" role="tablist" aria-label={`${label}内容`}>
           {tabs.map((tab) => (
             <button key={tab.id} type="button" role="tab" aria-selected={tab.id === selected?.id}
-              className={`right-rail-tab${tab.id === selected?.id ? " active" : ""}`}
+              className={`caption right-rail-tab${tab.id === selected?.id ? " active" : ""}`}
               onClick={() => changeTab(tab.id)}>
               {tab.icon}{tab.label}{tab.badge !== undefined && <span className="right-rail-badge">{tab.badge}</span>}
             </button>

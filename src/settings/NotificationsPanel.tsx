@@ -26,7 +26,7 @@ export default function NotificationsPanel({ settings, onChange }: { settings: N
     catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   };
-  return <section className="settings-block">
+  return <section className="surface settings-block">
     <span className="label">{t("notifications.thisDevice")}</span>
     <p className="hint">{t(desktop ? "notifications.desktopHint" : "notifications.webHint")}</p>
     {desktop ? <label className="ios-toggle settings-toggle">

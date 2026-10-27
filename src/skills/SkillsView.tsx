@@ -108,10 +108,10 @@ export function SkillsView({
 
   return (
     <div className="screen skills-screen" style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
-      <div className="skills-main">
+      <div className="content-pane skills-main">
       <div className="screen-bar">
         <NavigationToggle />
-        <span className="crumb">
+        <span className="truncate caption crumb">
           技能库 · <b>{library?.storePath ?? "~/.av/skills"}</b>
         </span>
         <span className="spacer" />
@@ -154,8 +154,8 @@ export function SkillsView({
             </div>
           )}
           {!library ? (
-            <div className="empty compact-empty skills-loading">
-              <span className="skills-hero-icon"><IconSkill /></span>
+            <div className="empty-state empty compact-empty skills-loading">
+              <span className="icon-tile skills-hero-icon"><IconSkill /></span>
               <h2>{loadError ? "读取技能 store 失败" : "正在读取全局技能 store…"}</h2>
               {loadError && <p>{loadError}</p>}
               <p>位置：~/.av/skills（AV_HOME 可覆盖）</p>
@@ -165,8 +165,8 @@ export function SkillsView({
             </div>
           ) : (
             <>
-              <header className="skills-hero skills-overview-hero">
-                <span className="skills-hero-icon"><IconSkill /></span>
+              <header className="surface skills-hero skills-overview-hero">
+                <span className="icon-tile skills-hero-icon"><IconSkill /></span>
                 <div className="skills-hero-copy">
                   <h2>全局技能 store</h2>
                   <p className="mono">{library.storePath}</p>
@@ -197,8 +197,8 @@ export function SkillsView({
               </div>
 
               {library.skills.length === 0 ? (
-                <div className="skills-empty">
-                  <span className="skills-hero-icon"><IconDownload /></span>
+                <div className="empty-state skills-empty">
+                  <span className="icon-tile skills-hero-icon"><IconDownload /></span>
                   <h2>store 里还没有技能</h2>
                   <p>从 GitHub 短名（owner/repo）、git URL 或本地目录安装第一个技能。</p>
                   <button type="button" className="btn primary" onClick={() => setInstallOpen(true)} disabled={busy}>
@@ -208,7 +208,7 @@ export function SkillsView({
               ) : (
                 <section className="skills-panel">
                   <div className="skills-panel-head">
-                    <h3 className="skills-sub">已安装技能 <span>{library.skills.length}</span></h3>
+                    <h3 className="caption skills-sub">已安装技能 <span>{library.skills.length}</span></h3>
                     <span className="dim">
                       {skillName ? `正在查看 ${skillName}，详情在右侧` : "选择卡片查看版本、来源与启用它的 Agent"}
                     </span>
@@ -286,14 +286,14 @@ function SkillCard({ skill, active, onSelect }: { skill: StoreSkill; active: boo
   const current = currentVersion(skill);
   const healthy = !!current?.present;
   return (
-    <button type="button" className={`skills-card${active ? " active" : ""}`} aria-pressed={active} onClick={onSelect}>
+    <button type="button" className={`surface surface-interactive skills-card${active ? " active" : ""}`} aria-pressed={active} onClick={onSelect}>
       <div className="skills-card-head">
-        <span className="skills-card-icon"><IconSkill /></span>
-        <span className="skills-card-name mono">{skill.name}</span>
+        <span className="icon-tile skills-card-icon"><IconSkill /></span>
+        <span className="truncate skills-card-name mono">{skill.name}</span>
         <span className={`skill-dot ${healthy ? "ok" : "error"}`} title={healthy ? "当前版本内容在" : "当前版本内容缺失"} />
       </div>
       <p className="skills-card-desc">{skill.description ?? "（SKILL.md 没有可读描述）"}</p>
-      <div className="skills-card-foot">
+      <div className="caption skills-card-foot">
         <span className="mono" title={skill.source}>{sourceLabel(skill.source, skill.sourceType)}</span>
         <span>{skill.versions.length} 个版本</span>
         <span className="mono">{shortHash(skill.currentHash)}</span>

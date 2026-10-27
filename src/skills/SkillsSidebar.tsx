@@ -35,10 +35,10 @@ export function SkillsSidebar({
 
   return (
     <>
-      <div className="sb-sec skills-heading">
+      <div className="caption sb-sec skills-heading">
         <span>技能库</span>
         <span className="spacer" />
-        <span className="sb-count">{skills.length}</span>
+        <span className="caption sb-count">{skills.length}</span>
         <button
           type="button"
           className="icon-btn"
@@ -87,16 +87,16 @@ export function SkillsSidebar({
               aria-current={selected === skill.name ? "true" : undefined}
               onClick={() => onSelect(selected === skill.name ? null : skill.name)}
             >
-              <span className="skills-item-icon"><IconSkill /></span>
+              <span className="icon-tile skills-item-icon"><IconSkill /></span>
               <span className="skills-item-body">
-                <span className="search-item-name">
+                <span className="truncate search-item-name">
                   {skill.name}
                   {missing && <span className="skill-dot error" title="当前版本内容缺失" />}
                 </span>
-                <span className="search-item-meta">
+                <span className="truncate caption search-item-meta">
                   {sourceLabel(skill.source, skill.sourceType, current?.revision ?? null)}
                 </span>
-                <span className="skills-item-foot">
+                <span className="caption skills-item-foot">
                   <span className="mono">{shortHash(skill.currentHash)}</span>
                   <span>{skill.versions.length} 个版本</span>
                 </span>

@@ -292,11 +292,11 @@ export default function AgentWorkbench({
           >
             <IconBack />
           </button>
-          <span className="crumb">
+          <span className="truncate caption crumb">
             Agent 工作台 · <b>{agent.name}</b>
           </span>
         </div>
-        <div className="empty compact-empty">
+        <div className="empty-state empty compact-empty">
           <h2>{testLoadError ? "临时测试初始化失败" : "正在准备临时测试…"}</h2>
           {testLoadError && <p>{testLoadError}</p>}
           {testLoadError && (
@@ -622,7 +622,7 @@ export default function AgentWorkbench({
 
           {(settingsTab === "basic" || settingsTab === "permissions") && (
             <div className="agent-settings-footer">
-              <div className="save-state">
+              <div className="truncate caption save-state">
                 {context.running
                   ? "测试运行中，请先停止"
                   : configurationDirty

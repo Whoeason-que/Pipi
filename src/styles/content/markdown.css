@@ -1,9 +1,4 @@
-/* ============================================================
-   Markdown 渲染 + 代码高亮
-   - 正文 16px/1.8，工具日志保留独立的紧凑字号
-   - 代码块两个主题都是深底（ChatGPT 做法），hljs 只需一套配色
-   ============================================================ */
-
+/* Markdown 正文、代码块与语法高亮。 */
 .md {
   font-size: var(--text-prose);
   line-height: 1.8;
@@ -39,9 +34,11 @@
 .md h1 {
   font-size: 22px;
 }
+
 .md h2 {
   font-size: 19px;
 }
+
 .md h3,
 .md h4,
 .md h5,
@@ -69,6 +66,7 @@
 }
 
 /* 行内 code：无实体边框，浅灰底（ChatGPT --gray-100 口径） */
+
 .md code {
   font-family: var(--font-mono);
   font-size: 0.85em;
@@ -79,6 +77,7 @@
 }
 
 /* 代码块容器：头部（语言 + 复制）由 Markdown.tsx 的 <Pre> 渲染 */
+
 .codeblock {
   margin: 16px 0;
   border: 1px solid var(--line-soft);

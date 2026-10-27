@@ -1,7 +1,4 @@
-/* ============================================================
-   基础：reset / 全局排版 / 滚动条 / 焦点
-   ============================================================ */
-
+/* 全局重置、基础排版、滚动条、焦点与无障碍偏好。 */
 * {
   margin: 0;
   padding: 0;
@@ -42,8 +39,13 @@ button {
 }
 
 button:disabled { cursor: not-allowed; }
-input::placeholder, textarea::placeholder { color: var(--faint); opacity: 1; }
-input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+
+input::placeholder,
+textarea::placeholder { color: var(--faint); opacity: 1; }
+
+input[type="checkbox"],
+input[type="radio"] { accent-color: var(--accent); }
+
 [aria-busy="true"] { cursor: progress; }
 
 .mono {
@@ -55,6 +57,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 }
 
 /* 小号等宽提示文字（composer / 表单 / 消息脚注共用） */
+
 .hint {
   font-size: var(--text-xs);
   color: var(--faint);
@@ -66,16 +69,19 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   width: 9px;
   height: 9px;
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--line-2);
   border: 2px solid transparent;
   background-clip: content-box;
   border-radius: 5px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--faint);
   background-clip: content-box;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
@@ -106,61 +112,34 @@ kbd {
   color: var(--fg);
 }
 
-.activity-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--faint);
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+
+  *,
+*::before,
+*::after {
+    scroll-behavior: auto !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
-.activity-dot.running {
-  background: var(--ok);
-  box-shadow: 0 0 0 3px var(--ok-soft);
+/* 共享动画定义；使用处的尺寸、颜色与时长由功能样式拥有。 */
+@keyframes control-spin {
+  to { transform: rotate(360deg); }
 }
 
-.disclosure-chevron {
-  display: block;
-  flex-shrink: 0;
-  transform-origin: center;
-  transition: transform 0.16s;
-}
+@keyframes pipi-pulse {
+  0%,
+100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 
-.disclosure-chevron.open {
-  transform: rotate(90deg);
-}
-
-.agent-avatar {
-  display: inline-grid;
-  place-items: center;
-  width: 41px;
-  height: 41px;
-  flex-shrink: 0;
-  border-radius: 12px;
-}
-
-.agent-avatar svg {
-  width: 21px;
-  height: 21px;
-}
-
-.avatar-blue {
-  background: var(--avatar-blue);
-  color: var(--avatar-blue-fg);
-}
-
-.avatar-teal {
-  background: var(--avatar-teal);
-  color: var(--avatar-teal-fg);
-}
-
-.avatar-amber {
-  background: var(--avatar-amber);
-  color: var(--avatar-amber-fg);
-}
-
-.avatar-rose {
-  background: var(--avatar-rose);
-  color: var(--avatar-rose-fg);
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
 }

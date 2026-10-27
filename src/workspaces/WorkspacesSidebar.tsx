@@ -53,10 +53,10 @@ export function WorkspacesSidebar({
 
   return (
     <>
-      <div className="sb-sec workspaces-heading">
+      <div className="caption sb-sec workspaces-heading">
         <span>工作区</span>
         <span className="spacer" />
-        <span className="sb-count">{workspaces.length}</span>
+        <span className="caption sb-count">{workspaces.length}</span>
         <button
           type="button"
           className="icon-btn"
@@ -101,19 +101,19 @@ export function WorkspacesSidebar({
             aria-selected={isAll}
             onClick={() => handleSelect("all")}
           >
-            <span className="workspaces-nav-icon">
+            <span className="icon-tile workspaces-nav-icon">
               <IconHome />
             </span>
             <div className="workspaces-nav-info">
               <div className="workspaces-nav-title-row">
-                <span className="workspaces-nav-name">全部工作区 (All)</span>
+                <span className="truncate workspaces-nav-name">全部工作区 (All)</span>
                 {isAll && (
                   <span className="workspaces-nav-check" title="当前已选择">
                     <IconCheck />
                   </span>
                 )}
               </div>
-              <span className="workspaces-nav-sub">显示全部 {totalAgentsCount} 个 Agent</span>
+              <span className="truncate workspaces-nav-sub">显示全部 {totalAgentsCount} 个 Agent</span>
             </div>
           </div>
         )}
@@ -131,12 +131,12 @@ export function WorkspacesSidebar({
               aria-selected={isSelected}
               onClick={() => handleSelect(w.path)}
             >
-              <span className="workspaces-nav-icon">
+              <span className="icon-tile workspaces-nav-icon">
                 <IconFolder />
               </span>
               <div className="workspaces-nav-info">
                 <div className="workspaces-nav-title-row">
-                  <span className="workspaces-nav-name" title={displayName}>
+                  <span className="truncate workspaces-nav-name" title={displayName}>
                     {displayName}
                   </span>
                   <span className="workspaces-nav-badge">{w.agentCount}</span>
@@ -160,7 +160,7 @@ export function WorkspacesSidebar({
                     </button>
                   )}
                 </div>
-                <span className="workspaces-nav-sub" title={w.path}>
+                <span className="truncate workspaces-nav-sub" title={w.path}>
                   {w.path}
                 </span>
 
@@ -172,7 +172,7 @@ export function WorkspacesSidebar({
                     {onViewAgents && (
                       <button
                         type="button"
-                        className="workspaces-inline-btn"
+                        className="btn small"
                         onClick={() => {
                           closeNavigation();
                           onViewAgents();
@@ -184,7 +184,7 @@ export function WorkspacesSidebar({
                     {onCreateAgent && (
                       <button
                         type="button"
-                        className="workspaces-inline-btn primary"
+                        className="btn small primary"
                         onClick={() => {
                           closeNavigation();
                           onCreateAgent(w.path);

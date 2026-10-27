@@ -1,0 +1,449 @@
+/* Agent 配置、权限、压缩选项与测试工作台。 */
+/* ============ Agent 详情 / 新建 Agent ============ */
+
+.detail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* 工具栏之后的独立内容区。 */
+  padding-top: 14px;
+}
+
+.drow {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 16px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--line-soft);
+  font-size: var(--text-md);
+  align-items: start;
+}
+
+.drow .k {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--faint);
+  padding-top: 1px;
+}
+
+.drow .v {
+  color: var(--text);
+  line-height: 1.65;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.drow .v .sub {
+  display: block;
+  margin-top: 3px;
+  font-size: var(--text-sm);
+  color: var(--faint);
+}
+
+.drow .v .hint {
+  margin-top: 4px;
+  display: block;
+}
+
+/* ============ Agent 详情：元信息编辑器 ============ */
+
+.meta-editor {
+  min-height: 0;
+  resize: vertical;
+}
+
+/* ============ Agent 工作台：临时测试提示 ============ */
+
+.test-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  color: var(--muted);
+  background: var(--stripe);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.test-mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.test-mode-dot.running {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+  animation: pipi-pulse 1.2s ease-in-out infinite;
+}
+
+.test-model {
+  max-width: 24ch;
+}
+
+.test-clear {
+  white-space: nowrap;
+}
+
+.test-settings-toggle.active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.test-safety-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  margin: 0 auto 8px;
+  line-height: 1.45;
+}
+
+.test-safety-note > span {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-full);
+  color: var(--warn);
+  background: var(--warn-soft);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+
+/* Agent 工作台设置栏：宽屏常驻，沿用会话检查器的拖宽与抽屉外壳。 */
+
+.agent-settings-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  background: transparent;
+}
+
+.agent-settings-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+}
+
+.agent-settings-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 22px 20px 18px;
+}
+
+.agent-settings-head .agent-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+
+.agent-settings-head .agent-avatar svg {
+  width: 21px;
+  height: 21px;
+}
+
+.agent-settings-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-settings-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--text-prose);
+  font-weight: 650;
+}
+
+.agent-settings-title > .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-settings-head .sub {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dirty-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-full);
+  color: var(--warn);
+  background: var(--warn-soft);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.agent-settings-tabs {
+  display: grid;
+  flex-shrink: 0;
+  /* 列数跟随标签数（基础 / 权限 / 技能 / 文件 / 测试…），永不换行 */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+  margin: 0 16px;
+  padding: 4px;
+  background: var(--stripe);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.agent-settings-tabs button {
+  min-width: 0;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.agent-settings-tabs button:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.agent-settings-tabs button.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.agent-settings-body {
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.agent-settings-panel .hint {
+  line-height: 1.55;
+}
+
+.compact-threshold-field .inline-value input {
+  width: 88px;
+}
+
+.agent-settings-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px calc(10px + var(--safe-bottom));
+  border-top: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.save-state {
+  min-width: 0;
+}
+
+.agent-settings-footer .btn {
+  flex-shrink: 0;
+}
+
+.agent-workbench-loading .compact-empty {
+  padding-top: 72px;
+}
+
+@media (max-width: 1100px) {
+  .test-workbench .agent-settings-inspector {
+    width: min(420px, 92vw);
+  }
+
+  .agent-settings-head {
+    padding-right: 54px;
+  }
+}
+
+@media (max-width: 860px) {
+  .agent-settings-panel input:not([type="checkbox"]):not([type="radio"]),
+.agent-settings-panel textarea {
+    font-size: 16px;
+  }
+
+  .drow {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .drow {
+    padding-inline: 14px;
+  }
+
+  .test-workbench .test-model {
+    display: none;
+  }
+
+  .test-workbench .test-mode-pill {
+    padding-inline: 8px;
+  }
+
+  .test-safety-note {
+    align-items: flex-start;
+    font-size: var(--text-xs);
+  }
+}
+
+@media (max-width: 720px) {
+
+  .agent-settings-footer {
+    align-items: stretch;
+  }
+
+  .agent-settings-footer .btn {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 520px) {
+  .agent-settings-head {
+    padding: 14px 54px 14px 14px;
+  }
+
+  .agent-settings-footer {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .agent-settings-footer .save-state {
+    white-space: normal;
+  }
+
+  .agent-settings-footer .btn {
+    width: 100%;
+  }
+
+  .test-workbench .screen-bar {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .test-workbench .test-mode-pill {
+    font-size: 0;
+    width: 26px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .test-workbench .test-clear {
+    width: auto;
+    min-width: 0;
+    padding-inline: 8px;
+    font-size: var(--text-xs);
+  }
+
+  .agent-settings-tabs {
+    margin-inline: 8px;
+  }
+
+  .test-model {
+    max-width: 18ch;
+  }
+}
+
+/* Agent 指令与记忆文件的编辑。 */
+/* ============ Agent 文件编辑器（AGENTS.md / memory）============ */
+
+.file-editor-row .v {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.file-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.file-tab {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.file-tab:hover {
+  color: var(--fg);
+}
+
+.file-tab.active {
+  color: var(--fg);
+  border-color: var(--line-2);
+  background: var(--hover);
+}
+
+.file-new {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.file-new input {
+  flex: 1;
+}
+
+.file-editor {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.agent-settings-panel .file-editor-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+}
+
+.agent-settings-panel .file-editor-row > .k {
+  padding: 0;
+}
+
+.agent-settings-panel .file-editor-row > .v {
+  width: 100%;
+}
+
+.agent-settings-panel .file-tabs {
+  max-height: 92px;
+  overflow-y: auto;
+}
+
+.agent-settings-panel .file-tab {
+  padding: 4px 9px;
+  font-size: var(--text-xs);
+}
+
+.agent-settings-panel .file-new {
+  align-items: stretch;
+}
+
+.agent-settings-panel .file-editor {
+  min-height: 220px;
+}

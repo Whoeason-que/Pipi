@@ -73,7 +73,7 @@ export const FileContent = memo(function FileContent({ file, lines, onLines, onO
         img: ({ alt, src }) => { const path = linkedPath(file.path, src ?? ""); return path ? <button type="button" className="btn small" onClick={() => onOpen(path)}>打开图片：{alt || path}</button> : <span>[外部图片：{alt || "未自动加载"}]</span>; },
         a: ({ href, children }) => { const path = linkedPath(file.path, href ?? ""); return path ? <button type="button" className="file-link" onClick={() => onOpen(path)}>{children}</button> : /^https?:\/\//i.test(href ?? "") ? <a href={href} target="_blank" rel="noreferrer noopener">{children}</a> : <span>{children}</span>; },
       }}>{content}</ReactMarkdown></div> : <>
-      <p className="file-selection-hint">点击行号选择一行，Shift + 点击选择范围。</p>
+      <p className="caption file-selection-hint">点击行号选择一行，Shift + 点击选择范围。</p>
       <div className="file-source" ref={source}>
         <div className="file-line-numbers" aria-label="选择代码行">
           {textLines.map((_, index) => {

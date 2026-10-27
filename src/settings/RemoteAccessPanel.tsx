@@ -49,7 +49,7 @@ export default function RemoteAccessPanel() {
     setNotice(t("common.copied"));
   });
 
-  if (!status || !config) return <section className="settings-block" role="status">
+  if (!status || !config) return <section className="surface settings-block" role="status">
     {error ?? t("common.loading")}
   </section>;
 
@@ -59,7 +59,7 @@ export default function RemoteAccessPanel() {
   const presentation = remoteAccessPresentation(status);
 
   return <div className="remote-access-panel">
-    <section className="settings-block">
+    <section className="surface settings-block">
       <div className="remote-status-row">
         <div>
           <span className={`badge ${presentation.state === "running" ? "ok" : "neutral"}`}>
@@ -86,7 +86,7 @@ export default function RemoteAccessPanel() {
       {dirty && <p className="hint">{t("remoteAccess.saveFirst")}</p>}
     </section>
 
-    <form className="settings-block remote-config" onSubmit={(event) => {
+    <form className="surface settings-block remote-config" onSubmit={(event) => {
       event.preventDefault();
       void act(async () => {
         const parsed = Number(port);
@@ -123,7 +123,7 @@ export default function RemoteAccessPanel() {
       </div>
     </form>
 
-    <section className="settings-block">
+    <section className="surface settings-block">
       <span className="label">{t("remoteAccess.token")}</span>
       <p className="hint">{t("remoteAccess.tokenHint")}</p>
       {token && <label className="field"><span className="sr-only">{t("remoteAccess.token")}</span>

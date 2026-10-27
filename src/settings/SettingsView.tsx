@@ -131,7 +131,7 @@ export default function SettingsView({
 
   return (
     <div className="screen settings-view" style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
-      <div className="settings-shell">
+      <div className="content-pane settings-shell">
       <div className="screen-bar">
         <NavigationToggle />
         <button
@@ -143,7 +143,7 @@ export default function SettingsView({
         >
           <IconBack />
         </button>
-        <span className="crumb">
+        <span className="truncate caption crumb">
           {t("settings.title")} · <b>{sectionInfo.label}</b>
         </span>
         <span className="spacer" />
@@ -157,7 +157,7 @@ export default function SettingsView({
         >
           <IconPanelRight />
         </button>
-        {section !== "remote" && <span className="settings-autosave">
+        {section !== "remote" && <span className="caption settings-autosave">
           <span aria-hidden="true" />
           {t("common.saveAuto")}
         </span>}
@@ -170,7 +170,7 @@ export default function SettingsView({
         aria-labelledby={`settings-tab-${section}`}
       >
         <div className="settings-main-head">
-          <span className="settings-section-icon">
+          <span className="icon-tile settings-section-icon">
             <SettingsSectionIcon section={section} />
           </span>
           <div>
@@ -183,7 +183,7 @@ export default function SettingsView({
           {section === "notifications" && <NotificationsPanel settings={draft.notifications} onChange={notifications => commit(previous => ({ ...previous, notifications }))} />}
           {section === "appearance" && (
             <>
-              <section className="settings-block">
+              <section className="surface settings-block">
                 <span className="label">{t("settings.language")}</span>
                 <div className="locale-row">
                   <LocaleOption
@@ -204,7 +204,7 @@ export default function SettingsView({
                 </span>
               </section>
 
-              <section className="settings-block">
+              <section className="surface settings-block">
                 <span className="label">{t("settings.theme")}</span>
                 <div className="theme-grid">
                   {BUILTIN_THEMES.map((item) => {
@@ -226,7 +226,7 @@ export default function SettingsView({
           )}
 
           {section === "context" && (
-            <section className="settings-block">
+            <section className="surface settings-block">
               <span className="label">上下文压缩</span>
               <div className="setting-checks">
                 <label className="ios-toggle settings-toggle">
@@ -282,7 +282,7 @@ export default function SettingsView({
           )}
 
           {section === "retry" && (
-            <section className="settings-block retry-settings">
+            <section className="surface settings-block retry-settings">
               <span className="label">请求重试</span>
               <div className="settings-field compact-threshold-field">
                 <label htmlFor="retry-max-attempts">最大尝试次数</label>
@@ -367,7 +367,7 @@ export default function SettingsView({
           )}
 
           {section === "providers" && (
-            <section className="settings-block">
+            <section className="surface settings-block">
               <span className="label">
                 {editing
                   ? editing === "new"
@@ -402,7 +402,7 @@ export default function SettingsView({
                                 </span>
                               )}
                             </div>
-                            <div className="p-url mono">{provider.baseUrl}</div>
+                            <div className="caption p-url mono">{provider.baseUrl}</div>
                             <div className="p-badges">
                               <span className="badge neutral">
                                 {provider.apiMode === "auto"
@@ -522,7 +522,7 @@ export default function SettingsView({
           {section === "remote" && isTauriRuntime() && <RemoteAccessPanel />}
 
           {section === "account" && showLogout && (
-            <section className="settings-block">
+            <section className="surface settings-block">
               <span className="label">远程访问凭据</span>
               <div className="provider-row">
                 <div className="info">
@@ -530,7 +530,7 @@ export default function SettingsView({
                     Web 访问保护
                     <span className="badge neutral">已认证</span>
                   </div>
-                  <div className="p-url mono">PIPI_AUTH_TOKEN 已验证</div>
+                  <div className="caption p-url mono">PIPI_AUTH_TOKEN 已验证</div>
                 </div>
                 <div className="p-actions">
                   <button

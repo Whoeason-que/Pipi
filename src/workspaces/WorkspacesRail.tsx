@@ -82,7 +82,7 @@ function Scope({ workspaceName, path, isAll, workspaces, agents, sessions, onOpe
     <section className="right-rail-section">
       <div className="right-rail-item active" style={{ cursor: "default" }}>
         {isAll ? <IconHome /> : <IconFolder />}
-        <span className="right-rail-item-main">{workspaceName}</span>
+        <span className="truncate right-rail-item-main">{workspaceName}</span>
       </div>
       <div className="right-rail-kv"><span>路径</span><span className="mono">{path}</span></div>
       <div className="right-rail-kv"><span>范围</span><span>{isAll ? "全部工作区" : "单个工作区"}</span></div>
@@ -109,7 +109,7 @@ function Scope({ workspaceName, path, isAll, workspaces, agents, sessions, onOpe
         </>}
         {isAll && <button type="button" className="btn small ghost" onClick={() => onNavigateSection("agents")}><IconAgent /> 全部 Agent</button>}
       </div>
-      <p className="right-rail-note">工作区只聚合主 Agent；Subagent 跟随它所属的 Agent，不单独计入工作区。</p>
+      <p className="caption right-rail-note">工作区只聚合主 Agent；Subagent 跟随它所属的 Agent，不单独计入工作区。</p>
     </section>
   </>;
 }
@@ -124,14 +124,14 @@ function WorkspaceList({ workspaces, activeWorkspace, onSelectWorkspace }: {
     <div className="right-rail-list">
       <button type="button" className={`right-rail-item${activeWorkspace === "all" ? " active" : ""}`} onClick={() => onSelectWorkspace("all")}>
         <IconHome />
-        <span className="right-rail-item-main">全部工作区</span>
+        <span className="truncate right-rail-item-main">全部工作区</span>
         <small>{workspaces.reduce((total, item) => total + item.agentCount, 0)} Agent</small>
       </button>
       {workspaces.map((workspace) => <button type="button" key={workspace.path}
         className={`right-rail-item${workspace.path === activeWorkspace ? " active" : ""}`}
         title={workspace.path} onClick={() => onSelectWorkspace(workspace.path)}>
         <IconFolder />
-        <span className="right-rail-item-main">{workspace.name || getWorkspaceBasename(workspace.path)}</span>
+        <span className="truncate right-rail-item-main">{workspace.name || getWorkspaceBasename(workspace.path)}</span>
         <small>{workspace.agentCount} Agent</small>
       </button>)}
     </div>

@@ -143,7 +143,7 @@ export default function ChatComposer({
         </button>
       )}
       {temporary && (
-        <div className="test-safety-note" role="note">
+        <div className="caption test-safety-note" role="note">
           <span>临时仅指对话记录</span>
           工具仍按当前权限真实运行，对工作区造成的改动会保留。
         </div>
@@ -217,9 +217,9 @@ export default function ChatComposer({
               }
             >
               <span className="model-indicator" />
-              <span className="model-pill-name">{modelName}</span>
+              <span className="truncate model-pill-name">{modelName}</span>
               {customModel && (
-                <span className="model-pill-tag">
+                <span className="caption model-pill-tag">
                   {locale === "en" ? "Custom" : "自定义"}
                 </span>
               )}
@@ -228,7 +228,7 @@ export default function ChatComposer({
               </span>
             </button>
           ) : (
-            <span className="test-model composer-model-pill" title={modelName}>
+            <span className="truncate caption test-model composer-model-pill" title={modelName}>
               {modelName}
             </span>
           )}
@@ -244,7 +244,7 @@ export default function ChatComposer({
             </div>
           )}
           <span className="spacer" />
-          <span className="composer-state" role="status">
+          <span className="caption composer-state" role="status">
             {updatingReasoning
               ? locale === "en" ? "Saving…" : "正在保存…"
               : stopping

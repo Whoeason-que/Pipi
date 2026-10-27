@@ -73,7 +73,7 @@ export function ChatErrorCard({ info }: { info: ChatErrorInfo }) {
       <div className="chat-error-head">
         <div className="chat-error-icon">{renderCategoryIcon(info.category)}</div>
         <div className="chat-error-title-wrap">
-          <span className="chat-error-title">{info.title}</span>
+          <span className="truncate chat-error-title">{info.title}</span>
           <span className="chat-error-badge">{info.badge}</span>
         </div>
         <button

@@ -109,7 +109,7 @@ function ThreadOverview({ thread, participants, jumpLatest, onJump }: {
       <div className="right-rail-list">
         {participants.map((person) => <div className="right-rail-item" key={person.name}>
           <span className="right-rail-avatar">{person.name.slice(0, 1).toUpperCase()}</span>
-          <span className="right-rail-item-main">
+          <span className="truncate right-rail-item-main">
             {person.name}
             {person.agent?.subagent && <span className="tag" style={{ marginLeft: 6 }}>Subagent</span>}
           </span>
@@ -125,7 +125,7 @@ function ThreadOverview({ thread, participants, jumpLatest, onJump }: {
         </button>
         <button type="button" className="btn small ghost" onClick={() => onJump(1)}>回到首帖</button>
       </div>
-      <p className="right-rail-note">主题与楼层来自本地 Markdown 文件；关闭的主题不能追加回复。</p>
+      <p className="caption right-rail-note">主题与楼层来自本地 Markdown 文件；关闭的主题不能追加回复。</p>
     </section>
   </>;
 }
@@ -138,7 +138,7 @@ function FloorOutline({ thread, onJump }: { thread: ForumThreadView; onJump: (se
         const firstLine = post.body.split("\n").find((line) => line.trim()) ?? "";
         return <button type="button" className="right-rail-item" key={post.id} onClick={() => onJump(post.seq)}>
           <span className="mono">#{post.seq}</span>
-          <span className="right-rail-item-main">{firstLine || "（空内容）"}</span>
+          <span className="truncate right-rail-item-main">{firstLine || "（空内容）"}</span>
           <small>{post.author}</small>
         </button>;
       })}

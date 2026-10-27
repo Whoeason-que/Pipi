@@ -1,0 +1,549 @@
+/* 分区导航、侧栏外壳、列表分组与过滤入口，包含抽屉行为。 */
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: var(--rail-width);
+  flex-shrink: 0;
+  gap: var(--space-2);
+  padding: var(--space-4) 0 calc(var(--space-4) + var(--safe-bottom));
+  border-right: 1px solid var(--nav-divider);
+  background: var(--rail-bg);
+}
+
+.rail-brand {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 16px;
+  padding: 4px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.rail-brand svg {
+  width: 28px;
+  height: 28px;
+}
+
+.rail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rail .icon-btn {
+  position: relative;
+  width: var(--control-lg);
+  height: var(--control-lg);
+  border-radius: var(--r);
+}
+
+.rail .icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.rail .icon-btn.active {
+  color: var(--accent-text);
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+
+.rail .icon-btn.active::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 10px;
+  width: 3px;
+  height: 16px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.rail-spacer,
+.screen-bar .spacer,
+.spacer {
+  flex: 1;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: var(--sidebar-width, 248px);
+  min-width: 0;
+  padding-bottom: var(--safe-bottom);
+  border-right: 1px solid var(--nav-divider);
+  border-radius: 0;
+  background: var(--nav-bg);
+  overflow: hidden;
+}
+
+.sidebar-quick {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  min-height: var(--control-lg);
+  margin: var(--space-4) var(--space-2) var(--space-5);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  color: var(--muted);
+  background: var(--hover);
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.sidebar-quick:hover {
+  color: var(--fg);
+  background: var(--hover-2);
+}
+
+.sidebar-quick svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.sidebar-quick span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-quick kbd {
+  font-size: 9px;
+}
+
+.sb-sec {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 33px;
+  padding: 8px 10px 4px;
+  font-weight: 500;
+}
+
+.sb-count {
+  font-weight: 450;
+}
+
+.sidebar-note {
+  padding: 8px 10px;
+  line-height: 1.8;
+}
+
+.sidebar-backdrop,
+.toolbar-divider,
+.bar-tab-title {
+  display: none;
+}
+
+.sb-filter {
+  padding: 4px 10px 6px;
+}
+
+.sb-filter .search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px;
+  background: var(--chat-surface);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--faint);
+  transition: border-color 0.15s;
+}
+
+.sb-filter .search:focus-within {
+  border-color: var(--line-2);
+}
+
+.sb-filter .search svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.sb-filter input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--fg);
+  font-size: var(--text-md);
+}
+
+.sb-filter input::placeholder {
+  color: var(--faint);
+}
+
+/* ============ 移动端工具栏（窄屏才出现） ============ */
+
+.rail-running {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 2px var(--rail-bg);
+}
+
+.rail-filter-badge {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--rail-bg);
+}
+
+@media (max-width: 860px) {
+
+  .sidebar-resize {
+    display: none;
+  }
+
+  .sidebar {
+    position: fixed;
+    bottom: 0;
+    /* 图标栏常驻，抽屉从它右边滑出（rail 仍可点，用来换分区） */
+    min-width: 0;
+    padding-bottom: var(--safe-bottom);
+    /* 关闭态要整个滑出可视区：left 已经让开图标栏，位移必须把它一起算上，
+       否则抽屉的尾巴会盖住图标栏（同时挡住图标栏的点击） */
+    transform: translateX(calc(-100% - var(--rail-width)));
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow);
+    top: var(--safe-top);
+    left: var(--rail-width);
+    z-index: 42;
+    width: min(320px, calc(100vw - var(--rail-width) - 16px));
+    height: calc(100dvh - var(--safe-top));
+    padding-top: 0;
+  }
+
+  /* 触屏上图标栏也要够大够好点 */
+
+  .rail {
+    gap: 8px;
+    padding: 10px 0;
+    padding-bottom: calc(10px + var(--safe-bottom));
+    display: none;
+  }
+
+  .rail .icon-btn {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
+
+  .rail .icon-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .app.sidebar-open .sidebar {
+    transform: none;
+    visibility: visible;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    border: 0;
+    cursor: pointer;
+    touch-action: none;
+    top: var(--safe-top);
+    left: 0;
+    z-index: 41;
+  }
+
+  .sb-filter .search {
+    height: 40px;
+  }
+
+  .sb-filter input {
+    font-size: 16px;
+  }
+
+  .app.sidebar-open .rail {
+    display: flex;
+    position: fixed;
+    left: 0;
+    top: var(--safe-top);
+    bottom: 0;
+    z-index: 42;
+    width: var(--rail-width);
+  }
+
+  .app:not(.sidebar-open) .sidebar {
+    visibility: hidden;
+  }
+
+  .rail-brand {
+    margin-bottom: 14px;
+  }
+}
+
+@media (min-width: 861px) {
+  .app.sidebar-collapsed .sidebar,
+.app.sidebar-collapsed .sidebar-resize {
+    display: none;
+  }
+}
+
+/* 工作工具栏、路径与通用标签导航。 */
+/* 页面工具栏在文档流中，内容区只负责自己的滚动。 */
+
+.screen-bar,
+.workspace-toolbar {
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  position: relative;
+  flex-shrink: 0;
+  height: var(--toolbar-height);
+  min-height: var(--toolbar-height);
+  padding: 0 var(--space-5);
+  gap: 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.crumb {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  max-width: 42ch;
+}
+
+.crumb b {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.workspace-toolbar {
+  font-size: var(--text-body);
+  color: var(--muted);
+}
+
+.screen-bar .crumb {
+  font-family: inherit;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.bar-tabs {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  align-self: center;
+  height: 40px;
+  margin-bottom: 0;
+  gap: 3px;
+  padding: 3px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r);
+}
+
+.bar-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 450;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    color 0.12s,
+    background-color 0.12s,
+    border-color 0.12s;
+  height: 36px;
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+  gap: 5px;
+  border: 0;
+  border-radius: var(--r-full);
+  font-size: var(--text-xs);
+}
+
+.bar-tab-icon {
+  flex-shrink: 0;
+  opacity: 0.65;
+  transition:
+    opacity 0.12s,
+    color 0.12s;
+  width: 17px;
+  height: 17px;
+}
+
+.bar-tab:hover:not(.active) {
+  color: var(--fg);
+  background: var(--hover);
+  border-radius: var(--r-full);
+}
+
+.bar-tab:hover .bar-tab-icon {
+  opacity: 0.9;
+}
+
+.bar-tab.active {
+  font-weight: 550;
+  z-index: 2;
+  background: var(--hover-2);
+  color: var(--fg);
+  border: 0;
+  border-radius: var(--r-full);
+  box-shadow: none;
+}
+
+.bar-tab.active .bar-tab-icon {
+  opacity: 1;
+  color: var(--fg);
+}
+
+.bar-tab .tab-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  margin-left: -1px;
+}
+
+@media (max-width: 860px) {
+  /* 顶栏在手机上是紧凑的操作条：路径只占剩余空间，避免按钮被挤出视口。 */
+
+  .screen-bar {
+    padding: 8px 12px;
+    height: auto;
+    min-height: 52px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .screen-bar > .spacer {
+    display: none;
+  }
+
+  .screen-bar > .icon-btn {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding-inline: 0;
+    flex-shrink: 0;
+  }
+
+  .screen-bar > .btn {
+    width: auto;
+    min-width: 0;
+    height: 36px;
+    min-height: 36px;
+    padding-inline: 10px;
+  }
+
+  .screen-bar .crumb {
+    display: flex;
+    order: 0;
+    flex: 1 1 auto;
+    max-width: 20ch;
+    font-size: var(--text-sm);
+  }
+
+  .crumb {
+    max-width: 22ch;
+  }
+
+  .workspace-toolbar {
+    padding: 0 12px;
+    height: 56px;
+    min-height: 56px;
+  }
+
+  .workspace-toolbar .icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .bar-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .bar-tab {
+    padding: 0 8px;
+    font-size: var(--text-sm);
+    height: 32px;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 520px) {
+  .screen-bar {
+    gap: 4px;
+    padding-inline: 8px;
+    background: var(--bg);
+  }
+}
+
+/* 应用窗口与主内容区域的布局。 */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  min-width: 0;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ============ 主区与顶栏（融入主背景，无底边框线） ============ */
+
+.main {
+  overflow: hidden;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}

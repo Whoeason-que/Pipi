@@ -53,7 +53,7 @@ export function sourceLabel(source: string, sourceType: string, revision?: strin
   return revision ? `${source}@${revision.slice(0, 12)}` : source;
 }
 
-/** 色调 → 标签类名（`.tag.ok` / `.tag.warn` / `.tag.error` 均在 shell.css）。 */
+/** 色调 → 标签类名（`.tag.ok` / `.tag.warn` / `.tag.error` 均在 styles/components/controls.css）。 */
 export function toneClass(tone: SkillTone): string {
   if (tone === "ok") return "tag ok";
   if (tone === "warn") return "tag warn";

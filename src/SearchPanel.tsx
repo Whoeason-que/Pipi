@@ -104,10 +104,10 @@ export function SearchPanel({
         ) : (
           <>
             {agentHits.length > 0 && (
-              <div className="sb-sec search-group">
+              <div className="caption sb-sec search-group">
                 <span>AGENTS</span>
                 <span className="spacer" />
-                <span className="sb-count">{agentHits.length}</span>
+                <span className="caption sb-count">{agentHits.length}</span>
               </div>
             )}
             {agentHits.map((agent) => (
@@ -118,19 +118,19 @@ export function SearchPanel({
                 title={agent.description || agent.name}
                 onClick={() => onSelectAgent(agent.name)}
               >
-                <span className="search-item-name">
+                <span className="truncate search-item-name">
                   {agent.name}
                   {agent.subagent && <span className="search-item-tag">SUBS</span>}
                 </span>
-                <span className="search-item-meta">{agent.description || "（暂无描述）"}</span>
+                <span className="truncate caption search-item-meta">{agent.description || "（暂无描述）"}</span>
               </button>
             ))}
 
             {sessionHits.length > 0 && (
-              <div className="sb-sec search-group">
+              <div className="caption sb-sec search-group">
                 <span>会话</span>
                 <span className="spacer" />
-                <span className="sb-count">
+                <span className="caption sb-count">
                   {sessionHits.length}
                   {truncated > 0 ? `+${truncated}` : ""}
                 </span>
@@ -144,11 +144,11 @@ export function SearchPanel({
                 title={`${hit.agentName} · ${hit.session.title}`}
                 onClick={() => onOpenSession(hit.agentName, hit.session.id)}
               >
-                <span className="search-item-name">
+                <span className="truncate search-item-name">
                   {hit.running && <span className="search-item-live" title="正在运行" aria-hidden="true" />}
                   {hit.session.title || "（无标题）"}
                 </span>
-                <span className="search-item-meta">{hit.agentName}</span>
+                <span className="truncate caption search-item-meta">{hit.agentName}</span>
               </button>
             ))}
 

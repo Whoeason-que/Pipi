@@ -74,7 +74,7 @@ export function FilePreview({ path, source, loading = false, error = "", tabs, o
           : error && !source ? <p className="file-error" role="alert">{error}</p>
           : source?.type === "file" ? <FileContent key={identity} file={source.file} lines={lines} onLines={setLines} onOpen={onOpenFile ?? (() => {})} />
           : source?.type === "git" ? <>
-            <div className="file-base-note">
+            <div className="caption file-base-note">
               <span>比较基准</span>
               <code>{source.diff.base}</code>
               {source.diff.truncated && <span className="tag warn">内容已截断</span>}
@@ -98,8 +98,8 @@ export function FilePreview({ path, source, loading = false, error = "", tabs, o
           <p role="status">{feedback}</p>
         </div>
       </div>}
-    </> : <div className="file-preview-empty">
-      <span className="file-empty-icon"><IconFile /></span>
+    </> : <div className="empty-state file-preview-empty">
+      <span className="icon-tile file-empty-icon"><IconFile /></span>
       <strong>{emptyTitle}</strong>
       <p>{emptyHint}</p>
     </div>}

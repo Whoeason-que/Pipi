@@ -58,7 +58,7 @@ function SectionInfo({ description, section, showLogout, onClose }: {
     </section>
     <section className="right-rail-section">
       <h3>提示</h3>
-      <p className="right-rail-note">
+      <p className="caption right-rail-note">
         设置修改会立即写入本机文件，不需要「保存」按钮。按 <kbd>Esc</kbd> 返回之前的界面。
       </p>
       <div className="right-rail-actions-row">
@@ -77,9 +77,9 @@ function StorageInfo({ settings, defaultProvider }: {
       <h3>文件</h3>
       <div className="right-rail-item active" style={{ cursor: "default" }}>
         <IconGear />
-        <span className="right-rail-item-main mono">~/.pipi/settings.json</span>
+        <span className="truncate right-rail-item-main mono">~/.pipi/settings.json</span>
       </div>
-      <p className="right-rail-note">纯文件存储，无数据库、无遥测；修改由宿主原子写回。</p>
+      <p className="caption right-rail-note">纯文件存储，无数据库、无遥测；修改由宿主原子写回。</p>
     </section>
     <section className="right-rail-section">
       <h3>当前值</h3>

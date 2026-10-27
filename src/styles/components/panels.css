@@ -1,4 +1,77 @@
-/* 全局右栏：文件信息、技能详情、论坛上下文共用一套外壳。 */
+/* 可调整宽度的面板外壳与右侧上下文栏，包含抽屉行为。 */
+.resize-handle {
+  position: relative;
+  z-index: 5;
+  flex: 0 0 6px;
+  align-self: stretch;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition:
+    background 0.12s,
+    width 0.12s;
+}
+
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after {
+  width: 3px;
+  background: var(--accent);
+}
+
+.resize-handle:focus-visible {
+  outline: none;
+}
+
+body.resizing,
+body.resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+/* ============ 右侧检查器 ============ */
+
+.inspector {
+  width: var(--inspector-width, 296px);
+  min-width: 0;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--nav-divider);
+  border-radius: 0;
+  padding-bottom: var(--safe-bottom);
+  background: var(--nav-bg);
+}
+
+/* 宽屏下关闭即从布局中移除；本文件的窄屏规则改为抽屉滑出。 */
+
+.chat-shell:not(.inspector-open) .inspector,
+.right-rail.closed {
+  display: none;
+}
+
+/* 窄屏检查器抽屉的遮罩（仅在窄屏且抽屉打开时渲染） */
+
+.inspector-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: rgba(0, 0, 0, 0.45);
+  border: 0;
+  cursor: pointer;
+}
+
 .right-rail {
   width: var(--right-rail-width, 320px);
   min-width: 0;
@@ -12,7 +85,6 @@
   padding-bottom: var(--safe-bottom);
   background: var(--nav-bg);
 }
-.right-rail.closed { display: none; }
 
 .right-rail-head {
   display: flex;
@@ -23,24 +95,25 @@
   border-bottom: 1px solid var(--line-soft);
   flex-shrink: 0;
 }
+
 .right-rail-head-icon {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
+  --tile-icon-size: 14px;
+  --tile-size: 28px;
   flex-shrink: 0;
   border-radius: var(--r-sm);
   background: var(--accent-soft);
   color: var(--accent-text);
 }
-.right-rail-head-icon svg { width: 14px; height: 14px; }
+
 .right-rail-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+
 .right-rail-heading strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-md);
 }
+
 .right-rail-heading small {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -48,6 +121,7 @@
   color: var(--faint);
   font-size: var(--text-xs);
 }
+
 .right-rail-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
 .right-rail-tabs {
@@ -58,6 +132,7 @@
   border-bottom: 1px solid var(--line-soft);
   overflow-x: auto;
 }
+
 .right-rail-tab {
   display: inline-flex;
   align-items: center;
@@ -67,14 +142,16 @@
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--faint);
-  font-size: var(--text-xs);
   white-space: nowrap;
   cursor: pointer;
 }
+
 .right-rail-tab:hover { color: var(--fg); }
+
 .right-rail-tab.active { border-bottom-color: var(--accent); color: var(--fg); }
+
 .right-rail-tab svg { width: 12px; height: 12px; }
+
 .right-rail-badge {
   min-width: 16px;
   padding: 0 4px;
@@ -84,6 +161,7 @@
   text-align: center;
   font: var(--text-xs) var(--font-mono);
 }
+
 .right-rail-tab.active .right-rail-badge { background: var(--accent-soft); color: var(--accent-text); }
 
 .right-rail-body {
@@ -95,8 +173,11 @@
 }
 
 /* ---- 通用右栏内容 ---- */
+
 .right-rail-section { display: flex; flex-direction: column; gap: 8px; }
+
 .right-rail-section + .right-rail-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+
 .right-rail-section h3 {
   margin: 0;
   color: var(--faint);
@@ -105,18 +186,19 @@
   letter-spacing: .8px;
   text-transform: uppercase;
 }
+
 .right-rail-section p { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.6; }
+
 .right-rail-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   gap: 8px;
   padding: 32px 14px;
-  text-align: center;
   color: var(--faint);
 }
+
 .right-rail-empty svg { width: 24px; height: 24px; opacity: .7; }
+
 .right-rail-empty strong { color: var(--muted); font-size: var(--text-md); }
+
 .right-rail-empty p { margin: 0; font-size: var(--text-sm); line-height: 1.6; }
 
 .right-rail-kv {
@@ -128,12 +210,17 @@
   border-bottom: 1px solid var(--line-soft);
   font-size: var(--text-sm);
 }
+
 .right-rail-kv:last-child { border-bottom: 0; }
+
 .right-rail-kv > span:first-child { flex-shrink: 0; color: var(--faint); }
+
 .right-rail-kv > span:last-child { min-width: 0; color: var(--fg); text-align: right; overflow-wrap: anywhere; }
+
 .right-rail-kv .mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 
 .right-rail-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+
 .right-rail-stat {
   display: flex;
   flex-direction: column;
@@ -143,12 +230,17 @@
   border-radius: var(--r-sm);
   background: var(--stripe);
 }
+
 .right-rail-stat span { color: var(--faint); font-size: 10.5px; }
+
 .right-rail-stat strong { color: var(--fg); font-size: var(--text-md); }
+
 .right-rail-stat.added strong { color: var(--ok); }
+
 .right-rail-stat.removed strong { color: var(--danger); }
 
 .right-rail-list { display: flex; flex-direction: column; gap: 3px; }
+
 .right-rail-item {
   display: flex;
   align-items: center;
@@ -164,10 +256,15 @@
   font-size: var(--text-sm);
   cursor: pointer;
 }
+
 .right-rail-item:hover { background: var(--hover); color: var(--fg); }
+
 .right-rail-item.active { border-color: var(--accent-border); background: var(--accent-soft); color: var(--fg); }
-.right-rail-item .right-rail-item-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.right-rail-item .right-rail-item-main { flex: 1; min-width: 0; }
+
 .right-rail-item small { color: var(--faint); font-size: var(--text-xs); white-space: nowrap; }
+
 .right-rail-avatar {
   display: grid;
   place-items: center;
@@ -179,28 +276,16 @@
   color: var(--avatar-blue-fg);
   font: 600 10px/1 var(--font-sans);
 }
+
 .right-rail-avatars { display: flex; flex-wrap: wrap; gap: 4px; }
-.right-rail-person {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 7px 3px 3px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--r-full);
-  background: var(--stripe);
-  color: var(--muted);
-  font-size: var(--text-xs);
-}
-.right-rail-person .right-rail-avatar { width: 18px; height: 18px; border-radius: 50%; font-size: 9px; }
 
 .right-rail-actions-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
 .right-rail-note {
   padding: 8px 10px;
   border: 1px solid var(--line-soft);
   border-radius: var(--r-sm);
   background: var(--stripe);
-  color: var(--faint);
-  font-size: var(--text-xs);
   line-height: 1.55;
 }
 
@@ -212,10 +297,12 @@
   background: rgba(0, 0, 0, .45);
   cursor: pointer;
 }
+
 .right-rail-resize { flex-shrink: 0; }
 
 @media (max-width: 1180px) {
   .right-rail-resize { display: none; }
+
   .right-rail {
     position: fixed;
     top: var(--safe-top);
@@ -229,11 +316,52 @@
     transform: translateX(100%);
     transition: transform .2s ease;
   }
+
   .right-rail.closed { display: flex; visibility: hidden; }
+
   .right-rail.open { transform: none; visibility: visible; }
 }
 
 @media (max-width: 860px) {
   .right-rail { width: min(340px, calc(100vw - var(--rail-width) - 12px)); }
+
   .right-rail-body { padding: 12px; }
+}
+
+@media (max-width: 1100px) {
+  .inspector-resize {
+    display: none;
+  }
+
+  .inspector {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    width: min(320px, 88vw);
+    min-width: 0;
+    padding-bottom: var(--safe-bottom);
+    box-shadow: var(--shadow);
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    top: var(--safe-top);
+    height: calc(100dvh - var(--safe-top));
+    padding-top: 0;
+    z-index: 45;
+  }
+
+  .chat-shell:not(.inspector-open) .inspector {
+    display: flex;
+    visibility: hidden;
+  }
+
+  .chat-shell.inspector-open .inspector {
+    transform: none;
+    visibility: visible;
+  }
+
+  .inspector-backdrop {
+    touch-action: none;
+    top: var(--safe-top);
+    z-index: 44;
+  }
 }

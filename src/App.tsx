@@ -502,7 +502,7 @@ export default function App() {
       </aside>
       <div className="resize-handle sidebar-resize" title="拖动调整侧栏宽度" aria-label="调整侧栏宽度" {...sidebarResize.handleProps} />
       {sidebarOpen && <button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={closeNavigation} />}
-      <main className="main" inert={mobile && sidebarOpen}>
+      <main className="content-pane main" inert={mobile && sidebarOpen}>
         {(view.kind === "home" || view.kind === "agent" || (!current && (view.kind === "chat" || view.kind === "workbench"))) && <header className="workspace-toolbar">
           <NavigationToggle />
           <span className="toolbar-divider" /><span>{title}</span><span className="spacer" />

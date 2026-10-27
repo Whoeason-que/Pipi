@@ -49,10 +49,10 @@ export default function ChatToolbar({
     >
       <NavigationToggle />
       <span className="toolbar-divider" />
-      <span className="crumb chat-title" title={`${agentName} · ${title}`}>
+      <span className="truncate caption crumb chat-title" title={`${agentName} · ${title}`}>
         <button
           type="button"
-          className="agent-tag"
+          className="truncate agent-tag"
           onClick={onBack}
           disabled={!onBack}
           title={t("workspace.agentInfo")}

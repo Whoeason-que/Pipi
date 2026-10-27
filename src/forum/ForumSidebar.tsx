@@ -43,10 +43,10 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
 
   return (
     <>
-      <div className="sb-sec forum-sidebar-heading">
+      <div className="caption sb-sec forum-sidebar-heading">
         <span>论坛</span>
         <span className="spacer" />
-        <span className="sb-count">{threads.length}</span>
+        <span className="caption sb-count">{threads.length}</span>
         <button
           type="button"
           className="icon-btn"
@@ -94,21 +94,21 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
       <div className="forum-sidebar-filter-tabs">
         <button
           type="button"
-          className={`forum-sidebar-tab${statusFilter === "all" ? " active" : ""}`}
+          className={`caption forum-sidebar-tab${statusFilter === "all" ? " active" : ""}`}
           onClick={() => setStatusFilter("all")}
         >
           全部
         </button>
         <button
           type="button"
-          className={`forum-sidebar-tab${statusFilter === "open" ? " active" : ""}`}
+          className={`caption forum-sidebar-tab${statusFilter === "open" ? " active" : ""}`}
           onClick={() => setStatusFilter("open")}
         >
           进行中
         </button>
         <button
           type="button"
-          className={`forum-sidebar-tab${statusFilter === "closed" ? " active" : ""}`}
+          className={`caption forum-sidebar-tab${statusFilter === "closed" ? " active" : ""}`}
           onClick={() => setStatusFilter("closed")}
         >
           已关闭
@@ -129,7 +129,7 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
       )}
 
       {!loading && threads.length === 0 && (
-        <div className="forum-sidebar-empty">
+        <div className="empty-state forum-sidebar-empty">
           <IconForum />
           <p>还没有讨论主题</p>
           <small>点击上方「+」发起第一个主题。</small>
@@ -154,13 +154,13 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
               onClick={() => handleSelect(summary.thread.id)}
             >
               <div className="forum-item-row">
-                <span className="forum-item-title" title={summary.thread.title}>
+                <span className="truncate forum-item-title" title={summary.thread.title}>
                   {isPinned && <span className="forum-item-pin" title="置顶">📌</span>}
                   {summary.thread.title}
                 </span>
                 {isClosed && <span className="forum-badge-closed">已关闭</span>}
               </div>
-              <div className="forum-item-meta">
+              <div className="caption forum-item-meta">
                 <span className={`forum-item-state ${isClosed ? "closed" : "open"}`} aria-hidden="true" />
                 <span className="forum-item-author" title={`发起者：${summary.thread.author}`}>
                   {summary.thread.author}

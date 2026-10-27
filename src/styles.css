@@ -1,24 +1,30 @@
-/* ============================================================
-   Pipi 工作台样式
-   - 结构：分区导航 / Agent 列表 / 工作区与会话 / 按需检查器
-   - 暗色为默认，浅色通过 [data-theme="light"] 覆盖令牌
-   - 手写样式，零 UI 框架依赖（见 AGENTS.md）
-   - 不用 color-mix()/嵌套等新语法：Tauri 各平台 WebView 版本不一
-     （Linux 走 WebKitGTK），全部用显式令牌保证一致
-   - 按职责拆分文件，本文件只做聚合（Vite 处理 @import）
-   ============================================================ */
+/* Pipi 样式入口：按职责与功能聚合，Vite 处理 @import。
+   基础 → 共享组件 → 功能内容；功能变体在共享规则之后加载。
+   每个文件包含所属功能的响应式与触屏规则；保持这里的级联顺序。
+   手写样式，使用显式主题令牌，兼容 Tauri 的各平台 WebView。 */
 
-@import "./styles/tokens.css";
-@import "./styles/base.css";
-@import "./styles/controls.css";
-@import "./styles/shell.css";
-@import "./styles/chat.css";
-@import "./styles/inspector.css";
-@import "./styles/right-rail.css";
-@import "./styles/settings.css";
-@import "./styles/markdown.css";
-@import "./styles/overview.css";
-@import "./styles/workspaces.css";
-@import "./styles/forum.css";
-@import "./styles/files.css";
-@import "./styles/responsive.css";
+@import "./styles/foundation/tokens.css";
+@import "./styles/foundation/base.css";
+@import "./styles/components/controls.css";
+@import "./styles/components/forms.css";
+@import "./styles/components/overlays.css";
+@import "./styles/components/navigation.css";
+@import "./styles/components/panels.css";
+@import "./styles/features/agent-navigation.css";
+@import "./styles/features/agent-directory.css";
+@import "./styles/features/agent-config.css";
+@import "./styles/features/messages.css";
+@import "./styles/features/tool-calls.css";
+@import "./styles/features/composer.css";
+@import "./styles/features/session-layout.css";
+@import "./styles/features/session-inspector.css";
+@import "./styles/features/search.css";
+@import "./styles/features/skills.css";
+@import "./styles/features/preferences.css";
+@import "./styles/features/providers.css";
+@import "./styles/features/remote-access.css";
+@import "./styles/features/workspaces.css";
+@import "./styles/features/forum.css";
+@import "./styles/features/files.css";
+@import "./styles/features/source-control.css";
+@import "./styles/content/markdown.css";
