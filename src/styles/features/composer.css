@@ -196,11 +196,9 @@
   padding: 2px 12px 12px 14px;
 }
 
-/* 发送 / 停止：40px 圆形主按钮（ChatGPT 形态）。
-   hover 用 brightness 而不是通用 .btn:hover 的透明底，保持实心圆形态 */
+/* 计时拨盘圆钮。 */
 
-.btn.send,
-.btn.stop {
+.btn.send {
   padding: 0;
   flex-shrink: 0;
   background: var(--primary-bg);
@@ -210,8 +208,7 @@
   height: var(--control-lg);
 }
 
-.btn.send:hover:not(:disabled),
-.btn.stop:hover:not(:disabled) {
+.btn.send:hover:not(:disabled) {
   background: var(--primary-bg);
   color: var(--primary-fg);
   filter: brightness(1.08);
@@ -221,18 +218,9 @@
   opacity: 0.3;
 }
 
-.btn.stop:disabled {
-  opacity: 0.4;
-}
-
 .btn.send svg {
   width: 16px;
   height: 16px;
-}
-
-.btn.stop svg {
-  width: 14px;
-  height: 14px;
 }
 
 .composer-bar .spacer {
@@ -336,32 +324,91 @@
   margin-left: 3px;
 }
 
-.btn.stop {
-  background: var(--danger-soft);
-  border-color: var(--danger-border);
-  color: var(--danger);
-}
-
-.btn.stop:hover:not(:disabled) {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
 /* 待发箱与引导分开，消息真正起跑后才进入时间线。 */
 
-.composer-options { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 12px 8px; }
-
-.composer-delay-toggle { color: var(--muted); font-size: var(--text-xs); }
-
-.composer-delay-toggle.active { color: var(--fg); background: var(--stripe); }
-
-.composer-delay-input { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: var(--text-xs); color: var(--muted); }
-
-.composer-delay-input input { width: 72px; min-width: 0; padding: 4px 6px; }
-
-.btn.send.composer-send { width: auto; min-width: 72px; gap: 6px; padding: 0 12px; white-space: nowrap; }
-
-.composer-steer { flex-shrink: 0; white-space: nowrap; }
+.delay-picker, .send-action { position: relative; flex-shrink: 0; }
+.delay-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--r-full);
+  padding: 0 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.delay-trigger { min-width: 40px; }
+.delay-trigger.active, .delay-trigger:hover { background: var(--stripe); color: var(--fg); }
+.send-action { display: flex; align-items: center; gap: 2px; }
+.traffic-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #191d21;
+  cursor: pointer;
+}
+.traffic-button svg { width: 15px; height: 15px; }
+.traffic-button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.traffic-button:not(:disabled):hover { filter: brightness(1.1); }
+.traffic-button:disabled { opacity: .3; cursor: not-allowed; }
+.traffic-stop { background: #f36e69; }
+.traffic-steer { background: #f3c45c; }
+.traffic-send { background: #62c996; }
+.send-waiting { position: absolute; right: 0; bottom: calc(100% + 6px); color: var(--muted); background: var(--panel); padding: 3px 8px; border-radius: var(--r-full); font-size: var(--text-xs); white-space: nowrap; }
+.delay-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow: var(--composer-shadow);
+  color: var(--fg);
+}
+.delay-panel { width: 250px; padding: 12px; font-size: var(--text-xs); }
+.delay-panel-title { font-weight: 600; margin-bottom: 10px; }
+.delay-presets { display: flex; gap: 6px; }
+.delay-presets button, .delay-clear {
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--stripe);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.delay-presets button { flex: 1; padding: 0 6px; white-space: nowrap; }
+.delay-presets button.active { background: var(--accent-soft); color: var(--accent-text); }
+.delay-custom, .delay-dial-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); }
+.delay-custom input { flex: 1; width: 0; min-height: 40px; padding: 0 8px; }
+.delay-dial-row { border-top: 1px solid var(--line); padding-top: 10px; }
+.delay-dial-row > span { flex: 1; }
+.delay-dial-row label { white-space: nowrap; }
+.delay-dial-row label input { width: 4ch; padding: 2px; font: inherit; }
+.delay-clear { width: 100%; margin-top: 10px; background: transparent; color: var(--muted); }
+.btn.send.composer-send {
+  position: relative;
+  touch-action: none;
+  border: 3px solid transparent;
+  background: linear-gradient(var(--primary-bg), var(--primary-bg)) padding-box,
+    conic-gradient(var(--accent) var(--dial-progress), var(--line) 0) border-box;
+}
+.btn.send.composer-send:hover:not(:disabled) {
+  background: linear-gradient(var(--primary-bg), var(--primary-bg)) padding-box,
+    conic-gradient(var(--accent) var(--dial-progress), var(--line) 0) border-box;
+}
 
 .composer-queue { margin-bottom: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); font-size: var(--text-xs); }
 
@@ -428,8 +475,7 @@
     padding: 2px 10px 10px;
   }
 
-  .btn.send,
-.btn.stop {
+  .btn.send {
     width: 40px;
     height: 40px;
   }
@@ -462,7 +508,7 @@
 }
 
 @media (max-width: 720px) {
-  .composer-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; }
+  .composer-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; }
 
   .composer-bar .composer-model-pill { grid-column: 1 / -1; max-width: 100%; justify-self: start; }
 
@@ -471,11 +517,7 @@
   .composer-bar .composer-state,
 .composer-bar .spacer { display: none; }
 
-  .composer-bar .stop { grid-column: 2; grid-row: 2; }
+  .composer-bar .delay-picker { grid-column: 2; grid-row: 2; }
 
-  .composer-bar .composer-steer { grid-column: 3; grid-row: 2; }
-
-  .composer-bar .composer-send { grid-column: 4; grid-row: 2; }
-
-  .btn.send.composer-send { width: auto; }
+  .composer-bar .send-action { grid-column: 3; grid-row: 2; }
 }

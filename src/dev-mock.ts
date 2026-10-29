@@ -63,6 +63,7 @@ let messages = run_agent_loop(
   },
 ];
 
+const runningDemoSessionId = "1790000000000-running-demo";
 const initialDemoSessionId = "1730000000000-abc123";
 const legacyDemoSessionId = "1729990000000-def456";
 const peerDemoSessionId = "1729980000000-ghi789";
@@ -125,6 +126,10 @@ const demoStates = new Map<string, DemoAgentState>([
   [
     demoAgent.name,
     seedDemoState([
+      [runningDemoSessionId, "正在运行 · 发送控件演示", [
+        { role: "user", content: "帮我梳理这个项目的结构。", timestamp: Date.now() - 60000 },
+        { role: "assistant", content: [{ type: "text", text: "我正在检查项目文件。你可以排队发送下一条消息，或立即引导当前任务。\n\n这是浏览器开发模式中的模拟运行，不会调用模型。" }], timestamp: Date.now() - 30000 },
+      ]],
       [initialDemoSessionId, "帮我看看这个项目的结构", initialDemoMessages],
       [
         legacyDemoSessionId,
@@ -189,6 +194,11 @@ function openConversation(agentName: string, sessionId: string): DemoConversatio
   demoConversations.set(key, conversation);
   return conversation;
 }
+
+// 让 session_infos 在首次打开界面前就能发现这条模拟运行。
+const runningDemoConversation = openConversation(demoAgent.name, runningDemoSessionId);
+runningDemoConversation.running = true;
+runningDemoConversation.runId = 1;
 
 /** 设置工作台的临时测试会话：只进打开中 map，不进入 histories / 会话列表。 */
 function createTestConversation(agentName: string): DemoConversation {
