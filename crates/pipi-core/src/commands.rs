@@ -45,6 +45,9 @@ pub const COMMANDS: &[&str] = &[
     "preview_workspace_file",
     "workspace_changes",
     "workspace_diff",
+    "list_icon_themes",
+    "get_icon_theme",
+    "set_icon_theme",
     "get_settings",
     "save_settings",
     "web_push_public_key",
@@ -98,6 +101,28 @@ pub const COMMANDS: &[&str] = &[
     "forum_post",
     "forum_reply",
 ];
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetIconThemeArgs {
+    pub id: Option<String>,
+}
+
+pub async fn list_icon_themes() -> Result<crate::icon_themes::IconThemeList, String> {
+    tokio::task::spawn_blocking(crate::icon_themes::list)
+        .await
+        .map_err(|e| e.to_string())
+}
+pub async fn get_icon_theme() -> Result<Option<Value>, String> {
+    tokio::task::spawn_blocking(crate::icon_themes::current)
+        .await
+        .map_err(|e| e.to_string())?
+}
+pub async fn set_icon_theme(args: SetIconThemeArgs) -> Result<Option<Value>, String> {
+    tokio::task::spawn_blocking(move || crate::icon_themes::select(args.id))
+        .await
+        .map_err(|e| e.to_string())?
+}
 
 // ============ Agent ============
 
@@ -1169,6 +1194,9 @@ pub async fn dispatch(
         "preview_workspace_file" => to_value(preview_workspace_file(parse(args)?).await?),
         "workspace_changes" => to_value(workspace_changes(parse(args)?).await?),
         "workspace_diff" => to_value(workspace_diff(parse(args)?).await?),
+        "list_icon_themes" => to_value(list_icon_themes().await?),
+        "get_icon_theme" => to_value(get_icon_theme().await?),
+        "set_icon_theme" => to_value(set_icon_theme(parse(args)?).await?),
         "get_settings" => to_value(get_settings()),
         "save_settings" => to_value(save_settings(parse(args)?)?),
         "web_push_public_key" => to_value(web_push_public_key(runtime).await?),
@@ -1269,8 +1297,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            63,
-            "宿主命令数应为 63（前端 CommandMap 同步）"
+            66,
+            "宿主命令数应为 66（前端 CommandMap 同步）"
         );
     }
 

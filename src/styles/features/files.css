@@ -59,7 +59,6 @@
 .workspace-sidebar-icon { --tile-icon-size: 15px; --tile-size: 30px; border-radius: var(--r-sm); background: var(--hover); color: var(--muted); }
 
 .workspace-sidebar-icon.git,
-.file-glyph.style,
 .file-workbench .file-line-numbers button.matched { background: var(--warn-soft); color: var(--warn); }
 
 .workspace-agent-picker,
@@ -69,8 +68,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  border-radius: var(--r-sm, 6px);
+  padding: 9px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
   background: var(--stripe);
   color: var(--accent);
   font-size: var(--text-sm);
@@ -95,12 +95,13 @@
 
 .workspace-file-list { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-top: 2px; }
 
+.workspace-files-sidebar .file-row.active { box-shadow: inset 2px 0 var(--accent); }
 .workspace-files-sidebar .file-row.active,
 .workspace-mode-switch button.active small,
 .file-workbench .file-line-numbers button.selected,
 .diff-wrap-toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
 
-.workspace-files-sidebar .file-row { border-radius: var(--r-sm); }
+.workspace-files-sidebar .file-row { min-height: 34px; border-radius: var(--r-sm); transition: background var(--motion-fast), color var(--motion-fast); }
 
 .workspace-files-sidebar .file-row > .file-row-name { flex: 1; min-width: 0; }
 
@@ -190,33 +191,19 @@
 }
 
 /* 文件内容、媒体、引用与差异预览。 */
-/* ---- 文件类型胶囊 ---- */
-
-.file-glyph {
-  display: inline-grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 25px;
-  height: 19px;
-  border-radius: 5px;
-  background: var(--hover);
-  color: var(--muted);
-  font: 600 8.5px/1 var(--font-mono);
-  letter-spacing: .2px;
-  text-transform: uppercase;
-}
-
-.file-glyph.sm { width: 21px; height: 16px; font-size: 8px; border-radius: 4px; }
-
-.file-glyph.code { background: rgba(120, 155, 255, .14); color: var(--accent-text); }
-
-.file-glyph.data { background: var(--ok-soft); color: var(--ok); }
-
-.file-glyph.doc { background: var(--avatar-teal); color: var(--avatar-teal-fg); }
-
-.file-glyph.media { background: var(--avatar-rose); color: var(--avatar-rose-fg); }
-
-.file-glyph.shell { background: var(--avatar-amber); color: var(--avatar-amber-fg); }
+/* 文件图标在文件树、标签页与 Git 改动中保持一致。 */
+.file-glyph { display: inline-grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; color: var(--muted); }
+.file-glyph.sm { width: 21px; height: 21px; }
+.file-glyph svg, .file-glyph img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.file-glyph.themed { font-size: 20px; line-height: 1; }
+.file-glyph.themed.sm { font-size: 16px; }
+.file-glyph.code { color: var(--accent-text); }
+.file-glyph.data { color: var(--ok); }
+.file-glyph.doc { color: var(--avatar-teal-fg); }
+.file-glyph.media { color: var(--avatar-rose-fg); }
+.file-glyph.shell, .file-glyph.style { color: var(--warn); }
+.file-glyph-js, .file-glyph-jsx { color: var(--warn); }
+.file-glyph-rs { color: var(--avatar-rose-fg); }
 
 /* ---- 预览 ---- */
 
@@ -227,9 +214,9 @@
 .file-preview-tabs-wrap:empty,
 .file-preview-tabs:empty { display: none; }
 
-.file-preview-tabs { display: flex; flex-shrink: 0; overflow-x: auto; border-bottom: 1px solid var(--line-soft); background: var(--stripe); }
+.file-preview-tabs { display: flex; gap: 2px; flex-shrink: 0; overflow-x: auto; padding: 5px 8px 0; border-bottom: 1px solid var(--line-soft); background: var(--stripe); }
 
-.file-preview-tabs > div { display: flex; flex-shrink: 0; border-right: 1px solid var(--line-soft); max-width: 240px; }
+.file-preview-tabs > div { display: flex; flex-shrink: 0; max-width: 240px; border-radius: var(--r-sm) var(--r-sm) 0 0; }
 
 .file-preview-tabs > div.active { background: var(--panel); box-shadow: inset 0 -2px var(--accent); }
 
@@ -241,7 +228,7 @@
 
 .file-tab-diff { flex-shrink: 0; color: var(--warn); font-family: var(--font-mono); font-size: var(--text-xs); }
 
-.file-preview-title { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-lg); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line-soft); flex-shrink: 0; background: var(--panel); }
+.file-preview-title { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-lg); padding: 10px var(--space-3); border-bottom: 1px solid var(--line-soft); flex-shrink: 0; background: var(--panel); }
 
 .file-preview-identity { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
 

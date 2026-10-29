@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ChatEntry } from "../chat-runtime";
+import { FileGlyph } from "./FileGlyph";
 import { FilePreview, type PreviewSource } from "./FilePreview";
 import { toolFiles } from "./model";
 
@@ -17,7 +18,7 @@ export function SessionFilesPanel({ entries, onOpenFile }: { entries: ChatEntry[
     <p className="file-notice">仅显示本次会话 read / write / edit 涉及的文件与操作记录。</p>
     {!files.length && <p className="file-notice">本次会话还没有文件操作。</p>}
     {files.map(file => <div className="file-tool" key={file.path}>
-      {onOpenFile ? <button type="button" className="file-row" title={file.path} onClick={() => onOpenFile(file.path)}><span>{file.path}</span><small>在 File 打开</small></button> : <div className="file-row"><span>{file.path}</span></div>}
+      {onOpenFile ? <button type="button" className="file-row" title={file.path} onClick={() => onOpenFile(file.path)}><FileGlyph path={file.path} size="sm" /><span>{file.path}</span><small>在 File 打开</small></button> : <div className="file-row"><FileGlyph path={file.path} size="sm" /><span>{file.path}</span></div>}
       <p className="file-notice">{file.calls} 次操作{file.errors ? ` · ${file.errors} 次失败` : ""}</p>
       {file.operations.filter(operation => operation.patch).map((operation, index) => <button type="button" className="btn small file-operation" key={operation.id} aria-pressed={operation.id === operationId}
         onClick={() => setOperationId(operation.id === operationId ? null : operation.id)}>{operation.name} 差异 {index + 1}{operation.error ? "（失败）" : ""}</button>)}

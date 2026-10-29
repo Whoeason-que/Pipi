@@ -1,6 +1,6 @@
 import {
   INITIAL_CHAT_STATE, chatReducer, createEntryKey, eventMatchesRun, formatRuntimeError,
-  type AgentEventPayload,
+  type AgentEventPayload, type MessageView,
   type ChatAction, type ChatState,
   type SessionErrorPayload,
   type SessionEventMeta, type SessionStatsPayload, type SessionSwitchedPayload
@@ -29,6 +29,27 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, message: string)
       error => { clearTimeout(timer); reject(error); },
     );
   });
+}
+
+/** Drop only buffered events proven to be included in the authoritative snapshot. */
+function snapshotCoversFrame(frame: SessionFrame, messages: MessageView[], info: SessionInfoView, pending: SessionFrame[]): boolean {
+  if (frame.type !== "agent-event" || frame.payload.agentName !== info.agentName
+    || frame.payload.sessionId !== info.sessionId || frame.payload.runId !== info.runId) return false;
+  const event = frame.payload.event;
+  if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") {
+    return messages.some(message => message.role === "toolResult" && message.toolCallId === event.toolCallId);
+  }
+  if ((event.type === "message_start" || event.type === "message_update" || event.type === "message_end")
+    && event.message.role === "assistant" && event.message.timestamp != null) {
+    const matched = messages.filter(message => message.role === "assistant" && message.timestamp === event.message.timestamp);
+    return matched.length === 1 && pending.some(candidate => candidate.type === "agent-event"
+      && candidate.payload.agentName === info.agentName && candidate.payload.sessionId === info.sessionId
+      && candidate.payload.runId === info.runId && candidate.payload.event.type === "message_end"
+      && candidate.payload.event.message.role === "assistant"
+      && candidate.payload.event.message.timestamp === event.message.timestamp
+      && JSON.stringify(candidate.payload.event.message.content) === JSON.stringify(matched[0].content));
+  }
+  return false;
 }
 
 export type SessionFrame =
@@ -224,6 +245,7 @@ export class SessionController {
   async hydrate(): Promise<void> {
     const epoch = ++this.loadEpoch;
     const id = this.value.sessionId;
+    let snapshotCoverage: { messages: MessageView[]; info: SessionInfoView } | null = null;
     this.patch({ load: "loading", error: null });
     if (!id) {
       this.dispatch({ type: "hydrate", messages: [], stats: null, running: false });
@@ -245,6 +267,7 @@ export class SessionController {
           this.fail("无法确认当前会话身份，请返回后重试");
           return;
         }
+        snapshotCoverage = { messages: snapshot.messages, info };
         this.patch({ queue: snapshot.queue ?? EMPTY_PROMPT_QUEUE });
         const knownRun = this.identity?.runId ?? 0;
         const stale = (info.runId ?? 0) < knownRun;
@@ -280,7 +303,9 @@ export class SessionController {
     }
     const pending = this.pending;
     this.pending = [];
-    pending.forEach(frame => this.apply(frame));
+    pending.forEach(frame => {
+      if (!snapshotCoverage || !snapshotCoversFrame(frame, snapshotCoverage.messages, snapshotCoverage.info, pending)) this.apply(frame);
+    });
   }
 
   async send(text: string): Promise<boolean> {

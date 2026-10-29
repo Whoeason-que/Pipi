@@ -53,81 +53,94 @@ pub(super) async fn run_compaction(
         return Ok(false);
     }
     hooks.agent(id, run_id, AgentEvent::CompactionStart);
-    let tokens_before = pipi_context::context::context_tokens(&history);
-    let mut options = request.options.clone();
-    options.session_id = Some(id.clone());
-    options.max_tokens = None;
-    options.timeout_secs = 300;
-    let env = pipi_context::compaction::StrategyEnv {
-        provider: request.provider.as_ref(),
-        model: &request.model,
-        options: &options,
-        abort: session.abort.clone(),
-        retry: request.retry,
-    };
-    let compacted = pipi_context::compaction::compact(&history, request.budget, &env).await?;
-    let summary = compacted
-        .messages
-        .first()
-        .and_then(pipi_protocol::session::summary_text)
-        .unwrap_or_default()
-        .to_string();
-    let keep_from_entry = keep_from_entry_id(&session.writer, &history, compacted.keep_from);
-    let source_tip = session
-        .writer
-        .lock()
-        .ok()
-        .and_then(|w| w.tip_id().map(str::to_string))
-        .unwrap_or_default();
-    let record = CompactionRecord {
-        summary: &summary,
-        strategy: compacted.strategy,
-        keep_from_entry: &keep_from_entry,
-        source_tip: &source_tip,
-        usage: compacted.usage,
-    };
-    let switched = persist_compaction(
-        &session.writer,
-        session.repo.as_deref(),
-        &record,
-        request.policy,
-    )?;
-    *session.messages.lock().expect("session history poisoned") = compacted.messages;
-    if let Some(usage) = compacted.usage
-        && let Ok(mut tracker) = session.stats.lock()
-    {
-        tracker.record_ledger(&usage);
-    }
-    // 压缩后没有新的助手 usage，锚点失效，这里是估算值（与下一轮真实用量衔接）。
-    let tokens_after = pipi_context::context::context_tokens(
-        &session.messages.lock().expect("session history poisoned"),
-    );
-    if let Some(new_id) = switched {
-        if let Some(rekey) = &hooks.rekey {
-            rekey(id, &new_id);
+    let result: Result<bool, String> = async {
+        let tokens_before = pipi_context::context::context_tokens(&history);
+        let mut options = request.options.clone();
+        options.session_id = Some(id.clone());
+        options.max_tokens = None;
+        options.timeout_secs = 300;
+        let env = pipi_context::compaction::StrategyEnv {
+            provider: request.provider.as_ref(),
+            model: &request.model,
+            options: &options,
+            abort: session.abort.clone(),
+            retry: request.retry,
+        };
+        let compacted = pipi_context::compaction::compact(&history, request.budget, &env).await?;
+        let summary = compacted
+            .messages
+            .first()
+            .and_then(pipi_protocol::session::summary_text)
+            .unwrap_or_default()
+            .to_string();
+        let keep_from_entry = keep_from_entry_id(&session.writer, &history, compacted.keep_from);
+        let source_tip = session
+            .writer
+            .lock()
+            .ok()
+            .and_then(|w| w.tip_id().map(str::to_string))
+            .unwrap_or_default();
+        let record = CompactionRecord {
+            summary: &summary,
+            strategy: compacted.strategy,
+            keep_from_entry: &keep_from_entry,
+            source_tip: &source_tip,
+            usage: compacted.usage,
+        };
+        let switched = persist_compaction(
+            &session.writer,
+            session.repo.as_deref(),
+            &record,
+            request.policy,
+        )?;
+        *session.messages.lock().expect("session history poisoned") = compacted.messages;
+        if let Some(usage) = compacted.usage
+            && let Ok(mut tracker) = session.stats.lock()
+        {
+            tracker.record_ledger(&usage);
         }
-        (hooks.emit)(SessionEvent {
-            session_id: id.clone(),
+        // 压缩后没有新的助手 usage，锚点失效，这里是估算值（与下一轮真实用量衔接）。
+        let tokens_after = pipi_context::context::context_tokens(
+            &session.messages.lock().expect("session history poisoned"),
+        );
+        if let Some(new_id) = switched {
+            if let Some(rekey) = &hooks.rekey {
+                rekey(id, &new_id);
+            }
+            (hooks.emit)(SessionEvent {
+                session_id: id.clone(),
+                run_id,
+                kind: SessionEventKind::Switched {
+                    to_session_id: new_id.clone(),
+                    archived: request.policy.archive_original,
+                },
+            });
+            *id = new_id;
+        }
+        hooks.agent(
+            id,
             run_id,
-            kind: SessionEventKind::Switched {
-                to_session_id: new_id.clone(),
-                archived: request.policy.archive_original,
+            AgentEvent::CompactionEnd {
+                summary,
+                replaced: compacted.replaced as u64,
+                strategy: compacted.strategy.to_string(),
+                tokens_before,
+                tokens_after,
             },
-        });
-        *id = new_id;
+        );
+        Ok(true)
     }
-    hooks.agent(
-        id,
-        run_id,
-        AgentEvent::CompactionEnd {
-            summary,
-            replaced: compacted.replaced as u64,
-            strategy: compacted.strategy.to_string(),
-            tokens_before,
-            tokens_after,
-        },
-    );
-    Ok(true)
+    .await;
+    if let Err(error) = &result {
+        hooks.agent(
+            id,
+            run_id,
+            AgentEvent::CompactionFailed {
+                message: error.clone(),
+            },
+        );
+    }
+    result
 }
 
 /// 把压缩结果落盘，返回 `Some(new_session_id)` 表示已换到新会话。

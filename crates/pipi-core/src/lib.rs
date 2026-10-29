@@ -27,6 +27,7 @@ pub mod background;
 pub mod commands;
 pub mod events;
 pub mod forum;
+pub mod icon_themes;
 pub mod notifications;
 pub mod remote;
 pub mod runtime;

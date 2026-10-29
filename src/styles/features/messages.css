@@ -188,32 +188,37 @@
   animation: pipi-pulse 1.2s ease-in-out infinite;
 }
 
-/* 上下文压缩标记：系统级折叠条 */
-
-.compaction-fold {
+/* 上下文压缩：清楚区分进行中、完成与未完成。 */
+.compaction-card {
   border: 1px solid var(--line-soft);
-  border-radius: var(--r);
-  padding: 10px 14px;
-  font-size: var(--text-md);
-  color: var(--muted);
+  border-radius: var(--r-lg);
   background: var(--stripe);
-}
-
-.compaction-fold summary {
-  cursor: pointer;
-  user-select: none;
   color: var(--muted);
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
+  overflow: hidden;
 }
-
-.compaction-fold[open] summary {
-  margin-bottom: 8px;
+.compaction-card summary, .compaction-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 14px;
 }
-
-.compaction-fold > *:not(summary) {
-  font-size: var(--text-md);
-  color: var(--text);
-}
+.compaction-card summary { cursor: pointer; list-style: none; }
+.compaction-card summary::-webkit-details-marker { display: none; }
+.compaction-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: var(--hover); }
+.compaction-icon svg { width: 16px; height: 16px; }
+.compaction-running .compaction-icon svg { animation: compaction-spin 1.5s linear infinite; }
+@keyframes compaction-spin { to { transform: rotate(360deg); } }
+.compaction-done .compaction-icon { color: var(--ok); background: var(--ok-soft); }
+.compaction-failed { border-color: var(--danger-border); }
+.compaction-failed .compaction-icon { color: var(--danger); background: var(--danger-soft); }
+.compaction-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.compaction-chevron { color: var(--faint); transition: transform .15s; }
+.compaction-card[open] .compaction-chevron { transform: rotate(180deg); }
+.compaction-summary { border-top: 1px solid var(--line-soft); padding: 12px 16px; color: var(--fg); }
+.compaction-summary .md { font-size: var(--text-sm); }
+.compaction-error { padding: 0 14px 12px 52px; color: var(--danger); overflow-wrap: anywhere; }
 
 /* 请求重试提示：单行系统通知，弱化到「看得见但不抢戏」 */
 
@@ -226,10 +231,6 @@
   font-size: var(--text-sm);
   line-height: 1.6;
   overflow-wrap: anywhere;
-}
-
-.compaction-fold .md {
-  font-size: var(--text-md);
 }
 
 .chat-welcome h2 {

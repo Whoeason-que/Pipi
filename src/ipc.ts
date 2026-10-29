@@ -1,3 +1,4 @@
+import type { IconTheme, IconThemeList } from "./files/icon-theme-types";
 import type { WorkspaceListing, WorkspaceFile, WorkspaceChanges, WorkspaceDiff } from "./files/types";
 import type { NotificationEnvelope } from "./notifications";
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
@@ -29,6 +30,9 @@ export interface CommandMap {
   preview_workspace_file: { args: { agentName: string; path: string }; result: WorkspaceFile };
   workspace_changes: { args: { agentName: string }; result: WorkspaceChanges };
   workspace_diff: { args: { agentName: string; path: string }; result: WorkspaceDiff };
+  list_icon_themes: { args: { }; result: IconThemeList };
+  get_icon_theme: { args: { }; result: IconTheme | null };
+  set_icon_theme: { args: { id?: string | null }; result: IconTheme | null };
   get_settings: { args: {  }; result: Settings };
   save_settings: { args: { settings: Settings }; result: void };
   web_push_public_key: { args: { }; result: string };

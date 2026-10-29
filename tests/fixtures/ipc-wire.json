@@ -1,4 +1,6 @@
 {
+  "iconThemeList": {"selected":"fixture.icons:demo","themes":[{"id":"fixture.icons:demo","label":"Demo"}]},
+  "iconTheme": {"file":"_default","iconDefinitions":{"_default":{"iconPath":"data:image/svg+xml;base64,PHN2Zy8+"}},"fileExtensions":{"ts":"_default"}},
   "workspaceListing": {"workspace":"/workspace","path":"","entries":[{"path":"a.txt","name":"a.txt","kind":"file","size":5}],"truncated":false},
   "workspaceFile": {"workspace":"/workspace","path":"a.txt","size":5,"version":"sha256-fixture","kind":"text","mime":"text/plain","content":"hello","base64":null,"truncated":false},
   "workspaceChanges": {"workspace":"/workspace","isRepo":true,"files":[{"path":"a.txt","status":" M"}]},
@@ -20,6 +22,7 @@
   "background": {"task":{"jobId":"job-1","kind":"agent","agentName":"fixture","sessionId":"session-1","runId":7,"command":"run_agent","cwd":"/tmp","targetAgent":"child","childSessionId":"child-1","status":"completed","startedAt":1,"completedAt":2,"outputCursor":1,"outputTruncated":false,"result":"done"},"output":[{"seq":1,"stream":"agent","text":"done","timestamp":2}],"nextSeq":1},
   "events": [
     {"type":"agent-event","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"event":{"type":"agent_end","messages":[]}}},
+    {"type":"agent-event","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"event":{"type":"compaction_failed","message":"fixture compaction failure"}}},
     {"type":"session-stats","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"stats":{"input":10,"output":2,"cacheRead":3,"cacheWrite":0,"calls":1}}},
     {"type":"session-error","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"message":"fixture failure"}},
     {"type":"session-switched","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"toSessionId":"session-2","archived":true}},

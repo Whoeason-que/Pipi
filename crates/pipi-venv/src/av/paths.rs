@@ -66,6 +66,11 @@ pub fn catalog_cache_path() -> Option<PathBuf> {
     pipi_home().map(|home| home.join("cache").join("models.json"))
 }
 
+/// 文件图标主题选择。
+pub fn file_icon_theme_path() -> Option<PathBuf> {
+    pipi_home().map(|home| home.join("file-icon-theme.json"))
+}
+
 /// 设置文件：`<pipi_home>/settings.json`。
 pub fn settings_path() -> Option<PathBuf> {
     pipi_home().map(|home| home.join("settings.json"))
@@ -131,5 +136,9 @@ mod tests {
             Some(pipi.join("cache").join("models.json"))
         );
         assert_eq!(settings_path(), Some(pipi.join("settings.json")));
+        assert_eq!(
+            file_icon_theme_path(),
+            Some(pipi.join("file-icon-theme.json"))
+        );
     }
 }

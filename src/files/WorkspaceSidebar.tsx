@@ -18,7 +18,7 @@ import {
 } from "../icons";
 import { invoke } from "../platform";
 import { gitStatusMeta } from "./diff";
-import { FileGlyph } from "./FileGlyph";
+import { FileGlyph, FolderGlyph } from "./FileGlyph";
 import { formatSize } from "./FilePreview";
 import { useFileResource, type WorkspaceFilesState } from "./use-workspace-files";
 import type { WorkspaceChange, WorkspaceListing } from "./types";
@@ -227,7 +227,7 @@ export function WorkspaceSidebar({
         </label>
       ) : currentWorkspacePath ? (
         <div className="workspace-current-badge" title={currentWorkspacePath}>
-          <IconFolder />
+          <FolderGlyph path={currentWorkspacePath} expanded root />
           <span className="truncate workspace-current-name">{currentWorkspaceName}</span>
         </div>
       ) : null}
@@ -647,7 +647,7 @@ function GitTree({
                   <IconCaret expanded={!isCollapsed} />
                 </span>
                 <span className="scm-row-icon folder">
-                  <IconFolder />
+                  <FolderGlyph path={node.path} expanded={!isCollapsed} />
                 </span>
                 <span className="scm-row-label dir-label">{node.name}</span>
                 <span className="scm-count-pill">{count}</span>
@@ -792,7 +792,7 @@ function Directory({
                 <>
                   <IconCaret expanded={expanded} />
                   <span className="file-row-icon folder">
-                    <IconFolder />
+                    <FolderGlyph path={item.path} expanded={expanded} />
                   </span>
                 </>
               ) : (

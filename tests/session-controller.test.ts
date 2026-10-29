@@ -738,3 +738,38 @@ test("a queued draft follows compaction and cancellation targets only its new id
   assert.equal(host.calls.at(-1)?.args?.sessionId, "new");
   assert.equal(controller.getSnapshot().queue.messages.length, 0);
 });
+
+test("hydration does not replay completed streaming and tool events already in the snapshot", async () => {
+  const { host, controller, runtime } = await fixture();
+  host.infos.set("s", info("s", 2, true));
+  const history = deferred<MessageView[]>();
+  host.held = history.promise;
+  const hydration = controller.hydrate();
+  const answer: MessageView = { role: "assistant", content: "finished", timestamp: 1234 };
+  host.event({ type: "message_start", message: { ...answer, content: "" } });
+  host.event({ type: "message_update", message: { ...answer, content: "partial" } });
+  host.event({ type: "message_end", message: answer });
+  host.event({ type: "tool_execution_start", toolCallId: "t1", toolName: "read" });
+  history.resolve([answer, { role: "toolResult", content: "result", toolCallId: "t1", toolName: "read" }]);
+  await hydration;
+  const entries = controller.getSnapshot().chat.entries;
+  assert.deepEqual(entries.map(entry => entry.text), ["finished", "result"]);
+  assert.equal(entries[1].toolRunning, undefined);
+  runtime.disconnect();
+});
+
+test("compaction failure settles the current session and ignores other sessions", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  host.event({ type: "compaction_start" }, "s", 2);
+  host.event({ type: "compaction_failed", message: "other session" }, "other", 2);
+  assert.ok(controller.getSnapshot().chat.activeCompactionKey);
+  host.event({ type: "compaction_failed", message: "summary unavailable" }, "s", 2);
+  host.event({ type: "agent_end", messages: [] }, "s", 2);
+  const { chat } = controller.getSnapshot();
+  assert.equal(chat.running, false);
+  assert.equal(chat.activeCompactionKey, null);
+  assert.equal(chat.entries.at(-1)?.errorMessage, "summary unavailable");
+  assert.equal(chat.entries.at(-1)?.transient, false);
+  runtime.disconnect();
+});

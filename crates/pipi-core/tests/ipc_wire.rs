@@ -33,6 +33,7 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
     roundtrip::<Settings>(&wire["settings"]);
     roundtrip::<pipi_core::remote::RemoteAccessStatus>(&wire["remoteAccess"]);
     roundtrip::<Vec<Message>>(&wire["messages"]);
+    roundtrip::<pipi_core::icon_themes::IconThemeList>(&wire["iconThemeList"]);
     roundtrip::<BackgroundTaskSnapshot>(&wire["background"]);
     roundtrip::<SkillLibrary>(&wire["skillLibrary"]);
     roundtrip::<AgentSkills>(&wire["agentSkills"]);
@@ -55,12 +56,31 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
         is_custom_model: false,
     };
     assert_eq!(serde_json::to_value(session).unwrap(), wire["session"]);
+    let icon_list = pipi_core::icon_themes::IconThemeList {
+        selected: Some("fixture.icons:demo".into()),
+        themes: vec![pipi_core::icon_themes::IconThemeInfo {
+            id: "fixture.icons:demo".into(),
+            label: "Demo".into(),
+        }],
+    };
+    assert_eq!(
+        serde_json::to_value(icon_list).unwrap(),
+        wire["iconThemeList"]
+    );
     let events = vec![
         RuntimeEvent::AgentEvent(AgentEventEnvelope {
             agent_name: "fixture".into(),
             session_id: "session-1".into(),
             run_id: 7,
             event: AgentEvent::AgentEnd { messages: vec![] },
+        }),
+        RuntimeEvent::AgentEvent(AgentEventEnvelope {
+            agent_name: "fixture".into(),
+            session_id: "session-1".into(),
+            run_id: 7,
+            event: AgentEvent::CompactionFailed {
+                message: "fixture compaction failure".into(),
+            },
         }),
         RuntimeEvent::SessionStats(StatsEventEnvelope {
             agent_name: "fixture".into(),

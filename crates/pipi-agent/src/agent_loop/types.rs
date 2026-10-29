@@ -54,6 +54,10 @@ pub enum AgentEvent {
     },
     /// 摘要式上下文压缩开始（runtime 在 turn 边界触发）。
     CompactionStart,
+    /// 摘要或落盘失败，关闭已开始的压缩段。
+    CompactionFailed {
+        message: String,
+    },
     /// 压缩完成；`summary` 为摘要正文，`replaced` 为被替换的消息条数，
     /// `strategy` 为产出它的策略名，`tokens_before/after` 是整段历史的
     /// token 估算（UI 用它显示省了多少）。

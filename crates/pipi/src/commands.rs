@@ -55,9 +55,9 @@ use pipi_core::commands::{
     AgentSkillsArgs, ConfigureRemoteAccessArgs, CreateAgentArgs, ForumPostArgs, ForumReadArgs,
     ForumReplyArgs, ForumSearchArgs, ForumThread, ForumThreadsArgs, InstallSkillArgs,
     ListAgentFilesArgs, ListAgentsArgs, ModelCatalogArgs, ReadAgentFileArgs, RemoteAccessTokenArgs,
-    RemoveStoreSkillArgs, SaveAgentArgs, SaveSettingsArgs, SetRemoteAccessEnabledArgs,
-    SetSkillEnabledArgs, SkillUsageArgs, SyncAgentSkillsArgs, VerifyStoreSkillsArgs,
-    WriteAgentFileArgs,
+    RemoveStoreSkillArgs, SaveAgentArgs, SaveSettingsArgs, SetIconThemeArgs,
+    SetRemoteAccessEnabledArgs, SetSkillEnabledArgs, SkillUsageArgs, SyncAgentSkillsArgs,
+    VerifyStoreSkillsArgs, WriteAgentFileArgs,
 };
 use pipi_core::commands::{
     ListWorkspaceFilesArgs, PreviewWorkspaceFileArgs, WorkspaceChangesArgs, WorkspaceDiffArgs,
@@ -286,4 +286,19 @@ pub async fn remote_access_token(
         args.0,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn list_icon_themes() -> Result<pipi_core::icon_themes::IconThemeList, String> {
+    pipi_core::commands::list_icon_themes().await
+}
+#[tauri::command]
+pub async fn get_icon_theme() -> Result<Option<serde_json::Value>, String> {
+    pipi_core::commands::get_icon_theme().await
+}
+#[tauri::command]
+pub async fn set_icon_theme(
+    args: InvokeArgs<SetIconThemeArgs>,
+) -> Result<Option<serde_json::Value>, String> {
+    pipi_core::commands::set_icon_theme(args.0).await
 }

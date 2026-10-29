@@ -752,3 +752,36 @@ test("backend error kinds override text guesses and legacy fallback avoids ambig
   assert.equal(result.errorInfo?.category, "network");
   assert.equal(classifyChatError({ stopReason: "aborted", errorKind: "network" }).category, "aborted");
 });
+
+test("compaction failures and interrupted runs clear the pending state", () => {
+  let state = event(INITIAL_CHAT_STATE, { type: "compaction_start" });
+  const key = state.activeCompactionKey;
+  state = event(state, { type: "compaction_failed", message: "summary request failed" });
+  assert.equal(state.activeCompactionKey, null);
+  assert.equal(state.entries.at(-1)?.key, key);
+  assert.equal(state.entries.at(-1)?.status, "error");
+  assert.equal(state.entries.at(-1)?.errorMessage, "summary request failed");
+  assert.equal(state.entries.at(-1)?.transient, false);
+  state = event(state, { type: "agent_end" });
+  assert.equal(state.running, false);
+  assert.equal(state.entries.filter(entry => entry.kind === "compaction").length, 1);
+
+  let interrupted = event(INITIAL_CHAT_STATE, { type: "compaction_start" });
+  interrupted = event(interrupted, { type: "agent_end" });
+  assert.equal(interrupted.entries.at(-1)?.text, "压缩未完成");
+  assert.equal(interrupted.entries.at(-1)?.transient, false);
+  assert.equal(interrupted.activeCompactionKey, null);
+});
+
+test("hydration preserves active compaction while running and clears it when idle", () => {
+  let state = event(INITIAL_CHAT_STATE, { type: "compaction_start" });
+  const key = state.activeCompactionKey;
+  state = chatReducer(state, { type: "hydrate", messages: [], stats: null, running: true });
+  assert.equal(state.activeCompactionKey, key);
+  state = event(state, { type: "compaction_end", summary: "summary", replaced: 2 });
+  assert.equal(state.entries.filter(entry => entry.kind === "compaction").length, 1);
+  let interrupted = event(INITIAL_CHAT_STATE, { type: "compaction_start" });
+  interrupted = chatReducer(interrupted, { type: "hydrate", messages: [], stats: null, running: false });
+  assert.equal(interrupted.activeCompactionKey, null);
+  assert.equal(interrupted.entries.at(-1)?.transient, false);
+});

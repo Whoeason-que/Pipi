@@ -76,6 +76,7 @@ export type AgentEvent =
       cause: string;
     }
   | { type: "compaction_start" }
+  | { type: "compaction_failed"; message: string }
   | {
       type: "compaction_end";
       summary: string;
@@ -686,16 +687,24 @@ function applyCompletedMessage(state: ChatState, message: MessageView, key: stri
   };
 }
 
+/** Close an interrupted compaction without claiming it succeeded. */
+function finishCompaction(entries: ChatEntry[], key: string | null, message?: string): ChatEntry[] {
+  if (!key) return entries;
+  return entries.map(entry => entry.key === key && entry.kind === "compaction"
+    ? { ...entry, text: message ? "压缩上下文失败" : "压缩未完成", errorMessage: message, status: "error" as const, transient: false }
+    : entry);
+}
+
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "hydrate":
       return {
         ...state,
-        entries: mergeHydratedEntries(state, action.messages),
+        entries: finishCompaction(mergeHydratedEntries(state, action.messages), action.running ? null : state.activeCompactionKey),
         stats: state.stats ?? action.stats,
         running: state.liveEventSeen ? state.running : action.running,
         hydrated: true,
-        activeCompactionKey: null,
+        activeCompactionKey: action.running ? state.activeCompactionKey : null,
       };
     case "submit_user":
       return {
@@ -739,7 +748,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           }, state);
           return {
             ...recovered,
-            entries: finishRunningEntries(recovered.entries),
+            entries: finishCompaction(finishRunningEntries(recovered.entries), recovered.activeCompactionKey),
             running: false,
             activeAssistantKey: null,
             activeCompactionKey: null,
@@ -924,6 +933,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             running: true,
             activeCompactionKey: action.key,
           };
+        case "compaction_failed": {
+          const key = state.activeCompactionKey;
+          return {
+            ...state,
+            entries: key ? finishCompaction(state.entries, key, event.message)
+              : [...state.entries, { key: action.key, role: "assistant", kind: "compaction", text: "压缩上下文失败", status: "error", errorMessage: event.message, timestamp: Date.now() }],
+            activeCompactionKey: null,
+          };
+        }
         case "compaction_end": {
           const pendingKey = state.activeCompactionKey;
           // 正文说清「做了什么、省了多少」：压缩是最容易被误认为「丢消息」的动作，

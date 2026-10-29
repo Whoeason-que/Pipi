@@ -776,6 +776,32 @@ async fn compaction_faults_preserve_ledger_identity_and_reopen_totals() {
             assert_eq!(options[0].session_id.as_deref(), Some("source"));
             assert_eq!(options[0].timeout_secs, 300);
         }
+        if fault == Fault::Append {
+            let start = events
+                .iter()
+                .position(|e| {
+                    matches!(
+                        e.kind,
+                        SessionEventKind::Agent(
+                            pipi_agent::agent_loop::AgentEvent::CompactionStart
+                        )
+                    )
+                })
+                .unwrap();
+            let failed = events
+                .iter()
+                .position(|e| {
+                    matches!(
+                        e.kind,
+                        SessionEventKind::Agent(
+                            pipi_agent::agent_loop::AgentEvent::CompactionFailed { .. }
+                        )
+                    )
+                })
+                .unwrap();
+            assert!(start < failed);
+            assert_eq!(events[failed].session_id, "source");
+        }
         if matches!(fault, Fault::Append | Fault::Commit) {
             assert_eq!(messages, before);
             assert_eq!(

@@ -1,32 +1,23 @@
 import { useI18n } from "./i18n";
 import { ChoiceSelect } from "./Select";
 import type { ReasoningEffort } from "./types";
+import { reasoningChoices } from "./reasoning-effort";
 
 interface ReasoningSelectProps {
   id: string;
   value: ReasoningEffort | null | undefined;
   onChange: (effort: ReasoningEffort | null) => void;
   disabled?: boolean;
-  compact?: boolean;
 }
 
-export function ReasoningSelect({ id, value, onChange, disabled, compact = false }: ReasoningSelectProps) {
+export function ReasoningSelect({ id, value, onChange, disabled }: ReasoningSelectProps) {
   const { locale } = useI18n();
   const en = locale === "en";
-  const choices: { value: ReasoningEffort | "default"; label: string }[] = [
-    { value: "default", label: en ? "Model default" : "模型默认" },
-    { value: "none", label: en ? "Off" : "关闭" },
-    { value: "minimal", label: en ? "Minimal" : "极低" },
-    { value: "low", label: en ? "Low" : "低" },
-    { value: "medium", label: en ? "Medium" : "中" },
-    { value: "high", label: en ? "High" : "高" },
-    { value: "xhigh", label: en ? "Extra high" : "极高" },
-    { value: "max", label: en ? "Maximum" : "最高" },
-  ];
+  const choices = reasoningChoices(en);
   return (
     <>
-      <label className={compact ? "composer-reasoning-label" : "label"} htmlFor={id}>
-        {compact ? (en ? "Thinking" : "思考") : (en ? "Reasoning effort" : "思考程度")}
+      <label className="label" htmlFor={id}>
+        {en ? "Reasoning effort" : "思考程度"}
       </label>
       <ChoiceSelect
         id={id}
@@ -39,13 +30,13 @@ export function ReasoningSelect({ id, value, onChange, disabled, compact = false
           onChange(choice && choice.value !== "default" ? choice.value : null);
         }}
         menuInPortal
-        menuPlacement={compact ? "top" : "auto"}
+        menuPlacement="auto"
       />
-      {!compact && <span className="hint">
+      <span className="hint">
         {en
           ? "Higher effort can take longer and use more tokens. Available levels depend on the model and provider; default leaves the choice to the model."
           : "较高档位可能增加耗时和 token 用量。支持的档位取决于模型和供应商；默认沿用模型自身行为。"}
-      </span>}
+      </span>
     </>
   );
 }

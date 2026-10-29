@@ -250,10 +250,23 @@ function ensureWebSocket(): void {
   };
 }
 
+// Mobile browsers may suspend a socket without delivering a close event. A fresh
+// connection on foreground wakes the normal snapshot resynchronization path.
+function refreshWebConnection(): void {
+  if (document.visibilityState !== "visible" || webListeners.size === 0) return;
+  closeWebSocket();
+  webReconnectAttempt = 0;
+  ensureWebSocket();
+}
+
 function webListen(
   event: string,
   listener: WebEventListener,
 ): Promise<UnlistenFn> {
+  if (webListeners.size === 0) {
+    document.addEventListener("visibilitychange", refreshWebConnection);
+    window.addEventListener("online", refreshWebConnection);
+  }
   const listeners = webListeners.get(event) ?? new Set<WebEventListener>();
   listeners.add(listener);
   webListeners.set(event, listeners);
@@ -262,7 +275,11 @@ function webListen(
     const current = webListeners.get(event);
     current?.delete(listener);
     if (current?.size === 0) webListeners.delete(event);
-    if (webListeners.size === 0) closeWebSocket();
+    if (webListeners.size === 0) {
+      document.removeEventListener("visibilitychange", refreshWebConnection);
+      window.removeEventListener("online", refreshWebConnection);
+      closeWebSocket();
+    }
   };
   return Promise.resolve(unlisten);
 }

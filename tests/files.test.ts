@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { gitStatusMeta, parsePatch } from "../src/files/diff.ts";
 import { FileResourceCache } from "../src/files/resource-cache.ts";
-import { codeFence, formatReference, linkedPath, makeReference, markdownImagePath, toolFiles } from "../src/files/model.ts";
+import { codeFence, fileGlyph, formatReference, linkedPath, makeReference, markdownImagePath, toolFiles } from "../src/files/model.ts";
 import type { WorkspaceFile } from "../src/files/types.ts";
 import { WorkspaceViewStore } from "../src/files/workspace-view.ts";
 import { chatReducer, INITIAL_CHAT_STATE, type MessageView } from "../src/chat-runtime.ts";
@@ -170,4 +170,13 @@ test("多仓库与分支元数据兼容 DTO 契约并正确支持状态归属", 
   assert.equal(changesWithRepos.repositories?.length, 2);
   assert.equal(changesWithRepos.files[1].repository, "Frontend");
   assert.equal(changesWithRepos.repositories?.[1].branch, "feat-ui");
+});
+
+
+test("file icons distinguish common files and configuration names", () => {
+  assert.deepEqual(fileGlyph("src/App.TSX"), { label: "TSX", tone: "code" });
+  assert.deepEqual(fileGlyph("Dockerfile"), { label: "DOC", tone: "code" });
+  assert.deepEqual(fileGlyph(".gitignore"), { label: "GIT", tone: "shell" });
+  assert.deepEqual(fileGlyph(".env.production"), { label: "ENV", tone: "data" });
+  assert.deepEqual(fileGlyph("image.png"), { label: "PNG", tone: "media" });
 });

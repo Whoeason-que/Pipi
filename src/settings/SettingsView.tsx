@@ -6,6 +6,7 @@ import { useRightRail } from "../app/right-rail";
 import { catalogSourceLabel, type CatalogProvider } from "../catalog";
 import { loadCatalog, resetCatalog } from "../catalog-client";
 import { IconBack, IconLayers, IconPanelRight, IconPlus, IconRefresh } from "../icons";
+import IconThemeSettings from "./IconThemeSettings";
 import RemoteAccessPanel from "./RemoteAccessPanel";
 import NotificationsPanel from "./NotificationsPanel";
 import { SettingsRail } from "./SettingsRail";
@@ -204,6 +205,7 @@ export default function SettingsView({
                 </span>
               </section>
 
+              <IconThemeSettings />
               <section className="surface settings-block">
                 <span className="label">{t("settings.theme")}</span>
                 <div className="theme-grid">

@@ -2,13 +2,14 @@
 // 让前端 UI 可以脱离桌面壳独立开发调试。Tauri 生产构建不受影响。
 import type { AgentDefinition, Settings, RemoteAccessStatus, PromptQueueSnapshot } from "./types";
 import type { ModelCatalog } from "./catalog";
+import { DEMO_WORKSPACE, demoWorkspaceChanges, demoWorkspaceDiff, demoWorkspaceFile, demoWorkspaceListing } from "./dev-workspace";
 
 const demoAgent: AgentDefinition = {
   name: "demo-assistant",
   description: "浏览器演示模式的示例 Agent（真实 Agent 由桌面端读写 ~/.pipi/agents）",
   model: "",
   provider: null,
-  workspace: null,
+  workspace: DEMO_WORKSPACE,
   permissions: {
     tools: ["read", "write", "edit", "bash", "memory", "glob", "grep"],
     sandbox: "workspace-write",
@@ -762,6 +763,13 @@ function listDemoSessions(agentName: string): Array<Record<string, unknown>> {
     }));
 }
 
+// 浏览器开发预览不读取宿主扩展；提供一套本地演示图标。
+const demoSvg = (text: string, color: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="${color}"/><text x="12" y="16" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="9" fill="white">${text}</text></svg>`)}`;
+const demoIconTheme = {
+  iconDefinitions: { code: { iconPath: demoSvg("TS", "#3976b8") }, doc: { iconPath: demoSvg("M", "#458b73") }, folder: { iconPath: demoSvg("◆", "#b68d4b") } },
+  fileExtensions: { ts: "code", tsx: "code", md: "doc" }, folder: "folder",
+};
+let demoIconSelected: string | null = null;
 const remoteDemo: RemoteAccessStatus = {
   config: { port: 1421, startWithApp: false, publicUrl: "", tunnelTokenFile: "" },
   localRunning: false, tunnelRunning: false, tunnelConnected: false,
@@ -788,6 +796,13 @@ export function installDevMock(): void {
           remoteDemo.localUrl = remoteDemo.localRunning ? `http://127.0.0.1:${remoteDemo.config.port}` : null;
           return Promise.resolve(structuredClone(remoteDemo));
         case "remote_access_token": return Promise.resolve("preview-only-token-not-a-real-credential");
+        case "list_icon_themes": return Promise.resolve({ selected: demoIconSelected, themes: [{ id: "demo", label: "Demo Icons" }] });
+        case "get_icon_theme": return Promise.resolve(demoIconSelected ? demoIconTheme : null);
+        case "set_icon_theme": {
+          if (args.id != null && args.id !== "demo") return Promise.reject(new Error("Icon theme not found in demo"));
+          demoIconSelected = args.id == null ? null : "demo";
+          return Promise.resolve(demoIconSelected ? demoIconTheme : null);
+        }
         case "get_settings":
           return Promise.resolve(structuredClone(settings));
         case "save_settings":
@@ -832,6 +847,14 @@ export function installDevMock(): void {
           if (current) demoConversations.delete(conversationKey(current.agentName, current.sessionId));
           return Promise.resolve(null);
         }
+        case "list_workspace_files":
+          return Promise.resolve().then(() => demoWorkspaceListing(String(args.agentName ?? ""), String(args.path ?? "")));
+        case "preview_workspace_file":
+          return Promise.resolve().then(() => demoWorkspaceFile(String(args.agentName ?? ""), String(args.path ?? "")));
+        case "workspace_changes":
+          return Promise.resolve().then(() => demoWorkspaceChanges(String(args.agentName ?? "")));
+        case "workspace_diff":
+          return Promise.resolve().then(() => demoWorkspaceDiff(String(args.agentName ?? ""), String(args.path ?? "")));
         case "model_catalog":
           // 与 pipi-core 的 wire 结构一致（providers/models 按 camelCase）
           return Promise.resolve(structuredClone(demoCatalog));

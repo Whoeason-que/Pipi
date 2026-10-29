@@ -2,6 +2,7 @@ import { assistantFooter, type ChatBlock } from "../chat-runtime";
 import { Markdown } from "../Markdown";
 import { ChipRow, CopyButton, formatClock } from "./ToolDetails";
 import { IconFork } from "../icons";
+import CompactionCard from "./CompactionCard";
 import { ChatErrorCard } from "./ChatErrorCard";
 import { extractAssistantContentAndError } from "./chat-errors";
 import { useI18n } from "../i18n";
@@ -56,10 +57,7 @@ export default function ChatTimeline({
               return (
                 <div key={entry.key} className="row system-row">
                   <div className="row-inner">
-                    <details className="compaction-fold" open={!entry.summary}>
-                      <summary>{entry.text}</summary>
-                      {entry.summary ? <Markdown text={entry.summary} imageAgent={agent} /> : null}
-                    </details>
+                    <CompactionCard entry={entry} agent={agent} />
                   </div>
                 </div>
               );

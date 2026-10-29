@@ -540,3 +540,6 @@
     grid-template-columns: 1fr;
   }
 }
+
+.icon-theme-controls { display: flex; align-items: center; gap: 8px; }
+.icon-theme-controls select { flex: 1; min-width: 0; }

@@ -13,7 +13,7 @@ import { IconArrowDown } from "../icons";
 import ComposerQueue from "./ComposerQueue";
 import DelayPicker from "./DelayPicker";
 import SendAction from "./SendAction";
-import { ReasoningSelect } from "../ReasoningSelect";
+import ModelEffortPicker from "./ModelEffortPicker";
 import type { ModelConfig, PromptQueueSnapshot, ReasoningEffort } from "../types";
 
 interface ChatComposerProps {
@@ -115,13 +115,15 @@ export default function ChatComposer({
   };
 
   const changeReasoning = async (effort: ReasoningEffort | null) => {
-    if (!ready || running || stopping || uncertain || !model || sendingRef.current || updatingReasoningRef.current) return;
+    if (!ready || running || stopping || uncertain || !model || sendingRef.current || updatingReasoningRef.current) return false;
     updatingReasoningRef.current = true;
     setUpdatingReasoning(true);
     try {
       await onReasoningChange(effort);
+      return true;
     } catch (error) {
       if (mountedRef.current) onError(formatRuntimeError(error));
+      return false;
     } finally {
       updatingReasoningRef.current = false;
       if (mountedRef.current) setUpdatingReasoning(false);
@@ -193,49 +195,14 @@ export default function ChatComposer({
           }}
         />
         <div className="composer-bar">
-          {!temporary ? (
-            <button
-              type="button"
-              className="model-pill composer-model-pill"
-              onClick={onOpenModel}
-              disabled={!ready || running || sending || updatingReasoning || uncertain}
-              title={
-                running
-                  ? locale === "en"
-                    ? "Cannot change model while running"
-                    : "Agent 运行中不可切换模型"
-                  : locale === "en"
-                    ? "Switch session model"
-                    : "切换当前会话模型"
-              }
-            >
-              <span className="model-indicator" />
-              <span className="truncate model-pill-name">{modelName}</span>
-              {customModel && (
-                <span className="caption model-pill-tag">
-                  {locale === "en" ? "Custom" : "自定义"}
-                </span>
-              )}
-              <span className="model-chevron" aria-hidden="true">
-                ⌄
-              </span>
-            </button>
-          ) : (
-            <span className="truncate caption test-model composer-model-pill" title={modelName}>
-              {modelName}
-            </span>
-          )}
-          {!temporary && (
-            <div className="composer-reasoning">
-              <ReasoningSelect
-                id="composer-reasoning-effort"
-                compact
-                value={model?.reasoningEffort}
-                disabled={!ready || !model || running || stopping || sending || updatingReasoning || uncertain}
-                onChange={(effort) => void changeReasoning(effort)}
-              />
-            </div>
-          )}
+          {!temporary ? <ModelEffortPicker
+            model={model}
+            customModel={customModel}
+            disabled={!ready || running || stopping || sending || updatingReasoning || uncertain}
+            disabledReason={running ? (locale === "en" ? "Cannot change model while running" : "Agent 运行中不可切换模型") : undefined}
+            onOpenModel={onOpenModel}
+            onEffortChange={changeReasoning}
+          /> : <span className="truncate caption test-model" title={modelName}>{modelName}</span>}
           <span className="spacer" />
           <span className="caption composer-state" role="status">
             {updatingReasoning
