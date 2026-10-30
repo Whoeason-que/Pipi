@@ -53,6 +53,15 @@
   box-shadow: 0 0 0 3px var(--ok-soft);
 }
 
+/* 未读/有内容的角标点，位置由宿主组件决定。 */
+.tab-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
 .disclosure-chevron {
   display: block;
   flex-shrink: 0;
@@ -72,12 +81,16 @@
 
 .surface-interactive {
   color: var(--fg);
-  transition: border-color var(--motion-fast), background var(--motion-fast);
+  transition:
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .surface-interactive:hover {
-  border-color: var(--accent-border);
-  background: var(--panel-2);
+  border-color: var(--line-2);
+  background: var(--card);
+  box-shadow: var(--card-shadow);
 }
 
 /* 共用控件：页面只定义布局，尺寸、主题与交互状态在这里维护。 */

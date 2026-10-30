@@ -175,7 +175,7 @@ test("switching themes dynamically updates tokens and handles repeated transitio
     assert.ok(styleTag);
     assert.equal(dataset.theme, "dark");
     assert.equal(dataset.palette, "ink-blue");
-    assert.ok(styleTag.textContent.includes("--bg: #141a24;"));
+    assert.ok(styleTag.textContent.includes("--bg: #10151e;"));
 
     // 2. 切换到暖阳素白
     applyTheme("solarized-light");

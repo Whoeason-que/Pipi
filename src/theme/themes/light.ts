@@ -6,12 +6,12 @@ export const lightTheme: ThemeDefinition = {
   description: "纯白内容区与柔和灰阶，让阅读和对话更专注。",
   mode: "light",
   preview: {
-    bg: "#ffffff",
-    nav: "#f9f9f9",
-    rail: "#eeeeee",
+    bg: "#fbfbfc",
+    nav: "#f7f7f8",
+    rail: "#f0f0f2",
     card: "#ffffff",
-    line: "#dedede",
-    accent: "#303030",
+    line: "#e2e2e5",
+    accent: "#24262b",
   },
   tokens: {}, // 全量使用 BASE_LIGHT_TOKENS
 };

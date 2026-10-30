@@ -1,7 +1,7 @@
 /* Markdown 正文、代码块与语法高亮。 */
 .md {
   font-size: var(--text-prose);
-  line-height: 1.8;
+  line-height: 1.78;
   color: var(--fg);
   user-select: text;
   overflow-wrap: anywhere;
@@ -16,7 +16,7 @@
 }
 
 .md p {
-  margin: 12px 0;
+  margin: 11px 0;
 }
 
 .md h1,
@@ -25,8 +25,9 @@
 .md h4,
 .md h5,
 .md h6 {
-  margin: 28px 0 12px;
-  font-weight: 650;
+  margin: 26px 0 10px;
+  font-weight: 620;
+  letter-spacing: -0.015em;
   line-height: 1.4;
   color: var(--fg);
 }
@@ -43,7 +44,7 @@
 .md h4,
 .md h5,
 .md h6 {
-  font-size: 17px;
+  font-size: 16.5px;
 }
 
 .md ul,
@@ -59,10 +60,13 @@
 .md a {
   color: var(--accent-text);
   text-decoration: none;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--accent-border);
 }
 
 .md a:hover {
   text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 
 /* 行内 code：无实体边框，浅灰底（ChatGPT --gray-100 口径） */
@@ -81,9 +85,10 @@
 .codeblock {
   margin: 16px 0;
   border: 1px solid var(--line-soft);
-  border-radius: var(--r);
+  border-radius: var(--r-lg);
   background: var(--code-bg);
   overflow: hidden;
+  box-shadow: var(--card-shadow);
 }
 
 .codeblock-head {
@@ -91,20 +96,22 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px 6px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 5px 8px 5px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .codeblock-lang {
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: #b4b4b4;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: #9aa0a8;
 }
 
 .codeblock-copy {
   background: transparent;
   border: 0;
-  color: #b4b4b4;
+  color: #9aa0a8;
   font-size: var(--text-xs);
   font-family: inherit;
   cursor: pointer;
@@ -114,13 +121,13 @@
 }
 
 .codeblock-copy:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   color: #ececec;
 }
 
 .md .codeblock pre {
   margin: 0;
-  padding: 10px 14px 12px;
+  padding: 11px 14px 13px;
   background: transparent;
   border: 0;
   border-radius: 0;
@@ -131,24 +138,27 @@
   background: none;
   border: none;
   padding: 0;
-  font-size: var(--text-sm);
-  line-height: 1.6;
+  font-size: 12.5px;
+  line-height: 1.65;
   color: #ececec;
 }
 
 .md blockquote {
   margin: 16px 0;
-  padding: 8px 16px;
-  border-left: 3px solid var(--accent-border);
+  padding: 10px 14px;
+  border-left: 2px solid var(--accent);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   background: var(--stripe);
-  color: var(--text);
+  color: var(--muted);
 }
 
 .md table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin: 16px 0;
   max-width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
   font-size: var(--text-md);
   display: block;
   overflow-x: auto;
@@ -156,24 +166,36 @@
 
 .md th,
 .md td {
-  border: 1px solid var(--line);
-  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-right: 1px solid var(--line-soft);
+  padding: 8px 13px;
   vertical-align: top;
   text-align: left;
+}
+
+.md th:last-child,
+.md td:last-child {
+  border-right: 0;
+}
+
+.md tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .md th {
   font-weight: 600;
   color: var(--fg);
-  background: var(--panel);
+  background: var(--panel-2);
+  border-bottom-color: var(--line);
 }
 
 .md tbody tr:nth-child(even) { background: var(--stripe); }
 
 .md hr {
   border: none;
-  border-top: 1px solid var(--line);
-  margin: 14px 0;
+  border-top: 1px solid var(--line-soft);
+  margin: 20px 0;
 }
 
 .md img {

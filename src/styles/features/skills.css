@@ -237,7 +237,7 @@
   cursor: pointer;
 }
 
-.skills-card.active { border-color: var(--accent-border); background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
+.skills-card.active { border-color: var(--accent-border); background: var(--accent-soft); }
 
 .skills-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 

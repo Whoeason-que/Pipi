@@ -369,12 +369,12 @@
 /* 预览使用固定双色，切换主题前仍能看见各自的实际配色。 */
 
 .theme-preview {
-  --preview-bg: #141a24;
-  --preview-nav: #101620;
-  --preview-rail: #0c121b;
-  --preview-card: #1d2634;
-  --preview-line: #334057;
-  --preview-accent: #91acff;
+  --preview-bg: #10151e;
+  --preview-nav: #0f141c;
+  --preview-rail: #0a0e15;
+  --preview-card: #1a212d;
+  --preview-line: #2f3949;
+  --preview-accent: #8fa9ff;
   display: flex;
   height: 122px;
   overflow: hidden;
@@ -384,12 +384,12 @@
 }
 
 .theme-preview.light {
-  --preview-bg: #f8faff;
-  --preview-nav: #f0f4fa;
-  --preview-rail: #e9eef8;
+  --preview-bg: #fbfbfc;
+  --preview-nav: #f7f7f8;
+  --preview-rail: #f0f0f2;
   --preview-card: #ffffff;
-  --preview-line: #cbd6e8;
-  --preview-accent: #365edc;
+  --preview-line: #e2e2e5;
+  --preview-accent: #24262b;
 }
 
 .theme-preview-rail {
