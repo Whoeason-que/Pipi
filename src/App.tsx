@@ -494,7 +494,7 @@ export default function App() {
               if (ws) handleSelectWorkspace(ws);
               startCreating();
             }} />
-          : (navSection === "files" || navSection === "git") && (view.kind === "files" || view.kind === "git") ? <WorkspaceSidebar key={workspace.store?.key ?? "no-workspace"} state={workspace} workspaces={workspaces} activeWorkspace={activeWorkspace}
+          : (navSection === "files" || navSection === "git") && (view.kind === "files" || view.kind === "git") ? <WorkspaceSidebar key={workspace.store?.key ?? "no-workspace"} state={workspace} workspaces={workspaces}
             onSelectWorkspace={wsPath => { setPreviewWorkspacePaths(previous => ({ ...previous, [view.kind === "git" ? "git" : "files"]: wsPath })); if (mobile) setSidebarOpen(true); }} />
           : navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={filteredAgents}
           sessionsByAgent={filteredSessionsByAgent} isRunning={isConversationRunning} onSelectAgent={selectAgent} onOpenSession={openSession} />

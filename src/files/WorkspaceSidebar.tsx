@@ -1,17 +1,13 @@
 import { useContext, useMemo, useState } from "react";
 import { LayoutContext } from "../app/layout-context";
 import { ChoiceSelect } from "../Select";
-import { useCopyFeedback } from "../components/use-copy";
 import { getWorkspaceBasename, type WorkspaceInfo } from "../app/workspaces";
 import {
   IconCaret,
-  IconCheck,
   IconClose,
   IconCollapseAll,
-  IconCopy,
   IconEye,
   IconEyeOff,
-  IconFile,
   IconFolder,
   IconGit,
   IconGitBranch,
@@ -30,12 +26,10 @@ import type { WorkspaceChange, WorkspaceListing } from "./types";
 export function WorkspaceSidebar({
   state,
   workspaces = [],
-  activeWorkspace = "all",
   onSelectWorkspace,
 }: {
   state: WorkspaceFilesState;
   workspaces?: WorkspaceInfo[];
-  activeWorkspace?: string;
   onSelectWorkspace?: (path: string) => void;
 }) {
   const { closeNavigation } = useContext(LayoutContext);
@@ -44,19 +38,11 @@ export function WorkspaceSidebar({
   const [selectedRepo, setSelectedRepo] = useState<string>("all");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
-  const [copiedPath, setCopiedPath] = useState<string | null>(null);
-  const clipboard = useCopyFeedback();
 
   const { target, mode, store, view, changes } = state;
   const open = (filePath: string) => {
     store?.open(filePath);
     closeNavigation();
-  };
-
-  const handleCopy = (e: React.MouseEvent, filePath: string) => {
-    e.stopPropagation();
-    setCopiedPath(filePath);
-    void clipboard.copy(filePath);
   };
 
   const repositories = changes.value?.repositories ?? [];
@@ -104,20 +90,6 @@ export function WorkspaceSidebar({
 
   const currentWorkspacePath = target?.workspace || "";
   const currentWorkspaceName = target?.name || getWorkspaceBasename(currentWorkspacePath);
-  const title = mode === "files" ? "文件" : "源代码管理";
-  const detail =
-    mode === "files"
-      ? `${state.rootListing.value?.entries.length ?? 0} 个顶层条目`
-      : changes.value?.isRepo === false
-        ? "非 Git 仓库"
-        : `${summary.total} 个更改`;
-  // 工作区选择器已经在下方单独占一行时，标题继续显示视图名；
-  // 否则把工作区名并入标题，省掉一条独立的徽标行。
-  const workspaceInHeader =
-    Boolean(currentWorkspacePath) &&
-    !(workspaces.length > 1 && activeWorkspace === "all");
-  const heading = workspaceInHeader ? currentWorkspaceName : title;
-  const subheading = workspaceInHeader ? `${title} · ${detail}` : detail;
 
   const toggleGroup = (id: string) => {
     setCollapsedGroups((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -150,13 +122,6 @@ export function WorkspaceSidebar({
     }
   };
 
-  const activeRepo =
-    selectedRepo !== "all"
-      ? repositories.find((r) => r.name === selectedRepo)
-      : repositories.length === 1
-        ? repositories[0]
-        : undefined;
-
   return (
     <div className={`file-workbench workspace-files-sidebar${mode === "git" ? " vscode-scm-sidebar" : ""}`}>
       {/* 搜索置顶：所有分区的过滤框都作为侧栏第一行，滚动时保持可见。 */}
@@ -187,21 +152,24 @@ export function WorkspaceSidebar({
         </div>
       )}
 
-      {/* 顶部标题栏：VS Code 风格小字全大写与右侧工具栏 */}
+      {/* 顶部标题栏：左侧工作区切换，右侧操作图标。 */}
       <div className="file-workbench-header scm-header-bar">
         <div className="workspace-sidebar-title scm-title">
-          <span className={`icon-tile workspace-sidebar-icon ${mode}`}>
-            {mode === "files" ? <IconFile /> : <IconGit />}
-          </span>
-          <div className="scm-title-text">
-            <strong
-              className="truncate"
-              title={workspaceInHeader ? currentWorkspacePath : undefined}
-            >
-              {heading}
-            </strong>
-            <small className="truncate">{subheading}</small>
-          </div>
+          {workspaces.length > 0 ? (
+            <ChoiceSelect
+              className="workspace-header-select"
+              ariaLabel="切换工作区"
+              value={currentWorkspacePath}
+              choices={workspaces.map(w => ({ value: w.path, label: w.name || getWorkspaceBasename(w.path) }))}
+              onChange={value => onSelectWorkspace?.(value)}
+              placeholder="选择工作区"
+              searchable={false}
+              menuInPortal
+              menuPlacement="auto"
+            />
+          ) : (
+            <strong className="truncate">{currentWorkspaceName}</strong>
+          )}
         </div>
         <div className="workspace-sidebar-actions scm-header-actions">
           {mode === "git" && (
@@ -262,20 +230,6 @@ export function WorkspaceSidebar({
         </div>
       </div>
 
-      {workspaces.length > 1 && activeWorkspace === "all" ? (
-        <div className="workspace-agent-picker">
-          <span>工作区</span>
-          <ChoiceSelect
-            className="workspace-picker-select"
-            ariaLabel="选择工作区"
-            value={currentWorkspacePath}
-            choices={workspaces.map(w => ({ value: w.path, label: w.name || getWorkspaceBasename(w.path) }))}
-            onChange={value => onSelectWorkspace?.(value)}
-            searchable={false} menuInPortal menuPlacement="auto"
-          />
-        </div>
-      ) : null}
-
       {!target ? (
         <div className="empty-state workspace-sidebar-empty">
           <IconFolder />
@@ -284,30 +238,22 @@ export function WorkspaceSidebar({
         </div>
       ) : (
         <>
-          {mode === "git" && (
-            <div className="scm-repo-bar" hidden={!multiRepo && !activeRepo}>
-              {multiRepo ? (
-                <div className="scm-repo-picker">
-                  <span className="scm-repo-picker-label">
-                    <IconGitBranch /> 仓库
-                  </span>
-                  <ChoiceSelect
-                    className="workspace-picker-select"
-                    ariaLabel="选择 Git 仓库"
-                    value={selectedRepo}
-                    choices={[{ value: "all", label: `全部仓库 (${repositories.length})` },
-                      ...repositories.map(r => ({ value: r.name, label: `${r.name}${r.branch ? ` (${r.branch})` : ""}` }))]}
-                    onChange={setSelectedRepo}
-                    searchable={false} menuInPortal menuPlacement="auto"
-                  />
-                </div>
-              ) : activeRepo ? (
-                <div className="scm-branch-badge" title={`仓库路径：${activeRepo.path || "."}`}>
-                  <IconGitBranch />
-                  <span className="truncate scm-repo-name">{activeRepo.name}</span>
-                  {activeRepo.branch && <code className="truncate scm-branch-name">{activeRepo.branch}</code>}
-                </div>
-              ) : null}
+          {mode === "git" && multiRepo && (
+            <div className="scm-repo-bar">
+              <div className="scm-repo-picker">
+                <span className="scm-repo-picker-label">
+                  <IconGitBranch /> 仓库
+                </span>
+                <ChoiceSelect
+                  className="workspace-picker-select"
+                  ariaLabel="选择 Git 仓库"
+                  value={selectedRepo}
+                  choices={[{ value: "all", label: `全部仓库 (${repositories.length})` },
+                    ...repositories.map(r => ({ value: r.name, label: `${r.name}${r.branch ? ` (${r.branch})` : ""}` }))]}
+                  onChange={setSelectedRepo}
+                  searchable={false} menuInPortal menuPlacement="auto"
+                />
+              </div>
             </div>
           )}
 
@@ -368,6 +314,7 @@ export function WorkspaceSidebar({
                   const isCollapsed = Boolean(collapsedGroups[group.id]);
                   const treeNodes =
                     gitViewMode === "tree" ? buildGitTree(group.files) : [];
+                  const lineSum = sumLines(group.files);
                   return (
                     <section key={group.id} className={`workspace-git-group scm-group ${group.tone}`}>
                       <button
@@ -378,6 +325,7 @@ export function WorkspaceSidebar({
                       >
                         <IconCaret expanded={!isCollapsed} />
                         <span className="truncate scm-group-title">{group.name}</span>
+                        <LineDiff additions={lineSum.additions} deletions={lineSum.deletions} />
                         <span className="scm-count-pill">{group.files.length}</span>
                       </button>
                       {!isCollapsed && (
@@ -389,8 +337,6 @@ export function WorkspaceSidebar({
                                   file={file}
                                   active={file.path === view.selected}
                                   multiRepo={multiRepo && selectedRepo === "all"}
-                                  copied={copiedPath === file.path && clipboard.state === "copied"}
-                                  onCopy={handleCopy}
                                   onOpen={open}
                                 />
                               ))
@@ -400,8 +346,6 @@ export function WorkspaceSidebar({
                                   depth={0}
                                   selected={view.selected}
                                   collapsedFolders={collapsedFolders}
-                                  copiedPath={clipboard.state === "copied" ? copiedPath : null}
-                                  onCopy={handleCopy}
                                   onToggleFolder={toggleFolder}
                                   onOpen={open}
                                   multiRepo={multiRepo && selectedRepo === "all"}
@@ -440,7 +384,6 @@ export function WorkspaceSidebar({
             <div className="scm-footer">
               <span className="scm-footer-base"><IconGitBranch /> HEAD <span>↔</span> 工作区</span>
               <p className="caption file-sidebar-hint">已暂存与未暂存差异合并展示</p>
-              {clipboard.state === "failed" && <p className="file-error" role="status">{clipboard.label}</p>}
             </div>
           )}
         </>
@@ -469,20 +412,15 @@ function GitRow({
   file,
   active,
   multiRepo,
-  copied,
-  onCopy,
   onOpen,
 }: {
   file: WorkspaceChange;
   active: boolean;
   multiRepo: boolean;
-  copied: boolean;
-  onCopy: (e: React.MouseEvent, path: string) => void;
   onOpen: (path: string) => void;
 }) {
   const meta = gitStatusMeta(file.status);
   const split = file.path.lastIndexOf("/");
-  const dir = split < 0 ? "" : file.path.slice(0, split + 1);
   const name = split < 0 ? file.path : file.path.slice(split + 1);
   return (
     <div
@@ -495,7 +433,6 @@ function GitRow({
         </span>
         <span className={`scm-row-label ${meta.tone}`}>
           <span className="truncate scm-filename">{name}</span>
-          {dir && <span className="truncate scm-dirname">{dir}</span>}
         </span>
         {multiRepo && file.repository && (
           <span className="truncate scm-repo-tag" title={`仓库：${file.repository}`}>
@@ -503,17 +440,7 @@ function GitRow({
           </span>
         )}
       </button>
-      <div className="scm-row-actions">
-        <button
-          type="button"
-          className="scm-action-btn"
-          title={copied ? "已复制路径" : "复制路径"}
-          aria-label="复制路径"
-          onClick={(e) => onCopy(e, file.path)}
-        >
-          {copied ? <IconCheck /> : <IconCopy />}
-        </button>
-      </div>
+      <LineCount file={file} />
       <span
         className={`scm-status-badge ${meta.tone}`}
         title={`${meta.label} (${meta.code.trim() || "?"})`}
@@ -522,6 +449,36 @@ function GitRow({
       </span>
     </div>
   );
+}
+
+/** 增删行数：只显示非零的一侧；没有统计（如未跟踪）时不显示。 */
+function LineDiff({ additions, deletions }: { additions?: number; deletions?: number }) {
+  if (typeof additions !== "number" || typeof deletions !== "number") return null;
+  if (additions === 0 && deletions === 0) return null;
+  return (
+    <span className="scm-line-count" title={`+${additions} −${deletions}`}>
+      {additions > 0 && <span className="scm-line-add">+{additions}</span>}
+      {deletions > 0 && <span className="scm-line-del">−{deletions}</span>}
+    </span>
+  );
+}
+
+function LineCount({ file }: { file: WorkspaceChange }) {
+  return <LineDiff additions={file.additions} deletions={file.deletions} />;
+}
+
+/** 分组标题的增删行数：只累加有统计的文件；一个都没有时返回空。 */
+function sumLines(files: WorkspaceChange[]) {
+  let additions = 0;
+  let deletions = 0;
+  let known = false;
+  for (const file of files) {
+    if (typeof file.additions !== "number" || typeof file.deletions !== "number") continue;
+    known = true;
+    additions += file.additions;
+    deletions += file.deletions;
+  }
+  return known ? { additions, deletions } : {};
 }
 
 interface GitTreeNode {
@@ -617,8 +574,6 @@ function GitTree({
   depth,
   selected,
   collapsedFolders,
-  copiedPath,
-  onCopy,
   onToggleFolder,
   onOpen,
   multiRepo,
@@ -627,8 +582,6 @@ function GitTree({
   depth: number;
   selected: string | null;
   collapsedFolders: Set<string>;
-  copiedPath: string | null;
-  onCopy: (e: React.MouseEvent, path: string) => void;
   onToggleFolder: (path: string) => void;
   onOpen: (path: string) => void;
   multiRepo: boolean;
@@ -664,8 +617,6 @@ function GitTree({
                     depth={depth + 1}
                     selected={selected}
                     collapsedFolders={collapsedFolders}
-                    copiedPath={copiedPath}
-                    onCopy={onCopy}
                     onToggleFolder={onToggleFolder}
                     onOpen={onOpen}
                     multiRepo={multiRepo}
@@ -700,17 +651,7 @@ function GitTree({
                 </span>
               )}
             </button>
-            <div className="scm-row-actions">
-              <button
-                type="button"
-                className="scm-action-btn"
-                title={copiedPath === file.path ? "已复制路径" : "复制路径"}
-                aria-label="复制路径"
-                onClick={(e) => onCopy(e, file.path)}
-              >
-                {copiedPath === file.path ? <IconCheck /> : <IconCopy />}
-              </button>
-            </div>
+            <LineCount file={file} />
             <span
               className={`scm-status-badge ${meta.tone}`}
               title={`${meta.label} (${meta.code.trim() || "?"})`}

@@ -53,14 +53,25 @@
 
 .workspace-sidebar-title strong { display: block; font-size: var(--text-md); line-height: 1.3; }
 
-.workspace-sidebar-title small { display: block; color: var(--faint); font-size: var(--text-xs); line-height: 1.4; }
+/* 标题栏左侧的工作区切换：外观按标题处理，只保留一个下拉箭头。 */
+.workspace-header-select { flex: 1; min-width: 0; }
 
-.workspace-sidebar-icon { --tile-icon-size: 15px; --tile-size: 30px; border-radius: var(--r-sm); background: var(--hover); color: var(--muted); }
+.workspace-header-select .pipi-select__control { min-height: 26px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; gap: 2px; font-size: var(--text-md); }
 
-.workspace-sidebar-icon.git,
+.workspace-header-select .pipi-select__control--is-focused { border: 0; box-shadow: none; }
+
+.workspace-header-select .pipi-select__single-value { color: var(--fg); font-weight: 600; }
+
+.workspace-header-select .pipi-select__placeholder { color: var(--faint); }
+
+.workspace-header-select .pipi-select__indicator { padding: 2px; color: var(--faint); }
+
+.workspace-header-select .pipi-select__indicator svg { width: 13px; height: 13px; }
+
+.workspace-header-select .pipi-select__control:hover .pipi-select__single-value { color: var(--accent-text); }
+
 .file-workbench .file-line-numbers button.matched { background: var(--warn-soft); color: var(--warn); }
 
-.workspace-agent-picker,
 .workspace-reference-target { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: var(--text-sm); }
 
 .workspace-mode-switch button:hover,
@@ -73,7 +84,7 @@
 .file-workbench .file-line-numbers button.selected,
 .diff-wrap-toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
 
-.workspace-files-sidebar .file-row { min-height: 34px; border-radius: var(--r-sm); transition: background var(--motion-fast), color var(--motion-fast); }
+.workspace-files-sidebar .file-row { padding-block: 2px; border-radius: var(--r-sm); transition: background var(--motion-fast), color var(--motion-fast); }
 
 .workspace-files-sidebar .file-row > .file-row-name { flex: 1; min-width: 0; }
 
@@ -149,8 +160,6 @@
 }
 
 @media (max-width: 860px) {
-  .workspace-files-sidebar .file-row { min-height: var(--touch-target); }
-
   .workspace-files-sidebar .file-workbench-header .btn,
 .workspace-files-toolbar .btn { min-height: var(--control-lg); }
 }
