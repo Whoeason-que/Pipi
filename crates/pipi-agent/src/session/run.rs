@@ -33,12 +33,22 @@ impl RunReservation {
         hooks: SessionHooks,
     ) -> Result<PreparedRun, String> {
         request.prompt = request.prompt.trim().into();
-        if request.prompt.is_empty() {
+        if request
+            .user_content
+            .as_ref()
+            .map_or(request.prompt.is_empty(), |content| content.is_empty())
+        {
             return Err("Message cannot be empty".into());
         }
         request.options.session_id = Some(self.session_id()?);
         request.tool_context.abort = self.session.abort.clone();
-        let message = Message::user_text(request.prompt.clone());
+        let message = match request.user_content.take() {
+            Some(content) => Message::User {
+                content,
+                timestamp: pipi_protocol::now_millis(),
+            },
+            None => Message::user_text(request.prompt.clone()),
+        };
         let mut history = self.session.messages.lock().map_err(|e| e.to_string())?;
         self.session
             .writer

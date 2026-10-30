@@ -2,6 +2,7 @@
 //! 宿主持有消息和计时器，浏览器/视图的生命周期不会取消待发消息。
 use super::*;
 use crate::events::{PromptQueueEnvelope, PromptQueueSnapshot, QueuedPrompt};
+use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Notify;
@@ -15,7 +16,14 @@ pub(super) struct PromptQueue {
     pub active_run: Option<usize>,
     worker: bool,
     // 重试同一个提交不会重复发送，包括响应丢失后消息已开始运行的情况。
-    accepted: VecDeque<QueuedPrompt>,
+    accepted: VecDeque<AcceptedPrompt>,
+}
+
+struct AcceptedPrompt {
+    id: String,
+    text: String,
+    send_at: u64,
+    digest: [u8; 32],
 }
 
 fn now_ms() -> u64 {
@@ -57,6 +65,20 @@ impl RuntimeState {
         text: &str,
         send_at: Option<u64>,
     ) -> Result<PromptQueueEnvelope, String> {
+        self.queue_prompt_with_images(agent_name, session_id, message_id, text, send_at, &[])
+    }
+    pub fn queue_prompt_with_images(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        message_id: &str,
+        text: &str,
+        send_at: Option<u64>,
+        images: &[pipi_protocol::UserImage],
+    ) -> Result<PromptQueueEnvelope, String> {
+        let content = attachments::user_content(text, images)?;
+        let digest: [u8; 32] =
+            Sha256::digest(serde_json::to_vec(images).map_err(|e| e.to_string())?).into();
         validate_session_id(session_id)?;
         if message_id.is_empty()
             || message_id.len() > 80
@@ -67,7 +89,7 @@ impl RuntimeState {
             return Err("Invalid queued message ID".into());
         }
         let text = text.trim();
-        if text.is_empty() || text.len() > 64 * 1024 {
+        if (text.is_empty() && content.is_none()) || text.len() > 64 * 1024 {
             return Err("Queued message must contain 1 to 65536 bytes".into());
         }
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
@@ -76,7 +98,10 @@ impl RuntimeState {
             .get_mut(&SessionKey::new(agent_name, session_id))
             .ok_or("Session is not open; reopen it before queueing messages")?;
         if let Some(previous) = session.queue.accepted.iter().find(|m| m.id == message_id) {
-            if previous.text != text || send_at.is_some_and(|at| at != previous.send_at) {
+            if previous.text != text
+                || previous.digest != digest
+                || send_at.is_some_and(|at| at != previous.send_at)
+            {
                 return Err("Queued message ID was already used with different content".into());
             }
             return self.queue_envelope(session);
@@ -89,12 +114,42 @@ impl RuntimeState {
         if session.queue.snapshot.messages.len() >= 100 {
             return Err("The session already has 100 queued messages".into());
         }
+        let queued_bytes: usize = session
+            .queue
+            .snapshot
+            .messages
+            .iter()
+            .map(|item| {
+                item.content.as_ref().map_or(0, |content| match content {
+                    pipi_protocol::UserContent::Parts(parts) => parts
+                        .iter()
+                        .map(|part| match part {
+                            pipi_protocol::UserContentBlock::Image { data, .. } => data.len(),
+                            _ => 0,
+                        })
+                        .sum(),
+                    _ => 0,
+                })
+            })
+            .sum();
+        if queued_bytes + images.iter().map(|image| image.data.len()).sum::<usize>()
+            > 8 * 1024 * 1024
+        {
+            return Err("Queued images exceed the 8 MiB limit".into());
+        }
         let message = QueuedPrompt {
             id: message_id.into(),
             text: text.into(),
             send_at,
+            image_count: images.len(),
+            content,
         };
-        session.queue.accepted.push_back(message.clone());
+        session.queue.accepted.push_back(AcceptedPrompt {
+            id: message_id.into(),
+            text: text.into(),
+            send_at,
+            digest,
+        });
         if session.queue.accepted.len() > 256 {
             session.queue.accepted.pop_front();
         }
@@ -200,11 +255,13 @@ impl RuntimeState {
             return Some(Duration::from_millis(next.saturating_sub(now).min(60_000)));
         };
         let prompt = queue.snapshot.messages[index].text.clone();
+        let content = queue.snapshot.messages[index].content.clone();
         let result = self.send_prompt_locked(
             &mut sessions,
             &key.agent_name,
             Some(&key.session_id),
             &prompt,
+            content,
             None,
             self.events.emitter(),
         );

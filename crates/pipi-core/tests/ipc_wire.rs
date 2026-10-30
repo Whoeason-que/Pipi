@@ -115,6 +115,8 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
                 paused: false,
                 error: None,
                 messages: vec![pipi_core::events::QueuedPrompt {
+                    content: None,
+                    image_count: 0,
                     id: "queued-1".into(),
                     text: "next task".into(),
                     send_at: 12345,

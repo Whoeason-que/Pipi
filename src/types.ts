@@ -207,10 +207,12 @@ export interface SessionInfoView {
   isCustomModel?: boolean;
 }
 
+export interface UserImage { data: string; mimeType: string }
 export interface QueuedPrompt {
   id: string;
   text: string;
   sendAt: number;
+  imageCount?: number;
 }
 export interface PromptQueueSnapshot {
   revision: number;

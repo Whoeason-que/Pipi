@@ -1,4 +1,5 @@
 import type { SessionStatsView } from "./types";
+import type { UserImage } from "./types";
 import { errorMessage } from "./errors.ts";
 
 export interface UsageView {
@@ -148,6 +149,7 @@ export interface ChatEntry {
   key: string;
   role: MessageView["role"];
   text: string;
+  images?: UserImage[];
   thinking?: string;
   toolName?: string;
   toolCallId?: string;
@@ -191,7 +193,7 @@ export type ChatAction =
       stats: SessionStatsView | null;
       running: boolean;
     }
-  | { type: "submit_user"; key: string; text: string }
+  | { type: "submit_user"; key: string; text: string; images?: UserImage[] }
   | { type: "event"; event: AgentEvent; key: string }
   | { type: "stats"; stats: SessionStatsView }
   | { type: "running"; running: boolean }
@@ -299,6 +301,7 @@ function messageFields(message: MessageView) {
   return {
     role: message.role,
     text: messageText(message),
+    images: message.role === "user" && Array.isArray(message.content) ? message.content.filter((part): part is Extract<MessageContentView, { type: "image" }> => part.type === "image").map(({ data, mimeType }) => ({ data, mimeType })) : undefined,
     thinking: messageThinking(message),
     toolName: message.toolName,
     toolDetails: message.role === "toolResult" ? message.details : undefined,
@@ -388,12 +391,17 @@ export function isAuthSilentError(error: unknown): boolean {
   return formatRuntimeError(error) === "需要 PIPI_AUTH_TOKEN";
 }
 
+function sameImages(left: UserImage[] = [], right: UserImage[] = []): boolean {
+  return left.length === right.length && left.every((image, index) => image.data === right[index].data && image.mimeType === right[index].mimeType);
+}
+
 function sameMessage(left: ChatEntry, message: MessageView): boolean {
   return left.role === message.role
     && (message.role !== "assistant" || left.timestamp == null || message.timestamp == null
       || left.timestamp === message.timestamp)
     && left.toolCallId === (message.toolCallId ?? firstToolCallId(message))
     && left.text === messageText(message)
+    && sameImages(left.images, messageFields(message).images)
     && left.thinking === messageThinking(message)
     && left.stopReason === message.stopReason
     && left.errorMessage === (message.errorMessage ?? undefined)
@@ -511,6 +519,7 @@ function hydratedEntryMatches(left: ChatEntry, right: ChatEntry): boolean {
 function sameEntryContent(left: ChatEntry, right: ChatEntry): boolean {
   return left.role === right.role
     && left.text === right.text
+    && sameImages(left.images, right.images)
     && left.stopReason === right.stopReason
     && left.errorMessage === right.errorMessage
     && left.errorKind === right.errorKind;
@@ -713,6 +722,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           key: action.key,
           role: "user",
           text: action.text,
+          images: action.images,
           timestamp: Date.now(),
           transient: true,
         }],

@@ -676,6 +676,7 @@ pub struct SendPromptArgs {
     pub session_id: Option<String>,
     pub prompt: String,
     pub model: Option<Model>,
+    pub images: Option<Vec<pipi_protocol::UserImage>>,
 }
 
 pub fn send_prompt(
@@ -683,12 +684,13 @@ pub fn send_prompt(
     emitter: EventEmitter,
     args: SendPromptArgs,
 ) -> Result<SessionInfo, String> {
-    runtime.send_prompt(
+    runtime.send_prompt_with_images(
         &args.agent_name,
         args.session_id.as_deref(),
         &args.prompt,
         args.model,
         emitter,
+        args.images.as_deref().unwrap_or(&[]),
     )
 }
 
@@ -714,11 +716,17 @@ pub struct SteerArgs {
     pub agent_name: String,
     pub session_id: String,
     pub message: String,
+    pub images: Option<Vec<pipi_protocol::UserImage>>,
 }
 
 /// 运行中插话（steering）：注入当前运行的下一轮上下文。
 pub fn steer(runtime: &RuntimeState, args: SteerArgs) -> Result<(), String> {
-    runtime.steer(&args.agent_name, &args.session_id, &args.message)
+    runtime.steer_with_images(
+        &args.agent_name,
+        &args.session_id,
+        &args.message,
+        args.images.as_deref().unwrap_or(&[]),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -729,18 +737,20 @@ pub struct QueuePromptArgs {
     pub message_id: String,
     pub message: String,
     pub send_at: Option<u64>,
+    pub images: Option<Vec<pipi_protocol::UserImage>>,
 }
 
 pub fn queue_prompt(
     runtime: &RuntimeState,
     args: QueuePromptArgs,
 ) -> Result<PromptQueueEnvelope, String> {
-    runtime.queue_prompt(
+    runtime.queue_prompt_with_images(
         &args.agent_name,
         &args.session_id,
         &args.message_id,
         &args.message,
         args.send_at,
+        args.images.as_deref().unwrap_or(&[]),
     )
 }
 

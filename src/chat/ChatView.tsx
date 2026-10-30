@@ -535,9 +535,9 @@ export default function ChatView({
             model={sessionModel}
             customModel={isCustomModel}
             composingRef={composingRef}
-            onSend={(text) => controller.send(text)}
-            onSteer={(text) => controller.steer(text)}
-            onQueue={(text, delayMs) => controller.enqueue(text, delayMs)}
+            onSend={(text, images) => controller.send(text, images)}
+            onSteer={(text, images) => controller.steer(text, images)}
+            onQueue={(text, delayMs, images) => controller.enqueue(text, delayMs, images)}
             queue={snapshot.queue}
             onCancelQueued={(id) => controller.cancelQueued(id)}
             onPauseQueue={(paused) => controller.pauseQueue(paused)}

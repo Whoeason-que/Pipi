@@ -22,12 +22,26 @@ impl RuntimeState {
         model: Option<Model>,
         event_sink: EventEmitter,
     ) -> Result<SessionInfo, String> {
+        self.send_prompt_with_images(agent_name, session_id, prompt, model, event_sink, &[])
+    }
+
+    pub fn send_prompt_with_images(
+        &self,
+        agent_name: &str,
+        session_id: Option<&str>,
+        prompt: &str,
+        model: Option<Model>,
+        event_sink: EventEmitter,
+        images: &[pipi_protocol::UserImage],
+    ) -> Result<SessionInfo, String> {
+        let content = attachments::user_content(prompt, images)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         self.send_prompt_locked(
             &mut sessions,
             agent_name,
             session_id,
             prompt,
+            content,
             model,
             event_sink,
         )
@@ -40,6 +54,7 @@ impl RuntimeState {
         agent_name: &str,
         session_id: Option<&str>,
         prompt: &str,
+        content: Option<pipi_protocol::UserContent>,
         model: Option<Model>,
         event_sink: EventEmitter,
     ) -> Result<SessionInfo, String> {
@@ -47,7 +62,7 @@ impl RuntimeState {
             validate_session_id(id)?;
         }
         let prompt = prompt.trim().to_string();
-        if prompt.is_empty() {
+        if prompt.is_empty() && content.is_none() {
             return Err("Message cannot be empty".into());
         }
 
@@ -264,6 +279,7 @@ impl RuntimeState {
         let prepared = reservation.prepare(
             RunRequest {
                 prompt,
+                user_content: content,
                 system_prompt,
                 model: model.clone(),
                 provider: provider_for(),

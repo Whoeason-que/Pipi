@@ -320,7 +320,7 @@ fn first_match(entries: &[SessionEntry], needle: &str) -> Option<(usize, String)
 
 fn plain_text(message: &Message) -> String {
     match message {
-        Message::User { content, .. } => content.clone(),
+        Message::User { content, .. } => content.text(),
         Message::Assistant { content, .. } => content
             .iter()
             .filter_map(|block| match block {
@@ -349,7 +349,7 @@ fn snippet_around(text: &str, byte_at: usize, needle_len: usize) -> String {
 /// 读取形态的单条渲染：工具结果只给占位，文本按字符截断。
 fn render(message: &Message, max_chars: usize) -> String {
     let (role, text) = match message {
-        Message::User { content, .. } => ("User", content.clone()),
+        Message::User { content, .. } => ("User", content.text()),
         Message::Assistant { .. } => ("Assistant", plain_text(message)),
         Message::ToolResult { tool_name, .. } => {
             return format!("(Output of tool {tool_name}, omitted)");

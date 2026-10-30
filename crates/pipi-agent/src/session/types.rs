@@ -92,6 +92,8 @@ pub struct RunTimeout {
 
 pub struct RunRequest {
     pub prompt: String,
+    /// Optional multimodal content for this user turn. Plain text callers use `None`.
+    pub user_content: Option<pipi_protocol::UserContent>,
     pub system_prompt: String,
     pub model: Model,
     pub provider: Arc<dyn Provider>,

@@ -89,7 +89,7 @@ pub(super) fn find_keep_start(messages: &[Message], budget_tokens: u64) -> Optio
 /// 序列化一条消息为供模型阅读的紧凑文本（含 role 前缀与工具信息）。
 fn render_message(message: &Message) -> String {
     match message {
-        Message::User { content, .. } => format!("[user]\n{content}"),
+        Message::User { content, .. } => format!("[user]\n{}", content.text()),
         Message::Assistant { content, .. } => {
             let mut parts = Vec::new();
             for block in content {
@@ -172,7 +172,7 @@ fn message_text(message: &Message) -> String {
             })
             .collect::<Vec<_>>()
             .join(""),
-        Message::User { content, .. } => content.clone(),
+        Message::User { content, .. } => content.text(),
         Message::ToolResult { .. } => String::new(),
     }
 }

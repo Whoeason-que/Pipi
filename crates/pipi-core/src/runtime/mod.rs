@@ -82,6 +82,7 @@ pub struct RuntimeState {
     remote: Arc<std::sync::OnceLock<Arc<dyn crate::remote::RemoteAccessControl>>>,
 }
 
+mod attachments;
 mod child;
 mod compaction;
 mod events;

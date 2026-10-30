@@ -311,15 +311,20 @@ impl AgentSession {
     }
 
     pub fn steer(&self, text: &str) -> Result<(), String> {
-        let text = text.trim();
-        if text.is_empty() {
+        self.steer_content(pipi_protocol::UserContent::Text(text.trim().into()))
+    }
+    pub fn steer_content(&self, content: pipi_protocol::UserContent) -> Result<(), String> {
+        if content.is_empty() {
             return Err("Message cannot be empty".into());
         }
         let _control = self.state.control.lock().map_err(|e| e.to_string())?;
         if !self.state.running.is_running() {
             return Err("Session is not running, please send message directly".into());
         }
-        self.state.steering.push(Message::user_text(text));
+        self.state.steering.push(Message::User {
+            content,
+            timestamp: pipi_protocol::now_millis(),
+        });
         Ok(())
     }
 

@@ -433,6 +433,7 @@ pub(crate) async fn run_agent_once_with_sink(
     };
     let request = RunRequest {
         prompt: prompt.into(),
+        user_content: None,
         system_prompt,
         model: model.clone(),
         provider: provider_for(),

@@ -59,7 +59,7 @@ use pipi_protocol::RetryHint;
 use pipi_protocol::provider::{EventStream, Provider};
 use pipi_protocol::{
     AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
-    StreamOptions, ToolResultContent, Usage,
+    StreamOptions, ToolResultContent, Usage, UserContent, UserContentBlock,
 };
 
 /// provider 内部错误：只携带要写入事件流的安全消息和重试事实。是否重发始终由
@@ -281,6 +281,16 @@ fn thinking_issuer(api: Api) -> &'static str {
     }
 }
 
+fn image_media_type(mime: &str) -> Option<rig::message::ImageMediaType> {
+    match mime {
+        "image/png" => Some(rig::message::ImageMediaType::PNG),
+        "image/jpeg" => Some(rig::message::ImageMediaType::JPEG),
+        "image/gif" => Some(rig::message::ImageMediaType::GIF),
+        "image/webp" => Some(rig::message::ImageMediaType::WEBP),
+        _ => None,
+    }
+}
+
 fn tool_name(name: &str) -> ToolName {
     ToolName::new(name).unwrap_or_else(|_| ToolName::new("tool").expect("非空兜底名不应失败"))
 }
@@ -290,14 +300,46 @@ fn tool_name(name: &str) -> ToolName {
 pub(crate) fn to_rig_messages(context: &Context, api: Api) -> Vec<RigMessage> {
     let issuer = thinking_issuer(api);
     let mut out = Vec::new();
+    let mut pending_images = Vec::new();
     for msg in &context.messages {
+        if !matches!(msg, Message::ToolResult { .. }) && !pending_images.is_empty() {
+            out.push(RigMessage::User {
+                content: std::mem::take(&mut pending_images),
+            });
+        }
         match msg {
             Message::User { content, .. } => {
-                out.push(RigMessage::User {
-                    content: vec![rig::message::UserContent::Text(rig::message::Text::new(
-                        content.clone(),
-                    ))],
-                });
+                let blocks = match content {
+                    UserContent::Text(text) => vec![rig::message::UserContent::Text(
+                        rig::message::Text::new(text.clone()),
+                    )],
+                    UserContent::Parts(parts) => parts
+                        .iter()
+                        .map(|part| match part {
+                            UserContentBlock::Text { text } => rig::message::UserContent::Text(
+                                rig::message::Text::new(text.clone()),
+                            ),
+                            UserContentBlock::Image { data, mime_type } => {
+                                image_media_type(mime_type)
+                                    .map(|media_type| {
+                                        rig::message::UserContent::Image(rig::message::Image {
+                                            data: rig::message::DocumentSourceKind::Base64(
+                                                data.clone(),
+                                            ),
+                                            media_type: Some(media_type),
+                                            ..Default::default()
+                                        })
+                                    })
+                                    .unwrap_or_else(|| {
+                                        rig::message::UserContent::Text(rig::message::Text::new(
+                                            format!("[Unsupported image type: {mime_type}]"),
+                                        ))
+                                    })
+                            }
+                        })
+                        .collect(),
+                };
+                out.push(RigMessage::User { content: blocks });
             }
             Message::Assistant { content, .. } => {
                 let blocks: Vec<AssistantContent> = content
@@ -351,32 +393,60 @@ pub(crate) fn to_rig_messages(context: &Context, api: Api) -> Vec<RigMessage> {
                 is_error,
                 ..
             } => {
-                let text = content
-                    .iter()
-                    .map(|c| match c {
-                        ToolResultContent::Text { text } => text.clone(),
-                        ToolResultContent::Image { .. } => "[image]".to_string(),
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let text = if *is_error {
-                    format!("[error] {text}")
-                } else {
-                    text
-                };
+                let mut blocks = Vec::new();
+                if *is_error {
+                    blocks.push(RigToolResultContent::Text(rig::message::Text::new(
+                        "[error]",
+                    )));
+                }
+                for item in content {
+                    match item {
+                        ToolResultContent::Text { text } => blocks.push(
+                            RigToolResultContent::Text(rig::message::Text::new(text.clone())),
+                        ),
+                        ToolResultContent::Image { data, mime_type } => {
+                            let media_type = image_media_type(mime_type);
+                            if let Some(media_type) = media_type {
+                                let image = rig::message::Image {
+                                    data: rig::message::DocumentSourceKind::Base64(data.clone()),
+                                    media_type: Some(media_type),
+                                    ..Default::default()
+                                };
+                                if api == Api::AnthropicMessages {
+                                    blocks.push(RigToolResultContent::Image(image));
+                                } else {
+                                    blocks.push(RigToolResultContent::Text(
+                                        rig::message::Text::new("[Image follows tool results]"),
+                                    ));
+                                    pending_images.push(rig::message::UserContent::Image(image));
+                                }
+                            } else {
+                                blocks.push(RigToolResultContent::Text(rig::message::Text::new(
+                                    format!("[Unsupported image type: {mime_type}]"),
+                                )));
+                            }
+                        }
+                    }
+                }
+                if blocks.is_empty() {
+                    blocks.push(RigToolResultContent::Text(rig::message::Text::new("")));
+                }
                 out.push(RigMessage::User {
                     content: vec![rig::message::UserContent::ToolResult(
                         rig::message::ToolResult {
                             call: CallId::from_wire(tool_call_id.clone()),
                             name: tool_name(name),
-                            content: vec![RigToolResultContent::Text(rig::message::Text::new(
-                                text,
-                            ))],
+                            content: blocks,
                         },
                     )],
                 });
             }
         }
+    }
+    if !pending_images.is_empty() {
+        out.push(RigMessage::User {
+            content: pending_images,
+        });
     }
     out
 }
@@ -908,6 +978,38 @@ mod tests {
             },
             other => panic!("expected user, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn forwards_tool_images_without_interrupting_parallel_results() {
+        let mut ctx = context();
+        if let Message::ToolResult { content, .. } = &mut ctx.messages[2] {
+            content.push(ToolResultContent::Image {
+                data: "aW1hZ2U=".into(),
+                mime_type: "image/png".into(),
+            });
+        }
+        ctx.messages.push(Message::ToolResult {
+            tool_call_id: "t2".into(),
+            tool_name: "read".into(),
+            content: vec![ToolResultContent::Text {
+                text: "second".into(),
+            }],
+            is_error: false,
+            details: None,
+            timestamp: 0,
+        });
+        let anthropic = to_rig_messages(&ctx, Api::AnthropicMessages);
+        assert!(
+            matches!(&anthropic[2], RigMessage::User { content } if matches!(&content[0], rig::message::UserContent::ToolResult(result) if matches!(&result.content[1], RigToolResultContent::Image(image) if image.data == rig::message::DocumentSourceKind::Base64("aW1hZ2U=".into()))))
+        );
+        let openai = to_rig_messages(&ctx, Api::OpenAICompletions);
+        assert!(
+            matches!(&openai[3], RigMessage::User { content } if matches!(&content[0], rig::message::UserContent::ToolResult(_)))
+        );
+        assert!(
+            matches!(&openai[4], RigMessage::User { content } if matches!(&content[0], rig::message::UserContent::Image(image) if image.data == rig::message::DocumentSourceKind::Base64("aW1hZ2U=".into())))
+        );
     }
 
     #[test]

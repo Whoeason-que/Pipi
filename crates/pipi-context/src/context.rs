@@ -8,7 +8,9 @@
 //! - 环境上下文的注入（`environment_context`，移植自 codex）随提示词层落在
 //!   `pipi-venv/src/prompt/environment.rs` —— 这个 crate 只做策略，不装配提示词。
 
-use pipi_protocol::{ContentBlock, Message, StopReason, ToolResultContent, Usage};
+use pipi_protocol::{
+    ContentBlock, Message, StopReason, ToolResultContent, Usage, UserContent, UserContentBlock,
+};
 
 /// 为 compaction 预留的 token（经验值，对齐 pi 的预留思路）。
 pub const DEFAULT_RESERVE_TOKENS: u64 = 16_384;
@@ -27,7 +29,16 @@ pub fn estimate_tokens(message: &Message) -> u64 {
     }
 
     let count: usize = match message {
-        Message::User { content, .. } => chars(content),
+        Message::User { content, .. } => match content {
+            UserContent::Text(text) => chars(text),
+            UserContent::Parts(parts) => parts
+                .iter()
+                .map(|part| match part {
+                    UserContentBlock::Text { text } => chars(text),
+                    UserContentBlock::Image { .. } => ESTIMATED_IMAGE_CHARS,
+                })
+                .sum(),
+        },
         Message::Assistant { content, .. } => content
             .iter()
             .map(|block| match block {
@@ -422,6 +433,23 @@ mod tests {
             content: text.into(),
             timestamp,
         }
+    }
+
+    #[test]
+    fn user_images_use_image_budget_not_base64_length() {
+        let message = Message::User {
+            content: UserContent::Parts(vec![
+                UserContentBlock::Text {
+                    text: "hello".into(),
+                },
+                UserContentBlock::Image {
+                    data: "a".repeat(100_000),
+                    mime_type: "image/png".into(),
+                },
+            ]),
+            timestamp: 1,
+        };
+        assert_eq!(estimate_tokens(&message), (4800u64 + 5).div_ceil(4));
     }
 
     #[test]

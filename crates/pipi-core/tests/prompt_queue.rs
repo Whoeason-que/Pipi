@@ -192,6 +192,82 @@ fn users(request: &Value) -> String {
 }
 
 #[test]
+fn images_survive_immediate_steering_queue_and_session_replay() {
+    let _lock = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _env = Environment::new();
+    let mut endpoint = endpoint(true, false);
+    fixture(&endpoint.base);
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let id = state.create_session("queued").unwrap().session_id;
+    let image = pipi_protocol::UserImage {
+        data: "iVBORw0KGgppbWFnZQ==".into(),
+        mime_type: "image/png".into(),
+    };
+    state
+        .send_prompt_with_images(
+            "queued",
+            Some(&id),
+            "start",
+            None,
+            state.events().emitter(),
+            std::slice::from_ref(&image),
+        )
+        .unwrap();
+    until(|| endpoint.requests.lock().unwrap().len() == 1);
+    state
+        .steer_with_images("queued", &id, "guide", std::slice::from_ref(&image))
+        .unwrap();
+    let queued = state
+        .queue_prompt_with_images(
+            "queued",
+            &id,
+            "with-image",
+            "later",
+            None,
+            std::slice::from_ref(&image),
+        )
+        .unwrap();
+    assert_eq!(queued.queue.messages[0].image_count, 1);
+    assert!(
+        !serde_json::to_string(&queued)
+            .unwrap()
+            .contains(&image.data)
+    );
+    endpoint.release.take().unwrap().send(()).unwrap();
+    until(|| {
+        state
+            .session_info("queued", &id)
+            .unwrap()
+            .is_some_and(|s| !s.running && endpoint.requests.lock().unwrap().len() >= 3)
+    });
+    let requests = endpoint.requests.lock().unwrap();
+    assert!(
+        requests
+            .iter()
+            .all(|(_, request)| request.to_string().contains(&image.data))
+    );
+    drop(requests);
+    let snapshot = state.open_session("queued", &id).unwrap();
+    assert_eq!(
+        snapshot
+            .messages
+            .iter()
+            .filter(|message| matches!(
+                message,
+                Message::User {
+                    content: pipi_protocol::UserContent::Parts(_),
+                    ..
+                }
+            ))
+            .count(),
+        3
+    );
+}
+
+#[test]
 fn queue_waits_for_task_and_guidance_then_starts_one_run_per_message_without_duplicates() {
     let _lock = pipi_test_support::HOME_LOCK
         .lock()

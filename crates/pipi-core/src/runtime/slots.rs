@@ -443,10 +443,17 @@ impl RuntimeState {
     /// 仅在会话正在运行时接受；消息本体由 loop 注入时经 emitter 落盘。
     /// 运行结束瞬间提交的插话由收割逻辑接住，不会丢。
     pub fn steer(&self, agent_name: &str, session_id: &str, message: &str) -> Result<(), String> {
+        self.steer_with_images(agent_name, session_id, message, &[])
+    }
+    pub fn steer_with_images(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        message: &str,
+        images: &[pipi_protocol::UserImage],
+    ) -> Result<(), String> {
         let message = message.trim();
-        if message.is_empty() {
-            return Err("Message cannot be empty".into());
-        }
+        let content = attachments::user_content(message, images)?;
         let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         self.ensure_not_shutting_down()?;
         let Some(session) = sessions.get(&SessionKey::new(agent_name, session_id)) else {
@@ -455,7 +462,9 @@ impl RuntimeState {
         if !session.engine.snapshot().map(|s| s.running).unwrap_or(true) {
             return Err("Session is not running, please send message directly".into());
         }
-        session.engine.steer(message)
+        session
+            .engine
+            .steer_content(content.unwrap_or_else(|| message.into()))
     }
 
     /// 释放某个 Agent 名下**所有空闲**的会话（不落盘，文件留在磁盘上）。

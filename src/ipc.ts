@@ -1,6 +1,7 @@
 import type { IconTheme, IconThemeList } from "./files/icon-theme-types";
 import type { WorkspaceListing, WorkspaceFile, WorkspaceChanges, WorkspaceDiff } from "./files/types";
 import type { NotificationEnvelope } from "./notifications";
+import type { UserImage } from "./types";
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
@@ -55,10 +56,10 @@ export interface CommandMap {
   manage_background_task: { args: { agentName: string; sessionId: string; jobId: string; action: string; data?: string | null }; result: BackgroundTaskSnapshot };
   new_session: { args: { agentName: string }; result: void };
   create_session: { args: { agentName: string }; result: SessionInfoView };
-  send_prompt: { args: { agentName: string; sessionId?: string | null; prompt: string; model?: ModelConfig | null }; result: SessionInfoView };
+  send_prompt: { args: { agentName: string; sessionId?: string | null; prompt: string; model?: ModelConfig | null; images?: UserImage[] | null }; result: SessionInfoView };
   compact_now: { args: { agentName: string; sessionId: string }; result: void };
-  steer: { args: { agentName: string; sessionId: string; message: string }; result: void };
-  queue_prompt: { args: { agentName: string; sessionId: string; messageId: string; message: string; sendAt?: number | null }; result: PromptQueueEnvelope };
+  steer: { args: { agentName: string; sessionId: string; message: string; images?: UserImage[] | null }; result: void };
+  queue_prompt: { args: { agentName: string; sessionId: string; messageId: string; message: string; sendAt?: number | null; images?: UserImage[] | null }; result: PromptQueueEnvelope };
   cancel_queued_prompt: { args: { agentName: string; sessionId: string; messageId: string }; result: PromptQueueEnvelope };
   set_prompt_queue_paused: { args: { agentName: string; sessionId: string; paused: boolean }; result: PromptQueueEnvelope };
   set_session_model: { args: { agentName: string; sessionId: string; model?: ModelConfig | null }; result: void };

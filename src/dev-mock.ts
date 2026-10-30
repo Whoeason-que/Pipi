@@ -167,6 +167,7 @@ interface DemoConversation {
   runId: number;
   runTimer: ReturnType<typeof setTimeout> | null;
   queue: PromptQueueSnapshot;
+  queuedImages?: Map<string, Array<{ data: string; mimeType: string }>>;
   queueTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -291,11 +292,13 @@ function scheduleDemoQueue(conversation: DemoConversation) {
     if (index < 0) { scheduleDemoQueue(conversation); return; }
     const [message] = conversation.queue.messages.splice(index, 1);
     publishDemoQueue(conversation);
-    startDemoRun(conversation, message.text);
+    const images = conversation.queuedImages?.get(message.id) ?? [];
+    conversation.queuedImages?.delete(message.id);
+    startDemoRun(conversation, message.text, images);
   }, 200);
 }
 
-function startDemoRun(conversation: DemoConversation, prompt: string): void {
+function startDemoRun(conversation: DemoConversation, prompt: string, images: Array<{ data: string; mimeType: string }> = []): void {
   const state = stateFor(conversation.agentName);
   if (conversation.runTimer) clearTimeout(conversation.runTimer);
   conversation.runId += 1;
@@ -306,7 +309,7 @@ function startDemoRun(conversation: DemoConversation, prompt: string): void {
       state.titles.get(conversation.sessionId) ?? prompt,
     );
   }
-  const userMessage = { role: "user", content: prompt, timestamp: Date.now() };
+  const userMessage = { role: "user", content: images.length ? [{ type: "text", text: prompt }, ...images.map(image => ({ type: "image", ...image }))] : prompt, timestamp: Date.now() };
   conversation.messages.push(userMessage);
 
   // 演示剧本：thinking → bash（成功）→ thinking → bash（失败）→ 正文，
@@ -1018,7 +1021,7 @@ export function installDevMock(): void {
               new Error(`会话「${conversation.sessionId}」正在运行，请等待完成或先停止`),
             );
           }
-          startDemoRun(conversation, String(args.prompt ?? ""));
+          startDemoRun(conversation, String(args.prompt ?? ""), Array.isArray(args.images) ? args.images as Array<{ data: string; mimeType: string }> : []);
           // 与核心同构：响应返回这条会话的权威身份
           return Promise.resolve({
             agentName,
@@ -1038,13 +1041,15 @@ export function installDevMock(): void {
             String(args.sessionId ?? ""),
           );
           if (!conversation) return Promise.resolve(null);
+          const images = Array.isArray(args.images) ? args.images as Array<{ data: string; mimeType: string }> : [];
+          const content = images.length ? [{ type: "text", text: String(args.message ?? "") }, ...images.map(image => ({ type: "image", ...image }))] : String(args.message ?? "");
           emitDemoAgentEvent(conversation, {
             type: "message_start",
-            message: { role: "user", content: String(args.message ?? ""), timestamp: Date.now() },
+            message: { role: "user", content, timestamp: Date.now() },
           });
           emitDemoAgentEvent(conversation, {
             type: "message_end",
-            message: { role: "user", content: String(args.message ?? ""), timestamp: Date.now() },
+            message: { role: "user", content, timestamp: Date.now() },
           });
           return Promise.resolve(null);
         }
@@ -1054,9 +1059,13 @@ export function installDevMock(): void {
           const conversation = conversationOf(String(args.agentName ?? demoAgent.name), String(args.sessionId ?? ""));
           if (!conversation) return Promise.reject(new Error("Session is not open"));
           if (cmd === "queue_prompt" && !conversation.queue.messages.some(message => message.id === args.messageId)) {
-            conversation.queue.messages.push({ id: String(args.messageId), text: String(args.message), sendAt: Number(args.sendAt ?? Date.now()) });
+            const images = Array.isArray(args.images) ? args.images as Array<{ data: string; mimeType: string }> : [];
+            conversation.queuedImages ??= new Map();
+            conversation.queuedImages.set(String(args.messageId), images);
+            conversation.queue.messages.push({ id: String(args.messageId), text: String(args.message), sendAt: Number(args.sendAt ?? Date.now()), imageCount: images.length });
           } else if (cmd === "cancel_queued_prompt") {
             conversation.queue.messages = conversation.queue.messages.filter(message => message.id !== args.messageId);
+            conversation.queuedImages?.delete(String(args.messageId));
           } else if (cmd === "set_prompt_queue_paused") conversation.queue.paused = Boolean(args.paused);
           const payload = publishDemoQueue(conversation);
           scheduleDemoQueue(conversation);

@@ -3,11 +3,30 @@ use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
 use pipi_protocol::{
-    AbortSignal, Api, Context, Message, Model, ReasoningEffort, StreamEvent, StreamOptions,
+    AbortSignal, Api, ContentBlock, Context, Message, Model, ReasoningEffort, StreamEvent,
+    StreamOptions, ToolResultContent, UserContent, UserContentBlock,
 };
 use serde_json::{Value, json};
 
 async fn capture(api: Api, id: &str, effort: Option<ReasoningEffort>) -> Value {
+    capture_context(
+        api,
+        id,
+        effort,
+        Context {
+            messages: vec![Message::user_text("hi")],
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+async fn capture_context(
+    api: Api,
+    id: &str,
+    effort: Option<ReasoningEffort>,
+    context: Context,
+) -> Value {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let addr = listener.local_addr().unwrap();
@@ -55,10 +74,6 @@ async fn capture(api: Api, id: &str, effort: Option<ReasoningEffort>) -> Value {
         context_window: 200000,
         reasoning_effort: effort,
     };
-    let context = Context {
-        messages: vec![Message::user_text("hi")],
-        ..Default::default()
-    };
     let options = StreamOptions {
         api_key: Some("test-key".into()),
         max_tokens: effort.is_none().then_some(32768),
@@ -77,6 +92,81 @@ async fn capture(api: Api, id: &str, effort: Option<ReasoningEffort>) -> Value {
     }
     assert!(rejected, "The capture endpoint must terminate the request");
     server.join().unwrap()
+}
+
+#[tokio::test]
+async fn image_read_results_reach_both_wire_protocols() {
+    let mut assistant = Message::assistant_text("", "test-model");
+    if let Message::Assistant { content, .. } = &mut assistant {
+        *content = vec![ContentBlock::ToolCall {
+            id: "call_1".into(),
+            name: "read".into(),
+            arguments: json!({"path":"image.png"}),
+        }];
+    }
+    let context = Context {
+        messages: vec![
+            Message::user_text("Read the image"),
+            assistant,
+            Message::ToolResult {
+                tool_call_id: "call_1".into(),
+                tool_name: "read".into(),
+                content: vec![
+                    ToolResultContent::Text {
+                        text: "Read image".into(),
+                    },
+                    ToolResultContent::Image {
+                        data: "aGVsbG8=".into(),
+                        mime_type: "image/png".into(),
+                    },
+                ],
+                is_error: false,
+                details: None,
+                timestamp: 0,
+            },
+        ],
+        ..Default::default()
+    };
+    for api in [Api::OpenAICompletions, Api::AnthropicMessages] {
+        let body = capture_context(api, "test-model", None, context.clone()).await;
+        let encoded = body.to_string();
+        assert!(
+            encoded.contains("aGVsbG8="),
+            "Image bytes missing from {api:?}: {encoded}"
+        );
+        assert!(
+            encoded.contains("image/png"),
+            "Image type missing from {api:?}: {encoded}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn user_image_blocks_reach_both_wire_protocols() {
+    let context = Context {
+        messages: vec![Message::User {
+            content: UserContent::Parts(vec![
+                UserContentBlock::Text {
+                    text: "Describe this".into(),
+                },
+                UserContentBlock::Image {
+                    data: "aGVsbG8=".into(),
+                    mime_type: "image/png".into(),
+                },
+            ]),
+            timestamp: 1,
+        }],
+        ..Default::default()
+    };
+    for api in [Api::OpenAICompletions, Api::AnthropicMessages] {
+        let body = capture_context(api, "test-model", None, context.clone())
+            .await
+            .to_string();
+        assert!(
+            body.contains("aGVsbG8=") && body.contains("image/png"),
+            "{api:?}: {body}"
+        );
+    }
 }
 
 #[tokio::test]

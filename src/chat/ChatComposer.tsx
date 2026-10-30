@@ -7,14 +7,15 @@ import {
   type RefObject,
 } from "react";
 import { formatRuntimeError } from "../chat-runtime";
-import { submitDraft, type DraftBuffer } from "../drafts";
+import type { DraftBuffer } from "../drafts";
+import { prepareAttachments } from "./attachments";
 import { useI18n } from "../i18n";
 import { IconArrowDown } from "../icons";
 import ComposerQueue from "./ComposerQueue";
 import DelayPicker from "./DelayPicker";
 import SendAction from "./SendAction";
 import ModelEffortPicker from "./ModelEffortPicker";
-import type { ModelConfig, PromptQueueSnapshot, ReasoningEffort } from "../types";
+import type { ModelConfig, PromptQueueSnapshot, ReasoningEffort, UserImage } from "../types";
 
 interface ChatComposerProps {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -28,9 +29,9 @@ interface ChatComposerProps {
   model: ModelConfig | null;
   customModel: boolean;
   composingRef: RefObject<boolean>;
-  onSend: (text: string) => Promise<boolean>;
-  onSteer: (text: string) => Promise<boolean>;
-  onQueue: (text: string, delayMs: number) => Promise<boolean>;
+  onSend: (text: string, images: UserImage[]) => Promise<boolean>;
+  onSteer: (text: string, images: UserImage[]) => Promise<boolean>;
+  onQueue: (text: string, delayMs: number, images: UserImage[]) => Promise<boolean>;
   queue: PromptQueueSnapshot;
   onCancelQueued: (id: string) => Promise<void>;
   onPauseQueue: (paused: boolean) => Promise<void>;
@@ -69,7 +70,7 @@ export default function ChatComposer({
   onError,
 }: ChatComposerProps) {
   const { locale, t } = useI18n();
-  const { text } = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
+  const { text, files } = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
   const [delayMinutes, setDelayMinutes] = useState("0");
   const delayOpen = delayMinutes !== "0";
   const delayMs = delayOpen ? Number(delayMinutes) * 60_000 : 0;
@@ -81,6 +82,7 @@ export default function ChatComposer({
   const mountedRef = useRef(true);
   const compositionEndedAt = useRef(0);
   const input = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setDelayMinutes("0"); }, [draft]);
 
@@ -98,13 +100,16 @@ export default function ChatComposer({
   }, [text]);
 
   const send = async (steering = false) => {
-    if (!ready || uncertain || stopping || !text.trim() || sendingRef.current || updatingReasoningRef.current || (!steering && !validDelay)) return;
+    if (!ready || uncertain || stopping || (!text.trim() && !files.length) || sendingRef.current || updatingReasoningRef.current || (!steering && !validDelay)) return;
     sendingRef.current = true;
     setSending(true);
     onBeforeSend();
     try {
-      const accepted = await submitDraft(draft, steering ? onSteer
-        : delayOpen || running || queue.messages.length ? value => onQueue(value, delayMs) : onSend);
+      const snapshot = draft.getSnapshot();
+      const prepared = await prepareAttachments(snapshot.text, snapshot.files);
+      const accepted = await (steering ? onSteer(prepared.text, prepared.images)
+        : delayOpen || running || queue.messages.length ? onQueue(prepared.text, delayMs, prepared.images) : onSend(prepared.text, prepared.images));
+      if (accepted) draft.acknowledge(snapshot.revision);
       if (accepted && !steering && mountedRef.current) setDelayMinutes("0");
     } catch (error) {
       if (mountedRef.current) onError(formatRuntimeError(error));
@@ -154,6 +159,7 @@ export default function ChatComposer({
       )}
       <ComposerQueue queue={queue} onCancel={onCancelQueued} onPause={onPauseQueue} onError={onError} />
       <div className={`composer-box${running ? " is-running" : ""}`}>
+        {!!files.length && <div className="composer-attachments">{files.map((file, index) => <span className="composer-attachment" key={`${file.name}-${index}`} title={file.name}><span className="truncate">{file.name}</span><button type="button" aria-label={`移除 ${file.name}`} onClick={() => draft.setFiles(files.filter((_, i) => i !== index))}>×</button></span>)}</div>}
         <textarea
           ref={input}
           value={text}
@@ -195,6 +201,8 @@ export default function ChatComposer({
           }}
         />
         <div className="composer-bar">
+          <input ref={fileInput} type="file" multiple hidden onChange={event => { const picked = Array.from(event.target.files ?? []); if (picked.length) draft.setFiles([...draft.getSnapshot().files, ...picked]); event.target.value = ""; }} />
+          <button type="button" className="composer-attach" disabled={!ready || sending} title={locale === "en" ? "Attach images or text files" : "添加图片或文本文件"} aria-label={locale === "en" ? "Attach files" : "添加文件"} onClick={() => fileInput.current?.click()}>+</button>
           {!temporary ? <ModelEffortPicker
             model={model}
             customModel={customModel}
@@ -227,8 +235,8 @@ export default function ChatComposer({
             busy={uncertain || sending || stopping}
             stopLabel={stopping ? (locale === "en" ? "Stopping…" : "正在停止…") : t("chat.stop")}
             sendLabel={sendLabel}
-            steerDisabled={!running || !ready || uncertain || !text.trim() || sending || stopping || updatingReasoning}
-            sendDisabled={!ready || uncertain || !text.trim() || sending || stopping || updatingReasoning || !validDelay}
+            steerDisabled={!running || !ready || uncertain || (!text.trim() && !files.length) || sending || stopping || updatingReasoning}
+            sendDisabled={!ready || uncertain || (!text.trim() && !files.length) || sending || stopping || updatingReasoning || !validDelay}
             onStop={onStop}
             onSteer={() => void send(true)}
             onSend={() => void send()}

@@ -76,6 +76,13 @@ pub struct QueuedPrompt {
     pub id: String,
     pub text: String,
     pub send_at: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub image_count: usize,
+    #[serde(skip)]
+    pub content: Option<pipi_protocol::UserContent>,
+}
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, Default, Serialize, serde::Deserialize)]

@@ -1,7 +1,7 @@
 import { safeSessionStorage } from "./storage.ts";
 
 /** 窗口级输入缓存。Buffer 在会话换 id 时保持身份，迟到的发送确认只清理提交版本。 */
-export interface DraftSnapshot { text: string; revision: number }
+export interface DraftSnapshot { text: string; revision: number; files: File[] }
 export interface DraftStorage { getItem(key: string): string | null; setItem(key: string, value: string): void }
 const STORAGE_KEY = "pipi-composer-drafts-v1";
 
@@ -9,7 +9,7 @@ export class DraftBuffer {
   private snapshot: DraftSnapshot;
   private listeners = new Set<() => void>();
   private changed: () => void;
-  constructor(text: string, changed: () => void) { this.snapshot = { text, revision: 0 }; this.changed = changed; }
+  constructor(text: string, changed: () => void) { this.snapshot = { text, revision: 0, files: [] }; this.changed = changed; }
   getSnapshot = (): DraftSnapshot => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -17,12 +17,19 @@ export class DraftBuffer {
   };
   write(text: string): void {
     if (text === this.snapshot.text) return;
-    this.snapshot = { text, revision: this.snapshot.revision + 1 };
+    this.snapshot = { ...this.snapshot, text, revision: this.snapshot.revision + 1 };
     this.changed();
     this.listeners.forEach(listener => listener());
   }
   acknowledge(revision: number): void {
-    if (this.snapshot.revision === revision) this.write("");
+    if (this.snapshot.revision === revision) {
+      this.snapshot = { text: "", files: [], revision: this.snapshot.revision + 1 };
+      this.changed(); this.listeners.forEach(listener => listener());
+    }
+  }
+  setFiles(files: File[]): void {
+    this.snapshot = { ...this.snapshot, files, revision: this.snapshot.revision + 1 };
+    this.listeners.forEach(listener => listener());
   }
 }
 

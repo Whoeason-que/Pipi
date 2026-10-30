@@ -202,6 +202,7 @@ fn session(data: Arc<Ledger>) -> AgentSession {
 fn request(hang: bool, panic: bool) -> RunRequest {
     RunRequest {
         prompt: "question".into(),
+        user_content: None,
         system_prompt: String::new(),
         model: model(),
         provider: Arc::new(ScriptedProvider { hang, panic }),
@@ -491,6 +492,41 @@ fn failed_prepare_and_unpolled_drop_release_the_slot() {
         .unwrap();
     drop(prepared);
     assert!(!session.snapshot().unwrap().running);
+}
+
+#[tokio::test]
+async fn multimodal_input_is_recorded_and_replayed() {
+    let data = Arc::new(Ledger::default());
+    let session = session(data.clone());
+    let expected = UserContent::Parts(vec![
+        UserContentBlock::Text {
+            text: "describe".into(),
+        },
+        UserContentBlock::Image {
+            data: "aGVsbG8=".into(),
+            mime_type: "image/png".into(),
+        },
+    ]);
+    let mut req = request(false, false);
+    req.user_content = Some(expected.clone());
+    session
+        .reserve_run(AbortPolicy::Reset)
+        .unwrap()
+        .prepare(req, SessionHooks::default())
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+    assert!(
+        matches!(&session.messages().await[0], Message::User { content, .. } if content == &expected)
+    );
+    drop(session);
+    let entries = data.entries.lock().unwrap().clone();
+    let restored =
+        AgentSession::restore(storage(data), entries, Some(model()), AbortSignal::new()).unwrap();
+    assert!(
+        matches!(&restored.messages().await[0], Message::User { content, .. } if content == &expected)
+    );
 }
 
 #[tokio::test]

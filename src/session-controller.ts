@@ -7,7 +7,7 @@ import {
 } from "./chat-runtime.ts";
 import { CommandTransportError } from "./transport-error.ts";
 import type { Invoke } from "./ipc.ts";
-import type { AgentDefinition, ModelConfig, ReasoningEffort, SessionInfoView, PromptQueueSnapshot, PromptQueueEnvelope } from "./types.ts";
+import type { AgentDefinition, ModelConfig, ReasoningEffort, SessionInfoView, PromptQueueSnapshot, PromptQueueEnvelope, UserImage } from "./types.ts";
 
 export interface SessionTransport {
   invoke: Invoke;
@@ -81,7 +81,7 @@ export class SessionController {
   private settledRun: number | null = null;
   private awaitingRun: number | null = null;
   private sending = false;
-  private pendingQueue: { text: string; delayMs: number; id: string; sendAt: number | null } | null = null;
+  private pendingQueue: { text: string; delayMs: number; id: string; sendAt: number | null; imageKey: string } | null = null;
   private uncertainSend: { runId: number; key: string } | null = null;
   private runEpoch = 0;
   private loadEpoch = 0;
@@ -308,10 +308,10 @@ export class SessionController {
     });
   }
 
-  async send(text: string): Promise<boolean> {
+  async send(text: string, images: UserImage[] = []): Promise<boolean> {
     text = text.trim();
-    if (!text || this.value.load !== "ready" || this.sending || this.uncertainSend) return false;
-    if (this.value.chat.running || this.value.queue.messages.length) return this.enqueue(text);
+    if ((!text && !images.length) || this.value.load !== "ready" || this.sending || this.uncertainSend) return false;
+    if (this.value.chat.running || this.value.queue.messages.length) return this.enqueue(text, 0, images);
     this.sending = true;
     // 先取得稳定身份：响应丢失后仍能查到同一条会话，且不会误认其他窗口的运行。
     if (!this.identity) {
@@ -332,10 +332,10 @@ export class SessionController {
     ++this.runEpoch;
     this.awaitingRun = baseline;
     this.settledRun = null;
-    this.dispatch({ type: "submit_user", key, text });
+    this.dispatch({ type: "submit_user", key, text, images });
     try {
       const info = await this.transport.invoke("send_prompt", { agentName: this.agent.name,
-        sessionId: requestedSession, prompt: text, model: this.value.isCustomModel ? this.value.model : null });
+        sessionId: requestedSession, prompt: text, model: this.value.isCustomModel ? this.value.model : null, ...(images.length ? { images } : {}) });
       if (!info || info.agentName !== this.agent.name || info.sessionId !== requestedSession
         || !Number.isSafeInteger(info.runId)) {
         throw new CommandTransportError("Invalid send response identity");
@@ -442,19 +442,19 @@ export class SessionController {
   }
 
   /** 引导只影响当前运行；普通发送和排队都不会隐式进入 steering。 */
-  async steer(text: string): Promise<boolean> {
+  async steer(text: string, images: UserImage[] = []): Promise<boolean> {
     text = text.trim();
-    if (!text || this.value.load !== "ready" || !this.value.chat.running || this.sending || this.uncertainSend) return false;
+    if ((!text && !images.length) || this.value.load !== "ready" || !this.value.chat.running || this.sending || this.uncertainSend) return false;
     this.sending = true;
     try {
-      await this.transport.invoke("steer", { agentName: this.agent.name, sessionId: this.requireSessionId(), message: text });
+      await this.transport.invoke("steer", { agentName: this.agent.name, sessionId: this.requireSessionId(), message: text, ...(images.length ? { images } : {}) });
       return true;
     } finally { this.sending = false; }
   }
 
-  async enqueue(text: string, delayMs = 0): Promise<boolean> {
+  async enqueue(text: string, delayMs = 0, images: UserImage[] = []): Promise<boolean> {
     text = text.trim();
-    if (!text || this.value.load !== "ready" || this.sending || this.uncertainSend) return false;
+    if ((!text && !images.length) || this.value.load !== "ready" || this.sending || this.uncertainSend) return false;
     if (!Number.isSafeInteger(delayMs) || delayMs < 0 || delayMs > 30 * 86400000) throw new Error("Delay must be between 0 and 30 days");
     this.sending = true;
     try {
@@ -467,12 +467,13 @@ export class SessionController {
       }
       if (!this.value.chat.running && this.value.isCustomModel) await this.setModel(true, this.value.model);
       const previous = this.pendingQueue;
-      const request = previous?.text === text && previous.delayMs === delayMs ? previous
-        : { text, delayMs, id: createEntryKey(`queued-${Date.now().toString(36)}`), sendAt: delayMs ? Date.now() + delayMs : null };
+      const imageKey = JSON.stringify(images);
+      const request = previous?.text === text && previous.delayMs === delayMs && previous.imageKey === imageKey ? previous
+        : { text, delayMs, imageKey, id: createEntryKey(`queued-${Date.now().toString(36)}`), sendAt: delayMs ? Date.now() + delayMs : null };
       this.pendingQueue = request;
       const payload = await this.transport.invoke("queue_prompt", {
         agentName: this.agent.name, sessionId: this.requireSessionId(), messageId: request.id,
-        message: text, sendAt: request.sendAt,
+        message: text, sendAt: request.sendAt, ...(images.length ? { images } : {}),
       });
       this.receive({ type: "prompt-queue", payload });
       this.pendingQueue = null;

@@ -59,6 +59,93 @@ pub enum ToolResultContent {
     },
 }
 
+/// pi-compatible user content: older sessions contain a string; multimodal
+/// sessions contain ordered text and image blocks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum UserContent {
+    Text(String),
+    Parts(Vec<UserContentBlock>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum UserContentBlock {
+    Text {
+        text: String,
+    },
+    Image {
+        data: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UserImage {
+    pub data: String,
+    pub mime_type: String,
+}
+
+impl UserContent {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Text(text) => text.trim().is_empty(),
+            Self::Parts(parts) => !parts.iter().any(|part| match part {
+                UserContentBlock::Text { text } => !text.trim().is_empty(),
+                UserContentBlock::Image { data, .. } => !data.is_empty(),
+            }),
+        }
+    }
+    pub fn text(&self) -> String {
+        match self {
+            Self::Text(text) => text.clone(),
+            Self::Parts(parts) => parts
+                .iter()
+                .map(|part| match part {
+                    UserContentBlock::Text { text } => text.as_str(),
+                    UserContentBlock::Image { .. } => "[image]",
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        }
+    }
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Text(text) => text,
+            Self::Parts(parts) => parts
+                .iter()
+                .find_map(|part| match part {
+                    UserContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .unwrap_or(""),
+        }
+    }
+}
+impl From<String> for UserContent {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+impl From<&str> for UserContent {
+    fn from(value: &str) -> Self {
+        Self::Text(value.into())
+    }
+}
+impl std::ops::Deref for UserContent {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+impl std::fmt::Display for UserContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// 单次调用的 token 用量。`input` 只计未命中缓存的提示词 token。
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -115,7 +202,7 @@ pub enum AssistantErrorKind {
 )]
 pub enum Message {
     User {
-        content: String,
+        content: UserContent,
         timestamp: u64,
     },
     Assistant {
@@ -164,7 +251,7 @@ impl Message {
 
     pub fn user_text(text: impl Into<String>) -> Self {
         Self::User {
-            content: text.into(),
+            content: UserContent::Text(text.into()),
             timestamp: now_millis(),
         }
     }
@@ -467,5 +554,18 @@ mod tests {
         assert_eq!(json["role"], "toolResult");
         assert_eq!(json["toolCallId"], "call-1");
         assert_eq!(json["content"][0]["type"], "text");
+    }
+
+    #[test]
+    fn user_content_round_trips_legacy_text_and_ordered_image_blocks() {
+        let legacy = serde_json::json!({"role":"user", "content":"hello", "timestamp":42});
+        let message: Message = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(serde_json::to_value(message).unwrap(), legacy);
+        let multimodal = serde_json::json!({"role":"user", "content":[
+            {"type":"text", "text":"first"}, {"type":"image", "data":"aGVsbG8=", "mimeType":"image/png"},
+            {"type":"text", "text":"second"}
+        ], "timestamp":42});
+        let message: Message = serde_json::from_value(multimodal.clone()).unwrap();
+        assert_eq!(serde_json::to_value(message).unwrap(), multimodal);
     }
 }

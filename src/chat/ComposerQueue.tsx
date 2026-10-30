@@ -43,6 +43,7 @@ export default function ComposerQueue({ queue, onCancel, onPause, onError }: Pro
           <li key={message.id}>
             <div className="composer-queue-message">
               <span className="truncate composer-queue-text" title={message.text}>{message.text}</span>
+              {!!message.imageCount && <small>{en ? `${message.imageCount} images` : `${message.imageCount} 张图片`}</small>}
               <small>{message.sendAt > now
                 ? `${en ? "After " : "最早 "}${new Date(message.sendAt).toLocaleString(en ? "en-US" : "zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
                 : (en ? "Waiting for an idle session" : "等待会话空闲")}</small>
