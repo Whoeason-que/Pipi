@@ -15,10 +15,10 @@ const files: Record<string, string> = {
 };
 
 const changes: WorkspaceChange[] = [
-  { path: "src/App.tsx", status: "M ", repository: "pipi-workspace" },
-  { path: "src/styles.css", status: " M", repository: "pipi-workspace" },
+  { path: "src/App.tsx", status: "M ", repository: "pipi-workspace", additions: 2, deletions: 1 },
+  { path: "src/styles.css", status: " M", repository: "pipi-workspace", additions: 1, deletions: 0 },
   { path: "src/components/Status.tsx", status: "??", repository: "pipi-workspace" },
-  { path: "docs/old-guide.md", status: " D", repository: "pipi-workspace" },
+  { path: "docs/old-guide.md", status: " D", repository: "pipi-workspace", additions: 0, deletions: 1 },
 ];
 const patches: Record<string, string> = {
   "src/App.tsx": 'diff --git a/src/App.tsx b/src/App.tsx\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -1,5 +1,6 @@\n+import { Status } from "./components/Status";\n import "./styles.css";\n\n export default function App() {\n-  return <main className="app"><h1>Hello, Pipi</h1></main>;\n+  return <main className="app"><h1>Hello, Pipi</h1><Status /></main>;\n }\n',

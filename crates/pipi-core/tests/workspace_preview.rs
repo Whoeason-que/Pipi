@@ -160,6 +160,23 @@ async fn workspace_commands_cover_file_preview_and_git_lifecycle_without_changin
             .iter()
             .any(|item| item.path == "中文 file.txt" && item.status.contains('D'))
     );
+    // 行数：未跟踪文件按全文行数计新增，删除文件按 HEAD → 工作区计删除。
+    assert_eq!(
+        changes
+            .files
+            .iter()
+            .find(|item| item.path == "--odd\nfile.txt")
+            .and_then(|item| item.additions),
+        Some(1)
+    );
+    assert_eq!(
+        changes
+            .files
+            .iter()
+            .find(|item| item.path == "中文 file.txt")
+            .and_then(|item| item.deletions),
+        Some(1)
+    );
     assert!(patch("中文 file.txt").await.patch.contains("-original"));
     assert!(patch("--odd\nfile.txt").await.patch.contains("+new"));
     // Agent 指向子目录时，不能把父仓库其余文件列进来。
@@ -175,6 +192,7 @@ async fn workspace_commands_cover_file_preview_and_git_lifecycle_without_changin
     .unwrap();
     assert_eq!(changes.files.len(), 1);
     assert_eq!(changes.files[0].path, "inside.txt");
+    assert_eq!(changes.files[0].additions, Some(1));
     assert_eq!(
         std::fs::read_to_string(root.join("--odd\nfile.txt")).unwrap(),
         "new\n"

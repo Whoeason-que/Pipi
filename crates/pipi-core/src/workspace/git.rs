@@ -27,6 +27,11 @@ pub struct WorkspaceChange {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
+    /// 增删行数：相对 HEAD 的净变更，未跟踪文件按全文行数计新增。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additions: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -319,6 +324,63 @@ async fn repository(workspace: &Path) -> Result<Option<Repository>, String> {
     Ok(Some(Repository { root, overrides }))
 }
 
+/// 单个仓库的增删行数：`HEAD → 工作区` 的净变更（含暂存与未暂存）。
+async fn line_stats(repo: &Repository) -> std::collections::HashMap<String, (u32, u32)> {
+    let mut stats: std::collections::HashMap<String, (u32, u32)> = std::collections::HashMap::new();
+    // 空仓库还没有 HEAD，退回「暂存区 vs 空树」。
+    let output = match git(
+        &repo.root,
+        &repo.overrides,
+        &["diff", "HEAD", "--numstat", "-z", "--no-renames", "--"],
+    )
+    .await
+    {
+        Ok(output) => output,
+        Err(_) => match git(
+            &repo.root,
+            &repo.overrides,
+            &["diff", "--cached", "--numstat", "-z", "--no-renames", "--"],
+        )
+        .await
+        {
+            Ok(output) => output,
+            Err(_) => return stats,
+        },
+    };
+    for record in output.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
+        let text = String::from_utf8_lossy(record);
+        let mut fields = text.splitn(3, '\t');
+        let (Some(additions), Some(deletions), Some(path)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        // 二进制文件的行数是 "-"，没有可展示的计数。
+        let (Ok(additions), Ok(deletions)) = (additions.parse::<u32>(), deletions.parse::<u32>())
+        else {
+            continue;
+        };
+        stats.insert(path.to_string(), (additions, deletions));
+    }
+    stats
+}
+
+/// 未跟踪文件没有 diff：按文件内容数行（二进制或超过 1 MiB 的不计）。
+fn count_lines(path: &Path) -> Option<u32> {
+    if std::fs::metadata(path).ok()?.len() > OUTPUT_LIMIT {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.contains(&0) {
+        return None;
+    }
+    if bytes.is_empty() {
+        return Some(0);
+    }
+    let newlines = bytes.iter().filter(|byte| **byte == b'\n').count() as u32;
+    Some(if bytes.ends_with(b"\n") { newlines } else { newlines + 1 })
+}
+
 pub async fn changes(agent: &str) -> Result<WorkspaceChanges, String> {
     let root = root(agent)?;
     let repos = discover_repositories(&root).await?;
@@ -362,6 +424,8 @@ pub async fn changes(agent: &str) -> Result<WorkspaceChanges, String> {
         )
         .await?;
 
+        let stats = line_stats(&discovered.repo).await;
+
         for record in output.split(|b| *b == 0).filter(|r| !r.is_empty()) {
             if record.len() < 4 {
                 return Err("Git status format is incomplete".into());
@@ -379,10 +443,17 @@ pub async fn changes(agent: &str) -> Result<WorkspaceChanges, String> {
             if !seen_paths.insert(workspace_rel_path.clone()) {
                 continue;
             }
+            let counts = if record.starts_with(b"??") {
+                count_lines(&absolute).map(|lines| (lines, 0))
+            } else {
+                stats.get(path).copied()
+            };
             result.files.push(WorkspaceChange {
                 path: workspace_rel_path,
                 status: String::from_utf8_lossy(&record[..2]).into_owned(),
                 repository: Some(discovered.info.name.clone()),
+                additions: counts.map(|(additions, _)| additions),
+                deletions: counts.map(|(_, deletions)| deletions),
             });
         }
     }

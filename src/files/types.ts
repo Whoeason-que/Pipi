@@ -5,7 +5,7 @@ export interface WorkspaceFile {
   content: string | null; base64: string | null; truncated: boolean;
 }
 export interface WorkspaceRepoInfo { name: string; path: string; branch?: string }
-export interface WorkspaceChange { path: string; status: string; repository?: string }
+export interface WorkspaceChange { path: string; status: string; repository?: string; additions?: number; deletions?: number }
 export interface WorkspaceChanges { workspace: string; isRepo: boolean; files: WorkspaceChange[]; repositories?: WorkspaceRepoInfo[] }
 export interface WorkspaceDiff { path: string; base: string; patch: string; truncated: boolean }
 
