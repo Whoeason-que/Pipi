@@ -1,5 +1,6 @@
 import { useContext, useMemo, useState } from "react";
 import { LayoutContext } from "../app/layout-context";
+import { ChoiceSelect } from "../Select";
 import { useCopyFeedback } from "../components/use-copy";
 import { getWorkspaceBasename, type WorkspaceInfo } from "../app/workspaces";
 import {
@@ -207,24 +208,17 @@ export function WorkspaceSidebar({
       </div>
 
       {workspaces.length > 1 && activeWorkspace === "all" ? (
-        <label className="workspace-agent-picker">
-          工作区
-          <select
-            className="text-input"
-            aria-label="选择工作区"
+        <div className="workspace-agent-picker">
+          <span>工作区</span>
+          <ChoiceSelect
+            className="workspace-picker-select"
+            ariaLabel="选择工作区"
             value={currentWorkspacePath}
-            onChange={(event) => onSelectWorkspace?.(event.target.value)}
-          >
-            {workspaces.map((w) => {
-              const name = w.name || getWorkspaceBasename(w.path);
-              return (
-                <option value={w.path} key={w.path}>
-                  {name}
-                </option>
-              );
-            })}
-          </select>
-        </label>
+            choices={workspaces.map(w => ({ value: w.path, label: w.name || getWorkspaceBasename(w.path) }))}
+            onChange={value => onSelectWorkspace?.(value)}
+            searchable={false} menuInPortal menuPlacement="auto"
+          />
+        </div>
       ) : currentWorkspacePath ? (
         <div className="workspace-current-badge" title={currentWorkspacePath}>
           <FolderGlyph path={currentWorkspacePath} expanded root />
@@ -243,25 +237,20 @@ export function WorkspaceSidebar({
           {mode === "git" && (
             <div className="scm-repo-bar" hidden={!multiRepo && !activeRepo}>
               {multiRepo ? (
-                <label className="scm-repo-picker">
+                <div className="scm-repo-picker">
                   <span className="scm-repo-picker-label">
                     <IconGitBranch /> 仓库
                   </span>
-                  <select
-                    className="text-input scm-repo-select"
-                    aria-label="选择 Git 仓库"
+                  <ChoiceSelect
+                    className="workspace-picker-select"
+                    ariaLabel="选择 Git 仓库"
                     value={selectedRepo}
-                    onChange={(e) => setSelectedRepo(e.target.value)}
-                  >
-                    <option value="all">全部仓库 ({repositories.length})</option>
-                    {repositories.map((r) => (
-                      <option value={r.name} key={r.path || r.name}>
-                        {r.name}
-                        {r.branch ? ` (${r.branch})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    choices={[{ value: "all", label: `全部仓库 (${repositories.length})` },
+                      ...repositories.map(r => ({ value: r.name, label: `${r.name}${r.branch ? ` (${r.branch})` : ""}` }))]}
+                    onChange={setSelectedRepo}
+                    searchable={false} menuInPortal menuPlacement="auto"
+                  />
+                </div>
               ) : activeRepo ? (
                 <div className="scm-branch-badge" title={`仓库路径：${activeRepo.path || "."}`}>
                   <IconGitBranch />

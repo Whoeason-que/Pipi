@@ -29,6 +29,8 @@ interface ChoiceProps {
   menuInPortal?: boolean;
   autoFocus?: boolean;
   ariaLabel?: string;
+  className?: string;
+  searchable?: boolean;
 }
 
 const PORTAL_STYLES = { menuPortal: (base: Record<string, unknown>) => ({ ...base, zIndex: 80 }) };
@@ -58,14 +60,17 @@ export function ChoiceSelect({
   menuInPortal,
   autoFocus,
   ariaLabel,
+  className,
+  searchable = true,
 }: ChoiceProps & { isClearable?: boolean; menuPlacement?: "auto" | "top" | "bottom" }) {
   const all = flatten(choices, groups);
   return (
     <Select<Choice, false>
     inputId={id}
+    className={className}
     classNamePrefix="pipi-select"
     unstyled
-    isSearchable
+    isSearchable={searchable}
     isClearable={isClearable}
     menuPlacement={menuPlacement}
     menuPosition={menuInPortal && menuPlacement === "auto" ? "fixed" : undefined}

@@ -125,9 +125,13 @@
 
 .workspace-sidebar-empty small { font-size: var(--text-xs); line-height: 1.5; }
 
-.workspace-agent-picker > select { min-width: 0; width: 100%; min-height: var(--control); padding: 8px 12px; border: 0; border-radius: var(--r); background: var(--hover); font-size: var(--text-sm); transition: background var(--motion-fast), box-shadow var(--motion-fast); }
+.workspace-picker-select { min-width: 0; width: 100%; }
 
-.workspace-agent-picker > select:hover:not(:disabled) { background: var(--hover-2); }
+.workspace-picker-select .pipi-select__control { min-height: var(--control); padding: 4px 10px 4px 12px; border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--hover); font-size: var(--text-sm); transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast); }
+
+.workspace-picker-select .pipi-select__control:hover { background: var(--hover-2); border-color: var(--line); }
+
+.workspace-picker-select .pipi-select__control--is-focused { border-color: var(--accent); }
 
 .file-sidebar-hint { margin: 8px 2px 0; line-height: 1.5; }
 
@@ -182,7 +186,7 @@
 }
 
 @media (max-width: 860px) {
-  .workspace-agent-picker > select,
+  .workspace-picker-select .pipi-select__control,
 .workspace-files-sidebar .file-filter-box .file-filter { min-height: var(--control-lg); font-size: 16px; }
 }
 

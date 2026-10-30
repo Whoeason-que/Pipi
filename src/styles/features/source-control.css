@@ -31,9 +31,6 @@
 .scm-action-btn svg,
 .scm-footer-base svg { width: 13px; height: 13px; }
 
-.scm-repo-select { min-width: 0; width: 100%; min-height: var(--control); padding: 8px 12px; border: 0; border-radius: var(--r); background: var(--hover); font-size: var(--text-sm); transition: background var(--motion-fast), box-shadow var(--motion-fast); }
-
-.scm-repo-select:hover:not(:disabled),
 .vscode-scm-sidebar .scm-filter-input:hover { background: var(--hover-2); }
 
 .scm-branch-badge { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 8px 12px; border-radius: var(--r); background: var(--hover); color: var(--muted); font-size: var(--text-sm); }
@@ -189,8 +186,6 @@
 .scm-row { min-height: 40px; }
 
   .scm-row-actions { visibility: visible; }
-
-  .scm-repo-select { min-height: var(--control-lg); font-size: 16px; }
 
   .scm-filter-clear { width: var(--control-sm); height: var(--control-sm); right: 3px; }
 }
