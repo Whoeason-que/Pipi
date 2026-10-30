@@ -86,26 +86,45 @@
   overflow: hidden;
 }
 
-/* 快捷搜索按钮与各分区的侧栏搜索框保持同一套外观（尺寸、间距、图标）。 */
+/* 侧栏列表行共用同一套密度：调 --row-* 即可统一 Agent / 会话 / 文件 / Git / 分组标题。 */
+.sidebar .agent-row,
+.sidebar .session,
+.sidebar .file-workbench .file-row,
+.sidebar .scm-row,
+.sidebar .scm-group-header {
+  min-height: var(--row-height);
+  font-size: var(--row-font);
+  line-height: var(--row-line);
+}
+
+/* 侧栏搜索框与快捷搜索按钮共用一套外观（尺寸、间距、图标）。 */
+.sb-filter .search,
 .sidebar-quick {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
   gap: 7px;
   height: 32px;
-  margin: 12px 10px 6px;
   padding: 0 9px;
+  background: var(--chat-surface);
   border: 1px solid var(--line-soft);
   border-radius: var(--r);
   color: var(--faint);
-  background: var(--chat-surface);
+  transition:
+    border-color var(--motion-fast),
+    background var(--motion-fast);
+}
+
+.sidebar-quick {
+  flex-shrink: 0;
+  margin: 12px 10px 6px;
   text-align: left;
   cursor: pointer;
   font-size: var(--text-md);
-  transition:
-    background var(--motion-fast),
-    border-color var(--motion-fast),
-    color var(--motion-fast);
+}
+
+.sb-filter .search:focus-within {
+  border-color: var(--accent-border);
+  background: var(--panel-2);
 }
 
 .sidebar-quick:hover {
@@ -114,12 +133,14 @@
   border-color: var(--line);
 }
 
+.sb-filter .search svg,
 .sidebar-quick svg {
   width: 13px;
   height: 13px;
   flex-shrink: 0;
-  opacity: 0.8;
 }
+
+.sidebar-quick svg { opacity: 0.8; }
 
 .sidebar-quick span {
   flex: 1;
@@ -180,32 +201,6 @@
 /* 搜索分区没有快捷搜索按钮时，过滤框直接作为侧栏首行。 */
 .sidebar > .sb-filter:first-child {
   padding-top: 12px;
-}
-
-.sb-filter .search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 32px;
-  padding: 0 9px;
-  background: var(--chat-surface);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--r);
-  color: var(--faint);
-  transition:
-    border-color var(--motion-fast),
-    background var(--motion-fast);
-}
-
-.sb-filter .search:focus-within {
-  border-color: var(--accent-border);
-  background: var(--panel-2);
-}
-
-.sb-filter .search svg {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
 }
 
 .sb-filter input {
@@ -308,16 +303,13 @@
     z-index: 41;
   }
 
-  .sb-filter .search {
-    height: 40px;
-  }
-
+  .sb-filter .search,
   .sidebar-quick {
     height: 40px;
-    font-size: 16px;
   }
 
-  .sb-filter input {
+  .sb-filter input,
+  .sidebar-quick {
     font-size: 16px;
   }
 

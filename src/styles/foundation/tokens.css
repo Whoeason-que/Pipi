@@ -79,6 +79,10 @@
   --control: 34px;
   --control-lg: 40px;
   --touch-target: 44px;
+  /* 侧栏列表行（Agent / 会话 / 文件 / Git / 分组标题）共用同一套密度。 */
+  --row-height: 28px;
+  --row-font: 14px;
+  --row-line: 1.3;
   --icon-sm: 14px;
   --icon: 16px;
   --toolbar-height: 56px;
