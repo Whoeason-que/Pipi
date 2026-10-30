@@ -16,7 +16,7 @@ export interface SessionNavigationOptions {
 }
 
 export interface SessionNavigationState {
-  openSession: (agentName: string, sessionId: string) => Promise<void>;
+  openSession: (agentName: string, sessionId: string, options?: { keepSidebar?: boolean }) => Promise<void>;
   startNewSession: (agentName: string) => Promise<void>;
   createSessionFromChat: (previousSessionId?: string) => Promise<boolean>;
   /** 释放离开的空闲会话，与后续打开请求串行，避免释放迟于重新打开。 */
@@ -81,7 +81,12 @@ export function useSessionNavigation(
 
   /// 打开（查看）一条会话。会话之间互不影响：别的会话在跑也能打开、切换、
   /// 查看 —— 每条会话是独立的一路。
-  const openSession = async (agentName: string, sessionId: string) => {
+  /// `keepSidebar`：窄屏从顶栏分区切回上次会话时保留抽屉（那不是「选中某条会话」）。
+  const openSession = async (
+    agentName: string,
+    sessionId: string,
+    options?: { keepSidebar?: boolean },
+  ) => {
     const requestId = ++navigationRequestRef.current;
     sessionInfoRequestRef.current += 1;
     const previousSessionId = activeSessionRef.current?.sessionId;
@@ -96,7 +101,7 @@ export function useSessionNavigation(
           return;
         }
         onOpenChat(agentName, sessionId, snapshot.info.temporary);
-        setSidebarOpen(false);
+        if (!options?.keepSidebar) setSidebarOpen(false);
         setExpandedAgents((prev) => ({ ...prev, [agentName]: true }));
         setChatKey((key) => key + 1);
         setActiveSession(snapshot.info);

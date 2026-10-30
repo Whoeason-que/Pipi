@@ -93,12 +93,12 @@ export default function App() {
   activeSessionRef.current = activeSession;
   const sidebarResize = useResizableWidth({ storageKey: "sidebar-width", initial: 248, min: 200, max: 460, edge: "right" });
 
-  const commitView = useCallback((next: AppView, remember = true) => {
+  const commitView = useCallback((next: AppView, remember = true, options?: { keepSidebar?: boolean }) => {
     viewRef.current = next;
     selectedRef.current = "agentName" in next ? next.agentName : null;
     if (remember) navigationMemory.remember(next, agentsRef.current);
     setView(next);
-    setSidebarOpen(false);
+    if (!options?.keepSidebar) setSidebarOpen(false);
   }, [navigationMemory]);
   const safeSetError = useCallback((message: string | null) => {
     if (message?.includes("需要 PIPI_AUTH_TOKEN") || message?.includes("PIPI_AUTH_TOKEN")) return;
@@ -171,7 +171,7 @@ export default function App() {
     safeSetError, setError, setActiveSession, selectedRef, activeSessionRef,
     blockedSessionIdsRef: navigation.blockedSessionIdsRef, sessionInfoRequestRef: navigation.sessionInfoRequestRef });
 
-  const navigate = (next: AppView, remember = true) => {
+  const navigate = (next: AppView, remember = true, options?: { keepSidebar?: boolean }) => {
     if (next.kind === "home" && !next.section) next = { ...next, section: collection };
     if (next.kind === "settings" && viewRef.current.kind !== "settings") {
       previousView.current = viewRef.current;
@@ -192,7 +192,7 @@ export default function App() {
     else if (next.kind === "home") setNavSection(next.section ?? "agents");
     else if (next.kind === "create") setNavSection("agents");
     else if ("agentName" in next) setNavSection(agentSection(agents.find(agent => agent.name === next.agentName)));
-    commitView(next, remember);
+    commitView(next, remember, options);
   };
 
   const handleSelectWorkspace = (nextWorkspace: string) => {
@@ -310,15 +310,17 @@ export default function App() {
   }, [skillLibrary, skillSelected]);
 
   const toggleSettings = () => {
+    // 设置分区同样把它的分区列表放在抽屉里：窄屏开着抽屉点齿轮时不要把它收起。
+    const navOptions = { keepSidebar: mobile && sidebarOpen };
     if (view.kind !== "settings") {
-      navigate({ kind: "settings" });
+      navigate({ kind: "settings" }, true, navOptions);
       return;
     }
     const previous = previousView.current;
     if (previous.kind === "chat" && previous.sessionId !== null) {
-      void navigation.openSession(previous.agentName, previous.sessionId);
+      void navigation.openSession(previous.agentName, previous.sessionId, navOptions);
     } else {
-      navigate(previous);
+      navigate(previous, true, navOptions);
     }
   };
   const chooseQuick = (target: QuickTarget) => {
@@ -385,7 +387,7 @@ export default function App() {
     setPreviewWorkspacePaths(previous => ({ ...previous, files: workspacePath }));
     navigate({ kind: "files", agentName: agent?.name ?? null });
   };
-  const openSection = (section: NavSection) => {
+  const openSection = (section: NavSection, options?: { keepSidebar?: boolean }) => {
     if (section === "search") {
       if (viewRef.current.kind === "settings") navigate(previousView.current);
       else navigation.invalidateNavigation();
@@ -394,30 +396,39 @@ export default function App() {
       setSidebarOpen(true);
       return;
     }
+    // 窄屏抽屉打开时，切换顶栏分区不收起抽屉：分区的列表就在抽屉里（技能、论坛、
+    // 工作区、Agent 会话……），收起等于把刚切过去的内容一起藏起来。文件 ↔ Git 在桌面端
+    // 也按标签处理（不改变侧栏开合），其它分区在桌面端仍按「进入分区」展开侧栏。
+    const tabSwitch = (section === "files" || section === "git")
+      && (viewRef.current.kind === "files" || viewRef.current.kind === "git");
+    const keepSidebar = options?.keepSidebar || tabSwitch || (mobile && sidebarOpen);
+    const navOptions = { keepSidebar };
     if (section === "agents" || section === "subagents") {
       const target = navigationMemory.restore(section, filteredAgents);
       const currentView = viewRef.current;
       if (target.kind === "chat" && target.sessionId !== null && !(currentView.kind === "chat"
         && currentView.agentName === target.agentName && currentView.sessionId === target.sessionId)) {
-        void navigation.openSession(target.agentName, target.sessionId);
+        void navigation.openSession(target.agentName, target.sessionId, navOptions);
       } else if (target.kind === "chat" && target.sessionId === null) {
         setActiveSession(null);
-        navigate(target);
+        navigate(target, true, navOptions);
       } else {
         // 回退总览可能只是当前工作区过滤了原 Agent，保留原有记忆。
-        navigate(target, target.kind !== "home");
+        navigate(target, target.kind !== "home", navOptions);
       }
     } else if (section === "files" || section === "git") {
       if (!previewWorkspacePaths[section] && currentWorkspaceTarget?.workspace) {
         setPreviewWorkspacePaths(previous => ({ ...previous, [section]: currentWorkspaceTarget.workspace }));
       }
-      navigate({ kind: section, agentName: null });
+      navigate({ kind: section, agentName: null }, true, navOptions);
     } else {
-      navigate({ kind: section });
+      navigate({ kind: section }, true, navOptions);
     }
     setNavSection(section);
-    setSidebarCollapsed(false);
-    setSidebarOpen(false);
+    if (!keepSidebar) {
+      setSidebarCollapsed(false);
+      setSidebarOpen(false);
+    }
   };
   const bindChatController = useCallback((controller: SessionController) => {
     const active = viewRef.current;
@@ -464,7 +475,10 @@ export default function App() {
           subagents: agentsInSection(filteredAgents, "subagents").some(agent => agentHasRunning(agent.name)) }}
         onOpenSection={openSection} />
       <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "files" || navSection === "git" ? "工作区文件与 Git 改动" : "Agent 与会话列表"}>
-        <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
+        {/* 带局部过滤/搜索的分区不再叠一个全局快捷搜索按钮；⌘K 仍可用。 */}
+        {view.kind === "settings" || navSection === "agents" || navSection === "subagents" ? (
+          <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
+        ) : null}
         {view.kind === "settings" ? settings && <SettingsSidebar settings={settings} section={settingsSection}
           showLogout={!isTauriRuntime() && authStatus.authRequired}
           onSelect={section => { setSettingsSection(section); setSidebarOpen(false); }} />
@@ -501,6 +515,7 @@ export default function App() {
             onToggleArchivedOpen={() => setArchivedOpen(open => !open)} />}
       </aside>
       <div className="resize-handle sidebar-resize" title="拖动调整侧栏宽度" aria-label="调整侧栏宽度" {...sidebarResize.handleProps} />
+      {/* 窄屏抽屉统一模态：点右侧内容（遮罩）收起，和右侧检查器一致。 */}
       {sidebarOpen && <button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={closeNavigation} />}
       <main className="content-pane main" inert={mobile && sidebarOpen}>
         {(view.kind === "home" || view.kind === "agent" || (!current && (view.kind === "chat" || view.kind === "workbench"))) && <header className="workspace-toolbar">
@@ -547,7 +562,7 @@ export default function App() {
           : (view.kind === "files" || view.kind === "git") ? <WorkspaceView key={workspace.store?.key ?? "no-workspace"} state={workspace}
             sessions={workspaceSessions} canReference={workspaceAgents.length > 0} defaultSession={workspaceSessions[0]?.id ?? null}
             onOpenFile={path => { openWorkspaceFile(currentWorkspaceTarget?.workspace ?? "", path); }} onReference={referenceToSession}
-            onModeChange={mode => openSection(mode)} />
+            onModeChange={mode => openSection(mode, { keepSidebar: true })} />
           : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
             initialController={view.sessionId === null ? navigationMemory.controllerFor(current.name, null) : undefined} onControllerReady={bindChatController}
             onOpenFile={path => openWorkspaceFile(current.name, path)}

@@ -35,20 +35,7 @@ export function SkillsSidebar({
 
   return (
     <>
-      <div className="caption sb-sec skills-heading">
-        <span>技能库</span>
-        <span className="spacer" />
-        <span className="caption sb-count">{skills.length}</span>
-        <button
-          type="button"
-          className="icon-btn"
-          title="重新读取 store"
-          aria-label="重新读取 store"
-          onClick={onRefresh}
-        >
-          <IconRefresh />
-        </button>
-      </div>
+      {/* 搜索置顶：过滤框作为侧栏第一行 */}
       <div className="sb-filter">
         <div className="search">
           <IconSearch />
@@ -66,6 +53,21 @@ export function SkillsSidebar({
             </button>
           )}
         </div>
+      </div>
+
+      <div className="caption sb-sec skills-heading">
+        <span>技能库</span>
+        <span className="spacer" />
+        <span className="caption sb-count">{skills.length}</span>
+        <button
+          type="button"
+          className="icon-btn"
+          title="重新读取 store"
+          aria-label="重新读取 store"
+          onClick={onRefresh}
+        >
+          <IconRefresh />
+        </button>
       </div>
 
       {error && <div className="session pending skills-side-error">{error}</div>}

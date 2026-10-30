@@ -155,6 +155,28 @@ export function IconFile() {
   );
 }
 
+/** 显示隐藏文件（睁眼） */
+export function IconEye() {
+  return (
+    <IconBase>
+      <path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+      <circle cx="12" cy="12" r="2.5" />
+    </IconBase>
+  );
+}
+
+/** 隐藏文件未显示（闭眼） */
+export function IconEyeOff() {
+  return (
+    <IconBase>
+      <path d="M3 3l18 18" />
+      <path d="M10.6 6.2A9.6 9.6 0 0 1 12 6c6 0 9.5 6 9.5 6a15.6 15.6 0 0 1-2.2 2.8" />
+      <path d="M6.4 6.8C4 8.5 2.5 12 2.5 12s3.5 6 9.5 6c1.3 0 2.5-.3 3.6-.8" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+    </IconBase>
+  );
+}
+
 /** 文件树展开箭头 */
 export function IconCaret({ expanded = false }: { expanded?: boolean } = {}) {
   return (

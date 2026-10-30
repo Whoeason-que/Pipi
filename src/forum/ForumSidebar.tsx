@@ -43,30 +43,7 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
 
   return (
     <>
-      <div className="caption sb-sec forum-sidebar-heading">
-        <span>论坛</span>
-        <span className="spacer" />
-        <span className="caption sb-count">{threads.length}</span>
-        <button
-          type="button"
-          className="icon-btn"
-          title="刷新主题列表"
-          aria-label="刷新主题列表"
-          onClick={() => void loadThreads()}
-        >
-          <IconRefresh />
-        </button>
-        <button
-          type="button"
-          className="icon-btn"
-          title="新建主题"
-          aria-label="新建主题"
-          onClick={handleStartCompose}
-        >
-          <IconPlus />
-        </button>
-      </div>
-
+      {/* 搜索置顶：过滤框作为侧栏第一行 */}
       <div className="sb-filter">
         <div className="search">
           <IconSearch />
@@ -89,6 +66,30 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
             </button>
           )}
         </div>
+      </div>
+
+      <div className="caption sb-sec forum-sidebar-heading">
+        <span>论坛</span>
+        <span className="spacer" />
+        <span className="caption sb-count">{threads.length}</span>
+        <button
+          type="button"
+          className="icon-btn"
+          title="刷新主题列表"
+          aria-label="刷新主题列表"
+          onClick={() => void loadThreads()}
+        >
+          <IconRefresh />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          title="新建主题"
+          aria-label="新建主题"
+          onClick={handleStartCompose}
+        >
+          <IconPlus />
+        </button>
       </div>
 
       <div className="forum-sidebar-filter-tabs">

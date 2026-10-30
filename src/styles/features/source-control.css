@@ -3,13 +3,10 @@
 
 .vscode-scm-sidebar { gap: 0; padding: 0 0 12px; }
 
-.vscode-scm-sidebar .file-workbench-header { min-height: 44px; padding: 4px 10px 4px 14px; border-bottom: 1px solid var(--line-soft); }
+.vscode-scm-sidebar .file-workbench-header { min-height: 48px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line-soft); }
 
 .vscode-scm-sidebar .workspace-sidebar-icon,
-.vscode-scm-sidebar .scm-title-text small,
 .scm-repo-bar[hidden] { display: none; }
-
-.vscode-scm-sidebar .scm-title-text strong { font-size: var(--text-xs); font-weight: 600; letter-spacing: .6px; }
 
 .scm-header-actions { display: flex; align-items: center; gap: 1px; flex-shrink: 0; }
 
@@ -17,9 +14,10 @@
 
 .scm-header-actions .icon-btn.small svg { width: 14px; height: 14px; }
 
-.vscode-scm-sidebar .workspace-current-badge { margin: 10px 12px 0; padding: 8px 12px; border-radius: var(--r); background: var(--hover); color: var(--muted); }
-
 .vscode-scm-sidebar .workspace-agent-picker { margin: 10px 12px 0; }
+
+/* Git 侧栏没有容器内边距，搜索框与其它分区保持同样的 10px 缩进和 6px 下留白。 */
+.vscode-scm-sidebar .sb-filter { padding: 12px 10px 6px; }
 
 .scm-repo-bar { padding: 6px 12px; }
 
@@ -31,8 +29,6 @@
 .scm-action-btn svg,
 .scm-footer-base svg { width: 13px; height: 13px; }
 
-.vscode-scm-sidebar .scm-filter-input:hover { background: var(--hover-2); }
-
 .scm-branch-badge { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 8px 12px; border-radius: var(--r); background: var(--hover); color: var(--muted); font-size: var(--text-sm); }
 
 .scm-branch-badge > svg { width: 14px; height: 14px; flex-shrink: 0; }
@@ -40,18 +36,6 @@
 .scm-repo-name { color: var(--muted); }
 
 .scm-branch-name { min-width: 0; margin-left: auto; max-width: 65%; padding: 2px 5px; border-radius: var(--r-sm); background: var(--hover); color: var(--muted); font: 11px var(--font-mono); }
-
-.vscode-scm-sidebar .scm-filter-box { position: relative; margin: 8px 12px; }
-
-.vscode-scm-sidebar .scm-filter-box > svg { position: absolute; left: 12px; width: var(--icon-sm); height: var(--icon-sm); pointer-events: none; }
-
-.vscode-scm-sidebar .scm-filter-input { width: 100%; min-width: 0; min-height: var(--control); padding: 8px 36px 8px 34px; border: 0; border-radius: var(--r); background: var(--hover); font-size: var(--text-sm); transition: background var(--motion-fast), box-shadow var(--motion-fast); }
-
-.vscode-scm-sidebar .scm-filter-input:focus { box-shadow: var(--focus-ring); }
-
-.scm-filter-clear { position: absolute; right: 5px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--faint); cursor: pointer; }
-
-.scm-filter-clear:hover { color: var(--fg); background: var(--hover); }
 
 .scm-stat-bar { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 4px 14px 12px; color: var(--faint); font-size: 11px; }
 
@@ -88,7 +72,7 @@
 
 .scm-row { position: relative; display: flex; align-items: center; gap: 4px; width: 100%; min-height: 34px; padding: 0 10px 0 16px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font-size: var(--text-sm); text-align: left; }
 
-.scm-row.active { background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent); }
+.scm-row.active { background: var(--accent-soft); }
 
 .scm-row:focus-within { outline: 1px solid var(--accent-border); outline-offset: -1px; }
 
@@ -186,6 +170,4 @@
 .scm-row { min-height: 40px; }
 
   .scm-row-actions { visibility: visible; }
-
-  .scm-filter-clear { width: var(--control-sm); height: var(--control-sm); right: 3px; }
 }

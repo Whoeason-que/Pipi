@@ -5,10 +5,6 @@
 
 .file-workbench-header strong { flex: 1; font-size: var(--text-md); }
 
-.file-filter { width: 100%; box-sizing: border-box; }
-
-.file-hidden { display: flex; align-items: center; gap: 5px; margin: 4px 2px 8px; cursor: pointer; }
-
 .file-workbench .file-row { display: flex; align-items: center; gap: 7px; width: 100%; border: 0; text-align: left; background: transparent; min-height: var(--control-sm); padding: var(--space-1) var(--space-2); color: var(--muted); font-size: var(--text-md); border-radius: var(--r-sm); }
 
 .file-row:hover:not(:disabled),
@@ -46,9 +42,12 @@
 
 /* ---- 工作区页面 ---- */
 
-.workspace-files-sidebar { flex: 1; min-height: 0; padding: 0 var(--space-3) var(--space-3); overflow: hidden; }
+.workspace-files-sidebar { flex: 1; min-height: 0; padding: 0 10px 10px; overflow: hidden; }
 
-.workspace-files-sidebar .file-workbench-header { padding: 6px 0 10px; }
+.workspace-files-sidebar .file-workbench-header { padding: 10px 0; }
+
+/* 侧栏搜索置顶，与其它分区同款；容器本身已有内边距，这里不再叠加横向内边距。 */
+.workspace-files-sidebar .sb-filter { padding: 12px 0 6px; }
 
 .workspace-sidebar-title { display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; }
 
@@ -64,38 +63,11 @@
 .workspace-agent-picker,
 .workspace-reference-target { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: var(--text-sm); }
 
-.workspace-current-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--r);
-  background: var(--stripe);
-  color: var(--accent);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  overflow: hidden;
-  margin-bottom: 4px;
-}
-
-.workspace-current-badge svg { width: 15px; height: 15px; flex-shrink: 0; }
-
-.workspace-current-name,
 .workspace-mode-switch button:hover,
 .file-preview-tabs .active button { color: var(--fg); }
 
-.file-filter-box { position: relative; display: flex; align-items: center; gap: var(--space-2); margin: 4px 0 2px; }
-
-.file-filter-box > svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--faint); }
-
-.file-filter-box .file-filter { border: 0; border-radius: var(--r); background: var(--hover); min-height: var(--control); padding: 8px 28px 8px var(--space-2); font-size: var(--text-sm); }
-
-.file-filter-box .file-filter:focus { box-shadow: var(--focus-ring); }
-
 .workspace-file-list { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-top: 2px; }
 
-.workspace-files-sidebar .file-row.active { box-shadow: inset 2px 0 var(--accent); }
 .workspace-files-sidebar .file-row.active,
 .workspace-mode-switch button.active small,
 .file-workbench .file-line-numbers button.selected,
@@ -171,7 +143,7 @@
 
   .workspace-crumb { flex-basis: 100%; order: 3; }
 
-  .workspace-mode-switch { order: 2; }
+  .workspace-files-toolbar .workspace-mode-switch { order: 2; }
 
   .workspace-change-summary { display: none; }
 }
@@ -181,13 +153,10 @@
 
   .workspace-files-sidebar .file-workbench-header .btn,
 .workspace-files-toolbar .btn { min-height: var(--control-lg); }
-
-  .workspace-files-sidebar .file-hidden { min-height: var(--control); gap: var(--space-2); }
 }
 
 @media (max-width: 860px) {
-  .workspace-picker-select .pipi-select__control,
-.workspace-files-sidebar .file-filter-box .file-filter { min-height: var(--control-lg); font-size: 16px; }
+  .workspace-picker-select .pipi-select__control { min-height: var(--control-lg); font-size: 16px; }
 }
 
 @media (hover: none) and (pointer: coarse) {
@@ -211,7 +180,7 @@
 
 /* ---- 预览 ---- */
 
-.file-preview { display: flex; flex-direction: column; flex: 1; min-height: 280px; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
+.file-preview { display: flex; flex-direction: column; flex: 1; min-height: 280px; min-width: 0; border: 1px solid var(--line-soft); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
 
 .file-preview-tabs-wrap { flex-shrink: 0; min-width: 0; }
 
@@ -252,13 +221,13 @@
 
 .file-preview-scroll { flex: 1; min-height: 200px; max-height: 55vh; overflow: auto; overscroll-behavior: contain; }
 
-.file-preview-empty { margin: auto; padding: 44px 20px; gap: var(--space-2); color: var(--muted); font-size: var(--text-md); line-height: 1.7; }
+.file-preview-empty { margin: auto; padding: 48px 20px; gap: 10px; color: var(--muted); font-size: var(--text-sm); line-height: 1.7; }
 
-.file-preview-empty strong { color: var(--fg); font-size: var(--text-body); }
+.file-preview-empty strong { color: var(--fg); font-size: var(--text-md); font-weight: 600; }
 
-.file-preview-empty p { margin: 0; max-width: 46ch; }
+.file-preview-empty p { margin: 0; max-width: 42ch; color: var(--faint); }
 
-.file-empty-icon { --tile-icon-size: 22px; --tile-size: 48px; margin-bottom: 4px; border-radius: var(--r-lg); background: var(--hover); color: var(--faint); }
+.file-empty-icon { --tile-icon-size: 20px; --tile-size: 44px; margin-bottom: 4px; border: 1px solid var(--line-soft); border-radius: var(--r-lg); background: var(--stripe); color: var(--faint); }
 
 .workspace-state { border: 1px dashed var(--line-2); border-radius: var(--r-lg); background: var(--stripe); }
 

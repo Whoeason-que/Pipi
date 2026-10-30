@@ -53,21 +53,7 @@ export function WorkspacesSidebar({
 
   return (
     <>
-      <div className="caption sb-sec workspaces-heading">
-        <span>工作区</span>
-        <span className="spacer" />
-        <span className="caption sb-count">{workspaces.length}</span>
-        <button
-          type="button"
-          className="icon-btn"
-          title="新建工作区"
-          aria-label="新建工作区"
-          onClick={onOpenCreateModal}
-        >
-          <IconPlus />
-        </button>
-      </div>
-
+      {/* 搜索置顶：过滤框作为侧栏第一行 */}
       <div className="sb-filter">
         <div className="search">
           <IconSearch />
@@ -90,6 +76,21 @@ export function WorkspacesSidebar({
             </button>
           )}
         </div>
+      </div>
+
+      <div className="caption sb-sec workspaces-heading">
+        <span>工作区</span>
+        <span className="spacer" />
+        <span className="caption sb-count">{workspaces.length}</span>
+        <button
+          type="button"
+          className="icon-btn"
+          title="新建工作区"
+          aria-label="新建工作区"
+          onClick={onOpenCreateModal}
+        >
+          <IconPlus />
+        </button>
       </div>
 
       <div className="workspaces-sidebar-list" role="listbox" aria-label="工作区列表">

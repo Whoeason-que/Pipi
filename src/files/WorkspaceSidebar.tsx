@@ -6,8 +6,11 @@ import { getWorkspaceBasename, type WorkspaceInfo } from "../app/workspaces";
 import {
   IconCaret,
   IconCheck,
+  IconClose,
   IconCollapseAll,
   IconCopy,
+  IconEye,
+  IconEyeOff,
   IconFile,
   IconFolder,
   IconGit,
@@ -108,6 +111,13 @@ export function WorkspaceSidebar({
       : changes.value?.isRepo === false
         ? "非 Git 仓库"
         : `${summary.total} 个更改`;
+  // 工作区选择器已经在下方单独占一行时，标题继续显示视图名；
+  // 否则把工作区名并入标题，省掉一条独立的徽标行。
+  const workspaceInHeader =
+    Boolean(currentWorkspacePath) &&
+    !(workspaces.length > 1 && activeWorkspace === "all");
+  const heading = workspaceInHeader ? currentWorkspaceName : title;
+  const subheading = workspaceInHeader ? `${title} · ${detail}` : detail;
 
   const toggleGroup = (id: string) => {
     setCollapsedGroups((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -149,6 +159,34 @@ export function WorkspaceSidebar({
 
   return (
     <div className={`file-workbench workspace-files-sidebar${mode === "git" ? " vscode-scm-sidebar" : ""}`}>
+      {/* 搜索置顶：所有分区的过滤框都作为侧栏第一行，滚动时保持可见。 */}
+      {target && (
+        <div className="sb-filter">
+          <div className="search">
+            <IconSearch />
+            <input
+              aria-label="筛选文件名"
+              value={view.query}
+              placeholder={mode === "files" ? "筛选已展开的文件…" : "筛选更改…"}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => store?.setQuery(event.target.value)}
+            />
+            {view.query && (
+              <button
+                type="button"
+                className="search-clear"
+                title="清空筛选"
+                aria-label="清空筛选"
+                onClick={() => store?.setQuery("")}
+              >
+                <IconClose />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 顶部标题栏：VS Code 风格小字全大写与右侧工具栏 */}
       <div className="file-workbench-header scm-header-bar">
         <div className="workspace-sidebar-title scm-title">
@@ -156,8 +194,13 @@ export function WorkspaceSidebar({
             {mode === "files" ? <IconFile /> : <IconGit />}
           </span>
           <div className="scm-title-text">
-            <strong>{title}</strong>
-            <small>{detail}</small>
+            <strong
+              className="truncate"
+              title={workspaceInHeader ? currentWorkspacePath : undefined}
+            >
+              {heading}
+            </strong>
+            <small className="truncate">{subheading}</small>
           </div>
         </div>
         <div className="workspace-sidebar-actions scm-header-actions">
@@ -194,6 +237,18 @@ export function WorkspaceSidebar({
               </button>
             </>
           )}
+          {mode === "files" && (
+            <button
+              type="button"
+              className={`icon-btn small${view.showHidden ? " active" : ""}`}
+              title="显示隐藏文件"
+              aria-label="显示隐藏文件"
+              aria-pressed={view.showHidden}
+              onClick={() => store?.setHidden(!view.showHidden)}
+            >
+              {view.showHidden ? <IconEye /> : <IconEyeOff />}
+            </button>
+          )}
           <button
             type="button"
             className="icon-btn small"
@@ -218,11 +273,6 @@ export function WorkspaceSidebar({
             onChange={value => onSelectWorkspace?.(value)}
             searchable={false} menuInPortal menuPlacement="auto"
           />
-        </div>
-      ) : currentWorkspacePath ? (
-        <div className="workspace-current-badge" title={currentWorkspacePath}>
-          <FolderGlyph path={currentWorkspacePath} expanded root />
-          <span className="truncate workspace-current-name">{currentWorkspaceName}</span>
         </div>
       ) : null}
 
@@ -259,40 +309,6 @@ export function WorkspaceSidebar({
                 </div>
               ) : null}
             </div>
-          )}
-
-          {/* 搜索/筛选框：VS Code 风格紧凑输入框 */}
-          <div className="file-filter-box scm-filter-box">
-            <IconSearch />
-            <input
-              className="text-input file-filter scm-filter-input"
-              aria-label="筛选文件名"
-              value={view.query}
-              placeholder={mode === "files" ? "筛选已展开的文件…" : "筛选更改…"}
-              onChange={(event) => store?.setQuery(event.target.value)}
-            />
-            {view.query && (
-              <button
-                type="button"
-                className="scm-filter-clear"
-                title="清空筛选"
-                aria-label="清空筛选"
-                onClick={() => store?.setQuery("")}
-              >
-                ×
-              </button>
-            )}
-          </div>
-
-          {mode === "files" && (
-            <label className="caption file-hidden">
-              <input
-                type="checkbox"
-                checked={view.showHidden}
-                onChange={(event) => store?.setHidden(event.target.checked)}
-              />
-              <span>显示隐藏文件</span>
-            </label>
           )}
 
           {mode === "git" && changes.value?.isRepo && (
