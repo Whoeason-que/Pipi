@@ -6,7 +6,6 @@ import type { SessionInfoView } from "../types";
 export interface SessionNavigationOptions {
   /** 原始 setError：会话打开/新建失败按核心原文展示。 */
   setError: (message: string | null) => void;
-  selectedRef: { current: string | null };
   activeSessionRef: { current: SessionInfoView | null };
   onOpenChat: (agentName: string, sessionId: string | null, temporary?: boolean) => void;
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
@@ -18,7 +17,6 @@ export interface SessionNavigationOptions {
 export interface SessionNavigationState {
   openSession: (agentName: string, sessionId: string, options?: { keepSidebar?: boolean }) => Promise<void>;
   startNewSession: (agentName: string) => Promise<void>;
-  createSessionFromChat: (previousSessionId?: string) => Promise<boolean>;
   /** 释放离开的空闲会话，与后续打开请求串行，避免释放迟于重新打开。 */
   releaseIdle: (agentName: string) => Promise<void>;
   /** 让在途的打开/新建请求作废（Archive / 切换 Agent / 返回时调用）。 */
@@ -39,7 +37,6 @@ export function useSessionNavigation(
 ): SessionNavigationState {
   const {
     setError,
-    selectedRef,
     activeSessionRef,
     onOpenChat,
     setSidebarOpen,
@@ -141,37 +138,9 @@ export function useSessionNavigation(
     });
   };
 
-  /// ChatView 里点「新建会话」：释放该 Agent 的空闲会话（跑着的留着），
-  /// 视图切到「新会话」并重挂 ChatView。
-  const createSessionFromChat = async (previousSessionId?: string): Promise<boolean> => {
-    const agentName = selectedRef.current;
-    if (!agentName) return false;
-    const requestId = ++navigationRequestRef.current;
-    sessionInfoRequestRef.current += 1;
-    if (previousSessionId) blockedSessionIdsRef.current.add(previousSessionId);
-    let accepted = false;
-    await enqueueNavigation(requestId, async () => {
-      try {
-        await invoke("new_session", { agentName });
-        accepted = requestId === navigationRequestRef.current;
-      } catch (errorValue) {
-        if (requestId === navigationRequestRef.current) {
-          if (previousSessionId) blockedSessionIdsRef.current.delete(previousSessionId);
-          setError(formatRuntimeError(errorValue));
-        }
-      }
-    });
-    if (!accepted || requestId !== navigationRequestRef.current) return false;
-    onOpenChat(agentName, null);
-    setActiveSession(null);
-    setChatKey((key) => key + 1);
-    return true;
-  };
-
   return {
     openSession,
     startNewSession,
-    createSessionFromChat,
     releaseIdle,
     invalidateNavigation,
     blockedSessionIdsRef,

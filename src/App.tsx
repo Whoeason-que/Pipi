@@ -160,7 +160,7 @@ export default function App() {
     if (!temporary && sessionId === null) navigationMemory.unbindDraft(agentName);
     commitView(temporary ? { kind: "workbench", agentName } : { kind: "chat", agentName, sessionId });
   }, [commitView, agents, navigationMemory]);
-  const navigation = useSessionNavigation({ setError, selectedRef, activeSessionRef, onOpenChat,
+  const navigation = useSessionNavigation({ setError, activeSessionRef, onOpenChat,
     setSidebarOpen, setExpandedAgents, setActiveSession, setChatKey });
   useNotificationNavigation(!authStatus.checking && authStatus.authenticated && agents.length > 0, async (agent, session) => {
     setActiveWorkspace("all");
