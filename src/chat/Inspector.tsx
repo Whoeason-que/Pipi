@@ -28,7 +28,8 @@ export interface InspectorProps {
   temporary?: boolean;
   activeTab?: InspectorTab;
   onTabChange?: (tab: InspectorTab) => void;
-  hideHeaderTabs?: boolean;
+  /** 标签形态：text = 文字标签（嵌入式工作台），icon = 图标标签 + 关闭（会话右栏）。 */
+  tabStyle?: "text" | "icon";
   onClose?: () => void;
   searchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
@@ -51,7 +52,7 @@ export default function Inspector({
   rootRef,
   activeTab: activeTabProp,
   onTabChange,
-  hideHeaderTabs = false,
+  tabStyle = "text",
   onClose,
   searchQuery = "",
   onSearchQueryChange,
@@ -208,24 +209,45 @@ export default function Inspector({
       id={embedded ? undefined : "session-inspector"}
       aria-label={embedded ? "临时测试信息" : "会话检查器"}
     >
-      {hideHeaderTabs ? (
-        <div className="inspector-head">
-          <span className="icon-tile inspector-heading-icon">
-            <InspectorTabIcon tab={tab} />
-          </span>
-          <span className="inspector-heading">
-            <span className="inspector-title" id={`inspector-heading-${tab}`}>
-              {getInspectorTabLabel(tab)}
-            </span>
-            <span className="truncate caption inspector-subtitle">
-              {agent.name}
-              {temporary ? " · 临时测试" : " · 当前会话"}
-            </span>
-          </span>
+      {tabStyle === "icon" ? (
+        <div className="inspector-head inspector-head-tabs">
+          <div
+            className="inspector-tabs"
+            role="tablist"
+            aria-label="检查器视图"
+            onKeyDown={handleTabKeys}
+          >
+            {INSPECTOR_TABS.map((item) => {
+              const label = getInspectorTabLabel(item.id);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  id={`itab-${item.id}`}
+                  aria-selected={tab === item.id}
+                  aria-controls={`ipanel-${item.id}`}
+                  aria-label={label}
+                  title={label}
+                  tabIndex={tab === item.id ? 0 : -1}
+                  className={`inspector-tab${tab === item.id ? " active" : ""}`}
+                  onClick={() => setTab(item.id)}
+                >
+                  <InspectorTabIcon
+                    tab={item.id}
+                    className="inspector-tab-icon"
+                  />
+                  {item.id === "detail" && chipDetail && tab !== "detail" && (
+                    <span className="tab-dot" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
           {onClose && (
             <button
               type="button"
-              className="icon-btn"
+              className="icon-btn inspector-close"
               onClick={onClose}
               aria-label="关闭检查器"
               title="关闭检查器"
@@ -264,9 +286,7 @@ export default function Inspector({
           className={`ipanel${tab === "detail" ? " active" : ""}`}
           id="ipanel-detail"
           role="tabpanel"
-          aria-labelledby={
-            hideHeaderTabs ? "inspector-heading-detail" : "itab-detail"
-          }
+          aria-labelledby="itab-detail"
         >
           {chipDetail ? (
             <ChipDetailPane
@@ -290,9 +310,7 @@ export default function Inspector({
           className={`ipanel${tab === "stats" ? " active" : ""}`}
           id="ipanel-stats"
           role="tabpanel"
-          aria-labelledby={
-            hideHeaderTabs ? "inspector-heading-stats" : "itab-stats"
-          }
+          aria-labelledby="itab-stats"
         >
           <div className="ip context-stats">
             <h4>当前上下文</h4>
@@ -419,9 +437,7 @@ export default function Inspector({
           className={`ipanel${tab === "state" ? " active" : ""}`}
           id="ipanel-state"
           role="tabpanel"
-          aria-labelledby={
-            hideHeaderTabs ? "inspector-heading-state" : "itab-state"
-          }
+          aria-labelledby="itab-state"
         >
           <div className="ip">
             <h4>运行状态</h4>
@@ -547,9 +563,7 @@ export default function Inspector({
           className={`ipanel${tab === "files" ? " active" : ""}`}
           id="ipanel-files"
           role="tabpanel"
-          aria-labelledby={
-            hideHeaderTabs ? "inspector-heading-files" : "itab-files"
-          }
+          aria-labelledby="itab-files"
         >
           <SessionFilesPanel key={JSON.stringify([agent.name, sessionId])} entries={entries} onOpenFile={onOpenFile} />
         </div>
@@ -558,9 +572,7 @@ export default function Inspector({
           className={`ipanel${tab === "search" ? " active" : ""}`}
           id="ipanel-search"
           role="tabpanel"
-          aria-labelledby={
-            hideHeaderTabs ? "inspector-heading-search" : "itab-search"
-          }
+          aria-labelledby="itab-search"
         >
           <div className="inspector-search-head">
             <div className="search-input-wrap">

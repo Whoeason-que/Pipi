@@ -48,7 +48,6 @@ interface ChatViewProps {
   onBack?: () => void;
   onOpenFile?: (path: string) => void;
   onError: (msg: string) => void;
-  onNewSession?: (previousSessionId?: string) => Promise<boolean>;
   onRunningChange: () => void;
   /** 新会话：传 null 表示无会话；分叉/重建后传新的会话信息以同步侧栏高亮。 */
   onSessionReset: (info?: SessionInfoView | null) => void;
@@ -75,7 +74,6 @@ export default function ChatView({
   onBack,
   onOpenFile,
   onError,
-  onNewSession,
   onRunningChange,
   onSessionReset,
   onControllerReady,
@@ -349,15 +347,6 @@ export default function ChatView({
     layout.closeNavigation();
     setInspectorOpen(true);
   };
-  const handleBarTabClick = (tabId: InspectorTab) => {
-    if (inspectorOpen && activeInspectorTab === tabId) {
-      setInspectorOpen(false);
-    } else {
-      setActiveInspectorTab(tabId);
-      layout.closeNavigation();
-      setInspectorOpen(true);
-    }
-  };
   const stop = () => {
     void controller.stop();
   };
@@ -421,19 +410,9 @@ export default function ChatView({
         ready={ready}
         clearing={clearingTest}
         inspectorOpen={inspectorOpen}
-        activeTab={activeInspectorTab}
         hasDetail={Boolean(activeChip)}
-        onTabClick={handleBarTabClick}
         onInspectorToggle={() => setInspectorOpen((open) => !open)}
         onBack={onBack}
-        onNewSession={
-          !isTest && onNewSession
-            ? () =>
-                void onNewSession(
-                  running ? undefined : (sessionId ?? undefined),
-                )
-            : undefined
-        }
         onClear={onClearTest ? () => void clearTest() : undefined}
       />
 
@@ -595,7 +574,7 @@ export default function ChatView({
             rootRef={inspectorRef}
             activeTab={activeInspectorTab}
             onTabChange={setActiveInspectorTab}
-            hideHeaderTabs={true}
+            tabStyle="icon"
             onClose={() => setInspectorOpen(false)}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}

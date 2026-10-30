@@ -347,27 +347,78 @@
   flex-shrink: 0;
 }
 
-.inspector-heading-icon {
-  --tile-icon-size: 18px;
-  --tile-size: 36px;
-  flex-shrink: 0;
-  border-radius: var(--r);
-  background: var(--accent-soft);
-  color: var(--accent-text);
+/* 会话右栏：图标标签与关闭按钮同为一行，成为检查器的唯一头部。 */
+
+.inspector-head-tabs {
+  justify-content: flex-start;
+  min-height: var(--toolbar-height);
+  height: var(--toolbar-height);
+  padding: 0 10px 0 12px;
+  gap: 8px;
 }
 
-.inspector-heading {
+.inspector-tabs {
   display: flex;
   flex: 1;
   min-width: 0;
-  flex-direction: column;
   gap: 2px;
 }
 
-.inspector-title {
-  font-size: var(--text-md);
-  font-weight: 550;
+.inspector-tab {
+  position: relative;
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color var(--motion-fast),
+    background var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+.inspector-tab:hover:not(.active) {
   color: var(--fg);
+  background: var(--hover);
+}
+
+.inspector-tab.active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+.inspector-tab-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  opacity: 0.72;
+  transition: opacity var(--motion-fast);
+}
+
+.inspector-tab:hover .inspector-tab-icon {
+  opacity: 0.95;
+}
+
+.inspector-tab.active .inspector-tab-icon {
+  opacity: 1;
+}
+
+.inspector-tab .tab-dot {
+  position: absolute;
+  top: 6px;
+  right: calc(50% - 14px);
+}
+
+.inspector-close {
+  flex-shrink: 0;
 }
 
 @media (max-width: 520px) {

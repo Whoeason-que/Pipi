@@ -323,7 +323,6 @@ export default function AgentWorkbench({
       blockedSessionIds={blockedSessionIds}
       onBack={onBack}
       onError={onError}
-      onNewSession={async () => false}
       onRunningChange={onRunningChange}
       onSessionReset={(info) => {
         if (info?.temporary) setTestSession(info);

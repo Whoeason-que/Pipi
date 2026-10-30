@@ -28,14 +28,14 @@
 
 .chat-toolbar {
   flex-shrink: 0;
-  gap: 12px;
+  gap: 10px;
   border-bottom: 1px solid var(--line-soft);
   display: flex;
   align-items: center;
   position: relative;
   height: var(--toolbar-height);
   min-height: var(--toolbar-height);
-  padding: 0 var(--space-6);
+  padding: 0 var(--space-4);
   background: var(--bg);
 }
 
@@ -49,7 +49,7 @@
 .chat-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .chat-title b {
@@ -59,33 +59,45 @@
   text-overflow: ellipsis;
   color: var(--fg);
   white-space: nowrap;
-  font-size: var(--text-body);
-  font-weight: 550;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   line-height: 1.5;
 }
 
 .chat-title > .agent-tag {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
-  max-width: 40%;
+  max-width: 30ch;
   background: none;
   border: 0;
   padding: 0;
-  font-size: var(--text-body);
+  font-size: var(--text-sm);
   border-radius: 0;
-  color: var(--muted);
+  color: var(--faint);
   cursor: pointer;
   line-height: 1.6;
+  transition: color var(--motion-fast);
 }
 
 .chat-title-separator {
   flex-shrink: 0;
-  color: var(--faint);
+  color: var(--line-2);
 }
 
 .chat-toolbar .spacer {
   flex: 1;
   display: block;
+}
+
+.chat-toolbar .chat-inspector-toggle {
+  position: relative;
+}
+
+.chat-toolbar .chat-inspector-toggle .tab-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
 }
 
 .chat-title > .agent-tag:hover {
@@ -96,21 +108,16 @@
   cursor: default;
 }
 
-.chat-toolbar .chat-new-session {
-  flex-shrink: 0;
-}
-
 @media (max-width: 860px) {
 
   .test-workbench .crumb {
     max-width: 18ch;
   }
   .chat-toolbar {
-    min-height: 60px;
-    height: auto;
-    padding: 9px 12px 5px;
-    flex-wrap: wrap;
-    gap: 6px 9px;
+    min-height: var(--toolbar-height);
+    height: var(--toolbar-height);
+    padding: 0 12px;
+    gap: 8px;
   }
 
   .chat-toolbar .crumb {
@@ -121,39 +128,6 @@
 
   .chat-toolbar > .spacer {
     display: none;
-  }
-
-  .chat-toolbar .bar-tabs {
-    order: 2;
-    width: 100%;
-    min-width: 0;
-    max-width: 100%;
-    height: 50px;
-    justify-content: space-between;
-    padding: 2px 0;
-    margin: 3px 0 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    overflow-x: auto;
-  }
-
-  .chat-toolbar .bar-tab {
-    flex: 1 1 0;
-    flex-direction: column;
-    min-width: 0;
-    min-height: var(--touch-target);
-    height: var(--touch-target);
-    width: auto;
-    gap: 3px;
-    padding: 3px 2px;
-    border-radius: var(--r);
-  }
-
-  .chat-toolbar .bar-tab-title {
-    display: block;
-    font-size: 11px;
-    line-height: 1.2;
   }
 
   .chat-toolbar .running-pill {

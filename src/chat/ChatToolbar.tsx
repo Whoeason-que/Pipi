@@ -1,12 +1,6 @@
 import { NavigationToggle } from "../app/AppNavigation";
 import { useI18n } from "../i18n";
-import { IconGear, IconPlus } from "../icons";
-import {
-  INSPECTOR_TABS,
-  InspectorTabIcon,
-  getInspectorTabLabel,
-  type InspectorTab,
-} from "./inspector-tabs";
+import { IconGear, IconPanelRight } from "../icons";
 
 interface ChatToolbarProps {
   agentName: string;
@@ -16,12 +10,9 @@ interface ChatToolbarProps {
   ready: boolean;
   clearing: boolean;
   inspectorOpen: boolean;
-  activeTab: InspectorTab;
   hasDetail: boolean;
-  onTabClick: (tab: InspectorTab) => void;
   onInspectorToggle: () => void;
   onBack?: () => void;
-  onNewSession?: () => void;
   onClear?: () => void;
 }
 
@@ -33,12 +24,9 @@ export default function ChatToolbar({
   ready,
   clearing,
   inspectorOpen,
-  activeTab,
   hasDetail,
-  onTabClick,
   onInspectorToggle,
   onBack,
-  onNewSession,
   onClear,
 }: ChatToolbarProps) {
   const { locale, t } = useI18n();
@@ -76,36 +64,18 @@ export default function ChatToolbar({
       )}
       <span className="spacer" />
       {!temporary ? (
-        <div
-          className="bar-tabs"
-          role="tablist"
-          aria-label={
-            locale === "en" ? "Session inspector" : "会话检查器选项卡"
-          }
+        <button
+          type="button"
+          className={`icon-btn chat-inspector-toggle${inspectorOpen ? " active" : ""}`}
+          onClick={onInspectorToggle}
+          aria-expanded={inspectorOpen}
+          aria-controls="session-inspector"
+          aria-label={locale === "en" ? "Session inspector" : "会话检查器"}
+          title={locale === "en" ? "Session inspector" : "会话检查器"}
         >
-          {INSPECTOR_TABS.map(({ id }) => {
-            const label = getInspectorTabLabel(id, t);
-            const selected = inspectorOpen && activeTab === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                id={`bar-tab-${id}`}
-                aria-selected={selected}
-                aria-controls={`ipanel-${id}`}
-                aria-label={label}
-                className={`bar-tab${selected ? " active" : ""}`}
-                onClick={() => onTabClick(id)}
-                title={`${label}${selected ? (locale === "en" ? " (click to close)" : "（点击收起）") : ""}`}
-              >
-                <InspectorTabIcon tab={id} className="bar-tab-icon" />
-                <span className="bar-tab-title">{label}</span>
-                {id === "detail" && hasDetail && <span className="tab-dot" />}
-              </button>
-            );
-          })}
-        </div>
+          <IconPanelRight />
+          {hasDetail && !inspectorOpen && <span className="tab-dot" />}
+        </button>
       ) : (
         <>
           <span className="test-mode-pill">
@@ -149,17 +119,6 @@ export default function ChatToolbar({
             </button>
           )}
         </>
-      )}
-      {onNewSession && (
-        <button
-          type="button"
-          className="icon-btn chat-new-session"
-          onClick={onNewSession}
-          title={t("nav.newSession")}
-          aria-label={t("nav.newSession")}
-        >
-          <IconPlus />
-        </button>
       )}
     </header>
   );

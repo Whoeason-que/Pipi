@@ -553,7 +553,7 @@ export default function App() {
             onOpenFile={path => openWorkspaceFile(current.name, path)}
             title={sessionTitle || t("chat.newSessionTitle")} sessionId={view.sessionId} sessions={sessionRuntime}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} onBack={() => selectAgent(current.name)} onError={safeSetError}
-            onNewSession={navigation.createSessionFromChat} onRunningChange={handleRunningChange} onSessionReset={info => {
+            onRunningChange={handleRunningChange} onSessionReset={info => {
               setActiveSession(info ?? null);
               const active = viewRef.current;
               if (info && active.kind === "chat" && active.agentName === current.name) commitView({ ...active, sessionId: info.sessionId });
