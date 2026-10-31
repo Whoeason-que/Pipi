@@ -63,7 +63,7 @@
 .agent-row {
   min-width: 0;
   gap: 1px;
-  padding: 1px 5px 1px 0;
+  padding: 1px 0;
   transition:
     background var(--motion-fast),
     box-shadow var(--motion-fast);
@@ -192,7 +192,7 @@
 .session {
   gap: 6px;
   margin: 1px 0;
-  padding: 1px 4px 1px 6px;
+  padding: 1px 0 1px 6px;
   border: 0;
   color: var(--muted);
   background: none;
