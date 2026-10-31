@@ -114,3 +114,24 @@ export function gitStatusMeta(status: string): GitStatusMeta {
   if (code.includes("M") || code.includes("T")) return { code, label: "修改", tone: "modified", staged, unstaged };
   return { code, label: "变更", tone: "neutral", staged, unstaged };
 }
+
+/**
+ * 改动摘要（侧栏与右栏共用一份口径）。
+ *
+ * 同时含暂存与工作区更改的文件（`MM`）计入暂存组 —— 与侧栏「更改」列表
+ * 用 `!meta.staged` 过滤的规则一致，避免两处显示不同的未暂存数。
+ */
+export function summarizeChanges(files: ReadonlyArray<{ status: string }>) {
+  let staged = 0;
+  let unstaged = 0;
+  let untracked = 0;
+  for (const file of files) {
+    const meta = gitStatusMeta(file.status);
+    if (meta.tone === "untracked") untracked += 1;
+    else {
+      if (meta.staged) staged += 1;
+      if (meta.unstaged && !meta.staged) unstaged += 1;
+    }
+  }
+  return { staged, unstaged, untracked, total: files.length };
+}

@@ -4,7 +4,6 @@ import { ChoiceSelect } from "../Select";
 import { getWorkspaceBasename, type WorkspaceInfo } from "../app/workspaces";
 import {
   IconCaret,
-  IconClose,
   IconCollapseAll,
   IconEye,
   IconEyeOff,
@@ -13,11 +12,11 @@ import {
   IconGitBranch,
   IconList,
   IconRefresh,
-  IconSearch,
   IconTree,
 } from "../icons";
+import { SidebarSearch } from "../components/SidebarSearch";
 import { invoke } from "../platform";
-import { gitStatusMeta } from "./diff";
+import { gitStatusMeta, summarizeChanges } from "./diff";
 import { FileGlyph, FolderGlyph } from "./FileGlyph";
 import { formatSize } from "./FilePreview";
 import { useFileResource, type WorkspaceFilesState } from "./use-workspace-files";
@@ -60,7 +59,7 @@ export function WorkspaceSidebar({
     );
   }, [repoFilteredFiles, view.query]);
 
-  const summary = summarize(repoFilteredFiles);
+  const summary = summarizeChanges(repoFilteredFiles);
 
   const groups = [
     {
@@ -126,30 +125,13 @@ export function WorkspaceSidebar({
     <div className={`file-workbench workspace-files-sidebar${mode === "git" ? " vscode-scm-sidebar" : ""}`}>
       {/* 搜索置顶：所有分区的过滤框都作为侧栏第一行，滚动时保持可见。 */}
       {target && (
-        <div className="sb-filter">
-          <div className="search">
-            <IconSearch />
-            <input
-              aria-label="筛选文件名"
-              value={view.query}
-              placeholder={mode === "files" ? "筛选已展开的文件…" : "筛选更改…"}
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) => store?.setQuery(event.target.value)}
-            />
-            {view.query && (
-              <button
-                type="button"
-                className="search-clear"
-                title="清空筛选"
-                aria-label="清空筛选"
-                onClick={() => store?.setQuery("")}
-              >
-                <IconClose />
-              </button>
-            )}
-          </div>
-        </div>
+        <SidebarSearch
+          value={view.query}
+          onChange={(value) => store?.setQuery(value)}
+          placeholder={mode === "files" ? "筛选已展开的文件…" : "筛选更改…"}
+          label="筛选文件名"
+          clearLabel="清空筛选"
+        />
       )}
 
       {/* 顶部标题栏：左侧工作区切换，右侧操作图标。 */}
@@ -390,22 +372,6 @@ export function WorkspaceSidebar({
       )}
     </div>
   );
-}
-
-function summarize(files: WorkspaceChange[]) {
-  let staged = 0;
-  let unstaged = 0;
-  let untracked = 0;
-  for (const file of files) {
-    const meta = gitStatusMeta(file.status);
-    if (meta.tone === "untracked") untracked += 1;
-    else {
-      if (meta.staged) staged += 1;
-      // 同时含暂存/工作区更改的文件归入暂存组，摘要与列表保持同一口径。
-      if (meta.unstaged && !meta.staged) unstaged += 1;
-    }
-  }
-  return { staged, unstaged, untracked, total: files.length };
 }
 
 function GitRow({
