@@ -61,13 +61,9 @@ fn bounded(text: String) -> String {
     if text.len() <= MAX_NOTEBOOK_BYTES {
         return text;
     }
-    let mut end = MAX_NOTEBOOK_BYTES;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
+    let end = pipi_protocol::text::truncate_at_char_boundary(&text, MAX_NOTEBOOK_BYTES);
     format!(
-        "{}\n\n[notebook truncated at {} KiB]",
-        &text[..end],
+        "{end}\n\n[notebook truncated at {} KiB]",
         MAX_NOTEBOOK_BYTES / 1024
     )
 }

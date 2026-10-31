@@ -8,6 +8,14 @@ pub fn now_millis() -> u64 {
         .unwrap_or(0)
 }
 
+/// 当前 Unix 秒（秒精度场景：目录缓存时间戳、日期渲染）。
+pub fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 /// 生成一个新 id（uuid v4，无连字符）。
 ///
 /// 会话条目、后台任务、临时目录名共用这一份实现：需要「随机且不撞」的场合

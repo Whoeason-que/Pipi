@@ -189,22 +189,13 @@ fn memory_summary(content: &str) -> String {
         }
         let candidate = trimmed.trim_start_matches('#').trim();
         if line.trim_start().starts_with('#') && !candidate.is_empty() {
-            return truncate_summary(candidate);
+            return pipi_protocol::text::truncate_chars(candidate, MEMORY_SUMMARY_MAX_CHARS);
         }
         if fallback.is_empty() {
             fallback = candidate.to_string();
         }
     }
-    truncate_summary(&fallback)
-}
-
-fn truncate_summary(value: &str) -> String {
-    let char_count = value.chars().count();
-    if char_count <= MEMORY_SUMMARY_MAX_CHARS {
-        return value.to_string();
-    }
-    let head: String = value.chars().take(MEMORY_SUMMARY_MAX_CHARS).collect();
-    format!("{head}…")
+    pipi_protocol::text::truncate_chars(&fallback, MEMORY_SUMMARY_MAX_CHARS)
 }
 
 /// 生成 memory 渐进召回索引（空目录返回空 —— 零打扰）。

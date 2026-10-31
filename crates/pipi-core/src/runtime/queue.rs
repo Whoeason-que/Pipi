@@ -4,7 +4,7 @@ use super::*;
 use crate::events::{PromptQueueEnvelope, PromptQueueSnapshot, QueuedPrompt};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::Notify;
 
 const MAX_DELAY_MS: u64 = 30 * 24 * 60 * 60 * 1000;
@@ -24,13 +24,6 @@ struct AcceptedPrompt {
     text: String,
     send_at: u64,
     digest: [u8; 32],
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 impl RuntimeState {
@@ -106,7 +99,7 @@ impl RuntimeState {
             }
             return self.queue_envelope(session);
         }
-        let now = now_ms();
+        let now = pipi_protocol::now_millis();
         let send_at = send_at.unwrap_or(now);
         if send_at > now.saturating_add(MAX_DELAY_MS) {
             return Err("Messages can be delayed by at most 30 days".into());
@@ -243,7 +236,7 @@ impl RuntimeState {
         if queue.active_run.is_some() || session.engine.snapshot().ok()?.running {
             return Some(Duration::from_secs(1));
         }
-        let now = now_ms();
+        let now = pipi_protocol::now_millis();
         // 未来的定时消息不阻塞已经到时/立即排队的消息；到时消息保持提交顺序。
         let Some(index) = queue
             .snapshot

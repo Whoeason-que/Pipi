@@ -21,13 +21,9 @@ pub fn environment_context(workspace: &Path, sandbox: &SandboxMode) -> String {
 
 /// ISO 日期（YYYY-MM-DD），无 chrono 依赖的 civil 算法。
 fn today() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let days = secs / 86_400;
+    let days = pipi_protocol::ids::now_secs() / 86_400;
     // Howard Hinnant 的 civil_from_days
-    let z = days as i64 + 719_468;
+    let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;

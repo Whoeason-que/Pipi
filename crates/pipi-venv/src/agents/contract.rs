@@ -271,7 +271,7 @@ pub(super) fn load_declared_context_files(
         }
         let content = if project_budget.is_some() {
             let truncated =
-                crate::prompt::resources::truncate_to_char_boundary(&content, remaining);
+                pipi_protocol::text::truncate_at_char_boundary(&content, remaining).to_string();
             remaining = remaining.saturating_sub(truncated.len());
             truncated
         } else {

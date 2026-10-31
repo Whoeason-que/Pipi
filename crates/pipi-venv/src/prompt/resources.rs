@@ -109,7 +109,8 @@ fn load_directory_context(
         if *remaining == 0 {
             return;
         }
-        let content = truncate_to_char_boundary(&content, *remaining);
+        let content =
+            pipi_protocol::text::truncate_at_char_boundary(&content, *remaining).to_string();
         if content.is_empty() {
             return;
         }
@@ -120,18 +121,6 @@ fn load_directory_context(
         });
         break;
     }
-}
-
-/// 在 UTF-8 字符边界上截断（声明式上下文文件与发现路径共用）。
-pub(crate) fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
-    if max_bytes >= s.len() {
-        return s.to_string();
-    }
-    let mut idx = max_bytes;
-    while idx > 0 && !s.is_char_boundary(idx) {
-        idx -= 1;
-    }
-    s[..idx].to_string()
 }
 
 #[cfg(test)]

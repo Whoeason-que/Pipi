@@ -355,10 +355,7 @@ fn render(message: &Message, max_chars: usize) -> String {
             return format!("(Output of tool {tool_name}, omitted)");
         }
     };
-    let mut body: String = text.chars().take(max_chars).collect();
-    if text.chars().count() > max_chars {
-        body.push('…');
-    }
+    let body = pipi_protocol::text::truncate_chars(&text, max_chars);
     format!("{role}: {body}")
 }
 
