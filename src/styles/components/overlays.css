@@ -1,13 +1,7 @@
 /* 共享反馈、空状态、弹窗与操作菜单。 */
-/* 统一空状态；保持正文与提示的字号层级。 */
+/* 文件预览空态的基础字号层级；布局与配色在 features/files.css。 */
 
-.empty,
-.file-preview-empty { gap: var(--space-3); color: var(--muted); }
-
-.empty p,
 .file-preview-empty p { font-size: var(--text-md); line-height: 1.8; }
-
-.file-preview-empty strong { font-size: var(--text-body); font-weight: 600; }
 
 /* ============ 错误提示 ============ */
 
