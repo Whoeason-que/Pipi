@@ -532,11 +532,12 @@ Alt+Enter 引导当前任务，Shift+Enter 换行。消息实际起跑前只显�
 | `packages/agent` compaction（LLM 摘要替换） | `pipi-context::compaction` | 见下文「上下文压缩」：摘要替换旧轮次 + 保留近期原文（keepRecentTokens=20000）；摘要骨架 prompt、旧摘要经 `<previous-summary>` 交回 update 版指令、文件操作清单追加在摘要末尾；落盘为 `compaction` 条目（含 `keep_from_entry`），重开/分叉时回放 |
 | `packages/agent` skills（frontmatter） | `pipi-venv::skills` | 渐进式披露：索引常驻上下文，全文模型按需 read；技能包管理（store/锁/安装）见「agent.toml 契约」一节 |
 
-有意推迟移植（需要时再从上游搬）：hooks 全集、transformContext/
-prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-sandbox`
+有意推迟移植（需要时再从上游搬）：hooks 全集、prepareNextTurn、
+其余 provider、图片工具。Pipi 自己新增：`pipi-sandbox`
 （OS 沙箱与 helper）、
 `pipi-venv::agents`（Agent 注册表）、`pipi-provider::catalog`（模型目录，
-models.dev）、`pipi-venv::skills`（技能中心）、
+models.dev）、`pipi-venv::skills`（技能中心）、`pipi-forum`（纯文件的本地
+论坛，见 `docs/agent-forum.md`）、
 memory 工具（含渐进召回注入）、notebook 工具（会话级工作文档，右栏渲染）；
 文件搜索交给 bash（`rg` / `grep` / `find`）。
 

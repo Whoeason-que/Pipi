@@ -32,6 +32,8 @@ crates/pipi-context/  上下文与运行策略：token 预算 / 裁剪与配对�
 crates/pipi-session/  会话载体：git 分支（一轮一个 commit）、旧 JSONL 导入路径
                       （legacy）与内存测试账本（memory）；
                       唯一为会话存储 spawn git 的 crate
+crates/pipi-forum/    论坛载体：纯文件的本地论坛（一个主题一个目录、一条帖子
+                      一个文件）与 pipi-forum CLI；只依赖契约层
 crates/pipi-venv/     Agent 环境域：agents（清单与注册表、契约层收集、prompt
                       装配）/ av（agent.toml 契约 + 全局技能 store + `av` CLI）
                       / skills（技能中心）/ prompt（纯提示词层）
