@@ -189,13 +189,6 @@ export default function Inspector({
     0,
   );
   const workspace = agent.workspace ?? `~/.pipi/agents/${agent.name}/workspace`;
-  const currentToolText = running
-    ? runningTool
-      ? `${runningTool.toolName ?? "tool"} · 运行中`
-      : "模型调用中"
-    : lastTool
-      ? `上次工具 ${lastTool.toolName ?? "tool"}`
-      : "尚无工具调用";
 
   const Wrapper: "aside" | "div" = embedded ? "div" : "aside";
   return (
@@ -441,11 +434,6 @@ export default function Inspector({
         >
           <div className="ip">
             <h4>运行状态</h4>
-            <div className={`state-line${running ? "" : " idle"}`}>
-              <span className="dot" aria-hidden="true" />
-              <strong>{running ? "正在运行" : "会话空闲"}</strong>
-              <span className="sub">{currentToolText}</span>
-            </div>
             <div className="kv-row">
               <span className="k">{runningTool ? "当前工具" : "最近工具"}</span>
               <span className="v">

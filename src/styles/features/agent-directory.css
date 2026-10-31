@@ -87,9 +87,8 @@
   height: 13px;
 }
 
-.summary-running,
-.agent-card-state.running {
-  color: var(--ok);
+.summary-running {
+  color: var(--status-running);
 }
 
 .overview-section {
@@ -171,17 +170,6 @@
 
 .agent-card-top > .activity-arrow {
   margin-left: auto;
-}
-
-.agent-card-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.agent-card-top .agent-card-state + .activity-arrow {
-  margin-left: 3px;
 }
 
 .agent-card-copy {
@@ -546,12 +534,6 @@
   color: var(--muted);
 }
 
-.activity-icon.running {
-  color: var(--ok);
-  background: var(--ok-soft);
-  border-color: var(--ok-border);
-}
-
 .activity-name {
   display: flex;
   flex: 1;
@@ -591,14 +573,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.activity-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-xs);
-  color: var(--ok);
-}
-
 @media (max-width: 520px) {
   .activity-row {
     display: grid;
@@ -632,9 +606,5 @@
   .activity-icon {
     width: 29px;
     height: 29px;
-  }
-
-  .activity-status {
-    display: none;
   }
 }

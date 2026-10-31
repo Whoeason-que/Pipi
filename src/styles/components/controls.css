@@ -39,20 +39,6 @@
   height: var(--tile-icon-size);
 }
 
-.activity-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--faint);
-}
-
-.activity-dot.running {
-  background: var(--ok);
-  box-shadow: 0 0 0 3px var(--ok-soft);
-}
-
 /* 未读/有内容的角标点，位置由宿主组件决定。 */
 .tab-dot {
   width: 5px;
@@ -236,36 +222,6 @@
   border-color: var(--danger-border);
   background: var(--danger-soft);
   color: var(--danger);
-}
-
-.running-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--text-xs);
-  color: var(--accent-text, #10b981);
-  background: var(--accent-soft, rgba(16, 185, 129, 0.1));
-  padding: 2px 7px;
-  border-radius: var(--r-full);
-  flex-shrink: 0;
-}
-
-.running-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.running-dot.pulse {
-  animation: pipi-pulse 1.8s ease-in-out infinite;
-}
-
-.running-pill {
-  color: var(--ok);
-  background: var(--ok-soft);
-  border: 1px solid var(--ok-border);
-  padding: 2px 7px;
 }
 
 @media (hover: none) and (pointer: coarse) {

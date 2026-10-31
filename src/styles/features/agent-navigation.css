@@ -41,33 +41,12 @@
 }
 
 .agent-sidebar {
-  --sidebar-marker-size: 23px;
   min-height: 0;
   padding: 0 8px 20px;
 }
 
 .agent-sidebar-group + .agent-sidebar-group {
   margin-top: 22px;
-}
-
-.agent-group-heading {
-  height: 32px;
-  padding: 2px 4px 6px 10px;
-  user-select: none;
-}
-
-.agent-group-heading > button:first-child {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  gap: 7px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--faint);
-  text-align: left;
-  font-size: var(--text-xs);
-  cursor: pointer;
 }
 
 .agent {
@@ -84,7 +63,7 @@
 .agent-row {
   min-width: 0;
   gap: 1px;
-  padding: 1px 5px 1px 8px;
+  padding: 1px 5px 1px 0;
   transition:
     background var(--motion-fast),
     box-shadow var(--motion-fast);
@@ -99,6 +78,58 @@
   color: var(--fg);
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+/* Agent 标识：默认显示头像，行 hover / focus 时换成 > 展开箭头。 */
+.agent-marker {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.agent-row-avatar,
+.agent-row-chevron {
+  grid-area: 1 / 1;
+}
+
+.agent-row-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  transition: opacity var(--motion-fast);
+}
+
+.agent-row-avatar svg {
+  width: 14px;
+  height: 14px;
+}
+
+.agent-row-chevron {
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+
+.agent-row:hover .agent-row-avatar,
+.agent-row:focus-within .agent-row-avatar {
+  opacity: 0;
+}
+
+.agent-row:hover .agent-row-chevron,
+.agent-row:focus-within .agent-row-chevron {
+  opacity: 1;
 }
 
 /* Agent 名称与会话标题都是占满剩余宽度的行内按钮。 */
@@ -132,34 +163,6 @@
   white-space: nowrap;
 }
 
-.agent-name .sidebar-avatar {
-  width: var(--sidebar-marker-size);
-  height: var(--sidebar-marker-size);
-  border-radius: 7px;
-}
-
-.sidebar-avatar svg,
-.session-marker svg {
-  width: 14px;
-  height: 14px;
-}
-
-.agent-expand-btn {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  color: var(--faint);
-  background: transparent;
-  cursor: pointer;
-}
-
-.agent-expand-btn:hover {
-  color: var(--fg);
-  background: var(--hover);
-}
-
 .agent-row-actions {
   display: flex;
   align-items: center;
@@ -175,19 +178,21 @@
   opacity: 1;
 }
 
-.agent-row-actions .icon-btn svg {
-  width: 13px;
-  height: 13px;
+/* Agent / 会话行内的操作图标统一到 14px（1+ / ⋯）。 */
+.agent-row .icon-btn svg,
+.session .icon-btn svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 .sessions {
-  margin: 1px 0 7px;
+  margin: 1px 0 6px;
 }
 
 .session {
   gap: 6px;
   margin: 1px 0;
-  padding: 1px 4px 1px 7px;
+  padding: 1px 4px 1px 6px;
   border: 0;
   color: var(--muted);
   background: none;
@@ -196,15 +201,22 @@
 
 .session.active {
   background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
+
+/* 会话状态只染标题字体（参考 Git 文件名状态色）：蓝 = 运行、绿 = 完成、
+   红 = 出错 / 中断、黄 = 重试中；行背景保持 hover / 选中的原有层次。 */
+.session.status-running .session-title { color: var(--status-running-text); }
+
+.session.status-completed .session-title { color: var(--ok); }
+
+.session.status-error .session-title { color: var(--danger); }
+
+.session.status-retrying .session-title { color: var(--warn); }
 
 .session.active .session-link,
 .archive-toggle:hover {
   color: var(--fg);
-}
-
-.session.active .session-marker {
-  color: var(--accent-text);
 }
 
 .agent-name,
@@ -219,16 +231,8 @@
   min-width: 0;
 }
 
-.session-marker {
-  display: grid;
-  place-items: center;
-  flex: 0 0 var(--sidebar-marker-size);
-  width: var(--sidebar-marker-size);
-}
-
 /* 行内操作按钮统一 26px；取消全局 icon-btn 的触屏最小高度，否则会把行撑高。 */
 .agent-row-actions .icon-btn,
-.agent-expand-btn,
 .session > .more-trigger {
   flex-shrink: 0;
   width: 26px;
@@ -246,9 +250,10 @@
 .archive-toggle {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 8px;
   width: 100%;
-  padding: 8px;
+  padding: 8px 6px;
   border: 0;
   background: transparent;
   text-align: left;
@@ -267,6 +272,41 @@
   gap: 8px;
 }
 
+/* 已归档：默认档案图标，hover / focus 时和 Agent 标识一样换成 >。 */
+.archive-toggle-marker {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+}
+
+.archive-toggle-marker > svg {
+  grid-area: 1 / 1;
+  width: 14px;
+  height: 14px;
+  transition: opacity var(--motion-fast);
+}
+
+.archive-toggle-chevron {
+  display: grid;
+  place-items: center;
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+
+.archive-toggle:hover .archive-toggle-marker > svg:first-child,
+.archive-toggle:focus-visible .archive-toggle-marker > svg:first-child {
+  opacity: 0;
+}
+
+.archive-toggle:hover .archive-toggle-chevron,
+.archive-toggle:focus-visible .archive-toggle-chevron {
+  opacity: 1;
+}
+
 .archived-agent {
   padding-left: 10px;
   color: var(--muted);
@@ -278,10 +318,6 @@
   .agent-row-actions,
 .session > .more-trigger {
     opacity: 1;
-  }
-
-  .agent-sidebar {
-    --sidebar-marker-size: 25px;
   }
 }
 

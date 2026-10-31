@@ -9,7 +9,6 @@ export interface SessionNavigationOptions {
   activeSessionRef: { current: SessionInfoView | null };
   onOpenChat: (agentName: string, sessionId: string | null, temporary?: boolean) => void;
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
-  setExpandedAgents: Dispatch<SetStateAction<Record<string, boolean>>>;
   setActiveSession: Dispatch<SetStateAction<SessionInfoView | null>>;
   setChatKey: Dispatch<SetStateAction<number>>;
 }
@@ -40,7 +39,6 @@ export function useSessionNavigation(
     activeSessionRef,
     onOpenChat,
     setSidebarOpen,
-    setExpandedAgents,
     setActiveSession,
     setChatKey,
   } = options;
@@ -99,7 +97,6 @@ export function useSessionNavigation(
         }
         onOpenChat(agentName, sessionId, snapshot.info.temporary);
         if (!options?.keepSidebar) setSidebarOpen(false);
-        setExpandedAgents((prev) => ({ ...prev, [agentName]: true }));
         setChatKey((key) => key + 1);
         setActiveSession(snapshot.info);
       } catch (errorValue) {
@@ -126,7 +123,6 @@ export function useSessionNavigation(
         if (requestId !== navigationRequestRef.current) return;
         onOpenChat(agentName, null);
         setSidebarOpen(false);
-        setExpandedAgents((prev) => ({ ...prev, [agentName]: true }));
         setActiveSession(null);
         setChatKey((key) => key + 1);
       } catch (errorValue) {

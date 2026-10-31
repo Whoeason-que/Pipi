@@ -5,6 +5,10 @@ import AgentAvatar from "../components/AgentAvatar";
 import type { AgentDefinition, SessionSummaryView } from "../types";
 import { useI18n } from "../i18n";
 import type { AgentSection } from "./navigation";
+import {
+  SESSION_STATUS_LABEL,
+  type SessionRunStatus,
+} from "./session-status";
 
 export interface AgentSidebarProps {
   section: AgentSection;
@@ -13,19 +17,15 @@ export interface AgentSidebarProps {
   selected: string | null;
   chatOpen: boolean;
   viewSessionId: string | null;
-  expandedAgents: Record<string, boolean>;
   archivedSessions: Record<string, SessionSummaryView[]>;
   archivedSessionsExpanded: Record<string, boolean>;
   archivedOpen: boolean;
   sessionsFor: (agent: AgentDefinition) => SessionSummaryView[];
-  agentHasRunning: (name: string) => boolean;
-  isConversationRunning: (name: string, id: string | null) => boolean;
-  onCreateAgent: () => void;
+  sessionStatus: (agentName: string, sessionId: string | null) => SessionRunStatus | undefined;
   onSelectAgent: (name: string) => void;
   onConfigure: (name: string) => void;
   onStartNewSession: (name: string) => void;
   onOpenSession: (name: string, id: string) => void;
-  onToggleAgentExpanded: (name: string, expanded: boolean) => void;
   onArchiveAgent: (name: string) => void;
   onDeleteAgent: (name: string, archived: boolean) => void;
   onRestoreAgent: (name: string) => void;
@@ -39,18 +39,44 @@ export interface AgentSidebarProps {
 
 export default function AgentSidebar(props: AgentSidebarProps) {
   const { t } = useI18n();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleAgent = (name: string) => {
+    setCollapsedAgents((previous) => {
+      const next = new Set(previous);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
   const subagents = props.section === "subagents";
   const group = t(subagents ? "nav.subagents" : "nav.agents");
   const renderAgent = (agent: AgentDefinition) => {
     const sessions = props.sessionsFor(agent);
-    const expanded =
-      props.expandedAgents[agent.name] ?? props.selected === agent.name;
+    const expanded = !collapsedAgents.has(agent.name);
     return (
       <div className="agent" key={agent.name}>
         <div
           className={`agent-row${props.selected === agent.name && !props.chatOpen ? " selected" : ""}`}
         >
+          <button
+            type="button"
+            className="agent-marker"
+            aria-expanded={expanded}
+            aria-controls={`agent-sessions-${agent.name}`}
+            aria-label={`${expanded ? "收起" : "展开"} ${agent.name} 的会话`}
+            onClick={() => toggleAgent(agent.name)}
+          >
+            <AgentAvatar
+              name={agent.name}
+              subagent={agent.subagent}
+              className="agent-row-avatar"
+            />
+            <span className="agent-row-chevron" aria-hidden="true">
+              <IconChevronRight />
+            </span>
+          </button>
           <button
             type="button"
             className="agent-name"
@@ -62,16 +88,8 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             }
             onClick={() => props.onSelectAgent(agent.name)}
           >
-            <AgentAvatar
-              name={agent.name}
-              subagent={agent.subagent}
-              className="sidebar-avatar"
-            />
             <span>{agent.name}</span>
           </button>
-          {props.agentHasRunning(agent.name) && (
-            <span className="activity-dot running" aria-label="正在运行" />
-          )}
           <span className="agent-row-actions">
             <button
               type="button"
@@ -105,62 +123,52 @@ export default function AgentSidebar(props: AgentSidebarProps) {
               ]}
             />
           </span>
-          <button
-            type="button"
-            className="agent-expand-btn"
-            aria-expanded={expanded}
-            aria-controls={`agent-sessions-${agent.name}`}
-            aria-label={`${expanded ? "收起" : "展开"} ${agent.name} 的会话`}
-            onClick={() => props.onToggleAgentExpanded(agent.name, !expanded)}
-          >
-            <IconChevronRight expanded={expanded} />
-          </button>
         </div>
         {expanded && (
           <div className="sessions" id={`agent-sessions-${agent.name}`}>
-            {sessions.map((session) => (
-              <div
-                key={session.id}
-                className={`session${props.chatOpen && props.selected === agent.name && props.viewSessionId === session.id ? " active" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="session-link"
-                  title={session.title}
-                  onClick={() => props.onOpenSession(agent.name, session.id)}
-                  aria-current={
-                    props.chatOpen &&
-                    props.selected === agent.name &&
-                    props.viewSessionId === session.id
-                      ? "page"
-                      : undefined
-                  }
+            {sessions.map((session) => {
+              const status = props.sessionStatus(agent.name, session.id);
+              const active =
+                props.chatOpen &&
+                props.selected === agent.name &&
+                props.viewSessionId === session.id;
+              return (
+                <div
+                  key={session.id}
+                  className={`session${status ? ` status-${status}` : ""}${active ? " active" : ""}`}
                 >
-                  <span className="session-marker">
-                    <span
-                      className={`activity-dot${props.isConversationRunning(agent.name, session.id) ? " running" : ""}`}
-                    />
-                  </span>
-                  <span className="truncate session-title">
-                    {session.title || "未命名会话"}
-                  </span>
-                </button>
-                <ActionMenu
-                  label={`会话 ${session.title} 的更多操作`}
-                  actions={[
-                    {
-                      label: "归档会话",
-                      run: () => props.onArchiveSession(agent.name, session.id),
-                    },
-                    {
-                      label: "彻底删除会话",
-                      danger: true,
-                      run: () => props.onDeleteSession(agent.name, session.id),
-                    },
-                  ]}
-                />
-              </div>
-            ))}
+                  <button
+                    type="button"
+                    className="session-link"
+                    title={
+                      status
+                        ? `${session.title} · ${SESSION_STATUS_LABEL[status]}`
+                        : session.title
+                    }
+                    onClick={() => props.onOpenSession(agent.name, session.id)}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <span className="truncate session-title">
+                      {session.title || "未命名会话"}
+                    </span>
+                  </button>
+                  <ActionMenu
+                    label={`会话 ${session.title} 的更多操作`}
+                    actions={[
+                      {
+                        label: "归档会话",
+                        run: () => props.onArchiveSession(agent.name, session.id),
+                      },
+                      {
+                        label: "彻底删除会话",
+                        danger: true,
+                        run: () => props.onDeleteSession(agent.name, session.id),
+                      },
+                    ]}
+                  />
+                </div>
+              );
+            })}
             {!sessions.length && <div className="caption sidebar-note">尚无会话</div>}
             <button
               type="button"
@@ -170,22 +178,17 @@ export default function AgentSidebar(props: AgentSidebarProps) {
               )}
               onClick={() => props.onToggleArchivedSessions(agent.name)}
             >
-              <span className="archive-toggle-label">
-                <span className="session-marker">
-                  <IconArchive />
+              <span className="archive-toggle-marker" aria-hidden="true">
+                <IconArchive />
+                <span className="archive-toggle-chevron">
+                  <IconChevronRight />
                 </span>
-                已归档
               </span>
-              <IconChevronRight
-                expanded={Boolean(props.archivedSessionsExpanded[agent.name])}
-              />
+              <span className="archive-toggle-label">已归档</span>
             </button>
             {props.archivedSessionsExpanded[agent.name] &&
               (props.archivedSessions[agent.name] ?? []).map((session) => (
                 <div className="session archived-session" key={session.id}>
-                  <span className="session-marker">
-                    <span className="activity-dot" />
-                  </span>
                   <span className="truncate session-title" title={session.title}>
                     {session.title}
                   </span>
@@ -215,41 +218,15 @@ export default function AgentSidebar(props: AgentSidebarProps) {
   return (
     <nav className="agents agent-sidebar" aria-label={`${group} 与会话`}>
       <section className="agent-sidebar-group">
-        <div className="caption sb-sec agent-group-heading">
-          <button
-            type="button"
-            aria-expanded={!collapsed}
-            onClick={() => setCollapsed((previous) => !previous)}
-          >
-            <IconChevronRight expanded={!collapsed} />
-            <span>{group}</span>
-            <span className="caption sb-count">{props.agents.length}</span>
-          </button>
-          {!subagents && (
-            <button
-              type="button"
-              className="icon-btn"
-              title={t("nav.newAgent")}
-              aria-label={t("nav.newAgent")}
-              onClick={props.onCreateAgent}
-            >
-              <IconPlus />
-            </button>
-          )}
-        </div>
-        {!collapsed && (
-          <>
-            {props.agents.map(renderAgent)}
-            {!props.agents.length && (
-              <div className="caption sidebar-note">
-                {t(
-                  subagents
-                    ? "workspace.subagentsEmpty"
-                    : "workspace.createFirst",
-                )}
-              </div>
+        {props.agents.map(renderAgent)}
+        {!props.agents.length && (
+          <div className="caption sidebar-note">
+            {t(
+              subagents
+                ? "workspace.subagentsEmpty"
+                : "workspace.createFirst",
             )}
-          </>
+          </div>
         )}
       </section>
       {props.archivedAgents.length > 0 && (
@@ -260,10 +237,10 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             aria-expanded={props.archivedOpen}
             onClick={props.onToggleArchivedOpen}
           >
+            <IconChevronRight expanded={props.archivedOpen} />
             已归档的 Agent{" "}
             <span className="archive-toggle-meta">
               {props.archivedAgents.length}
-              <IconChevronRight expanded={props.archivedOpen} />
             </span>
           </button>
           {props.archivedOpen &&

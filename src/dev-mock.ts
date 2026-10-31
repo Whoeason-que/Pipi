@@ -127,7 +127,7 @@ const demoStates = new Map<string, DemoAgentState>([
   [
     demoAgent.name,
     seedDemoState([
-      [runningDemoSessionId, "正在运行 · 发送控件演示", [
+      [runningDemoSessionId, "发送控件演示", [
         { role: "user", content: "帮我梳理这个项目的结构。", timestamp: Date.now() - 60000 },
         { role: "assistant", content: [{ type: "text", text: "我正在检查项目文件。你可以排队发送下一条消息，或立即引导当前任务。\n\n这是浏览器开发模式中的模拟运行，不会调用模型。" }], timestamp: Date.now() - 30000 },
       ]],

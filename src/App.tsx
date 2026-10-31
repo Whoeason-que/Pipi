@@ -65,7 +65,6 @@ export default function App() {
   const previousView = useRef<AppView>({ kind: "home" });
   const [authStatus, setAuthStatus] = useState({ authRequired: false, authenticated: true, checking: !isTauriRuntime() });
   const [navSection, setNavSection] = useState<NavSection>("agents");
-  const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [archivedSessions, setArchivedSessions] = useState<Record<string, SessionSummaryView[]>>({});
   const [archivedSessionsExpanded, setArchivedSessionsExpanded] = useState<Record<string, boolean>>({});
@@ -161,12 +160,13 @@ export default function App() {
     commitView(temporary ? { kind: "workbench", agentName } : { kind: "chat", agentName, sessionId });
   }, [commitView, agents, navigationMemory]);
   const navigation = useSessionNavigation({ setError, activeSessionRef, onOpenChat,
-    setSidebarOpen, setExpandedAgents, setActiveSession, setChatKey });
+    setSidebarOpen, setActiveSession, setChatKey });
   useNotificationNavigation(!authStatus.checking && authStatus.authenticated && agents.length > 0, async (agent, session) => {
     setActiveWorkspace("all");
     await navigation.openSession(agent, session);
   });
   const { runningSessions, handleRunningChange, isConversationRunning, agentHasRunning,
+    sessionStatus, markSessionInterrupted,
     forgetRunningSession, forgetRunningAgent } = useHostEvents({ sessionRuntime, refreshSessions,
     safeSetError, setError, setActiveSession, selectedRef, activeSessionRef,
     blockedSessionIdsRef: navigation.blockedSessionIdsRef, sessionInfoRequestRef: navigation.sessionInfoRequestRef });
@@ -502,12 +502,11 @@ export default function App() {
             onSelect={name => { setSkillSelected(name); setSidebarOpen(false); }} onRefresh={() => void loadSkillLibrary()} />
           : navSection === "forum" ? <ForumSidebar onSelect={() => { if (view.kind !== "forum") navigate({ kind: "forum" }); }} />
           : <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
-            viewSessionId={view.kind === "chat" ? view.sessionId : null} expandedAgents={expandedAgents}
+            viewSessionId={view.kind === "chat" ? view.sessionId : null}
             archivedSessions={archivedSessions} archivedSessionsExpanded={archivedSessionsExpanded} archivedOpen={archivedOpen}
-            sessionsFor={sessionsFor} agentHasRunning={agentHasRunning} isConversationRunning={isConversationRunning}
-            onCreateAgent={startCreating} onSelectAgent={selectAgent} onConfigure={configureAgent}
+            sessionsFor={sessionsFor} sessionStatus={sessionStatus}
+            onSelectAgent={selectAgent} onConfigure={configureAgent}
             onStartNewSession={name => void navigation.startNewSession(name)} onOpenSession={openSession}
-            onToggleAgentExpanded={(name, expanded) => setExpandedAgents(previous => ({ ...previous, [name]: expanded }))}
             onArchiveAgent={name => void archive.archiveAgent(name)} onDeleteAgent={(name, archived) => void archive.deleteAgent(name, archived)}
             onRestoreAgent={name => void archive.restoreAgent(name)} onArchiveSession={(name, id) => void archive.archiveSession(name, id)}
             onDeleteSession={(name, id) => void archive.deleteSession(name, id)} onToggleArchivedSessions={name => void archive.toggleArchivedSessions(name)}
@@ -568,7 +567,7 @@ export default function App() {
             onOpenFile={path => openWorkspaceFile(current.name, path)}
             title={sessionTitle || t("chat.newSessionTitle")} sessionId={view.sessionId} sessions={sessionRuntime}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} onBack={() => selectAgent(current.name)} onError={safeSetError}
-            onRunningChange={handleRunningChange} onSessionReset={info => {
+            onRunningChange={handleRunningChange} onStopRequested={sessionId => markSessionInterrupted(current.name, sessionId)} onSessionReset={info => {
               setActiveSession(info ?? null);
               const active = viewRef.current;
               if (info && active.kind === "chat" && active.agentName === current.name) commitView({ ...active, sessionId: info.sessionId });

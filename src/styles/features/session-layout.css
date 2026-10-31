@@ -129,10 +129,6 @@
   .chat-toolbar > .spacer {
     display: none;
   }
-
-  .chat-toolbar .running-pill {
-    font-size: var(--text-xs);
-  }
 }
 
 @media (max-width: 520px) {

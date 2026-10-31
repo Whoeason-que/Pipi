@@ -56,12 +56,6 @@ export default function ChatToolbar({
             : title}
         </b>
       </span>
-      {running && (
-        <span className="running-pill">
-          <span className="running-dot pulse" />
-          {t("common.running")}
-        </span>
-      )}
       <span className="spacer" />
       {!temporary ? (
         <button

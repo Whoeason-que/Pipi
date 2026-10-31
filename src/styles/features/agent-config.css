@@ -76,8 +76,8 @@
 }
 
 .test-mode-dot.running {
-  background: var(--ok);
-  box-shadow: 0 0 0 3px var(--ok-soft);
+  background: var(--status-running);
+  box-shadow: 0 0 0 3px var(--status-running-soft);
   animation: pipi-pulse 1.2s ease-in-out infinite;
 }
 

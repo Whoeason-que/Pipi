@@ -49,6 +49,8 @@ interface ChatViewProps {
   onOpenFile?: (path: string) => void;
   onError: (msg: string) => void;
   onRunningChange: () => void;
+  /** 用户主动停止成功后回报停止的会话 id，用于把侧栏状态行标成中断。 */
+  onStopRequested?: (sessionId: string) => void;
   /** 新会话：传 null 表示无会话；分叉/重建后传新的会话信息以同步侧栏高亮。 */
   onSessionReset: (info?: SessionInfoView | null) => void;
   /** 保存当前控制器身份，以便后台新会话取得 id 时更新导航记忆。 */
@@ -75,6 +77,7 @@ export default function ChatView({
   onOpenFile,
   onError,
   onRunningChange,
+  onStopRequested,
   onSessionReset,
   onControllerReady,
   initialController,
@@ -348,7 +351,13 @@ export default function ChatView({
     setInspectorOpen(true);
   };
   const stop = () => {
-    void controller.stop();
+    void controller.stop()
+      .then(() => {
+        // stop() 只有在核心确认已停（或超时后仍不确定）才返回；仍在跑就不改状态。
+        const stopped = controller.getSnapshot();
+        if (!stopped.chat.running && stopped.sessionId) onStopRequested?.(stopped.sessionId);
+      })
+      .catch(() => {});
   };
   const compactNow = () => {
     void controller

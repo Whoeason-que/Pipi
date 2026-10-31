@@ -30,11 +30,9 @@ const sessionKey = (agent: string, session: string) =>
 
 function SessionActivity({
   items,
-  running,
   onSession,
 }: {
   items: Activity[];
-  running: Set<string>;
   onSession: WorkspaceOverviewProps["onSession"];
 }) {
   const { locale, t } = useI18n();
@@ -47,7 +45,6 @@ function SessionActivity({
   return (
     <div className="surface activity-list">
       {items.map(({ agent, session }) => {
-        const active = running.has(sessionKey(agent.name, session.id));
         return (
           <button
             type="button"
@@ -55,7 +52,7 @@ function SessionActivity({
             className="activity-row"
             onClick={() => onSession(agent.name, session.id)}
           >
-            <span className={`icon-tile activity-icon${active ? " running" : ""}`}>
+            <span className="icon-tile activity-icon">
               <IconMessage />
             </span>
             <span className="activity-name">
@@ -67,12 +64,6 @@ function SessionActivity({
                 </span>
               </small>
             </span>
-            {active && (
-              <span className="activity-status">
-                <i className="activity-dot running" />
-                {t("common.running")}
-              </span>
-            )}
             <time
               dateTime={
                 session.lastActive
@@ -202,7 +193,6 @@ export default function WorkspaceOverview({
 
       <div className="overview-summary">
         <span className={runningCount ? "summary-running" : ""}>
-          <i className={`activity-dot${runningCount ? " running" : ""}`} />
           {runningCount
             ? t("workspace.running", { count: runningCount })
             : t("workspace.ready")}
@@ -262,9 +252,6 @@ export default function WorkspaceOverview({
           </div>
           <div className="agent-cards">
             {agents.map((item) => {
-              const active = [...running].some((key) =>
-                key.startsWith(`${item.name}\u0000`),
-              );
               return (
                 <button
                   type="button"
@@ -278,14 +265,6 @@ export default function WorkspaceOverview({
                       <b>{item.name}</b>
                       <span>{item.subagent ? "Subagent" : "Agent"}</span>
                     </div>
-                    <span
-                      className={`caption agent-card-state${active ? " running" : ""}`}
-                    >
-                      <i
-                        className={`activity-dot${active ? " running" : ""}`}
-                      />
-                      {t(active ? "common.running" : "workspace.ready")}
-                    </span>
                     <span className="activity-arrow">
                       <IconArrowUpRight />
                     </span>
@@ -356,7 +335,6 @@ export default function WorkspaceOverview({
           </div>
           <SessionActivity
             items={currentRunning}
-            running={running}
             onSession={onSession}
           />
         </section>
@@ -377,7 +355,6 @@ export default function WorkspaceOverview({
         {recent.length ? (
           <SessionActivity
             items={recent.slice(0, 8)}
-            running={running}
             onSession={onSession}
           />
         ) : (
