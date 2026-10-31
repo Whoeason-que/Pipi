@@ -1,8 +1,12 @@
 //! `pipi-tools` 的 bash 工具。移植自 `packages/agent/src/harness/tools/bash.ts` 的核心：
-//! 合并 stdout/stderr、tail 截断（2000 行 / 50KB）、可选超时；在其上叠加
-//! OS 沙箱（`pipi-sandbox` helper；不可用时回退旧的命令权限层），并流式回报部分输出。
+//! 合并 stdout/stderr、tail 截断（2000 行 / 50KB）、超时（默认 900s）；在其上叠加
+//! OS 沙箱（`pipi-sandbox` helper），并流式回报部分输出。
+//!
+//! 输出在内存里只保留按行对齐的尾部，完整内容在首次溢出时转写临时文件；
+//! 这样超长输出不会撑爆内存，也不会在 8KB 块边界撕裂多字节 UTF-8。
 
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -12,7 +16,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
 use pipi_protocol::ToolResultContent;
-use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_path};
 
 pub struct BashTool;
 
@@ -50,11 +54,28 @@ impl Drop for GroupGuard {
     }
 }
 
+/// 没有显式 `timeout` 时的上限：避免 `sleep` / 交互式命令把一轮运行挂死。
+/// 900s 覆盖历史会话里最常见的长任务（`timeout 900 cargo test`）；更长的任务
+/// 显式传 `timeout`，描述里也提示了「命令里的 `timeout N` 要同步传」。
+const DEFAULT_TIMEOUT_SECONDS: u64 = 900;
 const MAX_TIMEOUT_SECONDS: f64 = 2_147_483_647.0 / 1000.0;
+/// 内存里保留的输出尾部上限。显示窗口是 2000 行 / 50KB，128KB 足够覆盖，
+/// 超出部分转写临时文件。
+const OUTPUT_TAIL_BYTES: usize = 128 * 1024;
 
-fn validate_timeout(timeout: Option<f64>) -> Result<Option<u64>, String> {
+fn parse_timeout_arg(value: &Value) -> Result<Option<f64>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    value
+        .as_f64()
+        .map(Some)
+        .ok_or_else(|| "timeout must be a number of seconds".into())
+}
+
+fn resolve_timeout(timeout: Option<f64>) -> Result<u64, String> {
     match timeout {
-        None => Ok(None),
+        None => Ok(DEFAULT_TIMEOUT_SECONDS),
         Some(t) => {
             if !t.is_finite() || t <= 0.0 {
                 return Err("Invalid timeout: must be a finite number of seconds".into());
@@ -64,9 +85,117 @@ fn validate_timeout(timeout: Option<f64>) -> Result<Option<u64>, String> {
                     "Invalid timeout: maximum is {MAX_TIMEOUT_SECONDS} seconds"
                 ));
             }
-            Ok(Some(t.ceil() as u64))
+            Ok(t.ceil() as u64)
         }
     }
+}
+
+/// 流式输出缓冲：内存只保留按行对齐的尾部，完整内容在首次溢出时转写临时
+/// 文件。`yes` 或超长构建日志不会撑爆内存，多字节 UTF-8 也不会在块边界被
+/// 拆坏。
+struct OutputBuffer {
+    tail: Vec<u8>,
+    newlines: usize,
+    total_bytes: usize,
+    spill: Option<std::fs::File>,
+    spill_path: Option<PathBuf>,
+}
+
+impl OutputBuffer {
+    fn new() -> Self {
+        Self {
+            tail: Vec::new(),
+            newlines: 0,
+            total_bytes: 0,
+            spill: None,
+            spill_path: None,
+        }
+    }
+
+    fn push(&mut self, chunk: &[u8]) {
+        if chunk.is_empty() {
+            return;
+        }
+        self.total_bytes += chunk.len();
+        self.newlines += chunk.iter().filter(|byte| **byte == b'\n').count();
+        if let Some(file) = &mut self.spill {
+            let _ = file.write_all(chunk);
+        }
+        self.tail.extend_from_slice(chunk);
+        if self.tail.len() > OUTPUT_TAIL_BYTES {
+            self.ensure_spill();
+            self.trim_tail();
+        }
+    }
+
+    /// 首次溢出：把「到目前为止的全部内容」写进临时文件，之后的块直接追加。
+    fn ensure_spill(&mut self) {
+        if self.spill.is_some() {
+            return;
+        }
+        let Ok(mut file) = tempfile::Builder::new()
+            .prefix("pipi-bash-")
+            .suffix(".txt")
+            .tempfile()
+        else {
+            return;
+        };
+        if file.write_all(&self.tail).is_err() || file.flush().is_err() {
+            return;
+        }
+        if let Ok((file, path)) = file.keep() {
+            self.spill = Some(file);
+            self.spill_path = Some(path);
+        }
+    }
+
+    /// 按行边界裁掉头部；单行自身超过上限时退化为按字节裁
+    /// （`truncate_tail` 会标记 `last_line_partial`）。
+    fn trim_tail(&mut self) {
+        if self.tail.len() <= OUTPUT_TAIL_BYTES {
+            return;
+        }
+        let cut = self.tail.len() - OUTPUT_TAIL_BYTES;
+        match self.tail[cut..].iter().position(|byte| *byte == b'\n') {
+            Some(offset) => self.tail.drain(..cut + offset + 1),
+            None => self.tail.drain(..cut),
+        };
+    }
+
+    fn snapshot(&self) -> String {
+        String::from_utf8_lossy(&self.tail).into_owned()
+    }
+
+    /// 全部输出（含已被裁掉的部分）的逻辑行数，与 `truncate::count_lines` 同口径。
+    fn total_lines(&self) -> usize {
+        if self.total_bytes == 0 {
+            0
+        } else if self.tail.last() == Some(&b'\n') {
+            self.newlines
+        } else {
+            self.newlines + 1
+        }
+    }
+
+    fn finish(mut self) -> (String, Option<PathBuf>) {
+        if let Some(mut file) = self.spill.take() {
+            let _ = file.flush();
+        }
+        let text = String::from_utf8_lossy(&self.tail).into_owned();
+        (text, self.spill_path)
+    }
+}
+
+/// 展示级截断时把完整输出写进临时文件（内存尾部本身没有溢出）。
+fn write_spill(contents: &str) -> Option<PathBuf> {
+    let mut file = tempfile::Builder::new()
+        .prefix("pipi-bash-")
+        .suffix(".txt")
+        .tempfile()
+        .ok()?;
+    file.write_all(contents.as_bytes()).ok()?;
+    file.flush().ok()?;
+    file.keep().ok().map(|(_file, path)| path)
 }
 
 #[async_trait]
@@ -77,14 +206,17 @@ impl AgentTool for BashTool {
 
     fn description(&self) -> String {
         format!(
-            "Execute a bash command in the current working directory. Returns combined stdout and stderr. \
+            "Execute a bash command and return combined stdout and stderr. \
+             Runs in the workspace by default; pass cwd to run in a subdirectory. \
              Under the workspace-write sandbox, writes outside the workspace are rejected \
-             (by the OS sandbox when active, otherwise by redirection checks) and network access is off \
-             by default; use the write / edit tools for file edits. \
+             and network access is off by default; use the write / edit tools for file edits. \
              For long-running work prefer one bounded foreground run with trimmed output, e.g. \
-             `timeout 900 cargo test -p x 2>&1 | tail -40`; avoid detaching a job and polling it with sleep. \
-             Output is truncated to last {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). \
-             Optionally provide a timeout in seconds.",
+             `cargo test -p x 2>&1 | tail -40`; avoid detaching a job and polling it with sleep. \
+             Defaults to a {DEFAULT_TIMEOUT_SECONDS}-second timeout; pass timeout to extend \
+             (if the command itself uses `timeout N`, also pass timeout >= N). \
+             Output is truncated to the last {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit \
+             first); the full output path is included in the truncation notice. \
+             For search/list output, pipe through head so the first matches survive truncation.",
             DEFAULT_MAX_BYTES / 1024
         )
     }
@@ -94,7 +226,14 @@ impl AgentTool for BashTool {
             "type": "object",
             "properties": {
                 "command": { "type": "string", "description": "Bash command to execute" },
-                "timeout": { "type": "number", "description": "Timeout in seconds (optional, no default timeout)" }
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory (relative to the workspace, or absolute). Defaults to the workspace."
+                },
+                "timeout": {
+                    "type": "number",
+                    "description": "Timeout in seconds (default 900; pass a larger value for long builds or backtests)"
+                }
             },
             "required": ["command"]
         })
@@ -111,16 +250,33 @@ impl AgentTool for BashTool {
         on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
         let command = args["command"].as_str().ok_or("Missing command")?;
-        let timeout = validate_timeout(args["timeout"].as_f64())?;
+        let timeout = resolve_timeout(parse_timeout_arg(&args["timeout"])?)?;
+        let timeout_is_default = args["timeout"].is_null();
 
         tokio::fs::create_dir_all(&ctx.workspace)
             .await
             .map_err(|e| format!("Workspace directory unavailable: {e}"))?;
 
+        // cwd 默认工作目录；相对路径按工作目录解析。是否可写由 OS 沙箱决定，
+        // 这里只做「存在且是目录」的 UX 校验（否则 bash 会以难读的方式失败）。
+        let cwd = match args["cwd"].as_str().map(str::trim).filter(|value| !value.is_empty()) {
+            Some(raw) => {
+                let path = resolve_path(&ctx.workspace, raw)?;
+                let metadata = tokio::fs::metadata(&path)
+                    .await
+                    .map_err(|e| format!("Working directory is not accessible: {raw}. {e}"))?;
+                if !metadata.is_dir() {
+                    return Err(format!("Working directory is not a directory: {raw}"));
+                }
+                path
+            }
+            None => ctx.workspace.clone(),
+        };
+
         let mut builder =
             pipi_sandbox::tokio_command(&ctx.sandbox_policy(), "bash", ["-c", command])?;
         builder
-            .current_dir(&ctx.workspace)
+            .current_dir(&cwd)
             // 环境整体来自 av 契约解析结果（会话启动时已定，含继承策略与 AV_* 注入）
             .env_clear()
             .envs(ctx.resolved_env.iter())
@@ -139,7 +295,7 @@ impl AgentTool for BashTool {
 
         let mut stdout = child.stdout.take().expect("stdout piped");
         let mut stderr = child.stderr.take().expect("stderr piped");
-        let shared: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+        let shared: Arc<Mutex<OutputBuffer>> = Arc::new(Mutex::new(OutputBuffer::new()));
 
         let shared_out = shared.clone();
         let t_out = tokio::spawn(async move {
@@ -147,12 +303,7 @@ impl AgentTool for BashTool {
             loop {
                 match stdout.read(&mut buf).await {
                     Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        shared_out
-                            .lock()
-                            .unwrap()
-                            .push_str(&String::from_utf8_lossy(&buf[..n]));
-                    }
+                    Ok(n) => shared_out.lock().unwrap().push(&buf[..n]),
                 }
             }
         });
@@ -162,12 +313,7 @@ impl AgentTool for BashTool {
             loop {
                 match stderr.read(&mut buf).await {
                     Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        shared_err
-                            .lock()
-                            .unwrap()
-                            .push_str(&String::from_utf8_lossy(&buf[..n]));
-                    }
+                    Ok(n) => shared_err.lock().unwrap().push(&buf[..n]),
                 }
             }
         });
@@ -181,8 +327,8 @@ impl AgentTool for BashTool {
         let status = loop {
             // 快照 + 节流回报部分输出
             let snapshot = {
-                let s = shared.lock().unwrap();
-                truncate_tail(&s, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES).content
+                let buffer = shared.lock().unwrap();
+                truncate_tail(&buffer.snapshot(), DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES).content
             };
             if snapshot != last_sent && last_sent_at.elapsed() >= Duration::from_millis(150) {
                 last_sent = snapshot.clone();
@@ -204,12 +350,11 @@ impl AgentTool for BashTool {
                     break child.wait().await;
                 }
                 _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                    if let Some(t) = timeout
-                        && started.elapsed() >= Duration::from_secs(t) {
-                            timed_out = true;
-                            terminate_child_tree(&mut child).await;
-                            break child.wait().await;
-                        }
+                    if started.elapsed() >= Duration::from_secs(timeout) {
+                        timed_out = true;
+                        terminate_child_tree(&mut child).await;
+                        break child.wait().await;
+                    }
                 }
             }
         };
@@ -218,38 +363,44 @@ impl AgentTool for BashTool {
         let _ = t_out.await;
         let _ = t_err.await;
 
-        let full = shared.lock().unwrap().clone();
-        let truncation = truncate_tail(&full, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
-        let mut output_text = truncation.content.clone();
-        let mut full_output_path: Option<String> = None;
-        if truncation.truncated {
-            // pi 的 spill 行为：完整输出写入临时文件，路径附在提示里。
-            // tempfile 负责唯一命名与 0600 权限；keep() 保留文件供后续 read。
-            let spill = tempfile::Builder::new()
-                .prefix("pipi-bash-")
-                .suffix(".txt")
-                .tempfile()
-                .and_then(|mut file| {
-                    file.write_all(full.as_bytes())?;
-                    file.flush()?;
-                    file.keep().map(|(_file, path)| path).map_err(Into::into)
-                })
-                .ok();
-            if let Some(spill) = spill {
-                full_output_path = Some(spill.to_string_lossy().into_owned());
+        // 取出缓冲：内存里只有尾部，完整输出在 spill 文件里（如果溢出过）。
+        let buffer = std::mem::replace(&mut *shared.lock().unwrap(), OutputBuffer::new());
+        let total_bytes = buffer.total_bytes;
+        let total_lines = buffer.total_lines();
+        let (full, buffer_spill) = buffer.finish();
+        let mut truncation = truncate_tail(&full, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
+        if total_bytes > full.len() {
+            // 内存尾部被裁过：完整输出只在 spill 里，显示的一定是截断后的尾部。
+            truncation.truncated = true;
+            if truncation.truncated_by.is_none() {
+                truncation.truncated_by = Some("bytes");
             }
+        }
+        truncation.total_bytes = total_bytes;
+        truncation.total_lines = total_lines;
+        let mut output_text = truncation.content.clone();
+        let full_output_path = if truncation.truncated {
+            buffer_spill
+                .or_else(|| write_spill(&full))
+                .map(|path| path.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+        if truncation.truncated {
             let total = truncation.total_lines;
-            let start_line = total - truncation.output_lines + 1;
+            let start_line = total.saturating_sub(truncation.output_lines) + 1;
             let end_line = total;
             let spill_note = full_output_path
                 .as_deref()
                 .map(|p| format!(" Full output: {p}."))
                 .unwrap_or_default();
             if truncation.last_line_partial {
+                // 提示里的「line is X」必须是最后一行的字节数，而不是整段输出。
+                let last_line_bytes = full.rsplit('\n').next().map(str::len).unwrap_or(0);
                 output_text.push_str(&format!(
                     "\n\n[Showing last {} of line {end_line} (line is {}).{spill_note}]",
                     format_size(truncation.output_bytes),
-                    format_size(truncation.total_bytes)
+                    format_size(last_line_bytes)
                 ));
             } else if truncation.truncated_by == Some("lines") {
                 output_text.push_str(&format!(
@@ -262,19 +413,17 @@ impl AgentTool for BashTool {
                 ));
             }
         }
-        let details = if truncation.truncated {
-            Some(json!({
-                "truncation": { "truncated": true, "truncatedBy": truncation.truncated_by },
-                "fullOutputPath": full_output_path,
-            }))
-        } else {
-            None
-        };
 
         if timed_out {
-            return Err(match timeout {
-                Some(t) => format!("{output_text}\n\nCommand timed out after {t} seconds"),
-                None => "Command timed out".into(),
+            let hint = if timeout_is_default {
+                " (default timeout; pass timeout to extend)"
+            } else {
+                ""
+            };
+            return Err(if output_text.is_empty() {
+                format!("Command timed out after {timeout} seconds{hint}")
+            } else {
+                format!("{output_text}\n\nCommand timed out after {timeout} seconds{hint}")
             });
         }
         if aborted {
@@ -285,11 +434,34 @@ impl AgentTool for BashTool {
             });
         }
         let status = status.map_err(|e| format!("Failed to wait for command completion: {e}"))?;
-        if let Some(code) = status.code()
-            && code != 0
-        {
-            return Err(format!("{output_text}\n\nCommand exited with code {code}"));
+        // 信号退出（SIGKILL/OOM/段错误）没有 exit code：旧实现会当成成功返回
+        // "(no output)"。按 shell 惯例映射成 128 + signal 并报错。
+        #[cfg(unix)]
+        let signal = {
+            use std::os::unix::process::ExitStatusExt;
+            status.signal()
+        };
+        #[cfg(not(unix))]
+        let signal: Option<i32> = None;
+        if let Some(signal) = signal {
+            return Err(format!(
+                "{output_text}\n\nCommand terminated by signal {signal} (exit code {})",
+                128 + signal
+            ));
         }
+        let exit_code = status.code().unwrap_or(0);
+        if exit_code != 0 {
+            return Err(format!("{output_text}\n\nCommand exited with code {exit_code}"));
+        }
+
+        let details = json!({
+            "exitCode": exit_code,
+            "truncation": truncation.truncated.then(|| json!({
+                "truncated": true,
+                "truncatedBy": truncation.truncated_by,
+            })),
+            "fullOutputPath": full_output_path,
+        });
 
         Ok(ToolOutput {
             content: vec![ToolResultContent::Text {
@@ -299,7 +471,7 @@ impl AgentTool for BashTool {
                     output_text
                 },
             }],
-            details,
+            details: Some(details),
             terminate: false,
         })
     }
@@ -310,13 +482,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn timeout_validation() {
-        assert!(validate_timeout(None).unwrap().is_none());
-        assert!(validate_timeout(Some(10.0)).unwrap() == Some(10));
-        assert!(validate_timeout(Some(0.0)).is_err());
-        assert!(validate_timeout(Some(-1.0)).is_err());
-        assert!(validate_timeout(Some(f64::NAN)).is_err());
-        assert!(validate_timeout(Some(MAX_TIMEOUT_SECONDS + 1.0)).is_err());
+    fn timeout_resolution_and_validation() {
+        assert_eq!(resolve_timeout(None).unwrap(), DEFAULT_TIMEOUT_SECONDS);
+        assert_eq!(resolve_timeout(Some(10.0)).unwrap(), 10);
+        assert!(resolve_timeout(Some(0.0)).is_err());
+        assert!(resolve_timeout(Some(-1.0)).is_err());
+        assert!(resolve_timeout(Some(f64::NAN)).is_err());
+        assert!(resolve_timeout(Some(MAX_TIMEOUT_SECONDS + 1.0)).is_err());
+        // 字符串形式的 timeout 不能被静默当成「没传」（那会退化成默认值）。
+        assert!(parse_timeout_arg(&serde_json::json!("30")).is_err());
+        assert_eq!(parse_timeout_arg(&serde_json::json!(null)).unwrap(), None);
+        assert_eq!(
+            parse_timeout_arg(&serde_json::json!(30)).unwrap(),
+            Some(30.0)
+        );
+    }
+
+    #[test]
+    fn output_buffer_keeps_a_bounded_tail_and_spills_the_full_output() {
+        let mut buffer = OutputBuffer::new();
+        for line in 0..30_000u32 {
+            buffer.push(format!("line {line}\n").as_bytes());
+        }
+        assert!(buffer.total_bytes > OUTPUT_TAIL_BYTES);
+        assert_eq!(buffer.total_lines(), 30_000);
+        assert!(buffer.tail.len() <= OUTPUT_TAIL_BYTES + 16);
+        let spill = buffer
+            .spill_path
+            .clone()
+            .expect("overflow must write a spill file");
+
+        let (text, path) = buffer.finish();
+        assert_eq!(path.as_deref(), Some(spill.as_path()));
+        assert!(text.starts_with("line "), "tail must start on a line boundary");
+        assert!(text.ends_with("line 29999\n"));
+
+        let full = std::fs::read_to_string(&spill).unwrap();
+        assert!(full.starts_with("line 0\n"));
+        assert!(full.ends_with("line 29999\n"));
+        assert_eq!(full.lines().count(), 30_000);
+        std::fs::remove_file(spill).ok();
+    }
+
+    #[test]
+    fn output_buffer_decodes_multibyte_chunk_boundaries() {
+        let bytes = "中文输出".as_bytes();
+        let mut buffer = OutputBuffer::new();
+        buffer.push(&bytes[..1]);
+        buffer.push(&bytes[1..4]);
+        buffer.push(&bytes[4..]);
+        assert_eq!(buffer.snapshot(), "中文输出");
+        assert_eq!(buffer.total_lines(), 1);
     }
 
     /// av 契约接线：子进程环境完全来自 resolved_env（env_clear + envs）——
@@ -417,6 +633,110 @@ mod tests {
     fn read_pid_file(workspace: &std::path::Path) -> i32 {
         let text = std::fs::read_to_string(workspace.join("bg.pid")).expect("后台进程 pid 文件");
         text.trim().parse().expect("pid")
+    }
+
+    fn output_text(output: &ToolOutput) -> String {
+        match &output.content[0] {
+            ToolResultContent::Text { text } => text.clone(),
+            _ => panic!("expected text output"),
+        }
+    }
+
+    /// `cwd` 让命令在子目录里跑；默认仍是 workspace。
+    #[tokio::test]
+    async fn cwd_runs_in_the_requested_directory() {
+        let workspace = test_workspace("cwd");
+        let nested = workspace.join("nested");
+        tokio::fs::create_dir_all(&nested).await.unwrap();
+        let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
+
+        let output = BashTool
+            .execute(
+                &ctx,
+                &serde_json::json!({ "command": "pwd", "cwd": "nested" }),
+                &|_| {},
+            )
+            .await
+            .unwrap();
+        let expected = std::fs::canonicalize(&nested).unwrap();
+        assert_eq!(output_text(&output).trim(), expected.to_string_lossy());
+
+        std::fs::remove_dir_all(&workspace).ok();
+    }
+
+    #[tokio::test]
+    async fn cwd_must_exist_and_be_a_directory() {
+        let workspace = test_workspace("cwd-invalid");
+        let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
+
+        let missing = BashTool
+            .execute(
+                &ctx,
+                &serde_json::json!({ "command": "pwd", "cwd": "missing" }),
+                &|_| {},
+            )
+            .await;
+        assert!(missing.is_err());
+
+        let file = workspace.join("file.txt");
+        tokio::fs::write(&file, "x").await.unwrap();
+        let not_dir = BashTool
+            .execute(
+                &ctx,
+                &serde_json::json!({ "command": "pwd", "cwd": "file.txt" }),
+                &|_| {},
+            )
+            .await;
+        assert!(not_dir.is_err());
+
+        std::fs::remove_dir_all(&workspace).ok();
+    }
+
+    /// 被信号杀掉的命令没有 exit code：必须报错，不能当成 "(no output)" 成功。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn signal_death_is_reported_as_an_error() {
+        let workspace = test_workspace("signal");
+        let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
+
+        let result = BashTool
+            .execute(&ctx, &serde_json::json!({ "command": "kill -9 $$" }), &|_| {})
+            .await;
+        let error = result.expect_err("signal death must not be reported as success");
+        assert!(error.contains("terminated by signal 9"), "{error}");
+        assert!(error.contains("137"), "{error}");
+
+        std::fs::remove_dir_all(&workspace).ok();
+    }
+
+    /// 超长输出：内存里只留尾部，完整内容进 spill 文件；提示里带路径与真实总行数。
+    #[tokio::test]
+    async fn long_output_is_truncated_and_spilled() {
+        let workspace = test_workspace("spill");
+        let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
+
+        let output = BashTool
+            .execute(&ctx, &serde_json::json!({ "command": "seq 1 40000" }), &|_| {})
+            .await
+            .unwrap();
+        let text = output_text(&output);
+        assert!(
+            text.contains("Showing lines 38001-40000 of 40000"),
+            "unexpected notice: {text}"
+        );
+        let details = output.details.as_ref().expect("details");
+        assert_eq!(details["exitCode"], 0);
+        assert_eq!(details["truncation"]["truncated"], true);
+        let spill = details["fullOutputPath"]
+            .as_str()
+            .expect("spill path in details");
+        let full = std::fs::read_to_string(spill).unwrap();
+        assert!(full.starts_with("1\n"), "spill must contain the beginning");
+        assert!(full.ends_with("40000\n"));
+        assert_eq!(full.lines().count(), 40_000);
+
+        std::fs::remove_file(spill).ok();
+        std::fs::remove_dir_all(&workspace).ok();
     }
 
     /// 超时不能只杀直接子进程：后台孙进程继续握着 stdout/stderr 时，
