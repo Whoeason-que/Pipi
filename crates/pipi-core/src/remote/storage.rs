@@ -1,6 +1,5 @@
-use std::fs::{self, OpenOptions};
-use std::io::{ErrorKind, Write};
-use std::path::Path;
+use std::fs;
+use std::io::ErrorKind;
 
 use super::RemoteAccessConfig;
 use pipi_venv::av::paths;
@@ -51,7 +50,8 @@ pub(super) fn load_config() -> Result<RemoteAccessConfig, String> {
 pub(super) fn save_config(config: &RemoteAccessConfig) -> Result<(), String> {
     let path = paths::remote_settings_path().ok_or("Cannot locate Pipi data directory")?;
     let bytes = serde_json::to_vec_pretty(config).map_err(|e| e.to_string())?;
-    private_write(&path, &bytes)
+    pipi_protocol::fs::write_private_atomic(&path, &bytes)
+        .map_err(|e| format!("Failed to save remote access configuration: {e}"))
 }
 
 pub(super) fn load_token() -> Result<String, String> {
@@ -91,39 +91,15 @@ pub(super) fn new_token() -> String {
 }
 
 pub(super) fn save_token(token: &str) -> Result<(), String> {
-    private_write(
-        &paths::remote_token_path().ok_or("Cannot locate Pipi data directory")?,
-        token.as_bytes(),
-    )
+    let path = paths::remote_token_path().ok_or("Cannot locate Pipi data directory")?;
+    pipi_protocol::fs::write_private_atomic(&path, token)
+        .map_err(|e| format!("Failed to save remote access configuration: {e}"))
 }
 
 fn rotate_token() -> Result<String, String> {
     let token = new_token();
     save_token(&token)?;
     Ok(token)
-}
-
-fn private_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path.parent().ok_or("File path has no parent directory")?;
-    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let temp = parent.join(format!(".remote-{}", uuid::Uuid::new_v4().simple()));
-    let result = (|| -> std::io::Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        fs::rename(&temp, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(temp);
-    }
-    result.map_err(|e| format!("Failed to save remote access configuration: {e}"))
 }
 
 #[cfg(all(test, unix))]

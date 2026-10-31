@@ -3,6 +3,8 @@
 //! - [`write_atomic`]：覆盖写先写同目录临时文件、fsync，再 rename —— 只对
 //!   「已存在的文件」做原子替换（覆盖是最容易丢数据的一步），新建文件走普通
 //!   写入（没有旧内容可丢，且权限遵循进程 umask）。
+//! - [`write_private_atomic`]：同一套流程，但新文件一律 0600（远程访问凭据、
+//!   推送订阅这类秘密文件）。
 //! - [`ensure_real_file`] / [`ensure_real_directory`]：Agent 数据树
 //!   （`~/.pipi/agents/**`）「文件即真相」的前提是路径本身可信 —— 这些目录对
 //!   用户可写，任何一环被换成符号链接，读写就会逃出数据树。不存在返回
@@ -36,34 +38,56 @@ pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<
     Ok(())
 }
 
+/// 原子写入秘密文件：父目录不存在时自动创建，落盘后权限固定为 0600。
+///
+/// `tempfile::NamedTempFile` 在 Unix 上本来就以 0600 创建，这里显式设置一次，
+/// 保证跨平台语义不依赖第三方实现的默认值。
+pub fn write_private_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let contents = contents.as_ref();
+    let parent = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tmp.as_file()
+            .set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    tmp.write_all(contents)?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(path)?;
+    Ok(())
+}
+
 /// 验证路径是真实目录（不是符号链接）。不存在返回 `Ok(false)`。
 pub fn ensure_real_directory(path: &Path, label: &str) -> Result<bool, String> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(format!(
-            "{label} cannot be a symbolic link: {}",
-            path.display()
-        )),
-        Ok(metadata) if !metadata.is_dir() => {
-            Err(format!("{label} is not a directory: {}", path.display()))
-        }
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!(
-            "Failed to check {label} {}: {error}",
-            path.display()
-        )),
-    }
+    ensure_real_entry(path, label, true)
 }
 
 /// 验证路径是普通文件（不是符号链接）。不存在返回 `Ok(false)`。
 pub fn ensure_real_file(path: &Path, label: &str) -> Result<bool, String> {
+    ensure_real_entry(path, label, false)
+}
+
+fn ensure_real_entry(path: &Path, label: &str, want_directory: bool) -> Result<bool, String> {
+    let expected = if want_directory {
+        "directory"
+    } else {
+        "regular file"
+    };
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => Err(format!(
             "{label} cannot be a symbolic link: {}",
             path.display()
         )),
-        Ok(metadata) if !metadata.is_file() => {
-            Err(format!("{label} is not a regular file: {}", path.display()))
+        Ok(metadata) if want_directory && !metadata.is_dir() => {
+            Err(format!("{label} is not a {expected}: {}", path.display()))
+        }
+        Ok(metadata) if !want_directory && !metadata.is_file() => {
+            Err(format!("{label} is not a {expected}: {}", path.display()))
         }
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),

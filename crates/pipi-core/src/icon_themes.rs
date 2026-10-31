@@ -215,6 +215,9 @@ fn discover_in(roots: &[PathBuf]) -> Vec<Candidate> {
             let publisher = manifest["publisher"].as_str().unwrap_or("unknown");
             let name = manifest["name"].as_str().unwrap_or("extension");
             let version = version_key(manifest["version"].as_str().unwrap_or("0"));
+            let nls = read_limited(&dir.join("package.nls.json"), 500_000)
+                .ok()
+                .and_then(|bytes| jsonc(&bytes).ok());
             for item in items {
                 let (Some(id), Some(rel)) = (item["id"].as_str(), item["path"].as_str()) else {
                     continue;
@@ -224,9 +227,6 @@ fn discover_in(roots: &[PathBuf]) -> Vec<Candidate> {
                 };
                 let full_id = format!("{publisher}.{name}:{id}");
                 let raw_label = item["label"].as_str().unwrap_or(id);
-                let nls = read_limited(&dir.join("package.nls.json"), 500_000)
-                    .ok()
-                    .and_then(|bytes| jsonc(&bytes).ok());
                 let label = raw_label
                     .strip_prefix('%')
                     .and_then(|s| s.strip_suffix('%'))
@@ -442,7 +442,7 @@ pub fn current() -> Result<Option<Value>, String> {
 fn select_at(id: Option<String>, roots: &[PathBuf], path: &Path) -> Result<Option<Value>, String> {
     let theme = load_in(id.as_deref(), roots)?;
     let json = serde_json::to_string_pretty(&Selection { id }).map_err(|e| e.to_string())?;
-    pipi_venv::av::store::write_text_atomic(path, &json).map_err(|e| e.to_string())?;
+    pipi_protocol::fs::write_atomic(path, &json).map_err(|e| e.to_string())?;
     Ok(theme)
 }
 pub fn select(id: Option<String>) -> Result<Option<Value>, String> {
