@@ -22,7 +22,6 @@
 //! `pipi_venv::av::paths` 的职责，provider 层不该反向依赖它。
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -140,13 +139,6 @@ fn has_version_segment(url: &str) -> bool {
 /// 缓存的默认刷新策略（纯函数，便于单测）。
 fn is_fresh(fetched_at: i64, now: i64) -> bool {
     now >= fetched_at && now.saturating_sub(fetched_at) < TTL_SECS
-}
-
-fn now_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 fn write_cache(cache_path: Option<&Path>, catalog: &ModelCatalog) -> Result<(), String> {
@@ -446,9 +438,41 @@ pub(crate) fn build_catalog(
 /// 只读本地缓存（**不联网、不判保鲜期**）：宿主在 run 前解析模型级协议用。
 /// 需要刷新走 [`load_catalog`]；没有缓存返回 `None`（调用方按原协议继续）。
 pub fn cached_catalog(cache_path: Option<&Path>) -> Option<ModelCatalog> {
-    let text = std::fs::read_to_string(cache_path?).ok()?;
-    serde_json::from_str(&text).ok()
+    let path = cache_path?;
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok();
+    let len = metadata.len();
+    if let Ok(memo) = CATALOG_MEMO.lock()
+        && let Some(entry) = memo.as_ref()
+        && entry.path == path
+        && entry.modified == modified
+        && entry.len == len
+    {
+        return Some(entry.catalog.clone());
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let catalog: ModelCatalog = serde_json::from_str(&text).ok()?;
+    if let Ok(mut memo) = CATALOG_MEMO.lock() {
+        *memo = Some(CachedCatalog {
+            path: path.to_path_buf(),
+            modified,
+            len,
+            catalog: catalog.clone(),
+        });
+    }
+    Some(catalog)
 }
+
+/// 进程内解析结果缓存：`models.json` 约 4.6 MB，每次 run 前都解析一次太贵。
+/// 键是路径 + mtime + 长度；`write_cache` 重写文件后 mtime 变化，自然失效。
+struct CachedCatalog {
+    path: PathBuf,
+    modified: Option<std::time::SystemTime>,
+    len: u64,
+    catalog: ModelCatalog,
+}
+
+static CATALOG_MEMO: std::sync::Mutex<Option<CachedCatalog>> = std::sync::Mutex::new(None);
 
 /// 端点归一化键：去尾斜杠 + 忽略大小写（上游与用户手填的写法可能不同）。
 /// 同时折叠 OpenCode 官方端点 (/zen/) 与 models.dev / 控制台推理端点 (/inference/)，
@@ -461,11 +485,6 @@ pub(crate) fn endpoint_key(url: &str) -> String {
     } else {
         lower
     }
-}
-
-/// 规范化端点地址：去除尾斜杠并转为小写。
-pub fn normalize_endpoint(url: &str) -> String {
-    endpoint_key(url)
 }
 
 /// 目录里同一端点的全部条目（同一端点可能有多条：协议不同，如 deepseek 与
@@ -581,22 +600,23 @@ pub async fn load_catalog(
     cache_path: Option<PathBuf>,
 ) -> Result<ModelCatalog, String> {
     let _single_flight = CATALOG_LOCK.lock().await;
-    let cached = cached_catalog(cache_path.as_deref());
+    let mut cached = cached_catalog(cache_path.as_deref());
     if !refresh
-        && let Some(catalog) = &cached
-        && catalog
-            .fetched_at
-            .map(|at| is_fresh(at, now_secs()))
-            .unwrap_or(false)
+        && cached.as_ref().is_some_and(|catalog| {
+            catalog
+                .fetched_at
+                .map(|at| is_fresh(at, pipi_protocol::ids::now_secs()))
+                .unwrap_or(false)
+        })
     {
-        let mut hit = catalog.clone();
+        let mut hit = cached.take().expect("fresh cache checked above");
         hit.source = "cache".to_string();
         hit.stale = false;
         return Ok(hit);
     }
     let fetched = fetch_upstream()
         .await
-        .and_then(|raw| build_catalog(&raw, now_secs()));
+        .and_then(|raw| build_catalog(&raw, pipi_protocol::ids::now_secs()));
     let resolved = resolve_catalog(cached, fetched)?;
     if resolved.source == "models.dev"
         && let Err(error) = write_cache(cache_path.as_deref(), &resolved)
@@ -1061,7 +1081,7 @@ mod tests {
     #[ignore]
     async fn 真实上游目录可构建且满足不变量() {
         let raw = fetch_upstream().await.expect("应能拉到 models.dev");
-        let catalog = build_catalog(&raw, now_secs()).expect("应能构建目录");
+        let catalog = build_catalog(&raw, pipi_protocol::ids::now_secs()).expect("应能构建目录");
         assert!(catalog.providers.len() >= MIN_PROVIDERS);
         assert!(
             catalog
