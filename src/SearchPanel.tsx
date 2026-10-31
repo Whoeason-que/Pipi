@@ -3,7 +3,8 @@
 // 点击结果直接跳转（Agent → 详情/工作台，会话 → 打开该会话）。
 
 import { useMemo } from "react";
-import { IconClose, IconSearch } from "./icons";
+import { SidebarSearch } from "./components/SidebarSearch";
+import { sessionKey } from "./session-key.ts";
 import type { AgentDefinition, SessionSummaryView } from "./types";
 
 /** 会话命中上限：命中整屏时靠关键字收敛，比无限渲染滚动列表更实用。 */
@@ -71,32 +72,14 @@ export function SearchPanel({
 
   return (
     <>
-      <div className="sb-filter">
-        <div className="search">
-          <IconSearch />
-          <input
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="搜索 Agent / 会话…"
-            aria-label="搜索 Agent 与会话"
-            autoComplete="off"
-            spellCheck={false}
-            // 触屏不自动聚焦：不然切到搜索分区就弹软键盘
-            autoFocus={window.matchMedia("(hover: hover)").matches}
-          />
-          {query && (
-            <button
-              type="button"
-              className="search-clear"
-              title="清空搜索"
-              aria-label="清空搜索"
-              onClick={() => onQueryChange("")}
-            >
-              <IconClose />
-            </button>
-          )}
-        </div>
-      </div>
+      <SidebarSearch
+        value={query}
+        onChange={onQueryChange}
+        placeholder="搜索 Agent / 会话…"
+        label="搜索 Agent 与会话"
+        // 触屏不自动聚焦：不然切到搜索分区就弹软键盘
+        autoFocus={window.matchMedia("(hover: hover)").matches}
+      />
 
       <div className="search-panel">
         {!normalized ? (
@@ -138,7 +121,7 @@ export function SearchPanel({
             )}
             {sessionHits.map((hit) => (
               <button
-                key={`${hit.agentName}\u0000${hit.session.id}`}
+                key={sessionKey(hit.agentName, hit.session.id)}
                 type="button"
                 className="search-item"
                 title={`${hit.agentName} · ${hit.session.title}`}

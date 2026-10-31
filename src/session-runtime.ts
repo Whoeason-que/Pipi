@@ -1,6 +1,7 @@
 import type { Listen } from "./ipc.ts";
 import { DraftStore } from "./drafts.ts";
 import { SessionController, type SessionFrame, type SessionTransport } from "./session-controller.ts";
+import { sessionKey as composeSessionKey } from "./session-key.ts";
 import type { AgentDefinition, SessionChangedPayload } from "./types.ts";
 
 export type RuntimeFrame = SessionFrame | { type: "session-changed"; payload: SessionChangedPayload };
@@ -12,7 +13,6 @@ const EVENT_NAMES = ["agent-event", "session-stats", "session-error", "session-s
 const REPLAY_LIMIT = 2048;
 const IDLE_CACHE_LIMIT = 32;
 
-function key(agent: string, session: string): string { return `${agent}\u0000${session}`; }
 /** App 持有一份订阅与会话索引。视图只订阅控制器，不各自注册宿主事件。 */
 export class SessionRuntime {
   readonly composerDrafts = new DraftStore();
@@ -30,8 +30,8 @@ export class SessionRuntime {
 
   forget(agent: string, session: string): void {
     this.composerDrafts.forget(agent, session);
-    this.sessions.delete(key(agent, session));
-    this.replay.delete(key(agent, session));
+    this.sessions.delete(composeSessionKey(agent, session));
+    this.replay.delete(composeSessionKey(agent, session));
   }
 
   forgetAgent(agent: string): void {
@@ -94,16 +94,16 @@ export class SessionRuntime {
 
   get(agent: AgentDefinition, sessionId: string | null, temporary = false): SessionController {
     if (sessionId) {
-      const existing = this.sessions.get(key(agent.name, sessionId));
+      const existing = this.sessions.get(composeSessionKey(agent.name, sessionId));
       if (existing) return existing;
     }
     this.trim();
     const controller = new SessionController(agent, sessionId, temporary, this.transport,
       (current, previous, next) => {
         this.composerDrafts.move(current.agentName, previous, next, temporary);
-        if (previous) this.sessions.delete(key(current.agentName, previous));
+        if (previous) this.sessions.delete(composeSessionKey(current.agentName, previous));
         this.drafts.delete(current);
-        const nextKey = key(current.agentName, next);
+        const nextKey = composeSessionKey(current.agentName, next);
         this.sessions.set(nextKey, current);
         if (previous !== next) this.rekeyListeners.forEach(listener => listener(current, previous, next, temporary));
         const replay = this.replay.get(nextKey);
@@ -111,7 +111,7 @@ export class SessionRuntime {
         replay?.frames.forEach(frame => current.receive(frame));
       });
     if (sessionId) {
-      const sessionKey = key(agent.name, sessionId);
+      const sessionKey = composeSessionKey(agent.name, sessionId);
       this.sessions.set(sessionKey, controller);
       const replay = this.replay.get(sessionKey);
       this.replay.delete(sessionKey);
@@ -124,7 +124,7 @@ export class SessionRuntime {
     // 每个载荷都自带身份（见 chat-runtime 的 AgentEventPayload / *Payload）。
     const identity = frame.payload;
     if (frame.type !== "session-changed") {
-      const sessionKey = key(identity.agentName, identity.sessionId);
+      const sessionKey = composeSessionKey(identity.agentName, identity.sessionId);
       let controller = this.sessions.get(sessionKey);
       if (!controller && frame.type === "agent-event" && frame.payload.event.type === "agent_start") {
         // 事件先于 send_prompt 响应到达时的兜底：主路径是响应里的权威身份

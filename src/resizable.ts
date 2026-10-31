@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import { readStored, writeStored } from "./storage.ts";
 
 /**
  * 可拖拽调宽的侧栏/检查器宽度。
@@ -42,14 +43,9 @@ function setResizing(active: boolean): void {
 
 function readStoredWidth(options: ResizableOptions): number {
   const clamp = (value: number) => Math.min(options.max, Math.max(options.min, value));
-  if (typeof window === "undefined") return options.initial;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_PREFIX + options.storageKey);
-    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
-    return Number.isFinite(parsed) ? clamp(parsed) : options.initial;
-  } catch {
-    return options.initial;
-  }
+  const raw = readStored(STORAGE_PREFIX + options.storageKey, "");
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) ? clamp(parsed) : options.initial;
 }
 
 export function useResizableWidth(options: ResizableOptions): {
@@ -71,11 +67,7 @@ export function useResizableWidth(options: ResizableOptions): {
       const clamped = clamp(next);
       widthRef.current = clamped;
       setWidth(clamped);
-      try {
-        window.localStorage.setItem(STORAGE_PREFIX + options.storageKey, String(clamped));
-      } catch {
-        // 存不下不影响本次使用
-      }
+      writeStored(STORAGE_PREFIX + options.storageKey, String(clamped));
     },
     [clamp, options.storageKey],
   );

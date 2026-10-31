@@ -2,13 +2,12 @@ import { useContext, useMemo, useState } from "react";
 import { LayoutContext } from "../app/layout-context";
 import {
   IconCheck,
-  IconClose,
   IconFolder,
   IconHome,
   IconPlus,
-  IconSearch,
   IconTrash,
 } from "../icons";
+import { SidebarSearch } from "../components/SidebarSearch";
 import { getWorkspaceBasename, type WorkspaceInfo } from "../app/workspaces";
 
 interface WorkspacesSidebarProps {
@@ -54,29 +53,12 @@ export function WorkspacesSidebar({
   return (
     <>
       {/* 搜索置顶：过滤框作为侧栏第一行 */}
-      <div className="sb-filter">
-        <div className="search">
-          <IconSearch />
-          <input
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            placeholder="搜索工作区…"
-            aria-label="搜索工作区"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {filterQuery && (
-            <button
-              type="button"
-              className="search-clear"
-              title="清空搜索"
-              onClick={() => setFilterQuery("")}
-            >
-              <IconClose />
-            </button>
-          )}
-        </div>
-      </div>
+      <SidebarSearch
+        value={filterQuery}
+        onChange={setFilterQuery}
+        placeholder="搜索工作区…"
+        label="搜索工作区"
+      />
 
       <div className="caption sb-sec workspaces-heading">
         <span>工作区</span>

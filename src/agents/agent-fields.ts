@@ -7,7 +7,7 @@ export const DEFAULT_TOOLS = ["read", "write", "edit", "bash", "memory", "notebo
  * 旧 agent.json 的 `permissions.tools` 里可能还留着这两个名字；它们在 UI 里
  * 没有开关，保存时由 `permissionsFromFields` 剔除（一次性迁移）。
  */
-export const RETIRED_TOOLS = ["glob", "grep"] as const;
+const RETIRED_TOOLS = ["glob", "grep"] as const;
 
 export const KNOWN_TOOLS = [
   ...DEFAULT_TOOLS,

@@ -1,5 +1,6 @@
 import { zh, type I18nSchema } from "./zh.ts";
 import { en } from "./en.ts";
+import { readStored } from "../storage.ts";
 
 export type Locale = "zh" | "en";
 
@@ -9,12 +10,8 @@ export const STORAGE_LOCALE_KEY = "pipi-locale";
 
 /** 检测默认语言（首选 localStorage，其次操作系统/浏览器环境）。 */
 export function getDefaultLocale(): Locale {
-  try {
-    const saved = typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_LOCALE_KEY) : null;
-    if (saved === "zh" || saved === "en") return saved;
-  } catch {
-    // 忽略 localStorage 读取异常
-  }
+  const saved = readStored(STORAGE_LOCALE_KEY, "");
+  if (saved === "zh" || saved === "en") return saved;
   if (typeof navigator !== "undefined" && typeof navigator.language === "string") {
     if (navigator.language.toLowerCase().startsWith("zh")) return "zh";
   }

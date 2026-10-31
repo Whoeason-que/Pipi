@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatRuntimeError } from "../chat-runtime";
 import { invoke, onHostReconnect } from "../platform";
+import { sessionKey, sessionKeyPrefix, splitSessionKey } from "../session-key.ts";
 import type { SessionRuntime } from "../session-runtime";
 import type { SessionInfoView } from "../types";
 import type { SessionRunStatus } from "./session-status";
@@ -85,7 +86,7 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
   const syncRunningRef = useRef<() => void>(() => {});
 
   const runningKey = useCallback(
-    (agentName: string, sessionId: string) => `${agentName}\u0000${sessionId}`,
+    (agentName: string, sessionId: string) => sessionKey(agentName, sessionId),
     [],
   );
 
@@ -187,7 +188,7 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
   );
 
   const agentHasRunning = (agentName: string) =>
-    Array.from(runningSessions).some((key) => key.startsWith(`${agentName}\u0000`));
+    Array.from(runningSessions).some((key) => key.startsWith(sessionKeyPrefix(agentName)));
 
   const sessionStatus = useCallback(
     (agentName: string, sessionId: string | null) =>
@@ -216,7 +217,7 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
           const running = new Set(
             infos
               .filter((info) => info.running)
-              .map((info) => `${info.agentName}\u0000${info.sessionId}`),
+              .map((info) => sessionKey(info.agentName, info.sessionId)),
           );
           setRunningSessions(running);
           const previous = statusesRef.current;
@@ -239,7 +240,7 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
             setSessionStatuses(next);
           }
           for (const key of settled) {
-            const [agentName, sessionId] = key.split("\u0000");
+            const [agentName, sessionId] = splitSessionKey(key);
             if (agentName && sessionId && !isViewed(agentName, sessionId)) {
               markUnread(agentName, sessionId);
             }
@@ -368,7 +369,7 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
   }, [runningKey, applyStatuses]);
 
   const forgetRunningAgent = useCallback((agentName: string) => {
-    const prefix = `${agentName}\u0000`;
+    const prefix = sessionKeyPrefix(agentName);
     setRunningSessions((previous) => {
       const next = new Set([...previous].filter((key) => !key.startsWith(prefix)));
       return next.size === previous.size ? previous : next;

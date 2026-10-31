@@ -63,7 +63,7 @@ export function useWorkspaceFiles(target: WorkspaceFileTarget | null, mode: Work
     () => invoke("workspace_changes", { agentName: lookupTarget }));
   const preview = useFileResource<WorkspaceFile | WorkspaceDiff>(key && view.selected ? JSON.stringify(["preview", key, view.selected]) : null, revision,
     () => mode === "files" ? invoke("preview_workspace_file", { agentName: lookupTarget, path: view.selected! }) : invoke("workspace_diff", { agentName: lookupTarget, path: view.selected! }));
-  return { target, agent: target, mode, active, store, getStore, view, revision, refresh, rootListing, changes, preview };
+  return { target, mode, active, store, getStore, view, revision, refresh, rootListing, changes, preview };
 }
 
 export type WorkspaceFilesState = ReturnType<typeof useWorkspaceFiles>;

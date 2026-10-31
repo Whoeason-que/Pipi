@@ -2,6 +2,7 @@
 // 一个 Workspace 代表一个本地目录路径；支持全部（all）与单个 Workspace 切换。
 
 import type { AgentDefinition } from "../types";
+import { readStored, writeStored } from "../storage.ts";
 
 export interface WorkspaceInfo {
   path: string; // 归一化路径，若是全部则为 "all"
@@ -36,9 +37,9 @@ const CUSTOM_WORKSPACES_KEY = "pipi:custom-workspaces";
 const ACTIVE_WORKSPACE_KEY = "pipi:active-workspace";
 
 export function loadCustomWorkspaces(): CustomWorkspace[] {
+  const raw = readStored(CUSTOM_WORKSPACES_KEY, "");
+  if (!raw) return [];
   try {
-    const raw = localStorage.getItem(CUSTOM_WORKSPACES_KEY);
-    if (!raw) return [];
     const list = JSON.parse(raw);
     if (Array.isArray(list)) {
       return list.filter(
@@ -46,33 +47,21 @@ export function loadCustomWorkspaces(): CustomWorkspace[] {
       );
     }
   } catch {
-    // 忽略异常
+    // 坏数据按空列表处理
   }
   return [];
 }
 
 export function saveCustomWorkspaces(list: CustomWorkspace[]) {
-  try {
-    localStorage.setItem(CUSTOM_WORKSPACES_KEY, JSON.stringify(list));
-  } catch {
-    // 忽略异常
-  }
+  writeStored(CUSTOM_WORKSPACES_KEY, JSON.stringify(list));
 }
 
 export function loadActiveWorkspace(): string {
-  try {
-    return localStorage.getItem(ACTIVE_WORKSPACE_KEY) || "all";
-  } catch {
-    return "all";
-  }
+  return readStored(ACTIVE_WORKSPACE_KEY, "all") || "all";
 }
 
 export function saveActiveWorkspace(ws: string) {
-  try {
-    localStorage.setItem(ACTIVE_WORKSPACE_KEY, ws);
-  } catch {
-    // 忽略异常
-  }
+  writeStored(ACTIVE_WORKSPACE_KEY, ws);
 }
 
 /**

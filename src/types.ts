@@ -1,7 +1,7 @@
 // 与 Rust 侧类型对齐（serde camelCase）—— 前端共享类型
 import type { MessageView } from "./chat-runtime";
 
-export type Theme = string;
+type Theme = string;
 
 export type ApiKind = "anthropic-messages" | "openai-completions";
 
@@ -44,7 +44,7 @@ export interface PermissionsConfig {
   sandbox: SandboxMode;
 }
 
-export interface McpServer {
+interface McpServer {
   name: string;
   command: string;
   args: string[];
@@ -198,7 +198,7 @@ export interface SessionChangedPayload {
 export interface SessionInfoView {
   agentName: string;
   sessionId: string;
-  /** 设置工作台的内存测试会话，不对应 sessions/*.jsonl。 */
+  /** 设置工作台的内存测试会话（不落盘，没有 git 分支载体）。 */
   temporary: boolean;
   running: boolean;
   backgroundTasks?: number;

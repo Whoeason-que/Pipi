@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IconClose } from "../icons";
 import { useResizableWidth, type ResizableHandleProps } from "../resizable";
+import { readStored, writeStored } from "../storage.ts";
 
 /** 右栏在窄屏改为抽屉；与左侧导航互斥地占用屏幕边缘。 */
 export const RIGHT_RAIL_BREAKPOINT = 1180;
@@ -16,13 +17,8 @@ export interface RightRailController {
 }
 
 function readStoredOpen(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const value = window.localStorage.getItem(`pipi:right-rail:${key}:open`);
-    return value === null ? fallback : value === "true";
-  } catch {
-    return fallback;
-  }
+  const value = readStored(`pipi:right-rail:${key}:open`, "");
+  return value === "" ? fallback : value === "true";
 }
 
 /**
@@ -47,7 +43,7 @@ export function useRightRail(key: string, defaultOpen = false): RightRailControl
 
   const setOpen = (next: boolean) => {
     setOpenState(next);
-    try { window.localStorage.setItem(`pipi:right-rail:${key}:open`, String(next)); } catch { /* 存不下不影响本次使用 */ }
+    writeStored(`pipi:right-rail:${key}:open`, String(next));
   };
   const close = () => setOpen(false);
   const toggle = () => setOpen(!openRef.current);

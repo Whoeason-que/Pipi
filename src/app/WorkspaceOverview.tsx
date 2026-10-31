@@ -9,6 +9,7 @@ import {
   IconPlus,
 } from "../icons";
 import type { AgentDefinition, SessionSummaryView } from "../types";
+import { sessionKey, sessionKeyPrefix } from "../session-key.ts";
 import type { AgentSection } from "./navigation";
 
 interface WorkspaceOverviewProps {
@@ -25,8 +26,6 @@ interface WorkspaceOverviewProps {
 }
 
 type Activity = { agent: AgentDefinition; session: SessionSummaryView };
-const sessionKey = (agent: string, session: string) =>
-  `${agent}\u0000${session}`;
 
 function SessionActivity({
   items,
@@ -106,7 +105,7 @@ export default function WorkspaceOverview({
     )
     .sort((a, b) => b.session.lastActive - a.session.lastActive);
   const runningCount = [...running].filter((key) =>
-    visible.some((item) => key.startsWith(`${item.name}\u0000`)),
+    visible.some((item) => key.startsWith(sessionKeyPrefix(item.name))),
   ).length;
   const currentRunning = recent.filter((item) =>
     running.has(sessionKey(item.agent.name, item.session.id)),
