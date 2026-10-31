@@ -33,10 +33,8 @@
   --on-danger: #35101c;
   --accent-soft: rgba(126, 157, 255, 0.14);
   --accent-border: rgba(140, 166, 255, 0.32);
-  /* 会话状态字体色（参考 Git 文件名状态色）：运行蓝，其余复用主题 --ok/--warn/--danger。 */
-  --status-running: #6f9ee8;
-  --status-running-text: #8fb4ff;
-  --status-running-soft: rgba(111, 158, 232, 0.2);
+  /* 会话状态字体色（参考 Git 文件名状态色）：蓝 = 完成且未读，其余复用主题 --ok/--warn/--danger。 */
+  --status-unread-text: #8fb4ff;
   --primary-bg: #e9eef7;
   --primary-fg: #10151e;
   --ok: #7fd2b8;
@@ -131,7 +129,7 @@
   --accent-text: #24262b;
   --accent-soft: rgba(20, 22, 26, 0.07);
   --accent-border: rgba(20, 22, 26, 0.2);
-  --status-running-text: #2f5fb3;
+  --status-unread-text: #2f5fb3;
   --primary-bg: #24262b;
   --primary-fg: #ffffff;
   --on-accent: #ffffff;

@@ -204,11 +204,11 @@
   box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 
-/* 会话状态只染标题字体（参考 Git 文件名状态色）：蓝 = 运行、绿 = 完成、
-   红 = 出错 / 中断、黄 = 重试中；行背景保持 hover / 选中的原有层次。 */
-.session.status-running .session-title { color: var(--status-running-text); }
+/* 会话状态只染标题字体（参考 Git 文件名状态色）：绿 = 运行、红 = 出错 / 中断、
+   黄 = 重试中；蓝 = 完成且未读，打开后回到常态色。 */
+.session.status-running .session-title { color: var(--ok); }
 
-.session.status-completed .session-title { color: var(--ok); }
+.session.status-completed .session-title { color: var(--status-unread-text); }
 
 .session.status-error .session-title { color: var(--danger); }
 

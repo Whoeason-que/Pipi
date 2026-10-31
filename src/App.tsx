@@ -62,6 +62,8 @@ export default function App() {
   const [view, setView] = useState<AppView>({ kind: "home" });
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("appearance");
   const viewRef = useRef(view);
+  /** 此刻在看的会话（chat 视图）；完成时用户没在看就记未读。 */
+  const viewedSessionRef = useRef<{ agentName: string; sessionId: string | null } | null>(null);
   const previousView = useRef<AppView>({ kind: "home" });
   const [authStatus, setAuthStatus] = useState({ authRequired: false, authenticated: true, checking: !isTauriRuntime() });
   const [navSection, setNavSection] = useState<NavSection>("agents");
@@ -90,6 +92,9 @@ export default function App() {
   viewRef.current = view;
   selectedRef.current = selected;
   activeSessionRef.current = activeSession;
+  viewedSessionRef.current = view.kind === "chat"
+    ? { agentName: view.agentName, sessionId: view.sessionId }
+    : null;
   const sidebarResize = useResizableWidth({ storageKey: "sidebar-width", initial: 248, min: 200, max: 460, edge: "right" });
 
   const commitView = useCallback((next: AppView, remember = true, options?: { keepSidebar?: boolean }) => {
@@ -166,10 +171,17 @@ export default function App() {
     await navigation.openSession(agent, session);
   });
   const { runningSessions, handleRunningChange, isConversationRunning, agentHasRunning,
-    sessionStatus, markSessionInterrupted,
+    sessionStatus, sessionUnread, markSessionRead, markSessionInterrupted,
     forgetRunningSession, forgetRunningAgent } = useHostEvents({ sessionRuntime, refreshSessions,
-    safeSetError, setError, setActiveSession, selectedRef, activeSessionRef,
+    safeSetError, setError, setActiveSession, selectedRef, activeSessionRef, viewedSessionRef,
     blockedSessionIdsRef: navigation.blockedSessionIdsRef, sessionInfoRequestRef: navigation.sessionInfoRequestRef });
+
+  // 打开会话即视为已读：未读蓝点只在离开期间完成时保留。
+  const viewedAgent = view.kind === "chat" ? view.agentName : null;
+  const viewedSessionId = view.kind === "chat" ? view.sessionId : null;
+  useEffect(() => {
+    if (viewedAgent !== null && viewedSessionId !== null) markSessionRead(viewedAgent, viewedSessionId);
+  }, [viewedAgent, viewedSessionId, markSessionRead]);
 
   const navigate = (next: AppView, remember = true, options?: { keepSidebar?: boolean }) => {
     if (next.kind === "home" && !next.section) next = { ...next, section: collection };
@@ -504,7 +516,7 @@ export default function App() {
           : <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
             viewSessionId={view.kind === "chat" ? view.sessionId : null}
             archivedSessions={archivedSessions} archivedSessionsExpanded={archivedSessionsExpanded} archivedOpen={archivedOpen}
-            sessionsFor={sessionsFor} sessionStatus={sessionStatus}
+            sessionsFor={sessionsFor} sessionStatus={sessionStatus} sessionUnread={sessionUnread}
             onSelectAgent={selectAgent} onConfigure={configureAgent}
             onStartNewSession={name => void navigation.startNewSession(name)} onOpenSession={openSession}
             onArchiveAgent={name => void archive.archiveAgent(name)} onDeleteAgent={(name, archived) => void archive.deleteAgent(name, archived)}

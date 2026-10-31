@@ -17,6 +17,8 @@ export interface HostEventOptions {
   activeSessionRef: { current: SessionInfoView | null };
   blockedSessionIdsRef: { current: Set<string> };
   sessionInfoRequestRef: { current: number };
+  /** 此刻在看的会话（chat 视图且已有会话 id）；完成时据此判断要不要记未读。 */
+  viewedSessionRef: { current: { agentName: string; sessionId: string | null } | null };
 }
 
 export interface HostEventState {
@@ -27,6 +29,10 @@ export interface HostEventState {
   agentHasRunning: (agentName: string) => boolean;
   /** 会话的运行状态（会话标题颜色用）；从未跑过 / 未知的会话返回 undefined。 */
   sessionStatus: (agentName: string, sessionId: string | null) => SessionRunStatus | undefined;
+  /** 完成时不在看的会话：标题染蓝，直到被打开。 */
+  sessionUnread: (agentName: string, sessionId: string | null) => boolean;
+  /** 打开会话即视为已读；进行中的新一轮也会清掉上一次的未读。 */
+  markSessionRead: (agentName: string, sessionId: string) => void;
   /** 用户主动停止后标红；正常结束仍由 agent_end 记为完成。 */
   markSessionInterrupted: (agentName: string, sessionId: string) => void;
   forgetRunningSession: (agentName: string, sessionId: string) => void;
@@ -50,6 +56,7 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
     activeSessionRef,
     blockedSessionIdsRef,
     sessionInfoRequestRef,
+    viewedSessionRef,
   } = options;
 
   /**
@@ -65,6 +72,13 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
   const [sessionStatuses, setSessionStatuses] = useState<Map<string, SessionRunStatus>>(
     () => new Map(),
   );
+  /**
+   * 完成时用户没在看这条会话 → 未读（标题染蓝）；打开或开始新一轮即清掉。
+   * 与运行态一样只存在当前进程。
+   */
+  const [unreadSessions, setUnreadSessions] = useState<Set<string>>(() => new Set());
+  /** 状态表的同步镜像：事件回调里要立刻读到最新值（agent_end / 重连同步）。 */
+  const statusesRef = useRef<Map<string, SessionRunStatus>>(sessionStatuses);
   const runningRequestRef = useRef(0);
 
   /** 立刻向核心核对一次运行态（新会话拿到 id 前 / 事件驱动变化时用）。 */
@@ -75,46 +89,93 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
     [],
   );
 
+  const applyStatuses = useCallback(
+    (update: (previous: Map<string, SessionRunStatus>) => Map<string, SessionRunStatus>) => {
+      const next = update(statusesRef.current);
+      statusesRef.current = next;
+      setSessionStatuses(next);
+    },
+    [],
+  );
+
   const markStatus = useCallback(
     (agentName: string, sessionId: string, status: SessionRunStatus) => {
       const key = runningKey(agentName, sessionId);
-      setSessionStatuses((previous) => {
+      applyStatuses((previous) => {
         if (previous.get(key) === status) return previous;
         const next = new Map(previous);
         next.set(key, status);
         return next;
       });
     },
-    [runningKey],
+    [runningKey, applyStatuses],
   );
 
-  /** 重试退避结束、新一轮内容开始时，标题从黄色回到蓝色。 */
+  /** 重试退避结束、新一轮内容开始时，标题从黄色回到绿色。 */
   const resumeFromRetry = useCallback(
     (agentName: string, sessionId: string) => {
       const key = runningKey(agentName, sessionId);
-      setSessionStatuses((previous) => {
+      applyStatuses((previous) => {
         if (previous.get(key) !== "retrying") return previous;
         const next = new Map(previous);
         next.set(key, "running");
         return next;
       });
     },
-    [runningKey],
+    [runningKey, applyStatuses],
   );
 
-  /** 正常收尾：已经标红（错误 / 中断）的会话不允许被 agent_end 洗成绿色。 */
-  const completeRun = useCallback(
+  const isViewed = useCallback(
+    (agentName: string, sessionId: string) => {
+      const viewed = viewedSessionRef.current;
+      return viewed !== null && viewed.agentName === agentName && viewed.sessionId === sessionId;
+    },
+    [viewedSessionRef],
+  );
+
+  const markSessionRead = useCallback(
     (agentName: string, sessionId: string) => {
       const key = runningKey(agentName, sessionId);
-      setSessionStatuses((previous) => {
-        const current = previous.get(key);
-        if (current === "error" || current === "completed") return previous;
-        const next = new Map(previous);
-        next.set(key, "completed");
+      setUnreadSessions((previous) => {
+        if (!previous.has(key)) return previous;
+        const next = new Set(previous);
+        next.delete(key);
         return next;
       });
     },
     [runningKey],
+  );
+
+  const markUnread = useCallback(
+    (agentName: string, sessionId: string) => {
+      const key = runningKey(agentName, sessionId);
+      setUnreadSessions((previous) => {
+        if (previous.has(key)) return previous;
+        const next = new Set(previous);
+        next.add(key);
+        return next;
+      });
+    },
+    [runningKey],
+  );
+
+  /**
+   * 正常收尾：已经标红（错误 / 中断）的会话不允许被 agent_end 洗成完成；
+   * 只有真正从运行态落到完成的、且用户没在看的会话才算未读。
+   */
+  const completeRun = useCallback(
+    (agentName: string, sessionId: string) => {
+      const key = runningKey(agentName, sessionId);
+      const current = statusesRef.current.get(key);
+      if (current === "error" || current === "completed") return;
+      applyStatuses((previous) => {
+        const next = new Map(previous);
+        next.set(key, "completed");
+        return next;
+      });
+      if (!isViewed(agentName, sessionId)) markUnread(agentName, sessionId);
+    },
+    [runningKey, applyStatuses, isViewed, markUnread],
   );
 
   const handleRunningChange = useCallback(() => { syncRunningRef.current(); }, []);
@@ -132,6 +193,12 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
     (agentName: string, sessionId: string | null) =>
       sessionId === null ? undefined : sessionStatuses.get(runningKey(agentName, sessionId)),
     [sessionStatuses, runningKey],
+  );
+
+  const sessionUnread = useCallback(
+    (agentName: string, sessionId: string | null) =>
+      sessionId !== null && unreadSessions.has(runningKey(agentName, sessionId)),
+    [unreadSessions, runningKey],
   );
 
   const markSessionInterrupted = useCallback(
@@ -152,21 +219,31 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
               .map((info) => `${info.agentName}\u0000${info.sessionId}`),
           );
           setRunningSessions(running);
-          setSessionStatuses((previous) => {
-            let next: Map<string, SessionRunStatus> | null = null;
-            for (const key of running) {
-              if (previous.has(key)) continue;
-              next ??= new Map(previous);
-              next.set(key, "running");
+          const previous = statusesRef.current;
+          let next: Map<string, SessionRunStatus> | null = null;
+          for (const key of running) {
+            if (previous.has(key)) continue;
+            next ??= new Map(previous);
+            next.set(key, "running");
+          }
+          // 错过 agent_end 时（例如宿主重连），以核心的运行态兜底收尾。
+          const settled: string[] = [];
+          for (const [key, status] of previous) {
+            if ((status !== "running" && status !== "retrying") || running.has(key)) continue;
+            next ??= new Map(previous);
+            next.set(key, "completed");
+            settled.push(key);
+          }
+          if (next) {
+            statusesRef.current = next;
+            setSessionStatuses(next);
+          }
+          for (const key of settled) {
+            const [agentName, sessionId] = key.split("\u0000");
+            if (agentName && sessionId && !isViewed(agentName, sessionId)) {
+              markUnread(agentName, sessionId);
             }
-            // 错过 agent_end 时（例如宿主重连），以核心的运行态兜底收尾。
-            for (const [key, status] of previous) {
-              if ((status !== "running" && status !== "retrying") || running.has(key)) continue;
-              next ??= new Map(previous);
-              next.set(key, "completed");
-            }
-            return next ?? previous;
-          });
+          }
         })
         .catch(() => {});
     };
@@ -181,7 +258,7 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
       active = false;
       unsubscribe();
     };
-  }, [runningSessions.size]);
+  }, [runningSessions.size, isViewed, markUnread]);
 
   // 只订阅一次全局完成事件，读取 ref 避免因 Agent 列表更新反复注册监听器。
   useEffect(() => {
@@ -203,6 +280,8 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
       switch (event.type) {
         case "agent_start":
           markStatus(meta.agentName, meta.sessionId, "running");
+          // 新一轮开始，上一次完成的未读提醒不再成立。
+          markSessionRead(meta.agentName, meta.sessionId);
           break;
         case "retry_start":
           markStatus(meta.agentName, meta.sessionId, "retrying");
@@ -263,6 +342,7 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
     markStatus,
     resumeFromRetry,
     completeRun,
+    markSessionRead,
   ]);
 
   const forgetRunningSession = useCallback((agentName: string, sessionId: string) => {
@@ -273,13 +353,19 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
       next.delete(key);
       return next;
     });
-    setSessionStatuses((previous) => {
+    applyStatuses((previous) => {
       if (!previous.has(key)) return previous;
       const next = new Map(previous);
       next.delete(key);
       return next;
     });
-  }, [runningKey]);
+    setUnreadSessions((previous) => {
+      if (!previous.has(key)) return previous;
+      const next = new Set(previous);
+      next.delete(key);
+      return next;
+    });
+  }, [runningKey, applyStatuses]);
 
   const forgetRunningAgent = useCallback((agentName: string) => {
     const prefix = `${agentName}\u0000`;
@@ -287,11 +373,15 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
       const next = new Set([...previous].filter((key) => !key.startsWith(prefix)));
       return next.size === previous.size ? previous : next;
     });
-    setSessionStatuses((previous) => {
+    applyStatuses((previous) => {
       const next = new Map([...previous].filter(([key]) => !key.startsWith(prefix)));
       return next.size === previous.size ? previous : next;
     });
-  }, []);
+    setUnreadSessions((previous) => {
+      const next = new Set([...previous].filter((key) => !key.startsWith(prefix)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [applyStatuses]);
 
   return {
     runningSessions,
@@ -299,6 +389,8 @@ export function useHostEvents(options: HostEventOptions): HostEventState {
     isConversationRunning,
     agentHasRunning,
     sessionStatus,
+    sessionUnread,
+    markSessionRead,
     markSessionInterrupted,
     forgetRunningSession,
     forgetRunningAgent,

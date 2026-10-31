@@ -6,7 +6,7 @@ import type { AgentDefinition, SessionSummaryView } from "../types";
 import { useI18n } from "../i18n";
 import type { AgentSection } from "./navigation";
 import {
-  SESSION_STATUS_LABEL,
+  sessionStatusLabel,
   type SessionRunStatus,
 } from "./session-status";
 
@@ -22,6 +22,7 @@ export interface AgentSidebarProps {
   archivedOpen: boolean;
   sessionsFor: (agent: AgentDefinition) => SessionSummaryView[];
   sessionStatus: (agentName: string, sessionId: string | null) => SessionRunStatus | undefined;
+  sessionUnread: (agentName: string, sessionId: string | null) => boolean;
   onSelectAgent: (name: string) => void;
   onConfigure: (name: string) => void;
   onStartNewSession: (name: string) => void;
@@ -128,6 +129,12 @@ export default function AgentSidebar(props: AgentSidebarProps) {
           <div className="sessions" id={`agent-sessions-${agent.name}`}>
             {sessions.map((session) => {
               const status = props.sessionStatus(agent.name, session.id);
+              const unread = props.sessionUnread(agent.name, session.id);
+              // 完成态只有未读才染蓝；读过的会话回到常态色。
+              const statusClass =
+                status && (status !== "completed" || unread)
+                  ? ` status-${status}`
+                  : "";
               const active =
                 props.chatOpen &&
                 props.selected === agent.name &&
@@ -135,14 +142,14 @@ export default function AgentSidebar(props: AgentSidebarProps) {
               return (
                 <div
                   key={session.id}
-                  className={`session${status ? ` status-${status}` : ""}${active ? " active" : ""}`}
+                  className={`session${statusClass}${active ? " active" : ""}`}
                 >
                   <button
                     type="button"
                     className="session-link"
                     title={
                       status
-                        ? `${session.title} · ${SESSION_STATUS_LABEL[status]}`
+                        ? `${session.title} · ${sessionStatusLabel(status, unread)}`
                         : session.title
                     }
                     onClick={() => props.onOpenSession(agent.name, session.id)}
