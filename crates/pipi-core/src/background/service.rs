@@ -69,6 +69,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
             exit_code: None,
             output_cursor: 0,
             output_truncated: false,
+            subscribe: spec.subscribe,
             error: None,
             result: None,
         };
@@ -126,6 +127,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
                 spec.owner,
                 info.clone(),
                 metadata_path.clone(),
+                Some(self.inner.completion.clone()),
             ),
             pid: AtomicU32::new(pid),
             control,
@@ -208,6 +210,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
             exit_code: None,
             output_cursor: 0,
             output_truncated: false,
+            subscribe: spec.subscribe,
             error: None,
             result: None,
         };
@@ -225,6 +228,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
                 spec.owner,
                 info.clone(),
                 metadata_path.clone(),
+                Some(self.inner.completion.clone()),
             ),
             abort: abort.clone(),
         });
@@ -448,6 +452,7 @@ mod tests {
             ),
             cwd: workspace,
             env: Default::default(),
+            subscribe: false,
         };
         let shell = manager.submit(spec.clone()).await.unwrap();
         let agent = manager
@@ -456,6 +461,7 @@ mod tests {
                 target_agent: "shutdown-child".into(),
                 prompt: "work".into(),
                 session_sink: None,
+                subscribe: false,
             })
             .await
             .unwrap();
@@ -476,6 +482,102 @@ mod tests {
             assert_eq!(snapshot.task.status, BackgroundTaskStatus::Terminated);
         }
         manager.shutdown().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn completion_broadcast_reports_terminal_state_and_observation() {
+        let _home_guard = pipi_test_support::HOME_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let home = std::env::temp_dir().join(format!(
+            "pipi-background-broadcast-{}-{}",
+            std::process::id(),
+            pipi_protocol::new_id()
+        ));
+        let workspace = home.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let previous_home = std::env::var("HOME").unwrap_or_default();
+        pipi_test_support::set_env_var("HOME", &home);
+        pipi_venv::agents::create_agent(
+            "background-broadcast",
+            "background broadcast test",
+            Some(workspace.to_str().unwrap()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let manager = BackgroundTaskManager::new(
+            tokio::runtime::Handle::current(),
+            Arc::new(crate::runtime::RuntimeChildRunner),
+        );
+        let owner = BackgroundTaskOwner::new("background-broadcast", "session-a", 1);
+        let mut events = manager.subscribe();
+        let info = manager
+            .submit(BackgroundTaskSpec {
+                owner: owner.clone(),
+                command: "printf done".into(),
+                sandbox: pipi_protocol::permissions::SandboxPolicy::for_workspace(
+                    pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+                    &workspace,
+                ),
+                cwd: workspace.clone(),
+                env: std::collections::BTreeMap::new(),
+                subscribe: true,
+            })
+            .await
+            .unwrap();
+
+        // 终态广播：订阅方拿到的 info 已经是落定后的状态。
+        let event = tokio::time::timeout(Duration::from_secs(10), events.recv())
+            .await
+            .expect("terminal broadcast should arrive")
+            .unwrap();
+        assert_eq!(event.job_id, info.job_id.as_str());
+        assert_eq!(event.status, BackgroundTaskStatus::Completed);
+        assert!(event.subscribe);
+
+        // 一次查询读到终态后打上 observed，唤醒器据此不再重复推送。
+        manager
+            .query(
+                &owner,
+                BackgroundTaskQuery {
+                    job_id: Some(info.job_id.clone()),
+                    include_completed: true,
+                    limit: 20,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(manager.was_observed(&info.job_id));
+
+        // 订阅关闭的任务仍会广播，由订阅方按 subscribe 过滤（唤醒器必须跳过）。
+        let unsubscribed = manager
+            .submit(BackgroundTaskSpec {
+                owner,
+                command: "printf quiet".into(),
+                sandbox: pipi_protocol::permissions::SandboxPolicy::for_workspace(
+                    pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+                    &workspace,
+                ),
+                cwd: workspace,
+                env: std::collections::BTreeMap::new(),
+                subscribe: false,
+            })
+            .await
+            .unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(10), events.recv())
+            .await
+            .expect("terminal broadcast should arrive")
+            .unwrap();
+        assert_eq!(event.job_id, unsubscribed.job_id.as_str());
+        assert!(!event.subscribe);
+
+        manager.shutdown().await.unwrap();
+        pipi_test_support::set_env_var("HOME", previous_home);
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -523,6 +625,7 @@ mod tests {
                 ),
                 cwd: workspace.clone(),
                 env: std::collections::BTreeMap::new(),
+                subscribe: false,
             })
             .await
             .unwrap();
@@ -604,6 +707,7 @@ mod tests {
                 ),
                 cwd: workspace.clone(),
                 env: std::collections::BTreeMap::new(),
+                subscribe: false,
             })
             .await
             .unwrap();
@@ -653,6 +757,7 @@ mod tests {
                 ),
                 cwd: workspace.clone(),
                 env: std::collections::BTreeMap::new(),
+                subscribe: false,
             })
             .await
             .unwrap();
@@ -715,6 +820,7 @@ mod tests {
                 target_agent: "agent-child".into(),
                 prompt: "不会调用 provider".into(),
                 session_sink: Some(session_sink),
+                subscribe: false,
             })
             .await
             .unwrap();

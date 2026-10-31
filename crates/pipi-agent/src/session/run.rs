@@ -9,6 +9,12 @@ pub struct RunReservation {
 
 enum Operation {
     Run(Box<RunRequest>),
+    /// 后台任务通知触发的一轮：消息在 prepare 时已经作为条目落账并进入历史，
+    /// 这里只在循环开始前把它发给前端（不经过账本的 MessageEnd 追加）。
+    Background {
+        messages: Vec<Message>,
+        request: Box<RunRequest>,
+    },
     Compact(Box<CompactionRequest>),
 }
 
@@ -79,6 +85,48 @@ impl RunReservation {
         }
     }
 
+    /// 后台任务通知触发的一轮：先逐条落 `background_result` 条目，再把回放出的
+    /// User 消息放进本轮历史。条目不经过 `MessageEnd` 的账本写入 —— 那条路径
+    /// 会再落一条 `Message`，等于同一份通知写两遍；前端事件由 `run()` 补发。
+    pub fn prepare_background_results(
+        self,
+        results: Vec<pipi_protocol::BackgroundTaskResult>,
+        mut request: RunRequest,
+        hooks: SessionHooks,
+    ) -> Result<PreparedRun, String> {
+        if results.is_empty() {
+            return Err("No background results to deliver".into());
+        }
+        request.options.session_id = Some(self.session_id()?);
+        request.tool_context.abort = self.session.abort.clone();
+        let mut messages = Vec::with_capacity(results.len());
+        {
+            let mut history = self.session.messages.lock().map_err(|e| e.to_string())?;
+            let mut writer = self
+                .session
+                .writer
+                .lock()
+                .map_err(|e| format!("Cannot lock session writer: {e}"))?;
+            for result in &results {
+                let message = pipi_protocol::session::background_result_message(result);
+                writer
+                    .append_background_result(result)
+                    .map_err(|e| format!("Cannot write background result: {e}"))?;
+                history.push(message.clone());
+                messages.push(message);
+            }
+        }
+        Ok(PreparedRun {
+            session: self.session,
+            operation: Operation::Background {
+                messages,
+                request: Box::new(request),
+            },
+            hooks,
+            guard: self.guard,
+        })
+    }
+
     pub fn fail_start(
         self,
         prompt: &str,
@@ -127,6 +175,14 @@ impl PreparedRun {
         let run_id = guard.run_id();
         let outcome = match operation {
             Operation::Run(request) => drive_run(session, *request, hooks.clone(), run_id).await,
+            Operation::Background { messages, request } => {
+                // 前端在 assistant 流开始前就应看到这些宿主通知；它们已经落账，
+                // 不能再走 ledger 的 MessageEnd（会重复写一条 Message）。
+                for message in messages {
+                    hooks.agent(&id, run_id, AgentEvent::MessageEnd { message });
+                }
+                drive_run(session, *request, hooks.clone(), run_id).await
+            }
             Operation::Compact(request) => {
                 hooks.agent(&id, run_id, AgentEvent::AgentStart);
                 drive_compaction(session, *request, hooks.clone(), run_id).await

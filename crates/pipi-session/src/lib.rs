@@ -128,7 +128,9 @@ impl LedgerState {
 /// 保留区间的 id（规则与 `pipi_protocol::session::replay` 必须一致）。
 fn track_message_ids(ids: &mut Vec<String>, entry: &SessionEntry) {
     match &entry.kind {
-        EntryKind::Message { .. } => ids.push(entry.id.clone()),
+        EntryKind::Message { .. } | EntryKind::BackgroundResult { .. } => {
+            ids.push(entry.id.clone())
+        }
         EntryKind::Compaction {
             keep_from_entry, ..
         } => {

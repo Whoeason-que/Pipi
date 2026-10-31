@@ -126,7 +126,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
 | 环境契约 | `agent.toml`（Agent 定义目录，**必需**；项目根可选）+ `agent.local.toml` + `agent.lock` | av 标准：env 声明、工具链断言、资源覆盖与技能包管理（`av skill`）；**Agent 层契约还负责编排 Agent 侧素材的路径**（`instructions` / `memory` / `skills.sources` 三项必须显式声明，`[]` = 不要），项目层不得声明 `memory`；会话启动解析一次，秘密值永不内联 |
 | 会话 | `sessions.git/`（git 分支） | 一轮一个 commit，一条 entry 一个文件（内容就是那一行 JSON）；压缩＝新建分支、`git log` 即对话。旧 `sessions/*.jsonl` 只经 Agent 工作台「文件」页的显式导入迁到分支（原文件改名保留），运行时不再直接读它们 |
-| 后台任务 | `jobs/<job-id>.jsonl` + `.log` | shell 进程与 child Agent 的生命周期、状态和输出；任务按 Agent/session 所有，重启只显示 orphaned，不按旧 PID 或 future 自动接管 |
+| 后台任务 | `jobs/<job-id>.jsonl` + `.log` | shell 进程与 child Agent 的生命周期、状态和输出；任务按 Agent/session 所有，重启只显示 orphaned，不按旧 PID 或 future 自动接管。完成时（订阅默认开启）由 `background_result` 条目写回会话并唤醒一轮 |
 
 思考程度默认不发送额外参数，保留已有模型行为。OpenAI 兼容协议发送
 `reasoning_effort`；Claude 4.6 及后续型号使用 adaptive thinking 与
@@ -293,6 +293,16 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 与异步 child Agent 共用三项显式托管工具，任务按父 Agent 的 session 所有，完整
 状态写入父 Agent 的 `jobs/`；应用重启后运行态任务只显示为 `orphaned`，不冒险
 接管遗留 PID 或未完成的 child future。
+
+**推送式完成通知（订阅默认开启）**：`submit_background_task` 与
+`run_agent(background:true)` 都有 `subscribe` 参数（默认 `true`）。任务进入
+`completed` / `failed` 时，宿主在 300ms 窗口内合并同会话的结果，把
+`background_result` 条目写回会话并**自动起一轮**（会话运行中则排进现有队列）——
+模型提交后可以直接结束本轮，不需要用 `waitMs` 阻塞轮询。通知回放成一条带
+`<background task result>` 标签的 User 消息，前端渲染成系统通知卡而不是用户气泡。
+长驻进程（dev server / watcher）传 `subscribe:false`；`terminated`（终止是会话
+自己的决定）与重启后的 `orphaned` 一律不唤醒；模型已经用 `query_background_tasks`
+（含 `waitMs`）读到终态的，不再重复推送。
 
 ## 架构
 

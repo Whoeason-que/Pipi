@@ -260,9 +260,11 @@ impl RuntimeState {
             &mut sessions,
             &key.agent_name,
             Some(&key.session_id),
-            &prompt,
-            content,
-            None,
+            super::execution::PromptInput::User {
+                prompt,
+                content,
+                model: None,
+            },
             self.events.emitter(),
         );
         let session = sessions.get_mut(&key)?;

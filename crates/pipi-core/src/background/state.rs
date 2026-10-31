@@ -1,9 +1,10 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{Notify, broadcast, oneshot};
 
 use crate::tools::background::BackgroundTaskOwner;
 use pipi_protocol::{
@@ -79,12 +80,17 @@ pub(super) enum JobCommand {
 /// （错误文案前缀）。独有字段由各自的 `finish` 在调用 [`Self::finish_with`] 时补写。
 pub(super) struct JobCore {
     /// 终态元数据写入结束后置位；仅看 status 会早于最后一次异步写盘。
-    pub(super) finished: std::sync::atomic::AtomicBool,
+    pub(super) finished: AtomicBool,
+    /// 是否有一次查询已经读到过终态。唤醒器据此避免「模型刚 wait 到结果，
+    /// 又被推一条同样的通知」。
+    observed: AtomicBool,
     kind: BackgroundTaskKind,
     pub(super) owner: Mutex<BackgroundTaskOwner>,
     pub(super) state: Mutex<JobState>,
     pub(super) notify: Notify,
     pub(super) metadata_path: PathBuf,
+    /// 终态广播（宿主唤醒器与 UI 订阅）；没有订阅者时发送是空操作。
+    completion: Option<broadcast::Sender<BackgroundTaskInfo>>,
 }
 
 impl JobCore {
@@ -94,10 +100,12 @@ impl JobCore {
         owner: BackgroundTaskOwner,
         info: BackgroundTaskInfo,
         metadata_path: PathBuf,
+        completion: Option<broadcast::Sender<BackgroundTaskInfo>>,
     ) -> Self {
         Self {
             kind,
             finished: std::sync::atomic::AtomicBool::new(false),
+            observed: AtomicBool::new(false),
             owner: Mutex::new(owner),
             state: Mutex::new(JobState {
                 info,
@@ -107,6 +115,7 @@ impl JobCore {
             }),
             notify: Notify::new(),
             metadata_path,
+            completion,
         }
     }
 
@@ -144,6 +153,7 @@ impl JobCore {
                 exit_code: None,
                 output_cursor: 0,
                 output_truncated: false,
+                subscribe: false,
                 error: Some(format!("{} state lock is poisoned", self.label())),
                 result: None,
             })
@@ -197,7 +207,7 @@ impl JobCore {
     }
 
     /// 终态：`patch` 先补写各自独有字段（shell 的 exit_code / Agent 的 result），
-    /// 再统一写 status / completed_at / error，最后唤醒等待者。
+    /// 再统一写 status / completed_at / error，最后唤醒等待者并广播。
     pub(super) fn finish_with(
         &self,
         status: BackgroundTaskStatus,
@@ -209,6 +219,19 @@ impl JobCore {
             state.finish(status, error);
         }
         self.notify.notify_waiters();
+        // 终态广播必须在状态写完、等待者唤醒之后：订阅方读到的 info 一定是终态。
+        if let Some(completion) = &self.completion {
+            let _ = completion.send(self.info());
+        }
+    }
+
+    /// 一次带 waitMs 的查询读到了终态：唤醒器不再重复推送同一条结果。
+    pub(super) fn mark_observed(&self) {
+        self.observed.store(true, Ordering::SeqCst);
+    }
+
+    pub(super) fn was_observed(&self) -> bool {
+        self.observed.load(Ordering::SeqCst)
     }
 
     /// 压缩分叉换 session id：命中本任务则改写 owner 与 info，返回新 info。

@@ -230,6 +230,16 @@ src/                 React + TypeScript 前端
   **同一个 Agent 两条会话同时跑**、停一条不影响其他、只释放空闲会话、事件与落盘
   互不串），并且别把前端拖回去：ChatView 卸载**不得**中止运行、切换 Agent 或切换
   会话**不得**被拦（后台运行是产品行为，不是 bug）。
+- 后台任务的完成通知是**推送式**的：`BackgroundTaskInfo.subscribe` 默认 `true`
+  （`submit_background_task` / `run_agent(background:true)` 都有该参数），
+  `BackgroundTaskManager` 的终态广播由宿主唤醒器订阅（`runtime/background_wake.rs`）：
+  空闲会话直接起一轮、运行中排进现有队列，300ms 窗口内按会话合并。通知以
+  `background_result` 条目落账（回放成带 `<background task result>` 标签的 User
+  消息，前端渲染成通知卡），**不要再给它追加一条 Message 条目**；`terminated` /
+  `orphaned` / 已被 `query_background_tasks`（含 `waitMs`）观测过的终态不唤醒。
+  唤醒器需要 `Arc<RuntimeState>`，宿主壳在 `Arc::new(RuntimeState::new(..))` 后
+  必须调用一次 `start_background_waker()`（新增宿主壳不要漏）。改订阅语义先更新
+  `background_wake::is_wakeable` 的表驱动测试与 README「后台任务」段。
 - 权限是安全边界：唯一实现在 `pipi-sandbox`（Linux Landlock + seccomp，macOS
   Seatbelt）。bash 与后台任务在真正 spawn 处经 `pipi_sandbox::tokio_command`
   包装；非 `danger-full-access` 档位在 helper 缺失、Landlock 不可用或策略构造

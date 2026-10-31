@@ -102,6 +102,14 @@ impl SessionLog for MemoryLog {
             custom_type: custom_type.into(),
         })
     }
+    fn append_background_result(
+        &mut self,
+        result: &pipi_protocol::BackgroundTaskResult,
+    ) -> std::io::Result<String> {
+        self.append(EntryKind::BackgroundResult {
+            result: result.clone(),
+        })
+    }
     fn append_model_change(&mut self, model: &Model) -> std::io::Result<String> {
         self.append(EntryKind::ModelChange {
             provider: model.clone(),

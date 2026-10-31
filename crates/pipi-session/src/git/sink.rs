@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use pipi_protocol::session::{CompactionRecord, EntryKind, EnvDeclared, SessionEntry, SessionLog};
-use pipi_protocol::{Message, Model, new_id, now_millis};
+use pipi_protocol::{BackgroundTaskResult, Message, Model, new_id, now_millis};
 
 use super::exec::GitExec;
 use super::{layout, refs};
@@ -157,6 +157,18 @@ impl SessionLog for GitSink {
         Ok(self.append_entry(
             EntryKind::Custom {
                 custom_type: custom_type.to_string(),
+            },
+            now_millis(),
+        ))
+    }
+
+    fn append_background_result(
+        &mut self,
+        result: &BackgroundTaskResult,
+    ) -> std::io::Result<String> {
+        Ok(self.append_entry(
+            EntryKind::BackgroundResult {
+                result: result.clone(),
             },
             now_millis(),
         ))

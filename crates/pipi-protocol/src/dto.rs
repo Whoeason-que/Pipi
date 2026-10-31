@@ -325,6 +325,18 @@ impl BackgroundTaskStatus {
     pub fn is_active(self) -> bool {
         matches!(self, Self::Queued | Self::Running)
     }
+
+    /// wire 名（与 serde 的 camelCase 一致），用于注入模型与前端展示的文本。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Terminated => "terminated",
+            Self::Orphaned => "orphaned",
+        }
+    }
 }
 
 /// 后台任务的执行类型。shell 与 child Agent 共用同一套 session-owned
@@ -367,6 +379,10 @@ pub struct BackgroundTaskInfo {
     /// 内存尾部缓冲是否已经淘汰了较早输出。完整日志仍由任务目录里的
     /// `.log` 文件保留，工具不会把该绝对路径暴露给模型。
     pub output_truncated: bool,
+    /// 完成时是否订阅通知（默认开启）：宿主据此决定要不要把结果写回会话
+    /// 并唤醒一轮。长驻进程（dev server / watcher）可以显式关掉。
+    #[serde(default = "subscribe_by_default")]
+    pub subscribe: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// child Agent 的最终文本；shell 任务为空，shell 输出仍走 output 游标。
@@ -391,6 +407,36 @@ pub struct BackgroundTaskSnapshot {
     pub task: BackgroundTaskInfo,
     pub output: Vec<BackgroundTaskOutput>,
     pub next_seq: u64,
+}
+
+/// `subscribe` 缺省为 true（旧记录与旧调用方都按默认订阅处理）。
+fn subscribe_by_default() -> bool {
+    true
+}
+
+/// 一次后台任务的完成通知：订阅开启时由宿主写进会话（`background_result`
+/// 条目），回放成一条带标签的 User 消息，前端渲染成通知卡。
+///
+/// `output` 是宿主截断后的尾部（不把整份日志塞进上下文）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundTaskResult {
+    pub job_id: String,
+    #[serde(default)]
+    pub kind: BackgroundTaskKind,
+    pub status: BackgroundTaskStatus,
+    /// shell 任务的命令；child Agent 任务为空。
+    #[serde(default)]
+    pub command: String,
+    /// `kind=agent` 时的目标 Agent。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub output: String,
 }
 
 /// 用户选择的推理强度；未设置时由供应商沿用自己的默认行为。

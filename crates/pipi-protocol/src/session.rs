@@ -59,6 +59,12 @@ pub enum EntryKind {
     Env {
         declared: Vec<EnvDeclared>,
     },
+    /// 后台任务完成通知（Pipi 新增）。订阅开启的任务进入终态时由宿主写入；
+    /// 回放成一条带标签的 User 消息（模型视角是宿主通知，不是用户输入），
+    /// 前端渲染成通知卡而不是用户气泡。
+    BackgroundResult {
+        result: crate::BackgroundTaskResult,
+    },
 }
 
 /// 环境记账单条：变量键 + 来源层标签（"runtime" 或契约层 label）。
@@ -182,6 +188,11 @@ pub trait SessionLog: Send {
     fn mark_env_recorded(&mut self);
     /// 追加一条消息（挂在当前 tip 上），返回新条目 id。
     fn append_message(&mut self, message: &Message) -> std::io::Result<String>;
+    /// 追加一条后台任务完成通知（回放时是一条带标签的 User 消息）。
+    fn append_background_result(
+        &mut self,
+        result: &crate::BackgroundTaskResult,
+    ) -> std::io::Result<String>;
     fn append_custom(&mut self, custom_type: &str) -> std::io::Result<String>;
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String>;
     fn append_model_change(&mut self, model: &Model) -> std::io::Result<String>;
@@ -302,6 +313,68 @@ pub fn summary_text(message: &Message) -> Option<&str> {
         .filter(|summary| !summary.is_empty())
 }
 
+/// 后台任务通知的包裹标签（会话文件与请求里都是这一种形状）。
+pub const BACKGROUND_RESULT_OPEN_TAG: &str = "<background task result>";
+pub const BACKGROUND_RESULT_CLOSE_TAG: &str = "</background task result>";
+
+/// 通知正文：给模型看的可读文本（前端也从同一份文本里读 status）。
+pub fn background_result_text(result: &crate::BackgroundTaskResult) -> String {
+    use std::fmt::Write;
+    let mut body = String::new();
+    let _ = writeln!(body, "status: {}", result.status.as_str());
+    let _ = writeln!(body, "job: {}", result.job_id);
+    let _ = writeln!(
+        body,
+        "kind: {}",
+        match result.kind {
+            crate::BackgroundTaskKind::Shell => "shell",
+            crate::BackgroundTaskKind::Agent => "agent",
+        }
+    );
+    if !result.command.is_empty() {
+        let _ = writeln!(body, "command: {}", result.command);
+    }
+    if let Some(target) = &result.target_agent {
+        let _ = writeln!(body, "target agent: {target}");
+    }
+    if let Some(code) = result.exit_code {
+        let _ = writeln!(body, "exit code: {code}");
+    }
+    if let Some(error) = &result.error {
+        let _ = writeln!(body, "error: {error}");
+    }
+    body.push_str("output:\n");
+    body.push_str(result.output.trim_end());
+    body.push('\n');
+    body
+}
+
+/// 带包裹标签的通知文本（落盘条目、排队消息与回放共用同一份形状）。
+pub fn background_result_tagged_text(result: &crate::BackgroundTaskResult) -> String {
+    format!(
+        "{BACKGROUND_RESULT_OPEN_TAG}\n{}{BACKGROUND_RESULT_CLOSE_TAG}",
+        background_result_text(result)
+    )
+}
+
+/// 把通知包装成注入历史的 User 消息（与压缩摘要同一种形状）。
+pub fn background_result_message(result: &crate::BackgroundTaskResult) -> Message {
+    Message::user_text(background_result_tagged_text(result))
+}
+
+/// 从一条消息里取回通知正文（不是后台通知则 `None`）。
+pub fn background_result_body(message: &Message) -> Option<&str> {
+    let Message::User { content, .. } = message else {
+        return None;
+    };
+    let rest = content
+        .strip_prefix(BACKGROUND_RESULT_OPEN_TAG)?
+        .strip_prefix('\n')?;
+    rest.split(BACKGROUND_RESULT_CLOSE_TAG)
+        .next()
+        .map(str::trim)
+}
+
 /// 从活跃路径条目回放可执行的消息历史，并给出与之一一对应的条目 id。
 ///
 /// - `Message` 条目顺序累积；
@@ -319,6 +392,10 @@ pub fn replay(entries: &[&SessionEntry]) -> (Vec<Message>, Vec<String>) {
         match &entry.kind {
             EntryKind::Message { message } => {
                 messages.push(message.clone());
+                ids.push(entry.id.clone());
+            }
+            EntryKind::BackgroundResult { result } => {
+                messages.push(background_result_message(result));
                 ids.push(entry.id.clone());
             }
             EntryKind::Compaction {
@@ -364,7 +441,28 @@ pub fn kept_start(ids: &[String], keep_from_entry: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Api;
+    use crate::{Api, BackgroundTaskKind, BackgroundTaskResult, BackgroundTaskStatus};
+
+    fn background_entry(id: &str, parent: Option<&str>, seq: u64) -> SessionEntry {
+        SessionEntry {
+            id: id.into(),
+            parent_id: parent.map(str::to_string),
+            seq,
+            timestamp: seq,
+            kind: EntryKind::BackgroundResult {
+                result: BackgroundTaskResult {
+                    job_id: "job-1".into(),
+                    kind: BackgroundTaskKind::Shell,
+                    status: BackgroundTaskStatus::Completed,
+                    command: "cargo test".into(),
+                    target_agent: None,
+                    exit_code: Some(0),
+                    error: None,
+                    output: "test result: ok".into(),
+                },
+            },
+        }
+    }
 
     fn message_entry(id: &str, parent: Option<&str>, seq: u64, text: &str) -> SessionEntry {
         SessionEntry {
@@ -546,5 +644,22 @@ mod tests {
         assert!(validate_session_id("../etc/passwd").is_err());
         assert!(validate_session_id("a.b").is_err());
         assert!(validate_session_id("会话").is_err());
+    }
+
+    #[test]
+    fn background_result_replays_as_a_tagged_user_message() {
+        let first = message_entry("a", None, 1, "hello");
+        let background = background_entry("b", Some("a"), 2);
+        let third = message_entry("c", Some("b"), 3, "after");
+
+        let (messages, ids) = replay(&[&first, &background, &third]);
+        // 通知占据自己的条目 id 槽位（压缩的 keep_from_entry 依赖这条规则）。
+        assert_eq!(ids, ["a", "b", "c"]);
+        let body = background_result_body(&messages[1]).expect("tagged user message");
+        assert!(body.contains("status: completed"), "{body}");
+        assert!(body.contains("command: cargo test"), "{body}");
+        assert!(body.contains("test result: ok"), "{body}");
+        // 回放出的消息仍然是一条 User 消息（模型视角的用户侧输入）。
+        assert!(matches!(messages[1], Message::User { .. }));
     }
 }

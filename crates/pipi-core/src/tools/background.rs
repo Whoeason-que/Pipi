@@ -53,6 +53,8 @@ pub struct BackgroundTaskSpec {
     /// 提交时的沙箱能力清单。后台任务在真正的 spawn 点（而不是提交点）
     /// 经 helper 安装；否则「提交时校验通过、执行时无沙箱」。
     pub sandbox: SandboxPolicy,
+    /// 完成时是否把结果写回会话并唤醒一轮（默认开启）。
+    pub subscribe: bool,
 }
 
 /// 应用层启动一个 child Agent 所需的输入。child 自己拥有独立 session，任务的
@@ -69,6 +71,8 @@ pub struct BackgroundAgentTaskSpec {
     pub target_agent: String,
     pub prompt: String,
     pub session_sink: Option<BackgroundAgentSessionSink>,
+    /// 完成时是否把结果写回会话并唤醒一轮（默认开启）。
+    pub subscribe: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -137,7 +141,14 @@ impl AgentTool for SubmitBackgroundTaskTool {
     }
 
     fn description(&self) -> String {
-        "Submit a managed background bash task owned by the current Agent session. The task survives the current model turn, has bounded live output, and can later be queried or terminated. Do not use shell '&', nohup, disown, or setsid; use this tool instead.".into()
+        "Submit a managed background bash task owned by the current Agent session. The task survives \
+         the current model turn and has bounded live output. By default you are notified and woken \
+         with its result when it finishes, so end your turn after submitting instead of polling; \
+         pass subscribe:false for long-lived processes (dev servers, watchers) you do not need to \
+         be woken about. Use query_background_tasks only for intermediate output, and \
+         manage_background_task to terminate. Do not use shell '&', nohup, disown, or setsid; use \
+         this tool instead."
+            .into()
     }
 
     fn parameters(&self) -> Value {
@@ -151,6 +162,10 @@ impl AgentTool for SubmitBackgroundTaskTool {
                 "cwd": {
                     "type": "string",
                     "description": "Optional directory relative to the current workspace; it must remain inside the workspace."
+                },
+                "subscribe": {
+                    "type": "boolean",
+                    "description": "Wake this session with the result when the task finishes (default true). Pass false for long-lived processes."
                 }
             },
             "required": ["command"]
@@ -175,6 +190,10 @@ impl AgentTool for SubmitBackgroundTaskTool {
         validate_managed_command(command)?;
 
         let cwd = resolve_workspace_cwd(ctx, args.get("cwd").and_then(Value::as_str))?;
+        let subscribe = args
+            .get("subscribe")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let info = self
             .service
             .submit(BackgroundTaskSpec {
@@ -183,14 +202,21 @@ impl AgentTool for SubmitBackgroundTaskTool {
                 cwd,
                 env: (*ctx.resolved_env).clone(),
                 sandbox: ctx.sandbox_policy(),
+                subscribe,
             })
             .await?;
 
         Ok(ToolOutput {
             content: vec![ToolResultContent::Text {
                 text: format!(
-                    "Background task submitted: {}, status is {:?}. Use query_background_tasks to inspect output or status.",
-                    info.job_id, info.status
+                    "Background task submitted: {}, status is {:?}. {}",
+                    info.job_id,
+                    info.status,
+                    if info.subscribe {
+                        "You will be woken with the result when it finishes; end your turn instead of polling."
+                    } else {
+                        "Subscription is off: query it with query_background_tasks when you need the result."
+                    }
                 ),
             }],
             details: Some(json!(info)),

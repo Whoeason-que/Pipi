@@ -42,16 +42,18 @@ pub fn kind_token(kind: &EntryKind) -> &'static str {
         EntryKind::Compaction { .. } => "compaction",
         EntryKind::ModelChange { .. } => "model_change",
         EntryKind::Env { .. } => "env",
+        EntryKind::BackgroundResult { .. } => "background_result",
     }
 }
 
 /// 该条目是不是用户输入（轮首判据：一轮一个 commit，轮号按提交点递增）。
+/// 后台任务通知是宿主注入的用户侧输入，同样开启一轮。
 pub fn is_user_entry(entry: &SessionEntry) -> bool {
     matches!(
         entry.kind,
         EntryKind::Message {
             message: Message::User { .. }
-        }
+        } | EntryKind::BackgroundResult { .. }
     )
 }
 
@@ -59,6 +61,7 @@ pub fn is_user_entry(entry: &SessionEntry) -> bool {
 pub fn entry_role(entry: &SessionEntry) -> &'static str {
     match &entry.kind {
         EntryKind::Message { message } => message.role(),
+        EntryKind::BackgroundResult { .. } => "user",
         other => kind_token(other),
     }
 }
@@ -100,6 +103,9 @@ pub fn summary_line(entry: &SessionEntry) -> String {
             format!("model_change: {}", provider.display_name())
         }
         EntryKind::Env { declared } => format!("env: {} 项声明", declared.len()),
+        EntryKind::BackgroundResult { result } => {
+            format!("background: {} {}", result.status.as_str(), result.job_id)
+        }
     };
     truncate_chars(&line, SUMMARY_CHARS)
 }

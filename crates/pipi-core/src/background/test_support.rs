@@ -35,6 +35,7 @@ fn info(status: BackgroundTaskStatus, kind: BackgroundTaskKind) -> BackgroundTas
         exit_code: None,
         output_cursor: 0,
         output_truncated: false,
+        subscribe: true,
         error: None,
         result: None,
     }
@@ -48,6 +49,7 @@ pub(super) fn entry(status: BackgroundTaskStatus) -> JobEntry {
             owner(),
             info(status, BackgroundTaskKind::Shell),
             PathBuf::new(),
+            None,
         ),
         pid: std::sync::atomic::AtomicU32::new(0),
         control,
@@ -62,6 +64,7 @@ pub(super) fn agent_entry(status: BackgroundTaskStatus) -> AgentJobEntry {
             owner(),
             info(status, BackgroundTaskKind::Agent),
             PathBuf::new(),
+            None,
         ),
         abort: AbortSignal::new(),
     }

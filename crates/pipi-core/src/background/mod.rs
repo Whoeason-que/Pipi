@@ -28,10 +28,29 @@ use crate::tools::agent::{AgentRunResult, ChildProgressTx};
 use crate::tools::background::{
     BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskQuery,
 };
-use pipi_protocol::{AbortSignal, BackgroundTaskInfo, BackgroundTaskSnapshot};
+use pipi_protocol::{
+    AbortSignal, BackgroundTaskInfo, BackgroundTaskKind, BackgroundTaskResult,
+    BackgroundTaskSnapshot,
+};
 use pipi_venv::agents;
 
 use self::agent::AgentJobEntry;
+
+/// 取文本末尾的不超过 `max_bytes` 的部分，按字符边界与整行对齐。
+fn tail_text(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.trim_end().to_string();
+    }
+    let mut start = text.len() - max_bytes;
+    while start < text.len() && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    let tail = &text[start..];
+    // 从第一个换行之后开始，避免把第一行截成半截。
+    let tail = tail.find('\n').map_or(tail, |at| &tail[at + 1..]);
+    format!("[…output truncated…]\n{}", tail.trim_end())
+}
+
 use self::persist::{PersistedRecord, append_record, load_persisted_snapshot, validate_job_id};
 use self::shell::JobEntry;
 use self::state::{JobCore, wait_for_state};
@@ -67,6 +86,9 @@ struct Inner {
     /// 后端差异只在需要处 match [`JobHandle`]。
     jobs: Mutex<HashMap<String, JobHandle>>,
     accepting: tokio::sync::RwLock<bool>,
+    /// 终态广播：宿主的唤醒器订阅它决定要不要把结果写回会话；UI 与推送服务
+    /// 也可以订阅同一份事件。没有订阅者时发送是空操作。
+    completion: tokio::sync::broadcast::Sender<BackgroundTaskInfo>,
 }
 
 /// 表里的一条任务。绝大部分操作（身份、状态、快照、输出）走共用的
@@ -104,13 +126,65 @@ impl JobHandle {
 
 impl BackgroundTaskManager {
     pub fn new(runtime: tokio::runtime::Handle, child_runner: Arc<dyn ChildAgentRunner>) -> Self {
+        // 容量只影响滞后时丢事件的多少；终态是低频事件，订阅者背压不做强保证。
+        let (completion, _) = tokio::sync::broadcast::channel(64);
         Self {
             inner: Arc::new(Inner {
                 runtime,
                 child_runner,
                 jobs: Mutex::new(HashMap::new()),
                 accepting: tokio::sync::RwLock::new(true),
+                completion,
             }),
+        }
+    }
+
+    /// 订阅后台任务的终态（Completed / Failed / Terminated）。
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<BackgroundTaskInfo> {
+        self.inner.completion.subscribe()
+    }
+
+    /// 某任务是否已经被一次 `query`（含 waitMs）读到过终态。
+    pub fn was_observed(&self, job_id: &str) -> bool {
+        self.find_job(job_id)
+            .ok()
+            .flatten()
+            .is_some_and(|handle| handle.core().was_observed())
+    }
+
+    /// 把一条终态信息整理成唤醒通知。
+    ///
+    /// 输出只保留尾部（`max_output_bytes` 内的完整行），完整日志仍在
+    /// jobs/*.log 里；child Agent 用最终文本而不是过程输出。
+    pub fn completion_result(
+        &self,
+        info: &BackgroundTaskInfo,
+        max_output_bytes: usize,
+    ) -> BackgroundTaskResult {
+        let mut output = String::new();
+        if info.kind == BackgroundTaskKind::Agent {
+            if let Some(result) = &info.result {
+                output = tail_text(result, max_output_bytes);
+            }
+        } else if let Ok(Some(handle)) = self.find_job(&info.job_id)
+            && let Ok(snapshot) = handle.snapshot(0)
+        {
+            let text: String = snapshot
+                .output
+                .iter()
+                .map(|chunk| chunk.text.as_str())
+                .collect();
+            output = tail_text(&text, max_output_bytes);
+        }
+        BackgroundTaskResult {
+            job_id: info.job_id.clone(),
+            kind: info.kind,
+            status: info.status,
+            command: info.command.clone(),
+            target_agent: info.target_agent.clone(),
+            exit_code: info.exit_code,
+            error: info.error.clone(),
+            output,
         }
     }
 
@@ -230,7 +304,12 @@ impl BackgroundTaskManager {
             let core = handle.core();
             wait_for_state(&core.state, &core.notify, query.wait_ms).await;
         }
-        handle.snapshot(query.after_seq)
+        let snapshot = handle.snapshot(query.after_seq)?;
+        // 模型已经通过查询看到终态：唤醒器不再重复推同一条结果。
+        if !snapshot.task.status.is_active() {
+            handle.core().mark_observed();
+        }
+        Ok(snapshot)
     }
 
     async fn query_persisted_job(

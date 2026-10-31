@@ -1,6 +1,7 @@
 import type { SessionStatsView } from "./types";
 import type { UserImage } from "./types";
 import { errorMessage } from "./errors.ts";
+import { parseBackgroundResult, type BackgroundResultView } from "./chat/background-result.ts";
 
 export interface UsageView {
   input: number;
@@ -168,10 +169,12 @@ export interface ChatEntry {
   timestamp?: number;
   /** 尚未被后端历史快照确认的本地/实时条目。 */
   transient?: boolean;
-  /** 系统级条目（上下文压缩 / 请求重试提示），不走常规 assistant 渲染。 */
-  kind?: "compaction" | "retry";
+  /** 系统级条目（上下文压缩 / 请求重试 / 后台任务通知），不走常规 assistant 渲染。 */
+  kind?: "compaction" | "retry" | "background";
   /** compaction 摘要正文（折叠展示）。 */
   summary?: string;
+  /** 后台任务通知的结构化视图（kind === "background" 时存在）。 */
+  background?: BackgroundResultView;
 }
 
 
@@ -327,6 +330,19 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
       kind: "compaction",
       text: "♻ 已压缩上下文",
       summary,
+      timestamp: message.timestamp,
+      transient,
+    };
+  }
+  // 后台任务通知是宿主注入的 User 消息：解析成通知卡，不冒充用户输入。
+  const background = parseBackgroundResult(message);
+  if (background !== null) {
+    return {
+      key,
+      role: "assistant",
+      kind: "background",
+      text: background.output,
+      background,
       timestamp: message.timestamp,
       transient,
     };
@@ -578,7 +594,7 @@ export function groupChatBlocks(entries: ChatEntry[]): ChatBlock[] {
   };
 
   for (const entry of entries) {
-    if (entry.kind === "compaction" || entry.kind === "retry") {
+    if (entry.kind === "compaction" || entry.kind === "retry" || entry.kind === "background") {
       flushChips();
       blocks.push({ kind: "system", key: entry.key, entry });
       continue;

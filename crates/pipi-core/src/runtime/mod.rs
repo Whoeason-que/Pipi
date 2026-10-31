@@ -83,6 +83,7 @@ pub struct RuntimeState {
 }
 
 mod attachments;
+mod background_wake;
 mod child;
 mod compaction;
 mod events;

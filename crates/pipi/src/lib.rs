@@ -17,11 +17,13 @@ fn runtime_handle() -> tokio::runtime::Handle {
 }
 
 pub fn run() {
+    // 唤醒器需要 Arc<RuntimeState>（后台任务完成时由宿主推动会话继续），
+    // 所以先建 Arc、启动订阅，再交给 Tauri 托管。
+    let runtime_state = Arc::new(pipi_core::runtime::RuntimeState::new(runtime_handle()));
+    runtime_state.start_background_waker();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .manage(Arc::new(pipi_core::runtime::RuntimeState::new(
-            runtime_handle(),
-        )))
+        .manage(runtime_state)
         .setup(desktop::setup)
         .on_window_event(desktop::on_window_event)
         .invoke_handler(tauri::generate_handler![

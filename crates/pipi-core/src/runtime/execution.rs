@@ -1,6 +1,19 @@
 //! 交互运行的产品装配与宿主调度。
 use super::*;
 
+/// 一轮的用户侧输入：普通消息，或宿主注入的后台任务完成通知。
+///
+/// 两条路径共用同一套装配（Agent 定义、工具上下文、系统提示、压缩预算），
+/// 差别只在“这一轮因为什么开始”和落账的条目类型。
+pub(super) enum PromptInput {
+    User {
+        prompt: String,
+        content: Option<pipi_protocol::UserContent>,
+        model: Option<Model>,
+    },
+    BackgroundResults(Vec<pipi_protocol::BackgroundTaskResult>),
+}
+
 impl RuntimeState {
     /// 启动一轮 Agent；完成后的事件通过 event_sink 广播给宿主。
     ///
@@ -40,9 +53,33 @@ impl RuntimeState {
             &mut sessions,
             agent_name,
             session_id,
-            prompt,
-            content,
-            model,
+            PromptInput::User {
+                prompt: prompt.to_string(),
+                content,
+                model,
+            },
+            event_sink,
+        )
+    }
+
+    /// 后台任务唤醒：在已有会话上追加 `background_result` 条目并启动一轮。
+    /// 会话不必须已经打开（空闲释放后会从载体重新载入），但绝不能新建会话。
+    pub(super) fn send_background_results(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        results: Vec<pipi_protocol::BackgroundTaskResult>,
+        event_sink: EventEmitter,
+    ) -> Result<SessionInfo, String> {
+        if results.is_empty() {
+            return Err("No background results to deliver".into());
+        }
+        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.send_prompt_locked(
+            &mut sessions,
+            agent_name,
+            Some(session_id),
+            PromptInput::BackgroundResults(results),
             event_sink,
         )
     }
@@ -53,17 +90,31 @@ impl RuntimeState {
         sessions: &mut HashMap<SessionKey, HostSession>,
         agent_name: &str,
         session_id: Option<&str>,
-        prompt: &str,
-        content: Option<pipi_protocol::UserContent>,
-        model: Option<Model>,
+        input: PromptInput,
         event_sink: EventEmitter,
     ) -> Result<SessionInfo, String> {
+        let (prompt, content, model, results) = match input {
+            PromptInput::User {
+                prompt,
+                content,
+                model,
+            } => (prompt.trim().to_string(), content, model, Vec::new()),
+            PromptInput::BackgroundResults(results) => {
+                // 后台通知必须落在一条已有会话上：没有 id 就没有归属。
+                if session_id.is_none() {
+                    return Err("Background results require an existing session".into());
+                }
+                (String::new(), None, None, results)
+            }
+        };
         if let Some(id) = session_id {
             validate_session_id(id)?;
         }
-        let prompt = prompt.trim().to_string();
-        if prompt.is_empty() && content.is_none() {
+        if prompt.is_empty() && content.is_none() && results.is_empty() {
             return Err("Message cannot be empty".into());
+        }
+        if !results.is_empty() && session_id.is_none() {
+            return Err("Background results require an existing session".into());
         }
 
         self.ensure_not_shutting_down()?;
@@ -276,27 +327,30 @@ impl RuntimeState {
             def.name.clone(),
             Some(make_rekey(self.sessions.clone(), self.background.clone())),
         );
-        let prepared = reservation.prepare(
-            RunRequest {
-                prompt,
-                user_content: content,
-                system_prompt,
-                model: model.clone(),
-                provider: provider_for(),
-                tools: registry,
-                tool_context,
-                options: run_stream_options(api_key, &model, &session_id, auto_protocol),
-                retry: retry_policy,
-                tool_execution: ToolExecutionMode::Parallel,
-                budget: (model.context_window > 0).then_some(budget),
-                compaction: Some(CompactionPolicy {
-                    fork_before_compact: compaction_settings.fork_before_compact,
-                    archive_original: compaction_settings.archive_original,
-                }),
-                timeout: None,
-            },
-            hooks,
-        )?;
+        let request = RunRequest {
+            prompt,
+            user_content: content,
+            system_prompt,
+            model: model.clone(),
+            provider: provider_for(),
+            tools: registry,
+            tool_context,
+            options: run_stream_options(api_key, &model, &session_id, auto_protocol),
+            retry: retry_policy,
+            tool_execution: ToolExecutionMode::Parallel,
+            budget: (model.context_window > 0).then_some(budget),
+            compaction: Some(CompactionPolicy {
+                fork_before_compact: compaction_settings.fork_before_compact,
+                archive_original: compaction_settings.archive_original,
+            }),
+            timeout: None,
+        };
+        let prepared = if results.is_empty() {
+            reservation.prepare(request, hooks)?
+        } else {
+            // 后台通知：先落 background_result 条目，再启动同一轮。
+            reservation.prepare_background_results(results, request, hooks)?
+        };
         let wake = session.queue.wake.clone();
         session.queue.active_run = Some(run_id);
         let runtime = self.clone();

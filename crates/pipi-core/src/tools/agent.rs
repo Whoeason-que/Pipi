@@ -286,6 +286,10 @@ impl AgentTool for RunAgentTool {
                 "background": {
                     "type": "boolean",
                     "description": "Submit and return immediately as a managed task. Defaults to the host's configured mode; false waits for the final output. Forced to foreground when sessionId is provided."
+                },
+                "subscribe": {
+                    "type": "boolean",
+                    "description": "Wake this session with the child Agent's result when the background task finishes (default true)."
                 }
             },
             "required": ["name", "prompt"],
@@ -354,6 +358,10 @@ impl AgentTool for RunAgentTool {
                     target_agent: name.to_string(),
                     prompt: prompt.to_string(),
                     session_sink: self.session_sink.clone(),
+                    subscribe: args
+                        .get("subscribe")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true),
                 })
                 .await?;
             on_update(ToolOutput::text(format!(

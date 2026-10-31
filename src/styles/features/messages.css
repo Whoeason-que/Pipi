@@ -677,3 +677,53 @@
   padding: 4px 10px;
   font-size: var(--text-xs);
 }
+
+/* 后台任务完成通知：系统事件卡，不是用户气泡。 */
+.background-card {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-lg);
+  background: var(--stripe);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow: hidden;
+}
+
+.background-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 14px;
+}
+
+.background-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--hover);
+}
+
+.background-icon svg { width: 16px; height: 16px; }
+.background-done .background-icon { color: var(--ok); background: var(--ok-soft); }
+.background-failed { border-color: var(--danger-border); }
+.background-failed .background-icon { color: var(--danger); background: var(--danger-soft); }
+.background-title { flex-shrink: 0; color: var(--fg); }
+.background-meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: var(--text-xs); }
+.background-error { padding: 0 14px 10px 52px; color: var(--danger); overflow-wrap: anywhere; }
+
+.background-output { border-top: 1px solid var(--line-soft); }
+.background-output summary { cursor: pointer; padding: 8px 14px; color: var(--muted); list-style: none; }
+.background-output summary::-webkit-details-marker { display: none; }
+.background-output pre {
+  margin: 0;
+  padding: 0 14px 12px;
+  max-height: 320px;
+  overflow: auto;
+  font: var(--text-xs) var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

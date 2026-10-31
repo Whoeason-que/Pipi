@@ -7,7 +7,7 @@
 //! 不会出现在会话目录和会话列表里。
 
 use pipi_protocol::session::{CompactionRecord, EntryKind, EnvDeclared, SessionLog};
-use pipi_protocol::{Message, Model, new_id, now_millis};
+use pipi_protocol::{BackgroundTaskResult, Message, Model, new_id, now_millis};
 
 use super::LedgerState;
 
@@ -85,6 +85,18 @@ impl SessionLog for MemoryLog {
         ))
     }
 
+    fn append_background_result(
+        &mut self,
+        result: &BackgroundTaskResult,
+    ) -> std::io::Result<String> {
+        Ok(self.append(
+            EntryKind::BackgroundResult {
+                result: result.clone(),
+            },
+            now_millis(),
+        ))
+    }
+
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
         self.last_append_ledger = Some(self.ledger.clone());
         Ok(self.append(record.to_entry_kind(), now_millis()))
@@ -125,6 +137,27 @@ impl SessionLog for MemoryLog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_result_occupies_a_message_id_slot() {
+        let mut log = MemoryLog::new();
+        let id = log
+            .append_background_result(&BackgroundTaskResult {
+                job_id: "job-1".into(),
+                kind: pipi_protocol::BackgroundTaskKind::Shell,
+                status: pipi_protocol::BackgroundTaskStatus::Completed,
+                command: "true".into(),
+                target_agent: None,
+                exit_code: Some(0),
+                error: None,
+                output: String::new(),
+            })
+            .unwrap();
+        // 回放会给这条条目产出一条消息，id 映射必须跟着走，否则下次压缩的
+        // keep_from_entry 会错位。
+        assert_eq!(log.message_ids(), [id.as_str()]);
+        assert_eq!(log.tip_id(), Some(id.as_str()));
+    }
 
     #[test]
     fn temporary_keeps_ledger_state_without_a_file() {

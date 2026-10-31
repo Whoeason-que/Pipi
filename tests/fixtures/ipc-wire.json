@@ -20,7 +20,7 @@
   "stats": {"input":10,"output":2,"cacheRead":3,"cacheWrite":0,"calls":1},
   "session": {"agentName":"fixture","sessionId":"session-1","temporary":false,"running":true,"backgroundTasks":0,"runId":7,"model":null,"isCustomModel":false},
   "snapshot": {"info":{"agentName":"fixture","sessionId":"session-1","temporary":false,"running":true,"backgroundTasks":0,"runId":7,"model":null,"isCustomModel":false},"messages":[],"stats":{"input":10,"output":2,"cacheRead":3,"cacheWrite":0,"calls":1},"queue":{"revision":1,"paused":false,"error":null,"messages":[{"id":"queued-1","text":"next task","sendAt":12345}]}},
-  "background": {"task":{"jobId":"job-1","kind":"agent","agentName":"fixture","sessionId":"session-1","runId":7,"command":"run_agent","cwd":"/tmp","targetAgent":"child","childSessionId":"child-1","status":"completed","startedAt":1,"completedAt":2,"outputCursor":1,"outputTruncated":false,"result":"done"},"output":[{"seq":1,"stream":"agent","text":"done","timestamp":2}],"nextSeq":1},
+  "background": {"task":{"jobId":"job-1","kind":"agent","agentName":"fixture","sessionId":"session-1","runId":7,"command":"run_agent","cwd":"/tmp","targetAgent":"child","childSessionId":"child-1","status":"completed","startedAt":1,"completedAt":2,"outputCursor":1,"outputTruncated":false,"subscribe":true,"result":"done"},"output":[{"seq":1,"stream":"agent","text":"done","timestamp":2}],"nextSeq":1},
   "events": [
     {"type":"agent-event","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"event":{"type":"agent_end","messages":[]}}},
     {"type":"agent-event","payload":{"agentName":"fixture","sessionId":"session-1","runId":7,"event":{"type":"compaction_failed","message":"fixture compaction failure"}}},

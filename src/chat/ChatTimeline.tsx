@@ -3,6 +3,7 @@ import { Markdown } from "../Markdown";
 import { ChipRow, CopyButton, formatClock } from "./ToolDetails";
 import { IconFork } from "../icons";
 import CompactionCard from "./CompactionCard";
+import BackgroundResultCard from "./BackgroundResultCard";
 import { ChatErrorCard } from "./ChatErrorCard";
 import { extractAssistantContentAndError } from "./chat-errors";
 import { useI18n } from "../i18n";
@@ -50,6 +51,15 @@ export default function ChatTimeline({
                   <div key={entry.key} className="row system-row">
                     <div className="row-inner">
                       <div className="retry-note">{entry.text}</div>
+                    </div>
+                  </div>
+                );
+              }
+              if (entry.kind === "background" && entry.background) {
+                return (
+                  <div key={entry.key} className="row system-row">
+                    <div className="row-inner">
+                      <BackgroundResultCard result={entry.background} />
                     </div>
                   </div>
                 );

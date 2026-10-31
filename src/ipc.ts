@@ -13,7 +13,7 @@ export interface BackgroundTaskSnapshot {
     command: string; cwd: string; targetAgent?: string; childSessionId?: string;
     status: "queued" | "running" | "completed" | "failed" | "terminated" | "orphaned";
     startedAt: number; completedAt?: number; exitCode?: number; outputCursor: number;
-    outputTruncated: boolean; error?: string; result?: string;
+    outputTruncated: boolean; error?: string; result?: string; subscribe: boolean;
   };
   output: Array<{ seq: number; stream: string; text: string; timestamp: number }>;
   nextSeq: number;
