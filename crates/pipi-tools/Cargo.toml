@@ -8,16 +8,14 @@ description = "Pipi Agent 的工具协议、权限策略与内置工具实现"
 [dependencies]
 async-trait = { workspace = true }
 base64 = { workspace = true }
-glob = { workspace = true }
 infer = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-sandbox = { workspace = true }
-regex = { workspace = true }
 serde_json = { workspace = true }
 similar = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
-walkdir = { workspace = true }
+unicode-normalization = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }

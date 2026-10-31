@@ -82,6 +82,9 @@ toml = "1"
 toml_edit = "0.25"
 tower = "0.5"
 tower-http = { version = "0.7", features = ["fs", "cors"] }
+# edit 的模糊匹配（NFKC + 智能引号/破折号/空格归一），与 pi 的
+# normalizeForFuzzyMatch 同一套变换。
+unicode-normalization = "0.1"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2.5"

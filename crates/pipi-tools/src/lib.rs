@@ -8,6 +8,7 @@
 
 mod bash;
 mod edit;
+mod file_queue;
 pub mod memory;
 pub mod process;
 mod read;

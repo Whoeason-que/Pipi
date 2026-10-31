@@ -53,6 +53,9 @@ impl AgentTool for WriteTool {
             ctx.ensure_writable(&abs)?;
             abs
         };
+        // 同一文件的两个 edit/write 在同一批里是并行执行的：从这里到写入完成
+        // 必须持有文件锁，否则后写的那次会静默覆盖先写的。
+        let _file_lock = crate::file_queue::lock(&abs).await;
         // 原子替换：覆盖到一半崩溃也不会把原文件毁成半截（父目录由写入助手创建）。
         // 写入是同步的文件系统调用，放到 blocking 线程池，别占住运行时 worker。
         let target = abs.clone();

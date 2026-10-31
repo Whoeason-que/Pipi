@@ -6708,18 +6708,16 @@ version = "26.10.1"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
- "glob",
  "infer",
  "nix",
  "pipi-protocol",
  "pipi-sandbox",
  "pipi-test-support",
- "regex",
  "serde_json",
  "similar",
  "tempfile",
  "tokio",
- "walkdir",
+ "unicode-normalization",
 ]
 
 [[package]]
