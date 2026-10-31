@@ -16,7 +16,7 @@
   scroll-padding-bottom: calc(var(--composer-height, 160px) + var(--space-5));
 }
 
-/* 会话内容列：居中窄列（ChatGPT thread 宽度） */
+/* 会话内容列：铺满聊天区（不设最大宽度），Agent 靠左、用户靠右。 */
 
 .connecting-row .row-inner {
   flex-direction: row;
@@ -38,8 +38,6 @@
 
 .row {
   display: flex;
-  margin: 0 auto;
-  max-width: var(--thread-width);
   padding: 18px var(--space-6);
 }
 

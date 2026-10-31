@@ -101,13 +101,11 @@
   margin: 0 auto;
 }
 
-/* ============ 输入区：与正文同宽的浮动圆角容器 ============ */
+/* ============ 输入区：与正文同宽（铺满聊天区）的浮动圆角容器 ============ */
 
 .composer {
   position: relative;
   width: 100%;
-  max-width: var(--thread-width);
-  margin: 0 auto;
   padding: 12px 24px calc(16px + var(--safe-bottom));
 }
 
