@@ -62,10 +62,6 @@ impl SessionLog for MemoryLog {
         &self.ledger.message_ids
     }
 
-    fn mark_env_recorded(&mut self) {
-        self.ledger.env_recorded = true;
-    }
-
     fn append_message(&mut self, message: &Message) -> std::io::Result<String> {
         let timestamp = message.timestamp();
         Ok(self.append(

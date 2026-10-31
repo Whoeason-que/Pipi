@@ -19,12 +19,6 @@ pub struct ToolOutputPrune;
 impl ToolOutputPrune {
     pub(super) const NAME: &'static str = "tool-output-prune";
 
-    /// 前置条件：超预算且确有可清的输出；不满足则跳过（不算失败）。
-    #[cfg(test)]
-    pub(super) fn applies(&self, prep: &Preparation<'_>) -> bool {
-        prep.over_budget() && !clearable(prep).is_empty()
-    }
-
     /// 一次扫描完成「是否适用 + 生成计划」：生产路径不必把 `clearable`
     /// 的整段历史扫描和克隆做两遍。
     pub(super) fn plan_if_applies(&self, prep: &Preparation<'_>) -> Option<Plan> {
@@ -51,20 +45,13 @@ fn clearable(prep: &Preparation<'_>) -> Vec<(usize, Message)> {
 
     // 从后往前数：最近 keep 个工具结果不动
     let mut protected = 0usize;
-    let mut protected_index = std::collections::HashSet::new();
+    let mut rewrites = Vec::new();
     for (index, message) in prep.messages.iter().enumerate().rev() {
         if message.role() != "toolResult" {
             continue;
         }
         if protected < keep {
             protected += 1;
-            protected_index.insert(index);
-        }
-    }
-
-    let mut rewrites = Vec::new();
-    for (index, message) in prep.messages.iter().enumerate() {
-        if message.role() != "toolResult" || protected_index.contains(&index) {
             continue;
         }
         let Message::ToolResult {
@@ -98,6 +85,9 @@ fn clearable(prep: &Preparation<'_>) -> Vec<(usize, Message)> {
             cleared_message(message, tool_name, chars, images, *is_error),
         ));
     }
+    // 反向扫描得到的是倒序；`Plan::apply` 与 `validate` 只按下标匹配，
+    // 但保持下标升序更便于阅读与调试。
+    rewrites.reverse();
     rewrites
 }
 
@@ -257,7 +247,15 @@ mod tests {
         let messages = big_history(8);
         // 窗口足够大：不清理（细节留到真需要时）
         let roomy = Budget::from_window(1_000_000, DEFAULT_THRESHOLD_PERCENT);
-        assert!(!ToolOutputPrune.applies(&Preparation::new(&messages, roomy)));
-        assert!(ToolOutputPrune.applies(&Preparation::new(&messages, budget())));
+        assert!(
+            ToolOutputPrune
+                .plan_if_applies(&Preparation::new(&messages, roomy))
+                .is_none()
+        );
+        assert!(
+            ToolOutputPrune
+                .plan_if_applies(&Preparation::new(&messages, budget()))
+                .is_some()
+        );
     }
 }

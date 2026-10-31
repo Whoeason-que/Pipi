@@ -19,8 +19,8 @@
 mod llm;
 mod tool_output;
 
-pub use llm::LlmSummarize;
-pub use tool_output::{CLEARED_TOOL_RESULT_PREFIX, ToolOutputPrune};
+use llm::LlmSummarize;
+use tool_output::ToolOutputPrune;
 
 use crate::context::{
     DEFAULT_RESERVE_TOKENS, context_tokens, estimate_context_tokens, prune_cut_index,
@@ -288,7 +288,7 @@ fn pairing_damage(messages: &[Message]) -> (usize, usize) {
 }
 
 /// 硬裁剪（投影式，保底档）：超预算时从最旧的完整轮次开始丢弃。
-pub struct BoundaryPrune;
+struct BoundaryPrune;
 
 impl BoundaryPrune {
     pub(super) const NAME: &'static str = "boundary-prune";
@@ -310,6 +310,11 @@ impl BoundaryPrune {
 /// 应用后的历史。任何一档出问题只跳过它自己，不影响其余档与会话。
 pub fn project(messages: Vec<Message>, budget: Budget) -> Vec<Message> {
     if budget.context_window == 0 {
+        return messages;
+    }
+    // 与 `Preparation::over_budget` 同一口径：估算没过触发线时两档都不会生效，
+    // 先短路可以省掉后面两次全量估算（工具参数序列化是主要成本）。
+    if estimate_context_tokens(&messages) <= budget.trigger_tokens() {
         return messages;
     }
     let current = apply_projection(messages, budget, ToolOutputPrune::NAME, |prep| {
@@ -376,10 +381,7 @@ pub async fn compact(
         return Err("空上下文无需压缩".into());
     }
     let prep = Preparation::new(messages, budget);
-    // 替换式目前只有摘要一档：不适用或产出空计划都算「没得压」。
-    if !LlmSummarize.applies(&prep) {
-        return Err("没有可用的压缩策略".into());
-    }
+    // 替换式目前只有摘要一档：产出空计划算「没得压」。
     let plan = LlmSummarize.run(&prep, env).await?;
     if plan.is_noop() {
         return Err("没有可用的压缩策略".into());
@@ -442,6 +444,7 @@ fn file_operations(messages: &[Message]) -> (Vec<String>, Vec<String>) {
 
 #[cfg(test)]
 mod tests {
+    use super::tool_output::CLEARED_TOOL_RESULT_PREFIX;
     use super::*;
     use crate::context::estimate_tokens;
     use crate::test_support::{assistant_text, tool_result};

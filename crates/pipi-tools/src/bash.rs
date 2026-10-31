@@ -261,7 +261,7 @@ impl AgentTool for BashTool {
         // 这里只做「存在且是目录」的 UX 校验（否则 bash 会以难读的方式失败）。
         let cwd = match args["cwd"].as_str().map(str::trim).filter(|value| !value.is_empty()) {
             Some(raw) => {
-                let path = resolve_path(&ctx.workspace, raw)?;
+                let path = resolve_path(&ctx.workspace, raw);
                 let metadata = tokio::fs::metadata(&path)
                     .await
                     .map_err(|e| format!("Working directory is not accessible: {raw}. {e}"))?;

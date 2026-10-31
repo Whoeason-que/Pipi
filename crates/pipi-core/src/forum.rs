@@ -37,7 +37,7 @@ pub fn resolve_root(workspace: &Path) -> PathBuf {
 
 /// 命令 / UI 用的论坛根目录：人类没有「当前 Agent」，因此只按 env 与全局解析
 /// （不涉及工作区维度）。
-pub fn command_root() -> PathBuf {
+fn command_root() -> PathBuf {
     if let Ok(value) = std::env::var("PIPI_FORUM_ROOT")
         && !value.trim().is_empty()
     {

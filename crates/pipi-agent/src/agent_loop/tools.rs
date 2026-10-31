@@ -11,16 +11,6 @@ struct ExecutedOutcome {
     is_error: bool,
 }
 
-fn error_output(message: impl Into<String>) -> ToolOutput {
-    ToolOutput {
-        content: vec![ToolResultContent::Text {
-            text: message.into(),
-        }],
-        details: None,
-        terminate: false,
-    }
-}
-
 /// length 截断时统一拒绝执行（照搬 pi 的文案）。
 pub(super) async fn fail_truncated_tool_calls(
     tool_calls: &[ContentBlock],
@@ -32,20 +22,20 @@ pub(super) async fn fail_truncated_tool_calls(
             continue;
         };
         emit(AgentEvent::ToolExecutionStart {
-            tool_call_id: call_id.clone(),
-            tool_name: call_name.clone(),
+            tool_call_id: call_id.to_string(),
+            tool_name: call_name.to_string(),
             args: json!({}),
         });
-        let result = error_output(format!(
+        let result = ToolOutput::text(format!(
             "Tool call \"{call_name}\" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments."
         ));
         emit(AgentEvent::ToolExecutionEnd {
-            tool_call_id: call_id.clone(),
-            tool_name: call_name.clone(),
+            tool_call_id: call_id.to_string(),
+            tool_name: call_name.to_string(),
             result: result.clone(),
             is_error: true,
         });
-        let message = tool_result_message(&call_id, &call_name, &result, true);
+        let message = tool_result_message(call_id, call_name, &result, true);
         emit(AgentEvent::MessageStart {
             message: message.clone(),
         });
@@ -60,13 +50,13 @@ pub(super) async fn fail_truncated_tool_calls(
     }
 }
 
-fn call_parts(call: &ContentBlock) -> Option<(String, String, Value)> {
+fn call_parts(call: &ContentBlock) -> Option<(&str, &str, &Value)> {
     match call {
         ContentBlock::ToolCall {
             id,
             name,
             arguments,
-        } => Some((id.clone(), name.clone(), arguments.clone())),
+        } => Some((id.as_str(), name.as_str(), arguments)),
         _ => None,
     }
 }
@@ -128,28 +118,28 @@ enum Prepared {
 fn prepare_call(call: &ContentBlock, config: &AgentLoopConfig, abort: &AbortSignal) -> Prepared {
     let Some((_, call_name, arguments)) = call_parts(call) else {
         return Prepared::Immediate {
-            result: error_output("Content block is not a tool call"),
+            result: ToolOutput::text("Content block is not a tool call"),
             is_error: true,
         };
     };
-    let Some(tool) = config.tools.get(&call_name) else {
+    let Some(tool) = config.tools.get(call_name) else {
         return Prepared::Immediate {
-            result: error_output(format!("Tool {call_name} not found")),
+            result: ToolOutput::text(format!("Tool {call_name} not found")),
             is_error: true,
         };
     };
-    let args = match validate_args(&tool.parameters(), &arguments) {
-        Ok(()) => arguments,
+    let args = match validate_args(&tool.parameters(), arguments) {
+        Ok(()) => arguments.clone(),
         Err(e) => {
             return Prepared::Immediate {
-                result: error_output(e),
+                result: ToolOutput::text(e),
                 is_error: true,
             };
         }
     };
     if abort.is_aborted() {
         return Prepared::Immediate {
-            result: error_output("Operation aborted"),
+            result: ToolOutput::text("Operation aborted"),
             is_error: true,
         };
     }
@@ -170,16 +160,18 @@ async fn run_tool(
 ) -> ExecutedOutcome {
     let Some((call_id, call_name, _)) = call_parts(call) else {
         return ExecutedOutcome {
-            result: error_output("Content block is not a tool call"),
+            result: ToolOutput::text("Content block is not a tool call"),
             is_error: true,
         };
     };
     if abort.is_aborted() {
         return ExecutedOutcome {
-            result: error_output("Operation aborted"),
+            result: ToolOutput::text("Operation aborted"),
             is_error: true,
         };
     }
+    let call_id = call_id.to_string();
+    let call_name = call_name.to_string();
     let emit_for_update = emit.clone();
     let on_update = move |partial: ToolOutput| {
         emit_for_update(AgentEvent::ToolExecutionUpdate {
@@ -194,13 +186,13 @@ async fn run_tool(
             is_error: false,
         },
         Err(e) => ExecutedOutcome {
-            result: error_output(e),
+            result: ToolOutput::text(e),
             is_error: true,
         },
     };
     if abort.is_aborted() && !outcome.is_error {
         return ExecutedOutcome {
-            result: error_output("Operation aborted"),
+            result: ToolOutput::text("Operation aborted"),
             is_error: true,
         };
     }
@@ -212,12 +204,12 @@ fn emit_finalized(call: &ContentBlock, outcome: &ExecutedOutcome, emit: &Emitter
         unreachable!("tool call always has parts here");
     };
     emit(AgentEvent::ToolExecutionEnd {
-        tool_call_id: call_id.clone(),
-        tool_name: call_name.clone(),
+        tool_call_id: call_id.to_string(),
+        tool_name: call_name.to_string(),
         result: outcome.result.clone(),
         is_error: outcome.is_error,
     });
-    let message = tool_result_message(&call_id, &call_name, &outcome.result, outcome.is_error);
+    let message = tool_result_message(call_id, call_name, &outcome.result, outcome.is_error);
     emit(AgentEvent::MessageStart {
         message: message.clone(),
     });
@@ -241,9 +233,9 @@ async fn execute_sequential(
             continue;
         };
         emit(AgentEvent::ToolExecutionStart {
-            tool_call_id: call_id.clone(),
-            tool_name: call_name.clone(),
-            args,
+            tool_call_id: call_id.to_string(),
+            tool_name: call_name.to_string(),
+            args: args.clone(),
         });
 
         let finalized = match prepare_call(call, config, abort) {
@@ -279,9 +271,9 @@ async fn execute_parallel(
             continue;
         };
         emit(AgentEvent::ToolExecutionStart {
-            tool_call_id: call_id.clone(),
-            tool_name: call_name.clone(),
-            args,
+            tool_call_id: call_id.to_string(),
+            tool_name: call_name.to_string(),
+            args: args.clone(),
         });
         prepared.push((call.clone(), prepare_call(call, config, abort)));
         // 同 execute_sequential：abort 不丢弃剩余调用，每个调用都要有结果

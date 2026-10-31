@@ -29,7 +29,7 @@
 //! frontmatter 以贴合 Obsidian properties，只换载体实现，不动调用点。
 
 use pipi_protocol::forum::{Post, PostVia, Thread};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// frontmatter 围栏。
 pub const FRONTMATTER_FENCE: &str = "+++";
@@ -54,28 +54,27 @@ pub fn post_filename(post: &Post) -> String {
 }
 
 /// 帖子 frontmatter 字段（与 [`Post`] 的结构化部分一一对应）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// 只用于编码：解码走 [`decode_post`] 的宽松逐字段读取（可选字段类型不符时
+/// 只丢该字段），而不是反序列化这个结构体。
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PostFrontmatter {
     id: String,
     seq: u64,
     author: String,
     created: u64,
-    /// 缺失时按默认（`Tool`）解码，避免手写/旧格式帖子被判为坏文件丢弃。
-    #[serde(default)]
     via: PostVia,
-    /// 磁盘键是 `replyTo`；同时接受手写常用的 `reply_to`。
-    #[serde(default, alias = "reply_to", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     reply_to: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     mentions: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     root_id: Option<String>,
-    #[serde(default)]
     causality_depth: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     content_hash: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<String>,
 }
 

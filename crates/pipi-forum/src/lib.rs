@@ -17,5 +17,4 @@ mod format;
 pub mod root;
 
 pub use file::FileForumRepo;
-pub use format::new_forum_id;
 pub use root::{FORUM_MARKER, WORKSPACE_FORUM_DIR, discover, is_forum_root};

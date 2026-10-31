@@ -310,9 +310,6 @@ impl AgentSession {
         commit::commit_shared(&self.state.writer)
     }
 
-    pub fn steer(&self, text: &str) -> Result<(), String> {
-        self.steer_content(pipi_protocol::UserContent::Text(text.trim().into()))
-    }
     pub fn steer_content(&self, content: pipi_protocol::UserContent) -> Result<(), String> {
         if content.is_empty() {
             return Err("Message cannot be empty".into());

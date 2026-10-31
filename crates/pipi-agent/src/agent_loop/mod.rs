@@ -2,14 +2,13 @@
 //!
 //! 保留的核心语义：
 //! - 事件流（agent / turn / message / tool 四层生命周期）
-//! - steering（运行中插话）与 follow-up（结束后追加）两条消息队列
+//! - steering（运行中插话）队列；「结束后追加」由宿主的待发箱以新一轮实现
 //! - 工具批次执行：顺序 / 并行；全部结果 terminate 才提前终止
 //! - stopReason 为 length 时拒绝执行所有工具调用（参数可能被截断）
-//! - before/after 工具钩子（Pipi 的命令权限在 bash 工具内部检查，钩子供扩展用）
 //!
 //! 有意简化（与上游差异，见 lib.rs）：convertToLlm 为恒等（暂无自定义消息
 //! 类型）；transformContext 只做消息投影，未实现 prepareNextTurn / shouldStopAfterTurn；
-//! 并行批次按助手消息中的顺序（而非完成顺序）回报结果。
+//! before/after 工具钩子未移植；并行批次按助手消息中的顺序（而非完成顺序）回报结果。
 
 use std::sync::{Arc, Mutex};
 
@@ -20,8 +19,7 @@ use serde_json::{Value, json};
 use pipi_protocol::provider::Provider;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, ToolRegistry, validate_args};
 use pipi_protocol::{
-    AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent,
-    StreamOptions, ToolResultContent,
+    AbortSignal, Api, ContentBlock, Context, Message, Model, StopReason, StreamEvent, StreamOptions,
 };
 
 mod drive;
@@ -40,6 +38,7 @@ pub use types::{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pipi_protocol::ToolResultContent;
     use pipi_protocol::{Api, Usage};
     use std::sync::atomic::{AtomicUsize, Ordering};
 

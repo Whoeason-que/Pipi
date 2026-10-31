@@ -66,10 +66,6 @@ impl FileForumRepo {
         Ok(repo.root)
     }
 
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     fn lock(&self) -> Result<MutexGuard<'_, ()>, String> {
         self.write_lock
             .lock()
