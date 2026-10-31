@@ -253,6 +253,9 @@ export default function AgentWorkbench({
         systemPrompt: promptScope,
       };
       await invoke("save_agent", { def: next });
+      // 保存时可能剔除了退役工具（glob/grep）；同步本地状态，避免刚保存完
+      // 就因为「字段与文件不一致」亮出未保存徽标。
+      setTools(next.permissions.tools);
       setSavedLimits({
         maxTokens: next.provider?.maxTokens ?? 8192,
         contextWindow: next.provider?.contextWindow ?? 0,

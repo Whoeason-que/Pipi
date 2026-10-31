@@ -11,7 +11,7 @@ const demoAgent: AgentDefinition = {
   provider: null,
   workspace: DEMO_WORKSPACE,
   permissions: {
-    tools: ["read", "write", "edit", "bash", "memory", "glob", "grep"],
+    tools: ["read", "write", "edit", "bash", "memory"],
     sandbox: "workspace-write",
   },
   mcpServers: [],
@@ -77,7 +77,7 @@ const demoPeer: AgentDefinition = {
   provider: null,
   workspace: null,
   permissions: {
-    tools: ["read", "glob", "grep"],
+    tools: ["read", "bash"],
     sandbox: "read-only",
   },
   mcpServers: [],

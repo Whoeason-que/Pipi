@@ -1,6 +1,14 @@
 import type { PermissionsConfig, SandboxMode } from "../types";
 
-export const DEFAULT_TOOLS = ["read", "write", "edit", "bash", "memory", "glob", "grep"] as const;
+export const DEFAULT_TOOLS = ["read", "write", "edit", "bash", "memory"] as const;
+
+/**
+ * 2026-10-31 退役：搜索统一走 bash（`rg` 优先，`grep -rn` 兜底）。
+ * 旧 agent.json 的 `permissions.tools` 里可能还留着这两个名字；它们在 UI 里
+ * 没有开关，保存时由 `permissionsFromFields` 剔除（一次性迁移）。
+ */
+export const RETIRED_TOOLS = ["glob", "grep"] as const;
+
 export const KNOWN_TOOLS = [
   ...DEFAULT_TOOLS,
   "create_agent",
@@ -18,5 +26,10 @@ export const KNOWN_TOOLS = [
 
 
 export function permissionsFromFields(tools: string[], sandbox: SandboxMode): PermissionsConfig {
-  return { tools, sandbox };
+  return {
+    tools: tools.filter(
+      (tool) => !(RETIRED_TOOLS as readonly string[]).includes(tool),
+    ),
+    sandbox,
+  };
 }

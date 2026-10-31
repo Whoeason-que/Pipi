@@ -20,7 +20,8 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 crates/pipi-protocol/ 契约层：DTO 与 wire 形状、会话条目格式与存储端口
                       （SessionLog / SessionRepo）、工具/权限/provider 端口，
                       以及跨层共用的零依赖助手（fs 守卫、文本转义、id、RetryHint）
-crates/pipi-tools/    内置工具实现（bash/read/write/edit/glob/grep/memory）
+crates/pipi-tools/    内置工具实现（bash/read/write/edit/memory；搜索走 bash，
+                      内置 grep/glob 已于 2026-10-31 退役）
 crates/pipi-sandbox/  OS 级沙箱：SandboxPolicy → Landlock + seccomp（Linux）/
                       Seatbelt（macOS），提供 pipi-sandbox helper 与库侧
                       Command 包装（唯一安全边界）

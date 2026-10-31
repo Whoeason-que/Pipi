@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn partial_batch_is_completed_in_order() {
         let messages = vec![
-            assistant_with_calls(&[("c1", "bash"), ("c2", "read"), ("c3", "grep")]),
+            assistant_with_calls(&[("c1", "bash"), ("c2", "read"), ("c3", "edit")]),
             tool_result("c1", "bash", "out"),
         ];
         let repaired = repair_tool_pairing(messages);

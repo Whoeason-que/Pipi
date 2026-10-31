@@ -77,7 +77,10 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 
 ### 3. 小核心，组合优于配置
 
-核心只默认启用最小工具集（`read` / `write` / `edit` / `bash` / `memory` / `glob` / `grep`）。
+核心只默认启用最小工具集（`read` / `write` / `edit` / `bash` / `memory`）。
+搜索统一走 `bash`（`rg` 优先，`grep -rn` 兜底）：历史会话里内置 `grep` / `glob`
+合计只占 0.2% 的调用，且不读 `.gitignore`、跳过点路径、`include` 只匹配 basename，
+「无匹配」经常是错的；2026-10-31 起两者退役，不再提供半成品搜索路径。
 跨 Agent 的 `create_agent` / `run_agent` / `read_agent`，以及会让进程跨越当前模型
 轮次继续运行的 `submit_background_task` / `query_background_tasks` /
 `manage_background_task`，都是显式选择的组合能力，不会因升级或新建 Agent 而自动
@@ -505,7 +508,7 @@ Alt+Enter 引导当前任务，Shift+Enter 换行。消息实际起跑前只显�
 | `packages/ai` types | `pipi-protocol` | 消息/内容块/事件协议，JSON 字段名与上游一致 |
 | `packages/ai` api adapters | `pipi-provider` | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
 | `packages/agent` agent-loop | `pipi-agent::agent_loop` | 事件流 + steering + 工具批次执行；引导作用于当前任务，宿主待发箱以独立新运行实现排队/延迟发送，迟到引导由内核收割保留 |
-| `packages/agent` harness/tools | `pipi-tools` + `pipi-core::tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/glob/grep；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
+| `packages/agent` harness/tools | `pipi-tools` + `pipi-core::tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
 | `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness prompt/resources | `pipi-venv::prompt` | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
 | `packages/agent` harness/session | `pipi-protocol::session`（条目格式与回放）+ `pipi-session`（载体） | 树状 Entry（id/parentId/seq）；载体是 git 分支（一轮一 commit，压缩＝建分支），旧 JSONL 文件只经显式导入迁移；Pipi 增量新增 `compaction` 条目类型 |
@@ -520,7 +523,7 @@ prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-san
 （OS 沙箱与 helper）、
 `pipi-venv::agents`（Agent 注册表）、`pipi-provider::catalog`（模型目录，
 models.dev）、`pipi-venv::skills`（技能中心）、
-memory 工具（含渐进召回注入）、glob/grep 检索工具。
+memory 工具（含渐进召回注入）；文件搜索交给 bash（`rg` / `grep` / `find`）。
 
 **用量口径**（`pipi_protocol::Usage`，与 pi 的 `AssistantMessage["usage"]` 一致）：`input`
 只计**未命中缓存**的提示词 token，命中/写入分别落在 `cache_read` / `cache_write`，
@@ -538,9 +541,9 @@ memory 工具（含渐进召回注入）、glob/grep 检索工具。
   「provider 层用第三方库」的架构决策来自它
   （它用 Vercel AI SDK，我们用 rig）；`session.ts` 里 usage 的归一化口径
   （cache read/write 从输入中拆分）与我们的 Usage 字段一致（拆分位置见上文
-  「用量口径」）。glob/grep 检索
-  工具对齐它的结果上限约定：单次 100 条 + "use a more specific pattern"
-  注释，`include` 支持 `*.{ts,tsx}` 花括号展开。
+  「用量口径」）。文件搜索不再自带 `grep` / `glob` 工具：两者在历史会话里合计
+  只占 0.2% 的调用，且实现不读 `.gitignore`、会给出错误的「无匹配」；搜索统一
+  走 `bash`（`rg` 的 gitignore 语义比内置 walker 正确）。
 - **工具配对不变量**（pi + opencode）：OpenAI / Anthropic 都要求「带
   `tool_calls` 的 assistant 消息后面必须紧跟回答每个 `tool_call_id` 的 tool
   消息」，历史里任何破损（进程中断、批次中止、手工编辑）都会让请求被 400

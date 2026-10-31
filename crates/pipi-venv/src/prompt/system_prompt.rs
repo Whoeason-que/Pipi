@@ -97,20 +97,25 @@ fn default_prompt(
     tool_snippets: &HashMap<String, String>,
     prompt_guidelines: &[String],
 ) -> String {
-    let visible_tools = tools
+    // 只把**实际注册了实现**的工具算作可用：agent.json 里可能残留已退役的
+    // 工具名（如 glob/grep），它们没有 snippet，不应影响工具选择指导。
+    let available: Vec<(&str, &String)> = tools
         .iter()
         .filter_map(|name| {
             tool_snippets
                 .get(name)
                 .filter(|snippet| !snippet.is_empty())
-                .map(|snippet| (name, snippet))
+                .map(|snippet| (name.as_str(), snippet))
         })
-        .map(|(name, snippet)| format!("- {name}: {snippet}"))
-        .collect::<Vec<_>>();
-    let tools_list = if visible_tools.is_empty() {
+        .collect();
+    let tools_list = if available.is_empty() {
         "(none)".to_string()
     } else {
-        visible_tools.join("\n")
+        available
+            .iter()
+            .map(|(name, snippet)| format!("- {name}: {snippet}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     };
 
     let mut guidelines = Vec::new();
@@ -121,21 +126,24 @@ fn default_prompt(
         }
     };
 
-    let has = |name: &str| tools.iter().any(|tool| tool == name);
-    if (has("bash") || has("powershell")) && !has("grep") && !has("find") && !has("ls") {
-        if has("bash") && has("powershell") {
-            add_guideline(
-                "Use bash or PowerShell for file operations like listing, searching, and finding files"
-                    .to_string(),
-            );
-        } else if has("powershell") {
-            add_guideline(
-                "Use PowerShell for file operations like listing, searching, and finding files"
-                    .to_string(),
-            );
-        } else {
-            add_guideline("Use bash for file operations like ls, rg, find".to_string());
-        }
+    let has = |name: &str| available.iter().any(|(candidate, _)| *candidate == name);
+    if has("bash") {
+        add_guideline(
+            "Use bash for file operations: ls, rg (respects .gitignore), find. \
+             Prefer rg when installed, otherwise grep -rn; pipe search output through \
+             head so the first matches survive truncation"
+                .to_string(),
+        );
+    }
+    if has("read") {
+        add_guideline("Use read to examine files instead of cat or sed".to_string());
+    }
+    if has("edit") {
+        add_guideline(
+            "Use edit for precise changes: each edits[].oldText must match the original \
+             file exactly and be unique"
+                .to_string(),
+        );
     }
     for guideline in prompt_guidelines {
         let normalized = guideline.trim();
@@ -266,7 +274,7 @@ mod tests {
         let prompt = build_system_prompt(options());
         assert_eq!(
             prompt,
-            "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\nAvailable tools:\n(none)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n\nGuidelines:\n- Use bash for file operations like ls, rg, find\n- Be concise in your responses\n- Show file paths clearly when working with files\nCurrent working directory: /work/project"
+            "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\nAvailable tools:\n(none)\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n\nGuidelines:\n- Be concise in your responses\n- Show file paths clearly when working with files\nCurrent working directory: /work/project"
         );
     }
 
@@ -301,6 +309,7 @@ mod tests {
         options.tool_snippets = HashMap::from([
             ("bash".into(), "run commands".into()),
             ("read".into(), "read files".into()),
+            ("edit".into(), "edit files".into()),
             ("write".into(), "write files".into()),
         ]);
         options.prompt_guidelines = vec![
@@ -312,9 +321,26 @@ mod tests {
         let prompt = build_system_prompt(options);
         assert!(prompt.contains("- bash: run commands\n- read: read files"));
         assert!(!prompt.contains("- write: write files"));
-        assert!(prompt.contains("- Use bash for file operations like ls, rg, find"));
+        assert!(prompt.contains("- Use bash for file operations: ls, rg (respects .gitignore), find."));
+        assert!(prompt.contains("- Use read to examine files instead of cat or sed"));
+        assert!(prompt.contains("- Use edit for precise changes"));
         assert_eq!(prompt.matches("- Keep paths visible").count(), 1);
         assert!(!prompt.contains("-   "));
+    }
+
+    #[test]
+    fn retired_tool_names_do_not_shape_the_prompt() {
+        let mut options = options();
+        // 旧 agent.json 里可能还留着已退役的 glob/grep：没有实现就没有 snippet，
+        // 不应出现在可用工具里，也不应压制 bash 的搜索指导。
+        options.selected_tools = Some(vec!["bash".into(), "glob".into(), "grep".into()]);
+        options.tool_snippets = HashMap::from([("bash".into(), "run commands".into())]);
+
+        let prompt = build_system_prompt(options);
+        assert!(prompt.contains("- bash: run commands"));
+        assert!(!prompt.contains("- glob:"));
+        assert!(!prompt.contains("- grep:"));
+        assert!(prompt.contains("- Use bash for file operations"));
     }
 
     #[test]

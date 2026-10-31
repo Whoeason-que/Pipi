@@ -83,7 +83,6 @@ async fn create_run_and_read_agent_output() {
     let permissions = PermissionsConfig {
         tools: vec![
             "read".into(),
-            "glob".into(),
             "create_agent".into(),
             "run_agent".into(),
             "read_agent".into(),
@@ -150,7 +149,7 @@ async fn create_run_and_read_agent_output() {
         .await
         .unwrap();
     let default_definition = pipi_venv::agents::load_agent("composition-default-worker").unwrap();
-    assert_eq!(default_definition.permissions.tools, vec!["read", "glob"]);
+    assert_eq!(default_definition.permissions.tools, vec!["read"]);
     assert!(
         BACKGROUND_TASK_TOOLS
             .iter()

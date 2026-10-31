@@ -8,13 +8,10 @@
 
 mod bash;
 mod edit;
-mod glob;
-mod grep;
 pub mod memory;
 pub mod process;
 mod read;
 mod truncate;
-mod walk;
 mod write;
 
 use std::sync::Arc;
@@ -26,12 +23,6 @@ pub fn builtin_registry(ctx: &ToolContext) -> ToolRegistry {
     let mut tools: Vec<Arc<dyn AgentTool>> = Vec::new();
     if ctx.permissions.tool_enabled("read") {
         tools.push(Arc::new(read::ReadTool));
-    }
-    if ctx.permissions.tool_enabled("glob") {
-        tools.push(Arc::new(glob::GlobTool));
-    }
-    if ctx.permissions.tool_enabled("grep") {
-        tools.push(Arc::new(grep::GrepTool));
     }
     if ctx.permissions.tool_enabled("write") {
         tools.push(Arc::new(write::WriteTool));
