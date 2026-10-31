@@ -45,6 +45,9 @@ impl ToolOutput {
 pub struct ToolContext {
     pub workspace: PathBuf,
     pub memory_dir: Option<PathBuf>,
+    /// 当前会话的 notebook 文件（`~/.pipi/agents/<name>/notebooks/<session>.md`）。
+    /// 没有会话身份（子 Agent、临时测试上下文）时为 None，notebook 工具不注册。
+    pub notebook_path: Option<PathBuf>,
     /// 除工作目录外允许 `read` 访问的受信任目录（例如 Agent 的 skills/）。
     pub read_roots: Vec<PathBuf>,
     pub permissions: Arc<PermissionsConfig>,

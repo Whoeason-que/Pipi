@@ -95,6 +95,7 @@ async fn create_run_and_read_agent_output() {
     let context = ToolContext {
         workspace: std::fs::canonicalize(&workspace).unwrap(),
         memory_dir: None,
+        notebook_path: None,
         read_roots: Vec::new(),
         permissions: Arc::new(permissions),
         sandbox: SandboxMode::WorkspaceWrite,

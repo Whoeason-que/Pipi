@@ -541,6 +541,7 @@ mod tests {
         let ctx = ToolContext {
             workspace,
             memory_dir: None,
+            notebook_path: None,
             read_roots: Vec::new(),
             permissions: std::sync::Arc::new(
                 pipi_protocol::permissions::PermissionsConfig::default(),

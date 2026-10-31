@@ -429,6 +429,7 @@ mod tests {
         ToolContext {
             workspace: pipi_test_support::temp_dir("pipi-core-forum-tool"),
             memory_dir: None,
+            notebook_path: None,
             read_roots: Vec::new(),
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox: SandboxMode::DangerFullAccess,

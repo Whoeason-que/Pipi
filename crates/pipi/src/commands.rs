@@ -54,8 +54,8 @@ pub fn test_desktop_notification(state: State<'_, Arc<RuntimeState>>) -> Result<
 use pipi_core::commands::{
     AgentSkillsArgs, ConfigureRemoteAccessArgs, CreateAgentArgs, ForumPostArgs, ForumReadArgs,
     ForumReplyArgs, ForumSearchArgs, ForumThread, ForumThreadsArgs, InstallSkillArgs,
-    ListAgentFilesArgs, ListAgentsArgs, ModelCatalogArgs, ReadAgentFileArgs, RemoteAccessTokenArgs,
-    RemoveStoreSkillArgs, SaveAgentArgs, SaveSettingsArgs, SetIconThemeArgs,
+    ListAgentFilesArgs, ListAgentsArgs, ModelCatalogArgs, ReadAgentFileArgs, ReadNotebookArgs,
+    RemoteAccessTokenArgs, RemoveStoreSkillArgs, SaveAgentArgs, SaveSettingsArgs, SetIconThemeArgs,
     SetRemoteAccessEnabledArgs, SetSkillEnabledArgs, SkillUsageArgs, SyncAgentSkillsArgs,
     VerifyStoreSkillsArgs, WriteAgentFileArgs,
 };
@@ -113,6 +113,12 @@ pub fn list_agent_files(
 #[tauri::command]
 pub fn read_agent_file(args: InvokeArgs<ReadAgentFileArgs>) -> Result<String, String> {
     pipi_core::commands::read_agent_file(args.0)
+}
+
+/// 读取会话 notebook（右侧检查器渲染用）。
+#[tauri::command]
+pub fn read_notebook(args: InvokeArgs<ReadNotebookArgs>) -> Result<String, String> {
+    pipi_core::commands::read_notebook(args.0)
 }
 
 /// 写入 Agent 目录内的可编辑 Markdown（harness/AGENTS.md / harness/memory/*.md）。

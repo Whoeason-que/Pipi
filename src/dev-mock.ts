@@ -11,7 +11,7 @@ const demoAgent: AgentDefinition = {
   provider: null,
   workspace: DEMO_WORKSPACE,
   permissions: {
-    tools: ["read", "write", "edit", "bash", "memory"],
+    tools: ["read", "write", "edit", "bash", "memory", "notebook"],
     sandbox: "workspace-write",
   },
   mcpServers: [],
@@ -871,6 +871,12 @@ export function installDevMock(): void {
           return Promise.resolve(
             String(args.relPath) === "harness/AGENTS.md"
               ? "# demo-assistant\n\n演示模式的系统指令。\n"
+              : "",
+          );
+        case "read_notebook":
+          return Promise.resolve(
+            String(args.sessionId) === initialDemoSessionId
+              ? "# 会话笔记本\n\n## Plan\n\n- [x] 读取项目结构\n- [x] 总结模块职责\n- [ ] 补充测试\n\n## Notes\n\n核心三块：前端、Tauri 壳、Agent 内核。\n\n## Walkthrough\n\n已梳理项目结构并在时间线里给出结论。\n"
               : "",
           );
         case "write_agent_file": {

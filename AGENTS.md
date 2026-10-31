@@ -20,7 +20,7 @@ React + TypeScript 前端负责渲染，Rust 核心负责 Agent 循环、工具�
 crates/pipi-protocol/ 契约层：DTO 与 wire 形状、会话条目格式与存储端口
                       （SessionLog / SessionRepo）、工具/权限/provider 端口，
                       以及跨层共用的零依赖助手（fs 守卫、文本转义、id、RetryHint）
-crates/pipi-tools/    内置工具实现（bash/read/write/edit/memory；搜索走 bash，
+crates/pipi-tools/    内置工具实现（bash/read/write/edit/memory/notebook；搜索走 bash，
                       内置 grep/glob 已于 2026-10-31 退役）
 crates/pipi-sandbox/  OS 级沙箱：SandboxPolicy → Landlock + seccomp（Linux）/
                       Seatbelt（macOS），提供 pipi-sandbox helper 与库侧
@@ -158,6 +158,15 @@ src/                 React + TypeScript 前端
   `agent.json` 的 `systemPrompt` 策略（`both` / `agent` / `workspace` / `none`）**只决定哪一侧
   的素材进系统提示**：env、权限、沙箱与受信任读取根一律与它无关，别把策略判断塞进
   `build_tool_context`；`none` 走「组装返回空串、`stream.rs` 的 `!is_empty()` 不发 system」。
+- **notebook 是会话级文件，不是 Agent 记忆**：`<Agent 目录>/notebooks/<session-id>.md`，
+  路径推导只有 `pipi_venv::agents::notebook_path` 一处（工具上下文与 `read_notebook`
+  命令共用），会话 id 必须过单段校验（不安全就返回 `None`，不退化成机器路径）。
+  工具只在自己的文件上读写（原子替换、拒绝符号链接、64 KiB 上限）；内容**不自动
+  注入**上下文，恢复会话时模型用 `notebook` 工具按需 read（与 memory 的渐进召回同一
+  取向）。存量 Agent 的显式 `permissions.tools` 由 `list_agents_bootstrapped` 里的
+  `migrate_tool_lists` 幂等追加：按 `serde_json::Value` 改数组（typed 往返会丢未知键）、
+  跳过子 Agent 与 `.archive`。右栏「笔记本」tab 走 `read_notebook` 单独读取，不从
+  会话事件里猜。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息一律用可读的英文（English）。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
   - react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，

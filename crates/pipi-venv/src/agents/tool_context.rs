@@ -68,6 +68,9 @@ pub fn build_tool_context(
         pipi_protocol::tools::ToolContext {
             workspace,
             memory_dir: Some(material.memory_dir.clone()),
+            // notebook 是会话级工作文档：没有会话身份（临时测试、子 Agent）
+            // 就没有 notebook，工具也不注册。
+            notebook_path: session_id.as_deref().and_then(|id| def.notebook_path(id)),
             read_roots,
             permissions: std::sync::Arc::new(def.permissions.clone()),
             sandbox: def.permissions.sandbox,
@@ -119,6 +122,46 @@ mod tests {
         assert!(resolved.starts_with(read_root));
 
         let _ = fs::remove_dir_all(agent_dir(&name).unwrap());
+    }
+
+    /// notebook 是会话级路径：有会话身份才给，没有（临时测试 / 子 Agent）就为 None。
+    #[test]
+    fn tool_context_exposes_a_session_scoped_notebook() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let name = format!("notebook-ctx-{}", pipi_protocol::new_id());
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
+        let prepared = prepare_agent(&def).unwrap();
+        let dir = agent_dir(&name).unwrap();
+
+        let (ctx, _) = build_tool_context(
+            &def,
+            &prepared,
+            Some("1730000000000-abc".into()),
+            pipi_protocol::AbortSignal::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            ctx.notebook_path,
+            Some(dir.join("notebooks").join("1730000000000-abc.md"))
+        );
+
+        let (ctx, _) =
+            build_tool_context(&def, &prepared, None, pipi_protocol::AbortSignal::new()).unwrap();
+        assert!(ctx.notebook_path.is_none());
+
+        let (ctx, _) = build_tool_context(
+            &def,
+            &prepared,
+            Some("../escape".into()),
+            pipi_protocol::AbortSignal::new(),
+        )
+        .unwrap();
+        assert!(
+            ctx.notebook_path.is_none(),
+            "unsafe session ids have no notebook"
+        );
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     /// 契约声明的技能来源目录进受信任读取根（与提示词策略无关：即便策略只取

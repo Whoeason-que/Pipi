@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use pipi_protocol::Model;
-use pipi_protocol::fs::ensure_real_file;
+use pipi_protocol::fs::{ensure_real_file, write_atomic};
 use pipi_protocol::permissions::PermissionsConfig;
 
 use super::paths::{
@@ -33,6 +33,12 @@ impl AgentDefinition {
 
     pub fn sessions_dir(&self) -> Option<PathBuf> {
         self.dir().map(|dir| dir.join("sessions"))
+    }
+
+    /// 本会话的 notebook 文件。路径推导只有 `paths::notebook_path` 一处，
+    /// 工具上下文与宿主命令都走这里。
+    pub fn notebook_path(&self, session_id: &str) -> Option<PathBuf> {
+        super::paths::notebook_path(&self.name, session_id)
     }
 }
 
@@ -136,7 +142,71 @@ pub fn list_agents_bootstrapped() -> Result<Vec<AgentDefinition>, String> {
     if let Err(error) = ensure_default_agent() {
         eprintln!("pipi: failed to bootstrap default Agent: {error}");
     }
+    match migrate_tool_lists() {
+        Ok(0) => {}
+        Ok(count) => eprintln!("pipi: added the notebook tool to {count} Agent manifest(s)"),
+        Err(error) => eprintln!("pipi: failed to migrate Agent tool lists: {error}"),
+    }
     list_agents()
+}
+
+/// 存量 Agent 的工具名单迁移：把 `notebook` 追加到显式的 `permissions.tools`。
+///
+/// 新工具是白名单成员，老清单里没有它就不会注册 —— 不迁移的话这个功能对
+/// 已有 Agent 永远是灰的。这里按原始 `serde_json::Value` 改一个数组，而不是
+/// `AgentDefinition` 往返：manifest 里可能有本版本还不认识的键，typed 往返
+/// 会把它们悄悄丢掉。幂等（已含 notebook 或没有显式 tools 数组就跳过），
+/// 子 Agent 也跳过（它们的工具名单由组合器维护）。返回实际改写的 Agent 数。
+pub fn migrate_tool_lists() -> Result<usize, String> {
+    let dir = checked_agents_root()?;
+    if !dir.exists() {
+        return Ok(0);
+    }
+    let mut migrated = 0;
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() || !file_type.is_dir() {
+            continue;
+        }
+        // `.archive` 等以点开头的目录一律跳过：迁移不是修历史副本的地方。
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let manifest = entry.path().join("agent.json");
+        // 坏文件/符号链接跳过（与 scan_agents 同一取向：迁移不能把列表拖垮）。
+        match ensure_real_file(&manifest, "agent.json") {
+            Ok(true) => {}
+            _ => continue,
+        }
+        let Ok(text) = fs::read_to_string(&manifest) else {
+            continue;
+        };
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        if value.get("subagent").and_then(|flag| flag.as_bool()) == Some(true) {
+            continue;
+        }
+        let Some(tools) = value
+            .get_mut("permissions")
+            .and_then(|permissions| permissions.get_mut("tools"))
+            .and_then(|tools| tools.as_array_mut())
+        else {
+            // 没有显式清单 = 走 serde 默认值，新默认里已经有 notebook。
+            continue;
+        };
+        if tools.iter().any(|tool| tool.as_str() == Some("notebook")) {
+            continue;
+        }
+        tools.push(serde_json::Value::String("notebook".into()));
+        let manifest_text = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+        write_atomic(&manifest, manifest_text + "\n")
+            .map_err(|e| format!("Failed to migrate {}: {e}", manifest.display()))?;
+        migrated += 1;
+    }
+    Ok(migrated)
 }
 
 /// 创建 Agent：生成目录骨架并写入 agent.json / AGENTS.md。
@@ -353,6 +423,66 @@ mod tests {
         assert!(external_contents.contains("external"));
         std::fs::remove_dir_all(&home).unwrap();
         std::fs::remove_dir_all(&external).unwrap();
+    }
+
+    /// 存量清单迁移：只动显式的 tools 数组，保留未知键，跳过子 Agent，幂等。
+    #[test]
+    fn tool_list_migration_adds_notebook_once_and_preserves_unknown_keys() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "pipi-notebook-migrate-home-{}",
+            pipi_protocol::new_id()
+        ));
+        let agents = home.join(".pipi/agents");
+        let plain = agents.join("plain-agent");
+        let sub = agents.join("sub-agent");
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(
+            plain.join("agent.json"),
+            r#"{
+  "name": "plain-agent",
+  "permissions": { "tools": ["read", "write"], "sandbox": "workspace-write" },
+  "futureField": { "kept": true }
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            sub.join("agent.json"),
+            r#"{
+  "name": "sub-agent",
+  "subagent": true,
+  "permissions": { "tools": ["read"] }
+}
+"#,
+        )
+        .unwrap();
+
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+        assert_eq!(migrate_tool_lists().unwrap(), 1);
+
+        let migrated: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(plain.join("agent.json")).unwrap()).unwrap();
+        assert_eq!(
+            migrated["permissions"]["tools"],
+            serde_json::json!(["read", "write", "notebook"])
+        );
+        // 迁移按 Value 改数组：本版本不认识的键必须原样保留。
+        assert_eq!(migrated["futureField"]["kept"], true);
+        // 子 Agent 的工具名单由组合器维护，不追加。
+        let subagent: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(sub.join("agent.json")).unwrap()).unwrap();
+        assert_eq!(
+            subagent["permissions"]["tools"],
+            serde_json::json!(["read"])
+        );
+        // 幂等：第二次没有可迁移的清单。
+        assert_eq!(migrate_tool_lists().unwrap(), 0);
+
+        pipi_test_support::set_env_var("HOME", previous_home);
+        let _ = fs::remove_dir_all(&home);
     }
 
     #[test]

@@ -54,6 +54,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
     │   └── memory/         #   持久记忆（Markdown，人机共写）
     ├── workspace/          # Agent 目录内的默认工作区（也可指向任意本地路径）
     ├── jobs/               # 托管后台任务的状态 JSONL 与完整输出日志
+    ├── notebooks/          # 会话笔记本：<session-id>.md（计划清单 + 进度 + 走查，右栏渲染）
     ├── sessions.git/       # 会话载体：git 分支（一轮一个 commit，`git log` 即对话）
     └── sessions/           # 旧会话文件（JSONL）：仅显式导入 git 时读取，导入后改名 .jsonl.imported 保留
 ```
@@ -77,7 +78,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 
 ### 3. 小核心，组合优于配置
 
-核心只默认启用最小工具集（`read` / `write` / `edit` / `bash` / `memory`）。
+核心只默认启用最小工具集（`read` / `write` / `edit` / `bash` / `memory` / `notebook`）。
 搜索统一走 `bash`（`rg` 优先，`grep -rn` 兜底）：历史会话里内置 `grep` / `glob`
 合计只占 0.2% 的调用，且不读 `.gitignore`、跳过点路径、`include` 只匹配 basename，
 「无匹配」经常是错的；2026-10-31 起两者退役，不再提供半成品搜索路径。
@@ -114,6 +115,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 系统指令 | `agent.toml` → `[resources].instructions` 声明的文件（默认 `harness/AGENTS.md`） | 人直接读写的 Markdown，每次运行注入为系统提示（是否取材由 `systemPrompt` 策略决定） |
 | 技能 | `agent.toml` → `[resources.skills].sources` 声明的目录（默认 `harness/skills/`）；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
 | 记忆 | `agent.toml` → `[resources].memory` 声明的目录（默认 `harness/memory/`） | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
+| 笔记本 | `~/.pipi/agents/<name>/notebooks/<session-id>.md` | 会话级工作文档：`notebook` 工具维护 `## Plan` 清单、`## Notes` 与 `## Walkthrough`，右栏「笔记本」实时渲染并显示计划完成度；不自动注入上下文，模型在恢复会话时先 read（与记忆同一套渐进召回） |
 | 系统提示词策略 | `agent.json` → `systemPrompt` | `both`（默认：Pipi 侧 + 工作区侧）/ `agent`（只取 Agent 侧素材）/ `workspace`（只取项目上下文）/ `none`（完全不发 system 消息，只发对话与工具定义）。策略只影响提示词：权限、沙箱、env 与受信任读取根不受影响，`workspace` 策略的 Agent 照样能用 memory 工具读写契约声明的记忆目录 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`。Linux 用 Landlock（文件系统）+ seccomp（默认禁网络），macOS 用 Seatbelt；由 `pipi-sandbox` helper 在 `exec` 前安装，子进程全部继承。`workspace-write` 只允许写工作目录、临时目录与 `/dev` 基础设备；`danger-full-access` 是显式逃生门（不挂沙箱） |
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |
@@ -238,7 +240,9 @@ Markdown、图片和浏览器支持的 PDF / 音视频。Git 按已暂存、未�
 选中代码行（Shift 扩展范围）并补充意见后，可以选择当前 Agent 的目标会话或新会话
 草稿，加入带工作目录、相对路径、内容版本和行号的引用，再返回对应会话；不会自动
 发送模型请求。会话右上角的「会话文件」只展示本次 read/write/edit 涉及的文件与
-工具操作记录，历史差异在右栏查看，磁盘当前内容跳到独立 File 页面打开。
+工具操作记录，历史差异在右栏查看，磁盘当前内容跳到独立 File 页面打开。右栏首个
+「笔记本」页渲染当前会话的 notebook（`- [ ]` 清单换算成完成度），有内容时图标上
+带一个小圆点。
 
 文件读取只在工作目录内进行，不跟随符号链接，不执行 HTML / SVG，不自动加载
 Markdown 外部图片。桌面与远程共用同一组宿主命令。
@@ -508,7 +512,7 @@ Alt+Enter 引导当前任务，Shift+Enter 换行。消息实际起跑前只显�
 | `packages/ai` types | `pipi-protocol` | 消息/内容块/事件协议，JSON 字段名与上游一致 |
 | `packages/ai` api adapters | `pipi-provider` | 采用 rig（第三方）承载协议层，本仓库只做 pi 风格消息/事件的映射 —— 采纳 opencode「provider 交给 Vercel AI SDK」的同款决策 |
 | `packages/agent` agent-loop | `pipi-agent::agent_loop` | 事件流 + steering + 工具批次执行；引导作用于当前任务，宿主待发箱以独立新运行实现排队/延迟发送，迟到引导由内核收割保留 |
-| `packages/agent` harness/tools | `pipi-tools` + `pipi-core::tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
+| `packages/agent` harness/tools | `pipi-tools` + `pipi-core::tools::agent` | `pipi-tools` 提供 read/write/edit/bash/memory/notebook；核心保留显式的 Agent 创建、运行与输出读取组合工具 |
 | `packages/agent` harness/utils/truncate | `pipi-tools::truncate` | 2000 行 / 50KB，同一套提示文案 |
 | `packages/agent` harness prompt/resources | `pipi-venv::prompt` | 项目上下文发现、UTF-8 预算和纯 system prompt 渲染；不依赖 Agent 存储或运行时 |
 | `packages/agent` harness/session | `pipi-protocol::session`（条目格式与回放）+ `pipi-session`（载体） | 树状 Entry（id/parentId/seq）；载体是 git 分支（一轮一 commit，压缩＝建分支），旧 JSONL 文件只经显式导入迁移；Pipi 增量新增 `compaction` 条目类型 |
@@ -523,7 +527,8 @@ prepareNextTurn、其余 provider、图片工具。Pipi 自己新增：`pipi-san
 （OS 沙箱与 helper）、
 `pipi-venv::agents`（Agent 注册表）、`pipi-provider::catalog`（模型目录，
 models.dev）、`pipi-venv::skills`（技能中心）、
-memory 工具（含渐进召回注入）；文件搜索交给 bash（`rg` / `grep` / `find`）。
+memory 工具（含渐进召回注入）、notebook 工具（会话级工作文档，右栏渲染）；
+文件搜索交给 bash（`rg` / `grep` / `find`）。
 
 **用量口径**（`pipi_protocol::Usage`，与 pi 的 `AssistantMessage["usage"]` 一致）：`input`
 只计**未命中缓存**的提示词 token，命中/写入分别落在 `cache_read` / `cache_write`，

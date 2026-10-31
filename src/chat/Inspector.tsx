@@ -13,6 +13,8 @@ import {
   type InspectorTab,
 } from "./inspector-tabs";
 import { SessionFilesPanel } from "../files/SessionFilesPanel";
+import { NotebookPanel } from "./NotebookPanel";
+import { useNotebook } from "./notebook";
 // ============ 右侧检查器 ============
 
 export interface InspectorProps {
@@ -84,6 +86,11 @@ export default function Inspector({
     setInternalTab(next);
     onTabChange?.(next);
   };
+  // 临时测试会话没有真实 notebook（id 属于进程内的测试账本），不占一个空 tab。
+  const tabs = embedded
+    ? INSPECTOR_TABS.filter((item) => item.id !== "notebook")
+    : INSPECTOR_TABS;
+  const notebook = useNotebook(agent.name, embedded ? null : sessionId, entries);
   // 正在压缩：压缩条目在收尾前是 transient（见 chat-runtime 的 compaction_start）
   const compacting = entries.some(
     (entry) => entry.kind === "compaction" && entry.transient,
@@ -155,12 +162,10 @@ export default function Inspector({
   const handleTabKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
     event.preventDefault();
-    const index = INSPECTOR_TABS.findIndex((item) => item.id === tab);
+    const index = tabs.findIndex((item) => item.id === tab);
     const delta = event.key === "ArrowRight" ? 1 : -1;
     const next =
-      INSPECTOR_TABS[
-        (index + delta + INSPECTOR_TABS.length) % INSPECTOR_TABS.length
-      ];
+      tabs[(index + delta + tabs.length) % tabs.length];
     setTab(next.id);
     document.getElementById(`itab-${next.id}`)?.focus();
   };
@@ -210,7 +215,7 @@ export default function Inspector({
             aria-label="检查器视图"
             onKeyDown={handleTabKeys}
           >
-            {INSPECTOR_TABS.map((item) => {
+            {tabs.map((item) => {
               const label = getInspectorTabLabel(item.id);
               return (
                 <button
@@ -233,6 +238,9 @@ export default function Inspector({
                   {item.id === "detail" && chipDetail && tab !== "detail" && (
                     <span className="tab-dot" />
                   )}
+                  {item.id === "notebook" &&
+                    notebook.content &&
+                    tab !== "notebook" && <span className="tab-dot" />}
                 </button>
               );
             })}
@@ -256,7 +264,7 @@ export default function Inspector({
           aria-label="检查器视图"
           onKeyDown={handleTabKeys}
         >
-          {INSPECTOR_TABS.map((item) => (
+          {tabs.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -275,6 +283,14 @@ export default function Inspector({
       )}
 
       <div className="ipanels">
+        <div
+          className={`ipanel${tab === "notebook" ? " active" : ""}`}
+          id="ipanel-notebook"
+          role="tabpanel"
+          aria-labelledby="itab-notebook"
+        >
+          <NotebookPanel notebook={notebook} agent={agent} />
+        </div>
         <div
           className={`ipanel${tab === "detail" ? " active" : ""}`}
           id="ipanel-detail"

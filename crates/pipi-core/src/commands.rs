@@ -41,6 +41,7 @@ pub const COMMANDS: &[&str] = &[
     "list_agent_files",
     "read_agent_file",
     "write_agent_file",
+    "read_notebook",
     "list_workspace_files",
     "preview_workspace_file",
     "workspace_changes",
@@ -231,6 +232,26 @@ pub struct WriteAgentFileArgs {
 /// 写入 Agent 目录内的可编辑 Markdown（harness/AGENTS.md / harness/memory/*.md）。
 pub fn write_agent_file(runtime: &RuntimeState, args: WriteAgentFileArgs) -> Result<(), String> {
     runtime.write_agent_file(&args.agent_name, &args.rel_path, &args.content)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadNotebookArgs {
+    pub agent_name: String,
+    pub session_id: String,
+}
+
+/// 读取会话 notebook（右侧检查器渲染用）。还没有 notebook 时返回空串；
+/// 路径由 `pipi-venv` 的 Agent 目录布局推出，不在这里手写 `notebooks/`。
+pub fn read_notebook(args: ReadNotebookArgs) -> Result<String, String> {
+    let path = agents::notebook_path(&args.agent_name, &args.session_id)
+        .ok_or_else(|| format!("Cannot resolve notebook for session {}", args.session_id))?;
+    match pipi_protocol::fs::ensure_real_file(&path, "notebook") {
+        Ok(true) => std::fs::read_to_string(&path)
+            .map_err(|error| format!("Failed to read notebook: {error}")),
+        Ok(false) => Ok(String::new()),
+        Err(error) => Err(error),
+    }
 }
 
 // ============ 工作区只读预览 ============
@@ -1200,6 +1221,7 @@ pub async fn dispatch(
         "list_agent_files" => to_value(list_agent_files(parse(args)?)?),
         "read_agent_file" => to_value(read_agent_file(parse(args)?)?),
         "write_agent_file" => to_value(write_agent_file(runtime, parse(args)?)?),
+        "read_notebook" => to_value(read_notebook(parse(args)?)?),
         "list_workspace_files" => to_value(list_workspace_files(parse(args)?).await?),
         "preview_workspace_file" => to_value(preview_workspace_file(parse(args)?).await?),
         "workspace_changes" => to_value(workspace_changes(parse(args)?).await?),
@@ -1307,8 +1329,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            66,
-            "宿主命令数应为 66（前端 CommandMap 同步）"
+            67,
+            "宿主命令数应为 67（前端 CommandMap 同步）"
         );
     }
 

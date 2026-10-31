@@ -67,6 +67,12 @@ pub(super) fn make_rekey(
 ) -> SessionRekey {
     Arc::new(move |old, new| {
         background.rekey_session(&old.agent_name, &old.session_id, new);
+        // 压缩分叉换了会话 id：把 notebook 带过去，右栏与模型都还能看到同一份
+        // 工作文档（旧文件不删，原会话归档后仍可读）。
+        if let Err(error) = pipi_venv::agents::carry_notebook(&old.agent_name, &old.session_id, new)
+        {
+            eprintln!("pipi: failed to carry the notebook to the forked session: {error}");
+        }
         let Ok(mut map) = sessions.lock() else {
             return;
         };

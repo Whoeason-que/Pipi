@@ -119,6 +119,7 @@ export const en: I18nSchema = {
     collapseDetails: "Collapse details",
   },
   inspector: {
+    notebook: "Notebook",
     detail: "Details",
     stats: "Stats",
     state: "State",

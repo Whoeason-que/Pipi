@@ -129,8 +129,7 @@ fn default_prompt(
     let has = |name: &str| available.iter().any(|(candidate, _)| *candidate == name);
     if has("read") {
         add_guideline(
-            "Use read to examine files or list directories instead of cat, sed or ls"
-                .to_string(),
+            "Use read to examine files or list directories instead of cat, sed or ls".to_string(),
         );
     }
     if has("bash") {
@@ -144,6 +143,14 @@ fn default_prompt(
         add_guideline(
             "Use edit for precise changes: each edits[].oldText must match the original \
              file exactly and be unique"
+                .to_string(),
+        );
+    }
+    if has("notebook") {
+        add_guideline(
+            "Keep the session notebook up to date: write the plan as a checklist before \
+             multi-step work, tick items as they finish, record key decisions and findings, \
+             and end with a short walkthrough; read it first when resuming"
                 .to_string(),
         );
     }
@@ -324,7 +331,11 @@ mod tests {
         assert!(prompt.contains("- bash: run commands\n- read: read files"));
         assert!(!prompt.contains("- write: write files"));
         assert!(prompt.contains("- Use bash for commands and content search: prefer rg"));
-        assert!(prompt.contains("- Use read to examine files or list directories instead of cat, sed or ls"));
+        assert!(
+            prompt.contains(
+                "- Use read to examine files or list directories instead of cat, sed or ls"
+            )
+        );
         assert!(prompt.contains("- Use edit for precise changes"));
         assert_eq!(prompt.matches("- Keep paths visible").count(), 1);
         assert!(!prompt.contains("-   "));
@@ -343,6 +354,27 @@ mod tests {
         assert!(!prompt.contains("- glob:"));
         assert!(!prompt.contains("- grep:"));
         assert!(prompt.contains("- Use bash for commands and content search"));
+    }
+
+    #[test]
+    fn notebook_guideline_follows_the_registered_tool() {
+        let mut with_notebook = options();
+        with_notebook.selected_tools = Some(vec!["read".into(), "notebook".into()]);
+        with_notebook.tool_snippets = HashMap::from([
+            ("read".into(), "read files".into()),
+            ("notebook".into(), "session notebook".into()),
+        ]);
+
+        let prompt = build_system_prompt(with_notebook);
+        assert!(prompt.contains("- notebook: session notebook"));
+        assert!(prompt.contains("- Keep the session notebook up to date"));
+
+        // 没启用（或没有实现）就不该要求维护 notebook。
+        let mut without_notebook = options();
+        without_notebook.selected_tools = Some(vec!["read".into()]);
+        without_notebook.tool_snippets = HashMap::from([("read".into(), "read files".into())]);
+        let prompt = build_system_prompt(without_notebook);
+        assert!(!prompt.contains("session notebook"));
     }
 
     #[test]

@@ -20,6 +20,7 @@ fn context() -> ToolContext {
     ToolContext {
         workspace: pipi_test_support::temp_dir("adv2-ctx"),
         memory_dir: None,
+        notebook_path: None,
         read_roots: Vec::new(),
         permissions: Arc::new(PermissionsConfig::default()),
         sandbox: SandboxMode::DangerFullAccess,

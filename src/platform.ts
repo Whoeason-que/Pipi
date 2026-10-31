@@ -327,6 +327,7 @@ const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }
   workspace_diff: {},
   read_agent_file: {},
   write_agent_file: {},
+  read_notebook: { sessionId: "required" },
   agent_skills: {},
   set_skill_enabled: {},
   sync_agent_skills: {},

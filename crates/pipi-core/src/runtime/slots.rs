@@ -207,6 +207,10 @@ impl RuntimeState {
 
         let writer = repo.fork(session_id, up_to_entry_id)?;
         let new_session_id = writer.session_id().to_string();
+        // 手动分叉同样带上 notebook：分出来的是同一次工作的延续。
+        if let Err(error) = agents::carry_notebook(agent_name, session_id, &new_session_id) {
+            eprintln!("pipi: failed to carry the notebook to the forked session: {error}");
+        }
 
         let entries = repo.entries(&new_session_id)?;
         let engine = AgentSession::restore(

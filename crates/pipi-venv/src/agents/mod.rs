@@ -33,12 +33,12 @@ pub use contract::{
 pub use files::{
     AgentEditableFiles, list_agent_editable_files, memory_index, read_agent_file, write_agent_file,
 };
-pub use paths::{agent_dir, expand_tilde, validate_agent_name};
+pub use paths::{agent_dir, carry_notebook, expand_tilde, notebook_path, validate_agent_name};
 pub use preparation::{PreparedAgent, prepare_agent};
 pub use prompt::build_system_prompt_with_tools;
 pub use registry::{
     create_agent, create_agent_with_instructions, ensure_default_agent, list_agents,
-    list_agents_bootstrapped, load_agent, save_agent,
+    list_agents_bootstrapped, load_agent, migrate_tool_lists, save_agent,
 };
 pub use tool_context::build_tool_context;
 pub use types::{

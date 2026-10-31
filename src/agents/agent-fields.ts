@@ -1,6 +1,6 @@
 import type { PermissionsConfig, SandboxMode } from "../types";
 
-export const DEFAULT_TOOLS = ["read", "write", "edit", "bash", "memory"] as const;
+export const DEFAULT_TOOLS = ["read", "write", "edit", "bash", "memory", "notebook"] as const;
 
 /**
  * 2026-10-31 退役：搜索统一走 bash（`rg` 优先，`grep -rn` 兜底）。

@@ -93,7 +93,7 @@ impl SandboxPolicy {
 /// `glob` / `grep` 已退役（2026-10-31）：历史会话里合计只占 0.2% 的调用，
 /// 而内置实现不读 `.gitignore`、跳过点路径、`include` 只匹配 basename，
 /// 给出的「无匹配」经常是错的。搜索统一走 bash（`rg` 优先，`grep -rn` 兜底）。
-pub const DEFAULT_TOOLS: [&str; 5] = ["read", "write", "edit", "bash", "memory"];
+pub const DEFAULT_TOOLS: [&str; 6] = ["read", "write", "edit", "bash", "memory", "notebook"];
 
 /// Agent 组合工具：必须在 `permissions.tools` 中显式启用。
 pub const AGENT_TOOLS: [&str; 3] = ["create_agent", "run_agent", "read_agent"];
@@ -112,12 +112,13 @@ pub const BACKGROUND_TASK_TOOLS: [&str; 3] = [
 pub const FORUM_TOOLS: [&str; 4] = ["forum_list", "forum_read", "forum_post", "forum_reply"];
 
 /// Pipi 已知内置工具名（基础工具 + 显式启用的 Agent 组合 / 后台任务 / 论坛工具）。
-pub const KNOWN_TOOLS: [&str; 16] = [
+pub const KNOWN_TOOLS: [&str; 17] = [
     "read",
     "write",
     "edit",
     "bash",
     "memory",
+    "notebook",
     "create_agent",
     "run_agent",
     "read_agent",

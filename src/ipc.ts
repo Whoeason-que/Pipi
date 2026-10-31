@@ -27,6 +27,7 @@ export interface CommandMap {
   list_agent_files: { args: { agentName: string }; result: AgentEditableFiles };
   read_agent_file: { args: { agentName: string; relPath: string }; result: string };
   write_agent_file: { args: { agentName: string; relPath: string; content: string }; result: void };
+  read_notebook: { args: { agentName: string; sessionId: string }; result: string };
   list_workspace_files: { args: { agentName: string; path: string }; result: WorkspaceListing };
   preview_workspace_file: { args: { agentName: string; path: string }; result: WorkspaceFile };
   workspace_changes: { args: { agentName: string }; result: WorkspaceChanges };

@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 
-export type InspectorTab = "detail" | "stats" | "state" | "files" | "search";
+export type InspectorTab = "notebook" | "detail" | "stats" | "state" | "files" | "search";
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
+  { id: "notebook", label: "笔记本" },
   { id: "detail", label: "调用详情" },
   { id: "stats", label: "会话统计" },
   { id: "state", label: "当前状态" },
@@ -27,6 +28,13 @@ export function InspectorTabIcon({
   className?: string;
 }) {
   const paths: Record<InspectorTab, ReactNode> = {
+    notebook: (
+      <>
+        <path d="M8 3h8a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
+        <path d="m9 11 1.5 1.5L13 10" />
+        <path d="M9 16h6" />
+      </>
+    ),
     detail: <path d="m4 5 6 6-6 6M12 19h8" />,
     stats: <path d="M18 20V10M12 20V4M6 20v-6" />,
     state: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,

@@ -303,6 +303,7 @@ mod tests {
             tool_context: ToolContext {
                 workspace: std::env::temp_dir(),
                 memory_dir: None,
+                notebook_path: None,
                 read_roots: Vec::new(),
                 permissions: Arc::new(Default::default()),
                 sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,

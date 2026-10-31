@@ -407,3 +407,34 @@
     gap: 5px;
   }
 }
+
+/* 会话笔记本：Agent 维护的工作文档（计划进度 + Markdown 正文）。 */
+.notebook-panel {
+  gap: var(--space-2);
+}
+
+.notebook-progress-label {
+  font: var(--text-xs) var(--font-mono);
+  color: var(--faint);
+}
+
+.notebook-progress {
+  display: block;
+  flex-shrink: 0;
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--track);
+  overflow: hidden;
+}
+
+.notebook-progress > i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-full);
+  background: var(--bar);
+  transition: width 0.2s ease;
+}
+
+.notebook-body {
+  min-width: 0;
+}

@@ -89,6 +89,7 @@ mod tests {
         ToolContext {
             workspace,
             memory_dir: None,
+            notebook_path: None,
             read_roots: Vec::new(),
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox,

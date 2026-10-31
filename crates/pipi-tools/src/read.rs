@@ -325,6 +325,7 @@ mod tests {
         let ctx = ToolContext {
             workspace,
             memory_dir: None,
+            notebook_path: None,
             read_roots: vec![skill_root],
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,

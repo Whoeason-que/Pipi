@@ -117,6 +117,7 @@ export const zh = {
     collapseDetails: "收起详细错误信息",
   },
   inspector: {
+    notebook: "笔记本",
     detail: "调用详情",
     stats: "会话统计",
     state: "当前状态",

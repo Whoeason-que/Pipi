@@ -1,5 +1,5 @@
 //! 内置工具实现。移植自 `packages/agent/src/harness/tools/`，外加 Pipi 新增的
-//! memory 工具。
+//! memory 与 notebook 工具。
 //!
 //! 工具**端口**（`AgentTool` / `ToolContext` / `ToolRegistry` / `ToolOutput`）
 //! 与权限**数据**（`PermissionsConfig` / `SandboxMode` / 工具名清单）在
@@ -10,6 +10,7 @@ mod bash;
 mod edit;
 mod file_queue;
 pub mod memory;
+mod notebook;
 pub mod process;
 mod read;
 mod truncate;
@@ -40,6 +41,12 @@ pub fn builtin_registry(ctx: &ToolContext) -> ToolRegistry {
         tools.push(Arc::new(memory::MemoryTool {
             memory_dir: dir.clone(),
         }));
+    }
+    // notebook 是会话级工作文档；没有会话路径（子 Agent / 临时测试）就不注册。
+    if ctx.permissions.tool_enabled("notebook")
+        && let Some(path) = &ctx.notebook_path
+    {
+        tools.push(Arc::new(notebook::NotebookTool { path: path.clone() }));
     }
     ToolRegistry::new(tools)
 }
