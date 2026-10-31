@@ -99,13 +99,7 @@ impl RuntimeState {
                 content,
                 model,
             } => (prompt.trim().to_string(), content, model, Vec::new()),
-            PromptInput::BackgroundResults(results) => {
-                // 后台通知必须落在一条已有会话上：没有 id 就没有归属。
-                if session_id.is_none() {
-                    return Err("Background results require an existing session".into());
-                }
-                (String::new(), None, None, results)
-            }
+            PromptInput::BackgroundResults(results) => (String::new(), None, None, results),
         };
         if let Some(id) = session_id {
             validate_session_id(id)?;

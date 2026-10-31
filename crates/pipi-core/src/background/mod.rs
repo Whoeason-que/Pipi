@@ -366,3 +366,24 @@ impl BackgroundTaskManager {
         .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::tail_text;
+
+    #[test]
+    fn tail_text_keeps_whole_lines_and_respects_char_boundaries() {
+        // 未超限：原样（去掉尾部空白）。
+        assert_eq!(tail_text("one\ntwo\n", 100), "one\ntwo");
+
+        // 超限：从完整行开始，带截断标记，且不含被截掉的开头。
+        let tail = tail_text("first\nsecond\nthird", 12);
+        assert!(tail.starts_with("[…output truncated…]"), "{tail}");
+        assert!(tail.ends_with("third"), "{tail}");
+        assert!(!tail.contains("first"), "{tail}");
+
+        // 多字节字符不能被切半：起点落在字符中间时向后对齐。
+        let tail = tail_text("一二三", 4);
+        assert!(tail.ends_with("三"), "{tail}");
+    }
+}
