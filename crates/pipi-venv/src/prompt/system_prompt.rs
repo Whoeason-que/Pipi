@@ -127,16 +127,18 @@ fn default_prompt(
     };
 
     let has = |name: &str| available.iter().any(|(candidate, _)| *candidate == name);
-    if has("bash") {
+    if has("read") {
         add_guideline(
-            "Use bash for file operations: ls, rg (respects .gitignore), find. \
-             Prefer rg when installed, otherwise grep -rn; pipe search output through \
-             head so the first matches survive truncation"
+            "Use read to examine files or list directories instead of cat, sed or ls"
                 .to_string(),
         );
     }
-    if has("read") {
-        add_guideline("Use read to examine files instead of cat or sed".to_string());
+    if has("bash") {
+        add_guideline(
+            "Use bash for commands and content search: prefer rg (respects .gitignore) or \
+             grep -rn; pipe search output through head so the first matches survive truncation"
+                .to_string(),
+        );
     }
     if has("edit") {
         add_guideline(
@@ -321,8 +323,8 @@ mod tests {
         let prompt = build_system_prompt(options);
         assert!(prompt.contains("- bash: run commands\n- read: read files"));
         assert!(!prompt.contains("- write: write files"));
-        assert!(prompt.contains("- Use bash for file operations: ls, rg (respects .gitignore), find."));
-        assert!(prompt.contains("- Use read to examine files instead of cat or sed"));
+        assert!(prompt.contains("- Use bash for commands and content search: prefer rg"));
+        assert!(prompt.contains("- Use read to examine files or list directories instead of cat, sed or ls"));
         assert!(prompt.contains("- Use edit for precise changes"));
         assert_eq!(prompt.matches("- Keep paths visible").count(), 1);
         assert!(!prompt.contains("-   "));
@@ -340,7 +342,7 @@ mod tests {
         assert!(prompt.contains("- bash: run commands"));
         assert!(!prompt.contains("- glob:"));
         assert!(!prompt.contains("- grep:"));
-        assert!(prompt.contains("- Use bash for file operations"));
+        assert!(prompt.contains("- Use bash for commands and content search"));
     }
 
     #[test]

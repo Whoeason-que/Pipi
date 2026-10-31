@@ -1,5 +1,8 @@
 //! `pipi-tools` 的 read 工具。移植自 `packages/agent/src/harness/tools/read.ts`：
-//! 文本按行号截断输出；图片按魔数识别后以 base64 附件返回。
+//! 文本按行号截断输出；图片按魔数识别后以 base64 附件返回；目录按字母序列出
+//! 条目（含点文件，子目录带 `/` 后缀）。
+
+use std::path::Path;
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -10,6 +13,10 @@ use pipi_protocol::ToolResultContent;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_read_path};
 
 pub struct ReadTool;
+
+/// 目录一次返回的条目上限（与 pi 的 `ls` 一致）；用 offset/limit 继续翻。
+const DEFAULT_DIR_ENTRIES: usize = 500;
+const MAX_DIR_ENTRIES: usize = 2000;
 
 /// 图片识别交给 `infer`（同一批魔数，但覆盖面更全）。
 /// BMP 仍然只识别不转码：转码需要完整的图像解码器，当前不值这个依赖。
@@ -33,7 +40,7 @@ impl AgentTool for ReadTool {
 
     fn description(&self) -> String {
         format!(
-            "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
+            "Read a text file, view an image (jpg, png, gif, webp, bmp), or list a directory. Images are sent as attachments. Text output is truncated to {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). Directory entries are sorted alphabetically, include dotfiles, and use a '/' suffix for subdirectories. Use offset/limit to page through large files or directories.",
             DEFAULT_MAX_BYTES / 1024
         )
     }
@@ -42,9 +49,9 @@ impl AgentTool for ReadTool {
         json!({
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "Path to the file to read (relative or absolute)" },
-                "offset": { "type": "number", "description": "Line number to start reading from (1-indexed)" },
-                "limit": { "type": "number", "description": "Maximum number of lines to read" }
+                "path": { "type": "string", "description": "Path to the file or directory to read (relative or absolute)" },
+                "offset": { "type": "number", "description": "Line number (1-indexed) for files, or the first directory entry to return" },
+                "limit": { "type": "number", "description": "Maximum lines for files, or entries for directories (default 500 for directories)" }
             },
             "required": ["path"]
         })
@@ -61,6 +68,12 @@ impl AgentTool for ReadTool {
         let limit = args["limit"].as_u64().map(|v| v as usize);
 
         let abs = resolve_read_path(&ctx.workspace, &ctx.read_roots, path)?;
+        let metadata = tokio::fs::metadata(&abs)
+            .await
+            .map_err(|e| format!("Could not read path: {path}. {e}"))?;
+        if metadata.is_dir() {
+            return read_directory(path, &abs, offset, limit).await;
+        }
         let bytes = tokio::fs::read(&abs)
             .await
             .map_err(|e| format!("Could not read file: {path}. {e}"))?;
@@ -162,6 +175,90 @@ impl AgentTool for ReadTool {
             terminate: false,
         })
     }
+}
+
+/// 列目录：名称按大小写不敏感排序，子目录带 `/`，点文件一并列出（这是模型
+/// 看 `.github` / `.agents` / `.env` 的唯一入口）。`offset`/`limit` 按条目翻页。
+async fn read_directory(
+    display_path: &str,
+    abs: &Path,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<ToolOutput, String> {
+    let mut names: Vec<String> = Vec::new();
+    let mut dir = tokio::fs::read_dir(abs)
+        .await
+        .map_err(|e| format!("Could not read directory: {display_path}. {e}"))?;
+    while let Some(entry) = dir
+        .next_entry()
+        .await
+        .map_err(|e| format!("Could not read directory: {display_path}. {e}"))?
+    {
+        names.push(entry.file_name().to_string_lossy().into_owned());
+    }
+    names.sort_by(|left, right| {
+        left.to_lowercase()
+            .cmp(&right.to_lowercase())
+            .then_with(|| left.cmp(right))
+    });
+
+    let total = names.len();
+    let start = offset.unwrap_or(1).saturating_sub(1);
+    if total == 0 {
+        if start == 0 {
+            return Ok(ToolOutput::text(format!(
+                "Read directory {display_path}: (empty directory)"
+            )));
+        }
+        return Err(format!(
+            "Offset {} is beyond end of directory (0 entries total)",
+            offset.unwrap_or(1)
+        ));
+    }
+    if start >= total {
+        return Err(format!(
+            "Offset {} is beyond end of directory ({total} entries total)",
+            offset.unwrap_or(1)
+        ));
+    }
+    let take = limit
+        .unwrap_or(DEFAULT_DIR_ENTRIES)
+        .clamp(1, MAX_DIR_ENTRIES);
+
+    // 只给真正要返回的条目做 stat（判断目录后缀），大目录不做全量 stat。
+    let mut selected: Vec<String> = Vec::with_capacity(take.min(total - start));
+    for name in names.into_iter().skip(start).take(take) {
+        let is_dir = tokio::fs::metadata(abs.join(&name))
+            .await
+            .map(|meta| meta.is_dir())
+            .unwrap_or(false);
+        selected.push(if is_dir { format!("{name}/") } else { name });
+    }
+
+    let truncation = truncate_head(
+        &selected.join("\n"),
+        DEFAULT_MAX_LINES,
+        DEFAULT_MAX_BYTES,
+    );
+    let shown = if truncation.truncated {
+        truncation.output_lines
+    } else {
+        selected.len()
+    };
+    let end = start + shown;
+    let mut text = format!(
+        "Read directory {display_path} (entries {}-{end} of {total}):\n{}",
+        start + 1,
+        truncation.content
+    );
+    if end < total {
+        text.push_str(&format!(
+            "\n\n[{} more entries. Use offset={} to continue.]",
+            total - end,
+            end + 1
+        ));
+    }
+    Ok(ToolOutput::text(text))
 }
 
 #[cfg(test)]
@@ -281,6 +378,80 @@ mod tests {
         std::os::windows::fs::symlink_file(&outside, &link).unwrap();
 
         assert!(read(&ctx, "outside-link.txt".into()).await.is_err());
+
+        tokio::fs::remove_dir_all(base).await.unwrap();
+    }
+
+    fn text_of(output: &ToolOutput) -> String {
+        match &output.content[0] {
+            ToolResultContent::Text { text } => text.clone(),
+            _ => panic!("expected text output"),
+        }
+    }
+
+    #[tokio::test]
+    async fn reads_directories_with_dir_suffix_and_dotfiles() {
+        let (base, ctx, _skill_file, _outside) = read_fixture().await;
+        let dir = ctx.workspace.join("src");
+        tokio::fs::create_dir_all(dir.join("nested")).await.unwrap();
+        for name in ["b.rs", "A.rs", ".env"] {
+            tokio::fs::write(dir.join(name), "").await.unwrap();
+        }
+
+        let text = text_of(&read(&ctx, "src".into()).await.unwrap());
+        assert!(
+            text.contains("Read directory src (entries 1-4 of 4):"),
+            "{text}"
+        );
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[1], ".env");
+        assert_eq!(lines[2], "A.rs");
+        assert_eq!(lines[3], "b.rs");
+        assert_eq!(lines[4], "nested/");
+
+        tokio::fs::remove_dir_all(base).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_offset_and_limit_page_entries() {
+        let (base, ctx, _skill_file, _outside) = read_fixture().await;
+        let dir = ctx.workspace.join("src");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+            tokio::fs::write(dir.join(name), "").await.unwrap();
+        }
+
+        let output = ReadTool
+            .execute(
+                &ctx,
+                &json!({ "path": "src", "offset": 2, "limit": 2 }),
+                &|_| {},
+            )
+            .await
+            .unwrap();
+        let text = text_of(&output);
+        assert!(text.contains("entries 2-3 of 5"), "{text}");
+        assert!(text.contains("Use offset=4 to continue"), "{text}");
+
+        tokio::fs::remove_dir_all(base).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn empty_directory_and_offset_past_end() {
+        let (base, ctx, _skill_file, _outside) = read_fixture().await;
+        let dir = ctx.workspace.join("empty");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        tokio::fs::write(ctx.workspace.join("only.txt"), "x")
+            .await
+            .unwrap();
+
+        let text = text_of(&read(&ctx, "empty".into()).await.unwrap());
+        assert_eq!(text, "Read directory empty: (empty directory)");
+
+        let beyond = ReadTool
+            .execute(&ctx, &json!({ "path": "empty", "offset": 2 }), &|_| {})
+            .await;
+        assert!(beyond.is_err());
 
         tokio::fs::remove_dir_all(base).await.unwrap();
     }
