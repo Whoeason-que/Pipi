@@ -59,6 +59,13 @@ dev-may-depend-on = ["pipi-test-support"]
 may-depend-on = ["pipi-protocol"]
 dev-may-depend-on = ["pipi-test-support"]
 
+# MCP stdio 客户端：JSON-RPC 分帧、请求多路复用与子进程收尾。
+# 只认协议，不认识 Agent / 权限 / 工具 DTO；装配（沙箱、env、工作目录）由宿主负责，
+# 所以它不依赖任何 Pipi crate，也不许自带 HTTP 栈（远程传输是另一件工作）。
+[crates.pipi-mcp]
+may-depend-on = []
+forbid = ["reqwest", "rig"]
+
 # 模型面：rig 的 HTTP/SSE 适配与错误分类（不做重发）+ models.dev 模型目录。
 [crates.pipi-provider]
 may-depend-on = ["pipi-protocol"]
@@ -82,6 +89,7 @@ may-depend-on = [
     "pipi-agent",
     "pipi-context",
     "pipi-forum",
+    "pipi-mcp",
     "pipi-protocol",
     "pipi-provider",
     "pipi-sandbox",
