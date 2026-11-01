@@ -3,6 +3,50 @@ use std::fs;
 use super::preparation::PreparedAgent;
 use super::types::AgentDefinition;
 
+/// 解析 av 运行时环境（`AV_*` 注入 + 契约层）。
+///
+/// `build_tool_context` 与 [`resolve_agent_env`] 共用这一份，避免两处口径漂移；
+/// requires 断言只属于运行期，由调用方（`build_tool_context`）单独做。
+fn resolve_runtime_env(
+    def: &AgentDefinition,
+    prepared: &PreparedAgent,
+    session_id: Option<&str>,
+    workspace: &std::path::Path,
+) -> Result<crate::av::ResolvedEnv, String> {
+    let mut runtime_vars = std::collections::BTreeMap::new();
+    runtime_vars.insert("AV".to_string(), "1".to_string());
+    runtime_vars.insert("AV_AGENT".to_string(), def.name.clone());
+    runtime_vars.insert("AV_WORKSPACE".to_string(), workspace.display().to_string());
+    runtime_vars.insert(
+        "AV_SANDBOX".to_string(),
+        def.permissions.sandbox.as_str().to_string(),
+    );
+    if let Some(session_id) = session_id {
+        runtime_vars.insert("AV_SESSION".to_string(), session_id.to_string());
+    }
+    let resolved = crate::av::resolve_env(
+        prepared.layers(),
+        &crate::av::collect_process_env(),
+        &runtime_vars,
+    )?;
+    Ok(resolved)
+}
+
+/// 只解析 Agent 的子进程环境：不建工作目录、不组装工具上下文。
+///
+/// 给「会话还没开始跑，但想先把 MCP 服务器拉起来」的调用方用（会话打开时的
+/// 预热）。失败意味着这一轮没有 MCP；调用方应当静默降级，不要失败整个操作。
+pub fn resolve_agent_env(
+    def: &AgentDefinition,
+    session_id: Option<&str>,
+) -> Result<crate::av::ResolvedEnv, String> {
+    let prepared = super::preparation::prepare_agent(def)?;
+    let workspace = def
+        .resolve_workspace()
+        .ok_or("Cannot resolve workspace directory")?;
+    resolve_runtime_env(def, &prepared, session_id, &workspace)
+}
+
 /// 组装工具执行上下文（loop 与工具共用）。
 ///
 /// `session_id` 注入 `AV_SESSION`（嵌套感知），无会话上下文时缺省。
@@ -28,23 +72,8 @@ pub fn build_tool_context(
 
     // av 环境契约：会话启动时解析一次，本会话所有工具子进程共用同一份
     // （inherit/ignore/set/path-prepend/secrets + AV_* 运行时注入）。
-    // 契约层来自 prepared（agent 定义目录的 agent.toml 已作为最低声明层参与）。
-    let mut runtime_vars = std::collections::BTreeMap::new();
-    runtime_vars.insert("AV".to_string(), "1".to_string());
-    runtime_vars.insert("AV_AGENT".to_string(), def.name.clone());
-    runtime_vars.insert("AV_WORKSPACE".to_string(), workspace.display().to_string());
-    runtime_vars.insert(
-        "AV_SANDBOX".to_string(),
-        def.permissions.sandbox.as_str().to_string(),
-    );
-    if let Some(session_id) = &session_id {
-        runtime_vars.insert("AV_SESSION".to_string(), session_id.clone());
-    }
-    let layers = prepared.layers();
-    let merged = prepared.merged();
-    let resolved =
-        crate::av::resolve_env(layers, &crate::av::collect_process_env(), &runtime_vars)?;
-    crate::av::check_requires(&merged.requires, &resolved.vars)?;
+    let resolved = resolve_runtime_env(def, prepared, session_id.as_deref(), &workspace)?;
+    crate::av::check_requires(&prepared.merged().requires, &resolved.vars)?;
 
     // Agent 侧素材路径已由契约编排并在准备阶段校验过包含根（符号链接逃逸
     // 会被拒）；这里只取用，不再重读。

@@ -42,6 +42,7 @@ pub const COMMANDS: &[&str] = &[
     "read_agent_file",
     "write_agent_file",
     "read_notebook",
+    "mcp_status",
     "list_workspace_files",
     "preview_workspace_file",
     "workspace_changes",
@@ -253,6 +254,23 @@ pub fn read_notebook(args: ReadNotebookArgs) -> Result<String, String> {
         Ok(false) => Ok(String::new()),
         Err(error) => Err(error),
     }
+}
+
+// ============ MCP ============
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpStatusArgs {
+    pub agent_name: String,
+}
+
+/// 该 Agent 声明的 MCP 服务器与连接状态（Agent 工作台展示）。
+/// 只读：连接由会话启动时的 `prepare` 建立，这里不主动拉起进程。
+pub fn mcp_status(
+    runtime: &RuntimeState,
+    args: McpStatusArgs,
+) -> Result<Vec<crate::mcp::McpServerStatus>, String> {
+    runtime.mcp_status(&args.agent_name)
 }
 
 // ============ 工作区只读预览 ============
@@ -885,7 +903,10 @@ pub struct ArchiveAgentArgs {
 }
 
 pub fn archive_agent(runtime: &RuntimeState, args: ArchiveAgentArgs) -> Result<(), String> {
-    runtime.archive_agent(&args.name)
+    runtime.archive_agent(&args.name)?;
+    // 归档后这个 Agent 不该再持有长驻的 MCP 子进程。
+    runtime.shutdown_agent_mcp(&args.name);
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -910,7 +931,9 @@ pub fn delete_agent(runtime: &RuntimeState, args: DeleteAgentArgs) -> Result<(),
     if args.archived.unwrap_or(false) {
         agents::delete_archived_agent(&args.name)
     } else {
-        runtime.delete_agent(&args.name)
+        runtime.delete_agent(&args.name)?;
+        runtime.shutdown_agent_mcp(&args.name);
+        Ok(())
     }
 }
 
@@ -1235,6 +1258,7 @@ pub async fn dispatch(
         "read_agent_file" => to_value(read_agent_file(parse(args)?)?),
         "write_agent_file" => to_value(write_agent_file(runtime, parse(args)?)?),
         "read_notebook" => to_value(read_notebook(parse(args)?)?),
+        "mcp_status" => to_value(mcp_status(runtime, parse(args)?)?),
         "list_workspace_files" => to_value(list_workspace_files(parse(args)?).await?),
         "preview_workspace_file" => to_value(preview_workspace_file(parse(args)?).await?),
         "workspace_changes" => to_value(workspace_changes(parse(args)?).await?),
@@ -1343,8 +1367,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            68,
-            "宿主命令数应为 68（前端 CommandMap 同步）"
+            69,
+            "宿主命令数应为 69（前端 CommandMap 同步）"
         );
     }
 

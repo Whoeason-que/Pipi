@@ -76,6 +76,8 @@ pub struct RuntimeState {
     sessions: Arc<Mutex<HashMap<SessionKey, HostSession>>>,
     shutting_down: Arc<AtomicBool>,
     background: BackgroundTaskManager,
+    /// MCP 服务器的连接与工具清单（跨轮次存活；连接在后台建立）。
+    mcp: crate::mcp::McpManager,
     events: crate::events::EventHub,
     #[cfg(feature = "server")]
     push: Arc<crate::notifications::push::PushService>,

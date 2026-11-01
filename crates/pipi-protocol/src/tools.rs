@@ -91,7 +91,9 @@ impl ToolContext {
 /// 工具 trait。对应 pi 的 `AgentTool`（typebox schema 换成 JSON Schema）。
 #[async_trait]
 pub trait AgentTool: Send + Sync {
-    fn name(&self) -> &'static str;
+    /// 注册名。内置工具是固定字符串；外部来源（MCP）的名字在运行时才知道，
+    /// 所以返回借用而不是 `&'static str`。
+    fn name(&self) -> &str;
     fn description(&self) -> String;
     fn parameters(&self) -> Value;
     /// 有副作用、不适合与其他调用并发的工具（如 bash）返回 true。

@@ -24,6 +24,8 @@ impl RuntimeState {
         }
         tokio::time::timeout(Duration::from_secs(15), async {
             self.background.shutdown().await?;
+            // MCP 服务器是长驻子进程：先关 stdin 再整组收尾，别把 npx 的孙进程留下。
+            self.mcp.shutdown_all().await;
             loop {
                 let running = self
                     .sessions

@@ -23,6 +23,7 @@ required-features = ["server"]
 pipi-agent = { workspace = true }
 pipi-context = { workspace = true }
 pipi-forum = { workspace = true }
+pipi-mcp = { workspace = true }
 pipi-protocol = { workspace = true }
 pipi-provider = { workspace = true }
 pipi-sandbox = { workspace = true }

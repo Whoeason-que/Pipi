@@ -2,8 +2,8 @@
 //! 逻辑与参数结构体在 `pipi_core::commands`（宿主命令的单一事实来源）。
 
 use pipi_core::commands::{
-    PushSubscriptionStatusArgs, RegisterPushSubscriptionArgs, RemovePushSubscriptionArgs,
-    TestPushNotificationArgs,
+    McpStatusArgs, PushSubscriptionStatusArgs, RegisterPushSubscriptionArgs,
+    RemovePushSubscriptionArgs, TestPushNotificationArgs,
 };
 
 #[tauri::command]
@@ -119,6 +119,15 @@ pub fn read_agent_file(args: InvokeArgs<ReadAgentFileArgs>) -> Result<String, St
 #[tauri::command]
 pub fn read_notebook(args: InvokeArgs<ReadNotebookArgs>) -> Result<String, String> {
     pipi_core::commands::read_notebook(args.0)
+}
+
+/// 该 Agent 声明的 MCP 服务器与连接状态（Agent 工作台展示）。
+#[tauri::command]
+pub fn mcp_status(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<McpStatusArgs>,
+) -> Result<Vec<pipi_core::mcp::McpServerStatus>, String> {
+    pipi_core::commands::mcp_status(&state, args.0)
 }
 
 /// 写入 Agent 目录内的可编辑 Markdown（harness/AGENTS.md / harness/memory/*.md）。

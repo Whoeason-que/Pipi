@@ -175,6 +175,9 @@ impl RuntimeState {
             agents::build_tool_context(&def, &prepared, Some(session_id.clone()), abort.clone())?;
         // 环境记账：每会话至多一条（writer 幂等去重）；只记声明键（非 process 来源）
         append_declared_env(&session.engine, &resolved_env)?;
+        // MCP：按定义刷新服务器集合。连接在后台建立，本轮注册表只声明已知清单
+        // （重启后的第一轮由 <Agent>/mcp-cache/ 的快照兜住）。
+        self.mcp.prepare(&def, &resolved_env.vars);
         // provider key 与工具子进程消费同一份 resolved env
         let ResolvedModel {
             model,
@@ -286,6 +289,15 @@ impl RuntimeState {
                 &def.name,
                 format!("run:{session_id}:{run_id}"),
             );
+        }
+        // MCP 工具：启用一台服务器就是它那批工具的授权（不经过 permissions.tools）。
+        // 清单来自缓存，顺序稳定；服务器进程在后台连接，调用时按需重连。
+        for spec in self.mcp.tools_for(&def.name) {
+            registry.push(Arc::new(crate::mcp::McpTool::new(
+                self.mcp.clone(),
+                def.name.clone(),
+                spec,
+            )));
         }
         let registry = Arc::new(registry);
         let wire_tools = registry.wire_tools();

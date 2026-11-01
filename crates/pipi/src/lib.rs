@@ -78,6 +78,7 @@ pub fn run() {
             commands::read_agent_file,
             commands::write_agent_file,
             commands::read_notebook,
+            commands::mcp_status,
             commands::list_workspace_files,
             commands::preview_workspace_file,
             commands::workspace_changes,

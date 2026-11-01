@@ -48,9 +48,20 @@ interface McpServer {
   name: string;
   command: string;
   args: string[];
-  /** MCP server 的环境变量（M3 拉起时叠加到会话 resolved env 之上）。 */
+  /** MCP server 的环境变量（值支持 `${VAR}`，从 agent.toml 的 env 取值）。 */
   env: Record<string, string>;
   enabled: boolean;
+  /** 启动沙箱档位；缺省跟随 Agent 的 permissions.sandbox。 */
+  sandbox?: SandboxMode | null;
+}
+
+/** 宿主报告的 MCP 服务器连接状态（`mcp_status` 命令）。 */
+export interface McpServerStatusView {
+  name: string;
+  enabled: boolean;
+  connected: boolean;
+  tools: number;
+  error?: string | null;
 }
 
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";

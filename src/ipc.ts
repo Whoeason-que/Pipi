@@ -5,7 +5,7 @@ import type { UserImage } from "./types";
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
-import type { AgentStatsView, PromptQueueEnvelope, RemoteAccessConfig, RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
+import type { AgentStatsView, PromptQueueEnvelope, RemoteAccessConfig, RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, McpServerStatusView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
 
 export interface BackgroundTaskSnapshot {
   task: {
@@ -28,6 +28,7 @@ export interface CommandMap {
   read_agent_file: { args: { agentName: string; relPath: string }; result: string };
   write_agent_file: { args: { agentName: string; relPath: string; content: string }; result: void };
   read_notebook: { args: { agentName: string; sessionId: string }; result: string };
+  mcp_status: { args: { agentName: string }; result: McpServerStatusView[] };
   list_workspace_files: { args: { agentName: string; path: string }; result: WorkspaceListing };
   preview_workspace_file: { args: { agentName: string; path: string }; result: WorkspaceFile };
   workspace_changes: { args: { agentName: string }; result: WorkspaceChanges };

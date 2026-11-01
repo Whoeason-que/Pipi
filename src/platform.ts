@@ -329,6 +329,7 @@ const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }
   read_agent_file: {},
   write_agent_file: {},
   read_notebook: { sessionId: "required" },
+  mcp_status: {},
   agent_skills: {},
   set_skill_enabled: {},
   sync_agent_skills: {},

@@ -9,6 +9,7 @@
 //! | [`events`] | 宿主事件协议（叶子：runtime 依赖它） |
 //! | [`runtime`] | 会话槽、运行编排、压缩重键、会话载体装配点 |
 //! | [`background`] | 后台任务托管（shell / child Agent） |
+//! | [`mcp`] | MCP 服务器接入（连接缓存、工具适配、清单快照） |
 //! | [`commands`] | 宿主命令表（参数结构 + 实现 + dispatch） |
 //! | [`settings`] | `~/.pipi/settings.json`（供应商、压缩、重试策略） |
 //! | [`tools`] | Agent 组合工具与后台任务工具（基础工具在 `pipi-tools`） |
@@ -28,6 +29,7 @@ pub mod commands;
 pub mod events;
 pub mod forum;
 pub mod icon_themes;
+pub mod mcp;
 pub mod notifications;
 pub mod remote;
 pub mod runtime;

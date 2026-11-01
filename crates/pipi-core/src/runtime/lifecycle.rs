@@ -7,6 +7,7 @@ impl RuntimeState {
     pub fn new(runtime: tokio::runtime::Handle) -> Self {
         let background =
             BackgroundTaskManager::new(runtime.clone(), Arc::new(super::RuntimeChildRunner));
+        let mcp = crate::mcp::McpManager::new(runtime.clone());
         let events = crate::events::EventHub::default();
         #[cfg(feature = "server")]
         let push = {
@@ -19,6 +20,7 @@ impl RuntimeState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             shutting_down: Arc::new(AtomicBool::new(false)),
             background,
+            mcp,
             events,
             #[cfg(feature = "server")]
             push,
@@ -28,6 +30,51 @@ impl RuntimeState {
 
     pub fn events(&self) -> &crate::events::EventHub {
         &self.events
+    }
+
+    /// 该 Agent 声明的 MCP 服务器与当前连接状态。
+    ///
+    /// 管理器里只有「跑过一轮」的服务器；这里按定义补齐，让工作台在会话没跑
+    /// 之前也能看到声明（此时 `connected` 为 false）。
+    pub fn mcp_status(&self, agent_name: &str) -> Result<Vec<crate::mcp::McpServerStatus>, String> {
+        let def = agents::load_agent(agent_name)?;
+        let mut statuses = self.mcp.status(agent_name);
+        for server in &def.mcp_servers {
+            if statuses.iter().any(|status| status.name == server.name) {
+                continue;
+            }
+            statuses.push(crate::mcp::McpServerStatus {
+                name: server.name.clone(),
+                enabled: server.enabled,
+                connected: false,
+                tools: 0,
+                error: None,
+            });
+        }
+        statuses.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(statuses)
+    }
+
+    /// 会话打开时的 MCP 预热：把服务器先拉起来，第一轮提示词之前通常已经连好。
+    ///
+    /// 环境解析失败（契约缺失 / requires 不满足）静默跳过 —— 这一轮没有 MCP，
+    /// 真正的错误会在开始运行时原样报出。会话 id 不参与：服务器是 Agent 级的，
+    /// 由该 Agent 的所有会话共享。
+    pub(super) fn prefetch_mcp(&self, def: &AgentDefinition) {
+        if self.ensure_not_shutting_down().is_err() {
+            return;
+        }
+        if !def.mcp_servers.iter().any(|server| server.enabled) {
+            return;
+        }
+        if let Ok(env) = agents::resolve_agent_env(def, None) {
+            self.mcp.prepare(def, &env.vars);
+        }
+    }
+
+    /// Agent 被归档/删除时收掉它的 MCP 服务器进程。
+    pub fn shutdown_agent_mcp(&self, agent_name: &str) {
+        self.mcp.shutdown_agent(agent_name);
     }
 
     #[cfg(feature = "server")]

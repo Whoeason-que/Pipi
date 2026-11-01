@@ -873,6 +873,9 @@ export function installDevMock(): void {
               ? "# demo-assistant\n\n演示模式的系统指令。\n"
               : "",
           );
+        case "mcp_status":
+          // 演示 Agent 没有声明 MCP 服务器，与 list_agents 的 mcpServers 保持一致。
+          return Promise.resolve([]);
         case "read_notebook":
           return Promise.resolve(
             String(args.sessionId) === initialDemoSessionId

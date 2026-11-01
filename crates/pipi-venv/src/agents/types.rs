@@ -107,6 +107,11 @@ pub struct McpServerConfig {
     pub env: std::collections::HashMap<String, String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// 启动这个服务器用的沙箱档位；`None` = 跟随 Agent 的 `permissions.sandbox`。
+    /// 联网类服务器（`npx` / SaaS API）在 workspace-write 下会被 seccomp 断网，
+    /// 需要单独写成 `danger-full-access` 才能用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<pipi_protocol::permissions::SandboxMode>,
 }
 
 fn default_true() -> bool {
@@ -153,11 +158,26 @@ pub fn validate_definition(def: &AgentDefinition) -> Result<(), String> {
     }
     let mut seen_servers = std::collections::HashSet::new();
     for server in &def.mcp_servers {
-        if server.name.trim().is_empty() {
+        let name = server.name.trim();
+        if name.is_empty() {
             return Err("MCP server name cannot be empty".into());
         }
-        if !seen_servers.insert(server.name.trim().to_string()) {
+        // 名字会进 wire 工具名（mcp__<server>__<tool>）与 mcp-cache 文件名：
+        // 只接受单段安全字符，路径与工具名都不需要再做转义。
+        if !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(format!(
+                "MCP server name may only contain letters, digits, '-' and '_': {}",
+                server.name
+            ));
+        }
+        if !seen_servers.insert(name.to_string()) {
             return Err(format!("Duplicate MCP server name: {}", server.name));
+        }
+        if server.command.trim().is_empty() {
+            return Err(format!("MCP server {} has an empty command", server.name));
         }
     }
     Ok(())
@@ -208,6 +228,7 @@ mod tests {
             args: Vec::new(),
             env: Default::default(),
             enabled: true,
+            sandbox: None,
         };
         def.mcp_servers = vec![server("a"), server("a")];
         assert!(validate_definition(&def).is_err());

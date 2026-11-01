@@ -136,11 +136,13 @@ impl RuntimeState {
         session_id: &str,
     ) -> Result<SessionSnapshot, String> {
         validate_session_id(session_id)?;
+        let def = agents::load_agent(agent_name)?;
+        // 预热 MCP：打开会话时就把服务器拉起来，第一轮提示词之前通常已经连好。
+        self.prefetch_mcp(&def);
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         self.ensure_not_shutting_down()?;
         let key = SessionKey::new(agent_name, session_id);
         if !sessions.contains_key(&key) {
-            let def = agents::load_agent(agent_name)?;
             let repo = session_repo(&def)?;
             if !repo.exists(session_id)? {
                 return Err("Session does not exist".into());
@@ -165,6 +167,7 @@ impl RuntimeState {
     /// 先建立可查询的身份，再由 send_prompt 启动运行；创建本身不调用模型。
     pub fn create_session(&self, agent_name: &str) -> Result<SessionInfo, String> {
         let def = agents::load_agent(agent_name)?;
+        self.prefetch_mcp(&def);
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         self.ensure_not_shutting_down()?;
         let (session, id) = Self::create_session_object(&def, session_repo(&def)?, None)?;

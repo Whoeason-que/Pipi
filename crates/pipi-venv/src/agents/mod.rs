@@ -40,7 +40,7 @@ pub use registry::{
     create_agent, create_agent_with_instructions, ensure_default_agent, list_agents,
     list_agents_bootstrapped, load_agent, migrate_tool_lists, save_agent,
 };
-pub use tool_context::build_tool_context;
+pub use tool_context::{build_tool_context, resolve_agent_env};
 pub use types::{
     AgentDefinition, DEFAULT_AGENT_NAME, McpServerConfig, PromptScope, validate_definition,
 };
