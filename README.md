@@ -123,7 +123,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 压缩阈值 | `agent.json` → `compactThresholdPercent` | 上下文占用达到模型窗口的这个百分比时自动压缩（默认 75）；窗口未知（0）时不压缩 |
 | 压缩后目标 | `agent.json` → `compactTargetPercent` | 可选的压缩后上下文目标，占本次压缩前估算 token 的百分比（1–99）；未设置时仍保留最多 2 万 token 近期原文，避免改变旧 Agent 行为 |
 | 请求重试 | `settings.json` → `retry` | 可重试错误的重发策略：`maxAttempts`（含首次，1 = 不重试）/ `baseDelayMs` / `maxDelayMs`；默认 3 次尝试、1s 起指数退避、30s 封顶、25% 抖动，尊重 `Retry-After` |
-| MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器，会话启动时按需拉起（M3） |
+| MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器：启用的服务器把工具以 `mcp__<server>__<tool>` 声明给模型；连接由宿主缓存在后台建立，工具清单快照在 `<Agent 目录>/mcp-cache/<server>.json`。进程默认跟随 Agent 沙箱，可用 `sandbox` 单独覆盖；env 值用 `${VAR}` 引用 `agent.toml` 的键 |
 | 环境契约 | `agent.toml`（Agent 定义目录，**必需**；项目根可选）+ `agent.local.toml` + `agent.lock` | av 标准：env 声明、工具链断言、资源覆盖与技能包管理（`av skill`）；**Agent 层契约还负责编排 Agent 侧素材的路径**（`instructions` / `memory` / `skills.sources` 三项必须显式声明，`[]` = 不要），项目层不得声明 `memory`；会话启动解析一次，秘密值永不内联 |
 | 会话 | `sessions.git/`（git 分支） | 一轮一个 commit，一条 entry 一个文件（内容就是那一行 JSON）；压缩＝新建分支、`git log` 即对话。旧 `sessions/*.jsonl` 只经 Agent 工作台「文件」页的显式导入迁到分支（原文件改名保留），运行时不再直接读它们 |
 | 后台任务 | `jobs/<job-id>.jsonl` + `.log` | shell 进程与 child Agent 的生命周期、状态和输出；任务按 Agent/session 所有，重启只显示 orphaned，不按旧 PID 或 future 自动接管。完成时（订阅默认开启）由 `background_result` 条目写回会话并唤醒一轮 |
@@ -303,6 +303,43 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
 长驻进程（dev server / watcher）传 `subscribe:false`；`terminated`（终止是会话
 自己的决定）与重启后的 `orphaned` 一律不唤醒；模型已经用 `query_background_tasks`
 （含 `waitMs`）读到终态的，不再重复推送。
+
+### MCP（stdio）
+
+`agent.json` 的 `mcpServers` 声明 stdio 服务器，启用的服务器把工具交给模型：
+
+```json
+{
+  "mcpServers": [{
+    "name": "filesystem",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
+    "env": {},
+    "enabled": true,
+    "sandbox": "danger-full-access"
+  }]
+}
+```
+
+- **工具命名**：`mcp__<server>__<tool>`（字符集外替换成 `_`，超过供应商 64 字符
+  上限时截断并追加稳定哈希）。每个 Agent 最多声明 64 个 MCP 工具，描述截断到
+  1024 字符，参数 schema 超过 16 KiB 时降级成宽松对象。
+- **连接生命周期**：宿主在每轮开始时按定义刷新服务器集合（配置指纹 = 命令 /
+  参数 / env / 工作目录 / 沙箱；任一项变化就重连）。连接在**后台**建立，注册表
+  每轮只声明当时已知的清单；工具被调用时若连接已断会重连一次。`tools/list`
+  的结果按指纹落盘到 `<Agent 目录>/mcp-cache/<server>.json`，让 App 重启后的
+  第一轮就能声明工具（进程仍然按需拉起）。
+- **权限**：启用一台服务器**就是**它那批工具的授权 —— 它不经过
+  `permissions.tools`（那份白名单只管内置工具）。服务器进程经
+  `pipi_sandbox` spawn，默认跟随 Agent 的 `permissions.sandbox`；
+  `mcpServers[].sandbox` 可单独覆盖（典型场景：`npx` / 联网类服务器在
+  `workspace-write` 下会被 seccomp 断网，需要显式写 `danger-full-access`）。
+- **env**：子进程环境 = av 契约解析出的 `resolved_env` + 服务器自己的 `env`；
+  值里的 `${VAR}` 只从契约解析结果取值，缺值 fail-closed（秘密值永远引用式）。
+- **已知边界**：只支持 stdio（HTTP / SSE / OAuth 未实现）；不转发
+  resources / prompts / sampling / elicitation；服务器中途
+  `notifications/tools/list_changed` 不会立即刷新，下一轮 `prepare` 或重连后生效；
+  工具描述与输出都是外部文本，按不可信内容对待。
 
 ## 架构
 

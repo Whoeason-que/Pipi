@@ -34,6 +34,8 @@ crates/pipi-session/  会话载体：git 分支（一轮一个 commit）、旧 J
                       唯一为会话存储 spawn git 的 crate
 crates/pipi-forum/    论坛载体：纯文件的本地论坛（一个主题一个目录、一条帖子
                       一个文件）与 pipi-forum CLI；只依赖契约层
+crates/pipi-mcp/      MCP stdio 客户端：JSON-RPC 分帧、请求多路复用、子进程收尾；
+                      只认协议，不依赖任何 Pipi crate（装配在宿主）
 crates/pipi-venv/     Agent 环境域：agents（清单与注册表、契约层收集、prompt
                       装配）/ av（agent.toml 契约 + 全局技能 store + `av` CLI）
                       / skills（技能中心）/ prompt（纯提示词层）
@@ -169,6 +171,17 @@ src/                 React + TypeScript 前端
   `migrate_tool_lists` 幂等追加：按 `serde_json::Value` 改数组（typed 往返会丢未知键）、
   跳过子 Agent 与 `.archive`。右栏「笔记本」tab 走 `read_notebook` 单独读取，不从
   会话事件里猜。
+- **MCP 是宿主能力，不是工具实现**：协议客户端在 `crates/pipi-mcp`（不依赖任何
+  Pipi crate；沙箱/env/cwd 由宿主装配），连接与工具清单缓存在 `pipi-core::mcp`。
+  `prepare` 是同步的（在 `send_prompt_locked` 里调用，持会话锁不能 await），连接
+  在后台建立，注册表每轮只声明**当时已知**的清单；`<Agent>/mcp-cache/<server>.json`
+  是重启后第一轮的快照，配置指纹（命令/参数/env/cwd/沙箱）变了就作废。工具名
+  `mcp__<server>__<tool>`（供应商限制 `[A-Za-z0-9_-]{1,64}`），所以
+  `AgentTool::name` 返回 `&str` 而不是 `&'static str`。**启用服务器即授权**，不走
+  `permissions.tools`（那份白名单只管内置工具）；进程经 `pipi_sandbox` spawn、
+  默认跟随 Agent 档位，`mcpServers[].sandbox` 可单独覆盖；env 只取 av 契约解析
+  结果，`${VAR}` 缺值 fail-closed。加 HTTP/OAuth 传输前先改 `architecture.toml`
+  里 `pipi-mcp` 的 `forbid` 口径，别顺手把 reqwest 链进去。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息一律用可读的英文（English）。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
   - react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，
