@@ -316,7 +316,10 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
     "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
     "env": {},
     "enabled": true,
-    "sandbox": "danger-full-access"
+    "sandbox": "danger-full-access",
+    "timeoutSeconds": 120,
+    "startupTimeoutSeconds": 60,
+    "parallelCalls": false
   }]
 }
 ```
@@ -328,7 +331,16 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
   参数 / env / 工作目录 / 沙箱；任一项变化就重连）。连接在**后台**建立，注册表
   每轮只声明当时已知的清单；工具被调用时若连接已断会重连一次。`tools/list`
   的结果按指纹落盘到 `<Agent 目录>/mcp-cache/<server>.json`，让 App 重启后的
-  第一轮就能声明工具（进程仍然按需拉起）。
+  第一轮就能声明工具（进程仍然按需拉起）。服务器发
+  `notifications/tools/list_changed` 时宿主重列并更新快照，下一轮就能看到新工具。
+- **超时与并发**：`timeoutSeconds`（单次调用，默认 60）与
+  `startupTimeoutSeconds`（握手，默认 20，`npx` 首次下载依赖常常不够）按服务器
+  可配。`parallelCalls` 默认 `false`：同一台服务器的调用串行执行 —— MCP 协议
+  支持并发，但不少服务器假设调用不并发；确认无状态后再打开。
+- **中止与输出上限**：用户停止时在途调用会立即放弃并发出
+  `notifications/cancelled`（服务器可能仍执行完，只是不再等结果）。文本结果按
+  bash 同一套上限截断（2000 行 / 50 KiB），超大的 `structuredContent` 不写进
+  会话条目；图片按原样透传。
 - **权限**：启用一台服务器**就是**它那批工具的授权 —— 它不经过
   `permissions.tools`（那份白名单只管内置工具）。服务器进程经
   `pipi_sandbox` spawn，默认跟随 Agent 的 `permissions.sandbox`；
@@ -336,10 +348,10 @@ Agent 组合仍固定为单层：child 运行时只注册基础工具，不支�
   `workspace-write` 下会被 seccomp 断网，需要显式写 `danger-full-access`）。
 - **env**：子进程环境 = av 契约解析出的 `resolved_env` + 服务器自己的 `env`；
   值里的 `${VAR}` 只从契约解析结果取值，缺值 fail-closed（秘密值永远引用式）。
+  服务器是 Agent 级进程，不注入会话级变量（`AV_SESSION`）。
 - **已知边界**：只支持 stdio（HTTP / SSE / OAuth 未实现）；不转发
-  resources / prompts / sampling / elicitation；服务器中途
-  `notifications/tools/list_changed` 不会立即刷新，下一轮 `prepare` 或重连后生效；
-  工具描述与输出都是外部文本，按不可信内容对待。
+  resources / prompts / sampling / elicitation；没有健康心跳，断线只在调用时
+  重连；工具描述与输出都是外部文本，按不可信内容对待。
 
 ## 架构
 

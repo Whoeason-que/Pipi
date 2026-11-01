@@ -180,8 +180,14 @@ src/                 React + TypeScript 前端
   `AgentTool::name` 返回 `&str` 而不是 `&'static str`。**启用服务器即授权**，不走
   `permissions.tools`（那份白名单只管内置工具）；进程经 `pipi_sandbox` spawn、
   默认跟随 Agent 档位，`mcpServers[].sandbox` 可单独覆盖；env 只取 av 契约解析
-  结果，`${VAR}` 缺值 fail-closed。加 HTTP/OAuth 传输前先改 `architecture.toml`
-  里 `pipi-mcp` 的 `forbid` 口径，别顺手把 reqwest 链进去。
+  结果，`${VAR}` 缺值 fail-closed。`timeoutSeconds` / `startupTimeoutSeconds` 按
+  服务器可配；`parallelCalls` 默认 `false`（同一服务器的调用串行 —— 协议允许并发，
+  但很多服务器假设串行，别擅自改默认）。工具调用受 `AbortSignal` 约束：中止时
+  客户端放弃等待并发 `notifications/cancelled`（服务器可能仍执行完）。文本结果
+  统一走 `pipi_tools::truncate`（2000 行 / 50 KiB），`structuredContent` 超过
+  64 KiB 不落盘；`list_changed` 由宿主的 watcher 重列并更新快照。加 HTTP/OAuth
+  传输前先改 `architecture.toml` 里 `pipi-mcp` 的 `forbid` 口径，别顺手把
+  reqwest 链进去。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息一律用可读的英文（English）。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
   - react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，
