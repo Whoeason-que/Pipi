@@ -120,6 +120,7 @@ export const zh = {
   stats: {
     title: "Agent 统计",
     subtitle: "跨会话汇总用量、成本与工具趋势",
+    primaryOnly: "仅统计主 Agent；Subagent 由主 Agent 组合产生，不重复计入。",
     selectAgent: "选择 Agent",
     selectAgentHint: "统计按 Agent 汇总。选择左侧或上方的一个 Agent 查看它的全部会话。",
     searchAgents: "搜索 Agent…",

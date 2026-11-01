@@ -53,6 +53,11 @@
   box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 
+.stats-primary-only {
+  margin-top: 4px;
+  color: var(--faint);
+}
+
 .stats-generated {
   display: flex;
   flex-wrap: wrap;
@@ -345,14 +350,6 @@
   align-items: center;
   gap: 7px;
   color: var(--faint);
-}
-
-.stats-chip {
-  padding: 0 5px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--r-full);
-  color: var(--muted);
-  font-size: 10px;
 }
 
 .stats-agent-item > svg {

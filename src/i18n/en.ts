@@ -122,6 +122,7 @@ export const en: I18nSchema = {
   stats: {
     title: "Agent Stats",
     subtitle: "Usage, cost and tool trends across sessions",
+    primaryOnly: "Primary Agents only; Subagents are composed by their parent and are not double-counted.",
     selectAgent: "Select an Agent",
     selectAgentHint: "Stats are aggregated per Agent. Pick an Agent on the left or above to see all its sessions.",
     searchAgents: "Search Agents…",

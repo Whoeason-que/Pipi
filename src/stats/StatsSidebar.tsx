@@ -15,14 +15,15 @@ interface StatsSidebarProps {
 export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: StatsSidebarProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
+  const primaryAgents = useMemo(() => agents.filter((agent) => !agent.subagent), [agents]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return agents;
-    return agents.filter((agent) =>
+    if (!needle) return primaryAgents;
+    return primaryAgents.filter((agent) =>
       `${agent.name} ${agent.description}`.toLowerCase().includes(needle),
     );
-  }, [agents, query]);
-  const totalSessions = agents.reduce(
+  }, [primaryAgents, query]);
+  const totalSessions = primaryAgents.reduce(
     (sum, agent) => sum + (sessionsByAgent[agent.name]?.length ?? 0),
     0,
   );
@@ -54,7 +55,7 @@ export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: St
         <span className="caption sb-count">{totalSessions}</span>
       </div>
 
-      {agents.length === 0 && <div className="session pending">{t("stats.noAgents")}</div>}
+      {primaryAgents.length === 0 && <div className="session pending">{t("stats.noAgents")}</div>}
 
       <nav className="stats-agent-list" aria-label={t("stats.agents")}>
         {filtered.map((agent) => {
@@ -81,9 +82,6 @@ export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: St
                 </span>
                 <span className="caption stats-agent-meta">
                   <span>{t("stats.sessionCount", { count: sessions })}</span>
-                  {agent.subagent && (
-                    <span className="stats-chip">{t("nav.subagents")}</span>
-                  )}
                 </span>
               </span>
               {active && <IconChart />}
@@ -91,7 +89,7 @@ export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: St
           );
         })}
       </nav>
-      {agents.length > 0 && filtered.length === 0 && (
+      {primaryAgents.length > 0 && filtered.length === 0 && (
         <div className="session pending">{t("stats.noMatchingAgents")}</div>
       )}
     </>
