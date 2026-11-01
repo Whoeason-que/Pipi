@@ -271,21 +271,32 @@ Markdown 外部图片。桌面与远程共用同一组宿主命令。
 
 ### Agent 组合（第一阶段）
 
-Agent 可以通过三项显式工具组合已有 Agent：
+Agent 可以通过三项显式工具组合已有 Agent。**委派一次任务不等于定义一个
+Agent**：一次性工作走 `run_agent` 的 inline 模式，只有会被反复使用的角色才
+值得 `create_agent`。
 
-- `create_agent`：用结构化参数创建一个持久的 Agent，并将 `agent.json` 的
-  `subagent` 设为 `true`；模型、工作目录、沙箱和基础工具从调用者继承，
-  `instructions` 写入新 Agent 的 `harness/AGENTS.md`，并写好 `agent.toml`
-  （默认契约：三项素材位置）与 `harness/` 骨架。设置界面可将它改回普通 Agent。
-  新 Agent 不继承三项 Agent 组合工具。
-- `run_agent`：默认在目标 Agent 下创建一个全新 session；传入 `sessionId` 时
-  在已有 session 上继续（保留历史、模型选择与统计，运行中/归档会话会被拒绝，
-  且只支持前台等待）。若当前 Agent 同时启用了
-  `query_background_tasks` 与 `manage_background_task`，默认提交为托管后台任务并
-  立即返回 `jobId`；可用 `background:false` 保留同步等待并返回最终文本与
-  `sessionId`。异步任务通过同一组后台任务工具查询输出、等待变化或终止。
-  单次 child 运行有 10 分钟时间上限，超时与中止一样落盘为可读取的终态；运行
-  期间的工具调用与轮次完成作为任务输出记录。
+- `create_agent`：用结构化参数创建一个持久的、可复用的 Agent，并将 `agent.json`
+  的 `subagent` 设为 `true`（显示在 SUBS）；模型、工作目录、沙箱和基础工具从
+  调用者继承，`instructions` 写入新 Agent 的 `harness/AGENTS.md`，并写好
+  `agent.toml`（默认契约：三项素材位置）与 `harness/` 骨架。设置界面可将它改回
+  普通 Agent。新 Agent 不继承三项 Agent 组合工具。**只在同一角色会被反复使用时
+  调用**；一次性任务用下面的 inline 模式，避免 SUBS 持续膨胀。
+- `run_agent` 有两种模式：
+  - **已有 Agent**：默认在目标 Agent 下创建一个全新 session；传入 `sessionId` 时
+    在已有 session 上继续（保留历史、模型选择与统计，运行中/归档会话会被拒绝，
+    且只支持前台等待）。若当前 Agent 同时启用了
+    `query_background_tasks` 与 `manage_background_task`，默认提交为托管后台任务并
+    立即返回 `jobId`；可用 `background:false` 保留同步等待并返回最终文本与
+    `sessionId`。异步任务通过同一组后台任务工具查询输出、等待变化或终止。
+    单次 child 运行有 10 分钟时间上限，超时与中止一样落盘为可读取的终态；运行
+    期间的工具调用与轮次完成作为任务输出记录。
+  - **一次性子运行（inline）**：不传 `name`、改传 `instructions`（可再传 `tools`
+    限定基础工具子集）。宿主在**调用者自己的 `sessions.git`** 里开一条 child
+    session，首条条目写 `subagent_run` 标记（父 Agent + 父会话 id），不创建任何
+    Agent 目录；工作区、沙箱、env 与模型继承调用者，系统提示是「委派身份 +
+    instructions + 环境/工具清单」，不继承调用者的 harness/记忆/技能索引。仅支持
+    前台；一次性子运行的会话不能按普通会话续跑（否则会按调用者的完整定义重新
+    装配工具，破坏单层委派）。侧栏不列出这些会话，`read_agent(sessionId)` 仍可读。
 - `read_agent`：按 `sessionId` 读取目标 Agent 已落盘的最终输出；省略时读取
   最近活跃的 session。
 
@@ -355,7 +366,8 @@ Agent 身份样式由 `components/AgentAvatar.tsx` 统一渲染。样式按职�
 手动压缩、交互运行和一次性子运行共用进程级 runId 分配与同会话互斥。
 
 `pipi_core::runtime` 的公共入口位于 `runtime/mod.rs`，内部按 `slots`（多会话索引）、
-`lifecycle`（宿主生命周期）、`execution` / `child` / `compaction`（能力装配与调度）、
+`lifecycle`（宿主生命周期）、`execution` / `child` / `ephemeral` / `compaction`
+（能力装配与调度）、
 `model`（模型与凭据解析）、`events`（身份信封与宿主重键）拆分。内核压缩更换账本后
 通知宿主移动索引和后台任务归属，再发旧 id 的 `session-switched`，后续事件用新 id。
 宿主事件协议（`RuntimeEvent` 与各 envelope）在 `pipi_core::events`；

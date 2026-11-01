@@ -499,6 +499,7 @@ mod tests {
             started_at: 0,
             last_active: 10_000,
             model: Some(model.into()),
+            parent_session_id: None,
         }
     }
 

@@ -103,6 +103,14 @@ pub fn read_summaries(exec: &GitExec, prefix: &str) -> Result<Vec<SessionSummary
         {
             select(path, &mut selected, &mut seen);
         }
+        // 一次性子运行标记是会话首条条目（seq 最小），不在消息抽样范围内
+        if let Some(path) = paths
+            .iter()
+            .filter(|path| path.kind == "subagent_run")
+            .min_by_key(|path| path.seq)
+        {
+            select(path, &mut selected, &mut seen);
+        }
         if let Some(path) = paths.iter().max_by_key(|path| path.seq) {
             select(path, &mut selected, &mut seen);
         }
@@ -154,6 +162,16 @@ pub fn read_summaries(exec: &GitExec, prefix: &str) -> Result<Vec<SessionSummary
             .map(|(_, entry)| entry.timestamp)
             .unwrap_or(0);
 
+        let parent_session_id = pairs.iter().find_map(|(path, entry)| {
+            if path.kind != "subagent_run" {
+                return None;
+            }
+            match &entry.kind {
+                EntryKind::SubagentRun { parent_session, .. } => Some(parent_session.clone()),
+                _ => None,
+            }
+        });
+
         out.push(SessionSummary {
             id,
             title,
@@ -161,6 +179,7 @@ pub fn read_summaries(exec: &GitExec, prefix: &str) -> Result<Vec<SessionSummary
             started_at,
             last_active,
             model,
+            parent_session_id,
         });
     }
     out.sort_by_key(|summary| std::cmp::Reverse(summary.last_active));

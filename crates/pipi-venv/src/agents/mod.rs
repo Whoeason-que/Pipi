@@ -35,7 +35,7 @@ pub use files::{
 };
 pub use paths::{agent_dir, carry_notebook, expand_tilde, notebook_path, validate_agent_name};
 pub use preparation::{PreparedAgent, prepare_agent};
-pub use prompt::build_system_prompt_with_tools;
+pub use prompt::{build_subagent_system_prompt, build_system_prompt_with_tools};
 pub use registry::{
     create_agent, create_agent_with_instructions, ensure_default_agent, list_agents,
     list_agents_bootstrapped, load_agent, migrate_tool_lists, save_agent,

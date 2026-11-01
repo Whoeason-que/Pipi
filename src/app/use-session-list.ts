@@ -42,7 +42,14 @@ export function useSessionList(
       sessionListRequestRef.current.set(name, requestId);
       try {
         const sessions = await invoke("list_sessions", { agentName: name });
-        return { name, requestId, sessions, failed: false };
+        // 一次性子运行（run_agent inline）是父会话的实现细节，不进侧栏的
+        // 顶层会话列表；它们仍可按 sessionId 续跑 / 由 read_agent 读取。
+        return {
+          name,
+          requestId,
+          sessions: sessions.filter((session) => !session.parentSessionId),
+          failed: false,
+        };
       } catch {
         return { name, requestId, sessions: null, failed: true };
       }

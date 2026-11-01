@@ -239,6 +239,51 @@ pub fn build_system_prompt_with_tools(
     ))
 }
 
+/// 一次性子运行（`run_agent` inline 模式）的系统提示。
+///
+/// 与 [`build_system_prompt_with_tools`] 的区别是**不继承**调用者的 harness /
+/// 记忆 / 技能索引：子运行拿到的是「委派身份 + 调用方给出的 instructions +
+/// 环境与工具清单」，任务上下文由调用方在 prompt 里自包含地给出。工作区与
+/// 沙箱仍来自调用者的定义（同一套 env / 读取根 / 权限）。
+pub fn build_subagent_system_prompt(
+    def: &AgentDefinition,
+    tools: &[Tool],
+    instructions: &str,
+) -> String {
+    let workspace = def.resolve_workspace();
+    let (cwd, append_system_prompt) = match &workspace {
+        Some(workspace) => (
+            workspace.display().to_string(),
+            Some(crate::prompt::environment_context(
+                workspace,
+                &def.permissions.sandbox,
+            )),
+        ),
+        None => (String::new(), None),
+    };
+    let tool_list = tools
+        .iter()
+        .map(|tool| format!("- {}: {}", tool.name, tool.description))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let custom_prompt = format!(
+        "You are a subagent spawned by another session. Complete the task below and return a concise final report; the parent session only sees your final message.\n\n<subagent_instructions>\n{}\n</subagent_instructions>\n\nAvailable tools:\n{}",
+        instructions.trim(),
+        tool_list
+    );
+    crate::prompt::build_system_prompt(crate::prompt::BuildSystemPromptOptions {
+        custom_prompt: Some(custom_prompt),
+        selected_tools: Some(def.permissions.tools.clone()),
+        tool_snippets: tools
+            .iter()
+            .map(|tool| (tool.name.clone(), tool.description.clone()))
+            .collect(),
+        cwd,
+        append_system_prompt,
+        ..Default::default()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -666,6 +711,46 @@ mod tests {
 
         let _ = fs::remove_dir_all(&home);
         pipi_test_support::set_env_var("HOME", previous_home);
+    }
+
+    /// 一次性子运行的提示：委派身份 + instructions + 环境/工具清单；
+    /// 不继承调用者的 harness 指令（子运行的自包含上下文由调用方给）。
+    #[test]
+    fn subagent_prompt_uses_instructions_but_not_the_caller_harness() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home =
+            std::env::temp_dir().join(format!("pipi-subagent-prompt-{}", pipi_protocol::new_id()));
+        fs::create_dir_all(&home).unwrap();
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+
+        let project = home.join("project");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("AGENTS.md"), "WORKSPACE-RULES").unwrap();
+        let name = format!("subagent-prompt-{}", pipi_protocol::new_id());
+        let def =
+            create_agent(&name, "", Some(project.to_str().unwrap()), None, None, None).unwrap();
+        fs::write(
+            default_harness(&agent_dir(&name).unwrap()).join("AGENTS.md"),
+            "CALLER-HARNESS-ONLY",
+        )
+        .unwrap();
+        let tools = [Tool {
+            name: "read".into(),
+            description: "Read files".into(),
+            parameters: serde_json::json!({}),
+        }];
+
+        let prompt = build_subagent_system_prompt(&def, &tools, "SCOUT-INSTRUCTIONS");
+        assert!(prompt.contains("SCOUT-INSTRUCTIONS"), "{prompt}");
+        assert!(prompt.contains("You are a subagent spawned by another session"));
+        assert!(prompt.contains("<environment_context>"), "{prompt}");
+        assert!(prompt.contains("- read: Read files"), "{prompt}");
+        assert!(!prompt.contains("CALLER-HARNESS-ONLY"), "{prompt}");
+        assert!(!prompt.contains("WORKSPACE-RULES"), "{prompt}");
+
+        pipi_test_support::set_env_var("HOME", previous_home);
+        let _ = fs::remove_dir_all(home);
     }
 
     /// 声明的素材文件缺失即 fail-closed，且不因 `systemPrompt` 策略放行：

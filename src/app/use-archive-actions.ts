@@ -171,7 +171,10 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
           agentName,
           archived: true,
         });
-        setArchivedSessions((previous) => ({ ...previous, [agentName]: list }));
+        setArchivedSessions((previous) => ({
+          ...previous,
+          [agentName]: list.filter((session) => !session.parentSessionId),
+        }));
       }
     } catch (errorValue) {
       safeSetError(formatRuntimeError(errorValue));
@@ -204,7 +207,10 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
         agentName,
         archived: true,
       });
-      setArchivedSessions((previous) => ({ ...previous, [agentName]: list }));
+      setArchivedSessions((previous) => ({
+        ...previous,
+        [agentName]: list.filter((session) => !session.parentSessionId),
+      }));
     } catch (errorValue) {
       safeSetError(formatRuntimeError(errorValue));
     }

@@ -101,6 +101,16 @@ impl SessionLog for MemoryLog {
             custom_type: custom_type.into(),
         })
     }
+    fn append_subagent_run(
+        &mut self,
+        parent_agent: &str,
+        parent_session: &str,
+    ) -> std::io::Result<String> {
+        self.append(EntryKind::SubagentRun {
+            parent_agent: parent_agent.into(),
+            parent_session: parent_session.into(),
+        })
+    }
     fn append_background_result(
         &mut self,
         result: &pipi_protocol::BackgroundTaskResult,

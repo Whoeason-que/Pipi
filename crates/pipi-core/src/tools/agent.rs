@@ -44,6 +44,24 @@ pub struct AgentRunResult {
 /// 父会话的工具更新流（ToolExecutionUpdate），让父会话能看到 child 在做什么。
 pub type ChildProgressTx = tokio::sync::mpsc::UnboundedSender<ToolOutput>;
 
+/// 一次性子运行（`run_agent` inline 模式）的请求。
+///
+/// 与「已有 Agent 的一次运行」不同：不加载、也不创建 Agent 定义，而是在
+/// 调用者 Agent 的会话库里开一条 child session。工作区 / 沙箱 / env 与基础
+/// 工具继承调用者，`instructions` 就是这次运行的完整角色说明。
+#[derive(Debug, Clone)]
+pub struct EphemeralRunRequest {
+    pub caller_agent: String,
+    /// 父会话 id：写进 child session 的首条 `SubagentRun` 标记。
+    pub parent_session: String,
+    pub instructions: String,
+    pub prompt: String,
+    /// 调用者 Agent 已启用的基础工具子集（组合 / 后台托管工具不继承）。
+    pub tools: Vec<String>,
+    /// 调用者本轮实际使用的模型（会话级覆盖优先于 Agent 默认）。
+    pub model: Model,
+}
+
 #[async_trait]
 pub trait AgentRunner: Send + Sync {
     async fn run_once(
@@ -66,6 +84,17 @@ pub trait AgentRunner: Send + Sync {
     ) -> Result<AgentRunResult, String> {
         Err("This host does not support resuming an existing session".into())
     }
+
+    /// 跑一次一次性子运行（inline 模式）。宿主未实现时返回可读错误，
+    /// 而不是静默退回「创建持久 Agent」的旧路径。
+    async fn run_ephemeral(
+        &self,
+        _request: EphemeralRunRequest,
+        _abort: AbortSignal,
+        _progress: Option<ChildProgressTx>,
+    ) -> Result<AgentRunResult, String> {
+        Err("This host does not support one-off subagent runs".into())
+    }
 }
 
 pub struct CreateAgentTool {
@@ -85,7 +114,7 @@ impl AgentTool for CreateAgentTool {
     }
 
     fn description(&self) -> String {
-        "Create a persistent Pipi Agent. The new Agent inherits the current model, workspace, sandbox, and ordinary tools; instructions become its harness/AGENTS.md. Agent-composition tools are never inherited."
+        "Create a persistent, reusable Pipi Agent that appears in the Subagent list. The new Agent inherits the current model, workspace, sandbox, and ordinary tools; instructions become its harness/AGENTS.md. Agent-composition tools are never inherited. Only create an Agent when the same role will be reused across sessions; for a one-off task call run_agent with instructions instead."
             .into()
     }
 
@@ -204,6 +233,10 @@ impl AgentTool for CreateAgentTool {
 
 pub struct RunAgentTool {
     caller_agent: String,
+    /// 调用者当前会话：inline 模式用它写 child session 的父会话标记。
+    caller_session: String,
+    /// 调用者本轮实际使用的模型；inline 子运行继承它（含会话级覆盖）。
+    caller_model: Option<Model>,
     runner: Arc<dyn AgentRunner>,
     background_owner: Option<BackgroundTaskOwner>,
     background_service: Option<Arc<dyn BackgroundTaskService>>,
@@ -216,6 +249,8 @@ impl RunAgentTool {
     pub fn new(caller_agent: String, runner: Arc<dyn AgentRunner>) -> Self {
         Self {
             caller_agent,
+            caller_session: String::new(),
+            caller_model: None,
             runner,
             background_owner: None,
             background_service: None,
@@ -234,7 +269,9 @@ impl RunAgentTool {
         default_background: bool,
     ) -> Self {
         Self {
+            caller_session: owner.session_id.clone(),
             caller_agent,
+            caller_model: None,
             runner,
             background_owner: Some(owner),
             background_service: Some(service),
@@ -243,11 +280,106 @@ impl RunAgentTool {
         }
     }
 
+    /// 注入调用者本轮实际使用的模型（inline 子运行继承它）。
+    pub fn with_caller_model(mut self, model: Model) -> Self {
+        self.caller_model = Some(model);
+        self
+    }
+
     /// 注入宿主的 child-session 生命周期通知。该回调同时用于同步 child 与
     /// 后台 child，避免两条 `run_agent` 路径的 UI 可见性语义分叉。
     pub fn with_session_sink(mut self, sink: BackgroundAgentSessionSink) -> Self {
         self.session_sink = Some(sink);
         self
+    }
+
+    /// inline 模式：在调用者自己的会话库里跑一次一次性子运行。
+    async fn run_inline(
+        &self,
+        ctx: &ToolContext,
+        args: &Value,
+        prompt: &str,
+        instructions: &str,
+        on_update: &(dyn Fn(ToolOutput) + Send + Sync),
+    ) -> Result<ToolOutput, String> {
+        if args
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .is_some()
+        {
+            return Err(
+                "One-off subagent runs cannot resume an existing session; pass name to run an existing Agent"
+                    .into(),
+            );
+        }
+        if args.get("background").and_then(Value::as_bool) == Some(true) {
+            return Err("One-off subagent runs are foreground-only; omit background".into());
+        }
+        if self.caller_session.is_empty() {
+            return Err(
+                "Current host cannot run a one-off subagent (missing caller session)".into(),
+            );
+        }
+        let model = self
+            .caller_model
+            .clone()
+            .ok_or("Current host cannot run a one-off subagent (missing caller model)")?;
+
+        // 只允许继承基础工具。组合 / 后台托管工具是显式高权限能力，
+        // 不能因为继承或伪造参数泄漏到下一层（与 create_agent 同一口径）。
+        let ordinary_tools: Vec<String> = ctx
+            .permissions
+            .tools
+            .iter()
+            .filter(|tool| DEFAULT_TOOLS.contains(&tool.as_str()))
+            .cloned()
+            .collect();
+        let allowed: HashSet<&str> = ordinary_tools.iter().map(String::as_str).collect();
+        let selected_tools = match args.get("tools") {
+            None | Some(Value::Null) => ordinary_tools,
+            Some(Value::Array(values)) => {
+                let mut selected = Vec::with_capacity(values.len());
+                let mut seen = HashSet::new();
+                for value in values {
+                    let tool = value.as_str().ok_or("tools must be an array of strings")?;
+                    if !allowed.contains(tool) {
+                        return Err(format!(
+                            "Only tools already enabled for current Agent can be granted to a one-off subagent: {tool}"
+                        ));
+                    }
+                    if seen.insert(tool) {
+                        selected.push(tool.to_string());
+                    }
+                }
+                selected
+            }
+            Some(_) => return Err("tools must be an array of strings".into()),
+        };
+        if selected_tools.is_empty() {
+            return Err("One-off subagent requires at least one ordinary tool".into());
+        }
+
+        on_update(ToolOutput::text("Running one-off subagent…"));
+        let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+        let runner = self.runner.clone();
+        let abort = ctx.abort.clone();
+        let request = EphemeralRunRequest {
+            caller_agent: self.caller_agent.clone(),
+            parent_session: self.caller_session.clone(),
+            instructions: instructions.to_string(),
+            prompt: prompt.to_string(),
+            tools: selected_tools,
+            model,
+        };
+        let result = forward_child_run(
+            runner.run_ephemeral(request, abort, Some(progress_tx)),
+            progress_rx,
+            on_update,
+        )
+        .await?;
+        result_to_tool_output(&result)
     }
 }
 
@@ -258,12 +390,15 @@ impl AgentTool for RunAgentTool {
     }
 
     fn description(&self) -> String {
+        let inline = "Pass instructions instead of name to run a one-off subagent in a child session of the current Agent: no persistent Agent is created, and it inherits the current workspace, sandbox, and ordinary tools (foreground only). Prefer this for one-off delegation; use create_agent only when the same role will be reused.";
         if self.default_background {
-            "Submit an existing Pipi Agent as a managed background task in a fresh independent session, or resume a specific session in the foreground by passing sessionId. Return immediately with a job ID for background runs; use query_background_tasks to wait/read progress and manage_background_task to terminate it. Pass background:false only when the final output is needed before continuing."
-                .into()
+            format!(
+                "Submit an existing Pipi Agent as a managed background task in a fresh independent session, or resume a specific session in the foreground by passing sessionId. Return immediately with a job ID for background runs; use query_background_tasks to wait/read progress and manage_background_task to terminate it. Pass background:false only when the final output is needed before continuing. {inline}"
+            )
         } else {
-            "Run an existing Pipi Agent in a fresh independent session, or resume a specific session by passing sessionId. By default wait for completion and return its final output plus session ID; pass background:true to submit a managed task and return immediately. Background runs cannot resume an existing session."
-                .into()
+            format!(
+                "Run an existing Pipi Agent in a fresh independent session, or resume a specific session by passing sessionId. By default wait for completion and return its final output plus session ID; pass background:true to submit a managed task and return immediately. Background runs cannot resume an existing session. {inline}"
+            )
         }
     }
 
@@ -273,26 +408,35 @@ impl AgentTool for RunAgentTool {
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "Name of an existing Agent"
+                    "description": "Name of an existing Agent to run. Omit when passing instructions for a one-off subagent."
+                },
+                "instructions": {
+                    "type": "string",
+                    "description": "One-off subagent only: self-contained operating instructions. The run happens in a child session of the current Agent and leaves no Agent definition behind. Foreground only; cannot be combined with name or sessionId."
                 },
                 "prompt": {
                     "type": "string",
                     "description": "Self-contained task and context for the Agent"
                 },
+                "tools": {
+                    "type": "array",
+                    "description": "One-off subagent only: subset of the current Agent's ordinary tools (defaults to all of them)",
+                    "items": { "type": "string", "enum": DEFAULT_TOOLS }
+                },
                 "sessionId": {
                     "type": "string",
-                    "description": "Optional existing session ID to resume. Preserves history, model selection, and stats. Only supported for foreground runs."
+                    "description": "Optional existing session ID to resume. Preserves history, model selection, and stats. Only supported for foreground runs of an existing Agent."
                 },
                 "background": {
                     "type": "boolean",
-                    "description": "Submit and return immediately as a managed task. Defaults to the host's configured mode; false waits for the final output. Forced to foreground when sessionId is provided."
+                    "description": "Submit and return immediately as a managed task. Defaults to the host's configured mode; false waits for the final output. Forced to foreground when sessionId is provided, and never available for a one-off subagent."
                 },
                 "subscribe": {
                     "type": "boolean",
                     "description": "Wake this session with the child Agent's result when the background task finishes (default true)."
                 }
             },
-            "required": ["name", "prompt"],
+            "required": ["prompt"],
             "additionalProperties": false
         })
     }
@@ -307,13 +451,37 @@ impl AgentTool for RunAgentTool {
         args: &Value,
         on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
-        let name = args["name"].as_str().ok_or("Missing name")?.trim();
         let prompt = args["prompt"].as_str().ok_or("Missing prompt")?.trim();
-        if name == self.caller_agent {
-            return Err("Agent is not allowed to run itself".into());
-        }
         if prompt.is_empty() {
             return Err("prompt cannot be empty".into());
+        }
+        let name = args
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+        let instructions = args
+            .get("instructions")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        let name = match (name, instructions) {
+            (Some(_), Some(_)) => {
+                return Err(
+                    "Pass either name (existing Agent) or instructions (one-off subagent), not both"
+                        .into(),
+                );
+            }
+            (None, None) => return Err("Missing name or instructions".into()),
+            (Some(name), None) => name,
+            (None, Some(instructions)) => {
+                return self
+                    .run_inline(ctx, args, prompt, instructions, on_update)
+                    .await;
+            }
+        };
+        if name == self.caller_agent {
+            return Err("Agent is not allowed to run itself".into());
         }
 
         let background = args
@@ -914,5 +1082,154 @@ mod tests {
             runner.seen.lock().unwrap().as_deref(),
             Some("1730000000000-deadbeef")
         );
+    }
+
+    struct EphemeralRunner {
+        seen: Mutex<Option<EphemeralRunRequest>>,
+    }
+
+    #[async_trait]
+    impl AgentRunner for EphemeralRunner {
+        async fn run_once(
+            &self,
+            _agent_name: &str,
+            _prompt: &str,
+            _abort: AbortSignal,
+            _progress: Option<ChildProgressTx>,
+        ) -> Result<AgentRunResult, String> {
+            Err("run_once must not be called for an inline subagent".into())
+        }
+
+        async fn run_ephemeral(
+            &self,
+            request: EphemeralRunRequest,
+            _abort: AbortSignal,
+            progress: Option<ChildProgressTx>,
+        ) -> Result<AgentRunResult, String> {
+            *self.seen.lock().unwrap() = Some(request);
+            if let Some(progress) = &progress {
+                let _ = progress.send(ToolOutput::text("inline milestone"));
+            }
+            Ok(AgentRunResult {
+                agent_name: "parent".into(),
+                session_id: "child-session".into(),
+                status: AgentRunStatus::Completed,
+                response: "inline output".into(),
+            })
+        }
+    }
+
+    fn inline_context(tools: &[&str]) -> ToolContext {
+        ToolContext {
+            workspace: std::env::temp_dir(),
+            memory_dir: None,
+            notebook_path: None,
+            read_roots: Vec::new(),
+            permissions: Arc::new(pipi_protocol::permissions::PermissionsConfig {
+                tools: tools.iter().map(|tool| tool.to_string()).collect(),
+                ..Default::default()
+            }),
+            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            resolved_env: Arc::new(BTreeMap::new()),
+            abort: AbortSignal::new(),
+        }
+    }
+
+    fn inline_model() -> Model {
+        Model {
+            id: "caller-model".into(),
+            name: "Caller Model".into(),
+            api: pipi_protocol::Api::OpenAICompletions,
+            base_url: "http://127.0.0.1:1/v1".into(),
+            max_tokens: 4096,
+            context_window: 128_000,
+            reasoning_effort: None,
+        }
+    }
+
+    fn inline_tool(runner: Arc<EphemeralRunner>) -> RunAgentTool {
+        let mut tool = RunAgentTool::new("parent".into(), runner);
+        tool.caller_session = "parent-session".into();
+        tool.caller_model = Some(inline_model());
+        tool
+    }
+
+    #[tokio::test]
+    async fn run_tool_inline_mode_delegates_without_creating_an_agent() {
+        let context = inline_context(&["read", "bash", "run_agent"]);
+        let runner = Arc::new(EphemeralRunner {
+            seen: Mutex::new(None),
+        });
+        let updates = Arc::new(Mutex::new(Vec::new()));
+        let updates_for_cb = updates.clone();
+        let output = inline_tool(runner.clone())
+            .execute(
+                &context,
+                &json!({
+                    "instructions": "You are a scout.",
+                    "prompt": "find the entry point",
+                    "tools": ["read"]
+                }),
+                &move |update| {
+                    if let ToolResultContent::Text { text } = &update.content[0] {
+                        updates_for_cb.lock().unwrap().push(text.clone());
+                    }
+                },
+            )
+            .await
+            .unwrap();
+
+        let seen = runner.seen.lock().unwrap().clone().expect("inline request");
+        assert_eq!(seen.caller_agent, "parent");
+        assert_eq!(seen.parent_session, "parent-session");
+        assert_eq!(seen.instructions, "You are a scout.");
+        assert_eq!(seen.prompt, "find the entry point");
+        // 组合工具不继承，显式子集只保留 read
+        assert_eq!(seen.tools, vec!["read"]);
+        assert_eq!(seen.model.id, "caller-model");
+        assert_eq!(
+            output.details.as_ref().unwrap()["response"],
+            "inline output"
+        );
+        assert!(
+            updates
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|text| text.contains("inline milestone")),
+            "inline 进度应回流到父工具更新流"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_tool_inline_mode_rejects_conflicting_or_unsafe_arguments() {
+        let context = inline_context(&["read", "run_agent"]);
+        let runner = Arc::new(EphemeralRunner {
+            seen: Mutex::new(None),
+        });
+        let tool = inline_tool(runner.clone());
+
+        for (args, expected) in [
+            (
+                json!({"name": "worker", "instructions": "scout", "prompt": "go"}),
+                "not both",
+            ),
+            (
+                json!({"instructions": "scout", "prompt": "go", "background": true}),
+                "foreground-only",
+            ),
+            (
+                json!({"instructions": "scout", "prompt": "go", "sessionId": "1730000000000-deadbeef"}),
+                "cannot resume",
+            ),
+            (
+                json!({"instructions": "scout", "prompt": "go", "tools": ["run_agent"]}),
+                "Only tools already enabled",
+            ),
+        ] {
+            let error = tool.execute(&context, &args, &|_| {}).await.unwrap_err();
+            assert!(error.contains(expected), "{args}: {error}");
+        }
+        assert!(runner.seen.lock().unwrap().is_none());
     }
 }

@@ -450,3 +450,50 @@ fn uncommitted_compaction_entry_can_be_rolled_back() {
     assert!(matches!(entries[0].kind, EntryKind::Message { .. }));
     std::fs::remove_dir_all(dir).ok();
 }
+
+/// 一次性子运行标记：首条条目落成 `subagent_run`，列表摘要带父会话 id；
+/// 普通会话没有这个字段。
+#[test]
+fn subagent_run_marker_is_listed_with_its_parent_session() {
+    let dir = pipi_test_support::temp_dir("pipi-git-subagent-run");
+    let repo = GitSessionRepo::new(dir.join("sessions.git"));
+    let parent_session = format!("{}-{}", now_millis(), new_id());
+
+    let mut log = repo.create().expect("create child session");
+    let child_id = log.session_id().to_string();
+    log.append_subagent_run("caller", &parent_session)
+        .expect("append marker");
+    log.append_message(&Message::user_text("one-off task"))
+        .expect("append message");
+    log.commit_point().expect("commit child session");
+    drop(log);
+
+    let mut top = repo.create().expect("create top-level session");
+    let top_id = top.session_id().to_string();
+    top.append_message(&Message::user_text("top-level task"))
+        .expect("append message");
+    top.commit_point().expect("commit top-level session");
+    drop(top);
+
+    let summaries = repo.list();
+    let child = summaries
+        .iter()
+        .find(|summary| summary.id == child_id)
+        .expect("child summary");
+    assert_eq!(
+        child.parent_session_id.as_deref(),
+        Some(parent_session.as_str())
+    );
+    let top = summaries
+        .iter()
+        .find(|summary| summary.id == top_id)
+        .expect("top-level summary");
+    assert_eq!(top.parent_session_id, None);
+
+    let entries = repo.entries(&child_id).expect("read child entries");
+    assert!(matches!(
+        entries.first().map(|entry| &entry.kind),
+        Some(EntryKind::SubagentRun { parent_agent, .. }) if parent_agent == "caller"
+    ));
+    std::fs::remove_dir_all(dir).ok();
+}

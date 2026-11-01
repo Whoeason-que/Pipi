@@ -81,6 +81,20 @@ impl SessionLog for MemoryLog {
         ))
     }
 
+    fn append_subagent_run(
+        &mut self,
+        parent_agent: &str,
+        parent_session: &str,
+    ) -> std::io::Result<String> {
+        Ok(self.append(
+            EntryKind::SubagentRun {
+                parent_agent: parent_agent.to_string(),
+                parent_session: parent_session.to_string(),
+            },
+            now_millis(),
+        ))
+    }
+
     fn append_background_result(
         &mut self,
         result: &BackgroundTaskResult,

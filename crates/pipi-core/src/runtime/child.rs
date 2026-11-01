@@ -46,6 +46,22 @@ impl AgentRunner for RuntimeAgentRunner {
             )
             .await
     }
+
+    async fn run_ephemeral(
+        &self,
+        request: crate::tools::agent::EphemeralRunRequest,
+        abort: AbortSignal,
+        progress: Option<ChildProgressTx>,
+    ) -> Result<AgentRunResult, String> {
+        super::ephemeral::run_ephemeral_with_sink(
+            request,
+            abort,
+            std::time::Duration::from_secs(CHILD_RUN_TIMEOUT_SECS),
+            progress,
+            self.session_sink.clone(),
+        )
+        .await
+    }
 }
 
 /// 把 child 运行能力注入后台任务管理器（依赖倒置：`background` 不依赖
@@ -110,6 +126,21 @@ impl RuntimeState {
         validate_session_id(session_id)?;
         if prompt.trim().is_empty() {
             return Err("Message cannot be empty".into());
+        }
+        // 一次性子运行的会话不能按普通会话续跑：续跑会按调用者的完整定义装配
+        // 工具（含组合工具），从而破坏「子运行只拿基础工具、不能递归委派」。
+        let definition = agents::load_agent(agent_name)?;
+        let repo = session_repo(&definition)?;
+        if repo.entries(session_id)?.iter().any(|entry| {
+            matches!(
+                entry.kind,
+                pipi_protocol::session::EntryKind::SubagentRun { .. }
+            )
+        }) {
+            return Err(
+                "One-off subagent sessions cannot be resumed; call run_agent with instructions for a new run"
+                    .into(),
+            );
         }
 
         let current_id = Arc::new(Mutex::new(session_id.to_string()));
