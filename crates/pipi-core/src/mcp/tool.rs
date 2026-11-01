@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use pipi_mcp::{CallToolResult, ContentPart};
 use pipi_protocol::ToolResultContent;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
+use pipi_tools::truncate::truncate_head;
 use serde_json::Value;
 
 use super::manager::{McpManager, McpToolSpec};
@@ -17,6 +18,8 @@ const MAX_TOOL_NAME: usize = 64;
 const MAX_DESCRIPTION_CHARS: usize = 1024;
 /// 参数 schema 的字节上限；超过就降级，不让单个服务器吃掉上下文。
 const MAX_SCHEMA_BYTES: usize = 16 * 1024;
+/// `details` 落盘前的字节上限（它是会话条目的一部分，不进提示词）。
+const MAX_DETAILS_BYTES: usize = 64 * 1024;
 
 /// `mcp__<server>__<tool>`，字符集外的一律换成 `_`，超长时截断并追加稳定哈希。
 pub fn wire_name(server: &str, tool: &str) -> String {
@@ -113,7 +116,7 @@ impl AgentTool for McpTool {
 
     async fn execute(
         &self,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
         args: &Value,
         _on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
@@ -124,63 +127,98 @@ impl AgentTool for McpTool {
                 &self.spec.server,
                 &self.spec.tool.name,
                 args.clone(),
+                &ctx.abort,
             )
             .await?;
         render(result)
     }
 }
 
-/// MCP 的 content 数组 → `ToolOutput`；服务器自报的 `isError` 走错误结果。
+/// MCP 的 content 数组 → `ToolOutput`。
+///
+/// 文本块聚合成一条结果再统一截断（与 bash 同一套行/字节上限）：服务器返回
+/// 一兆字节的日志时，写进会话的是有界的一段，而不是整份。`isError` 走错误
+/// 结果；图片原样透传（供应商侧只支持图片块时由 provider 降级成文本）。
 fn render(result: CallToolResult) -> Result<ToolOutput, String> {
-    let mut content = Vec::with_capacity(result.content.len());
     let mut texts = Vec::new();
+    let mut images = Vec::new();
     for part in result.content {
         match part {
-            ContentPart::Text(text) => {
-                texts.push(text.clone());
-                content.push(ToolResultContent::Text { text });
-            }
+            ContentPart::Text(text) => texts.push(text),
             ContentPart::Image { data, mime_type } => {
-                content.push(ToolResultContent::Image { data, mime_type })
+                images.push(ToolResultContent::Image { data, mime_type })
             }
             // 文本资源把 uri 放在前一行，模型能引用来源；二进制 resource 走 Other。
-            ContentPart::ResourceText { uri, text, .. } => {
-                let text = format!("[{uri}]\n{text}");
-                texts.push(text.clone());
-                content.push(ToolResultContent::Text { text });
-            }
-            ContentPart::Other(value) => {
-                let text = value.to_string();
-                texts.push(text.clone());
-                content.push(ToolResultContent::Text { text });
-            }
+            ContentPart::ResourceText { uri, text, .. } => texts.push(format!("[{uri}]\n{text}")),
+            ContentPart::Other(value) => texts.push(value.to_string()),
         }
     }
-    if content.is_empty()
+    // 只有 structuredContent 时也给它一个文本形态，模型才看得到。
+    if texts.is_empty()
         && let Some(structured) = &result.structured
     {
-        let text =
-            serde_json::to_string_pretty(structured).unwrap_or_else(|_| structured.to_string());
+        texts.push(
+            serde_json::to_string_pretty(structured).unwrap_or_else(|_| structured.to_string()),
+        );
+    }
+    let text = truncate_output(&texts.join("\n\n"));
+    if result.is_error {
+        return Err(if text.trim().is_empty() {
+            "(the MCP tool reported an error without output)".to_string()
+        } else {
+            text
+        });
+    }
+    let mut content: Vec<ToolResultContent> = Vec::new();
+    if !text.is_empty() {
         content.push(ToolResultContent::Text { text });
     }
+    content.extend(images);
     if content.is_empty() {
         content.push(ToolResultContent::Text {
             text: "(the MCP tool returned no content)".into(),
         });
     }
-    if result.is_error {
-        let message = if texts.is_empty() {
-            "(the MCP tool reported an error without output)".to_string()
-        } else {
-            texts.join("\n")
-        };
-        return Err(message);
-    }
     Ok(ToolOutput {
         content,
-        details: result.structured,
+        // `details` 会原样写进会话条目：超大的结构化结果不落盘。
+        details: result
+            .structured
+            .filter(|value| serialized_len(value) <= MAX_DETAILS_BYTES),
         terminate: false,
     })
+}
+
+fn truncate_output(text: &str) -> String {
+    let max_bytes = pipi_tools::truncate::DEFAULT_MAX_BYTES;
+    let truncated = truncate_head(text, pipi_tools::truncate::DEFAULT_MAX_LINES, max_bytes);
+    if !truncated.truncated {
+        return truncated.content;
+    }
+    // 单行自身超限时 `truncate_head` 会整行保留（read 工具自己处理越界），
+    // 这里必须真的切到字节上限，否则一个单行大输出就能绕过限制。
+    if truncated.first_line_exceeds_limit {
+        let mut end = max_bytes.min(text.len());
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        return format!(
+            "{}\n[…line truncated…]\n\n[output truncated: the first line alone exceeds {max_bytes} bytes]",
+            &text[..end]
+        );
+    }
+    format!(
+        "{}\n\n[output truncated: showing {} of {} lines / {} of {} bytes]",
+        truncated.content.trim_end(),
+        truncated.output_lines,
+        truncated.total_lines,
+        truncated.output_bytes,
+        truncated.total_bytes
+    )
+}
+
+fn serialized_len(value: &Value) -> usize {
+    serde_json::to_string(value).map_or(usize::MAX, |text| text.len())
 }
 
 #[cfg(test)]
@@ -230,6 +268,39 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(error, "boom");
+    }
+
+    #[test]
+    fn huge_text_results_are_truncated_with_a_note() {
+        let huge = "x".repeat(pipi_tools::truncate::DEFAULT_MAX_BYTES + 4096);
+        let output = render(CallToolResult {
+            content: vec![ContentPart::Text(huge)],
+            structured: None,
+            is_error: false,
+        })
+        .unwrap();
+        let ToolResultContent::Text { text } = &output.content[0] else {
+            panic!("expected a text result");
+        };
+        assert!(text.len() <= pipi_tools::truncate::DEFAULT_MAX_BYTES + 256);
+        assert!(
+            text.contains("[output truncated:"),
+            "missing truncation note"
+        );
+    }
+
+    #[test]
+    fn oversized_structured_details_are_not_persisted() {
+        let big = serde_json::json!({ "blob": "y".repeat(MAX_DETAILS_BYTES + 1) });
+        let output = render(CallToolResult {
+            content: Vec::new(),
+            structured: Some(big),
+            is_error: false,
+        })
+        .unwrap();
+        // details 不进会话条目；文本形态仍然交给模型（并受同一套截断约束）。
+        assert!(output.details.is_none());
+        assert!(matches!(&output.content[0], ToolResultContent::Text { .. }));
     }
 
     #[test]

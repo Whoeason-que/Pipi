@@ -37,7 +37,9 @@ impl AbortSignal {
         self.token().cancelled().await;
     }
 
-    fn token(&self) -> CancellationToken {
+    /// 取一个可克隆的取消令牌：外部执行器（MCP 调用、子进程）用它和自己
+    /// 的 future 做 `select!`，不必依赖本类型。
+    pub fn token(&self) -> CancellationToken {
         self.0.lock().expect("abort signal poisoned").clone()
     }
 }

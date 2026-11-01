@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex as AsyncMutex, oneshot, watch};
+use tokio_util::sync::CancellationToken;
 
 use crate::error::McpError;
 use crate::protocol::{self, CallToolResult, Inbound, McpToolDef, ServerInfo};
@@ -237,16 +238,30 @@ impl McpClient {
         arguments: Value,
         timeout: Duration,
     ) -> Result<CallToolResult, McpError> {
+        self.call_tool_cancellable(name, arguments, timeout, None)
+            .await
+    }
+
+    /// 可取消的工具调用。取消时移除等待者并发 `notifications/cancelled`
+    /// （MCP 的取消是建议性的：服务器可能仍然执行完，只是我们不再等结果）。
+    pub async fn call_tool_cancellable(
+        &self,
+        name: &str,
+        arguments: Value,
+        timeout: Duration,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<CallToolResult, McpError> {
         let arguments = if arguments.is_object() {
             arguments
         } else {
             json!({})
         };
         let result = self
-            .request_with(
+            .request_cancellable(
                 "tools/call",
                 json!({ "name": name, "arguments": arguments }),
                 timeout,
+                cancel,
             )
             .await?;
         Ok(protocol::parse_call_result(&result))
@@ -294,6 +309,17 @@ impl McpClient {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, McpError> {
+        self.request_cancellable(method, params, timeout, None)
+            .await
+    }
+
+    async fn request_cancellable(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<Value, McpError> {
         if self.inner.closed.load(Ordering::SeqCst) {
             return Err(McpError::Closed);
         }
@@ -310,7 +336,21 @@ impl McpClient {
             lock_pending(&self.inner).remove(&id);
             return Err(error);
         }
-        match tokio::time::timeout(timeout, receiver).await {
+        let outcome = match cancel {
+            Some(token) => {
+                tokio::select! {
+                    // 取消优先：用户点了停止就不该再等响应。
+                    biased;
+                    _ = token.cancelled() => {
+                        self.abandon_request(id, method).await;
+                        return Err(McpError::Cancelled);
+                    }
+                    result = tokio::time::timeout(timeout, receiver) => result,
+                }
+            }
+            None => tokio::time::timeout(timeout, receiver).await,
+        };
+        match outcome {
             Ok(Ok(Ok(value))) => Ok(value),
             Ok(Ok(Err(error))) => Err(error),
             // 发送端被读任务丢弃：连接已经结束。
@@ -324,6 +364,23 @@ impl McpClient {
                 })
             }
         }
+    }
+
+    /// 放弃一次已发出的请求：移除等待者，并告知服务器（尽最大努力）。
+    async fn abandon_request(&self, id: u64, method: &str) {
+        lock_pending(&self.inner).remove(&id);
+        let _ = write_message(
+            &self.inner,
+            &json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": {
+                    "requestId": id,
+                    "reason": format!("{method} cancelled by the client"),
+                },
+            }),
+        )
+        .await;
     }
 
     /// 关闭连接：关 stdin（正常退出约定）→ 整组 TERM → 整组 KILL。

@@ -112,6 +112,20 @@ pub struct McpServerConfig {
     /// 需要单独写成 `danger-full-access` 才能用。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<pipi_protocol::permissions::SandboxMode>,
+    /// 单次工具调用超时（秒）；缺省 60。浏览器自动化之类的慢服务器需要调大。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u64>,
+    /// 握手超时（秒）；缺省 20。`npx -y` 首次下载依赖可能超过这个值。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub startup_timeout_seconds: Option<u64>,
+    /// 允许同一台服务器的工具并发执行；缺省 false（串行）。
+    /// MCP 协议支持并发，但很多服务器假设调用是串行的，所以默认保守。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub parallel_calls: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn default_true() -> bool {
@@ -179,6 +193,20 @@ pub fn validate_definition(def: &AgentDefinition) -> Result<(), String> {
         if server.command.trim().is_empty() {
             return Err(format!("MCP server {} has an empty command", server.name));
         }
+        // 0 秒等于「一发出就超时」，一定是配置错误；上限只是防手滑（1 小时）。
+        for (label, value) in [
+            ("timeoutSeconds", server.timeout_seconds),
+            ("startupTimeoutSeconds", server.startup_timeout_seconds),
+        ] {
+            if let Some(seconds) = value
+                && !(1..=3600).contains(&seconds)
+            {
+                return Err(format!(
+                    "MCP server {} has an invalid {label}: {seconds} (expected 1-3600)",
+                    server.name
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -229,10 +257,34 @@ mod tests {
             env: Default::default(),
             enabled: true,
             sandbox: None,
+            timeout_seconds: None,
+            startup_timeout_seconds: None,
+            parallel_calls: false,
         };
         def.mcp_servers = vec![server("a"), server("a")];
         assert!(validate_definition(&def).is_err());
         def.mcp_servers = vec![server("a"), server("b")];
+        assert!(validate_definition(&def).is_ok());
+
+        // 名称字符集不合格（会进 wire 工具名与 mcp-cache 文件名）
+        let mut spaced = server("bad name");
+        def.mcp_servers = vec![spaced.clone()];
+        assert!(validate_definition(&def).is_err());
+        spaced.name = "ok-name_2".into();
+        def.mcp_servers = vec![spaced];
+        assert!(validate_definition(&def).is_ok());
+
+        // 超时是秒数，0 与超过 1 小时都拒绝
+        let mut timed = server("t");
+        timed.timeout_seconds = Some(0);
+        def.mcp_servers = vec![timed.clone()];
+        assert!(validate_definition(&def).is_err());
+        timed.timeout_seconds = Some(300);
+        timed.startup_timeout_seconds = Some(3601);
+        def.mcp_servers = vec![timed.clone()];
+        assert!(validate_definition(&def).is_err());
+        timed.startup_timeout_seconds = Some(60);
+        def.mcp_servers = vec![timed];
         assert!(validate_definition(&def).is_ok());
     }
 

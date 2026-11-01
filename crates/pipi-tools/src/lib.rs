@@ -13,7 +13,7 @@ pub mod memory;
 mod notebook;
 pub mod process;
 mod read;
-mod truncate;
+pub mod truncate;
 mod write;
 
 use std::sync::Arc;

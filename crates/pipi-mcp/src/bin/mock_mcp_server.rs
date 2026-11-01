@@ -17,6 +17,11 @@ fn main() {
     let mode = std::env::args().nth(1).unwrap_or_default();
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+    // 调用过 grow 之后，tools/list 会多一个工具（配合 notifications/tools/list_changed）。
+    let mut grew = false;
+    // 退出时机必须确定：等客户端发来 `notifications/initialized` 再退，否则
+    // 客户端可能连握手后的写入都撞上 EPIPE，测的就不是「请求期间断开」了。
+    let die_after_initialized = mode == "--die-after-init";
     for line in stdin.lock().lines() {
         let Ok(line) = line else { return };
         let line = line.trim();
@@ -28,6 +33,9 @@ fn main() {
         };
         // 通知（没有 id）只需要接收，不用回。
         let Some(id) = message.get("id").cloned() else {
+            if die_after_initialized {
+                return;
+            }
             continue;
         };
         let method = message["method"].as_str().unwrap_or_default();
@@ -45,9 +53,6 @@ fn main() {
                         },
                     }),
                 );
-                if mode == "--die-after-init" {
-                    return;
-                }
             }
             "ping" => write(
                 &mut stdout,
@@ -63,36 +68,46 @@ fn main() {
                 }),
             ),
             "tools/list" => {
-                let tools = if mode == "--no-tools" {
-                    json!([])
-                } else {
-                    json!([
-                        {
-                            "name": "echo",
-                            "description": "Echo the message back",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": { "message": { "type": "string" } },
-                                "required": ["message"],
-                            },
+                let mut tools = Vec::new();
+                if mode != "--no-tools" {
+                    tools.push(json!({
+                        "name": "echo",
+                        "description": "Echo the message back",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": { "message": { "type": "string" } },
+                            "required": ["message"],
                         },
-                        {
-                            "name": "fail",
-                            "description": "Always fails",
+                    }));
+                    tools.push(json!({
+                        "name": "fail",
+                        "description": "Always fails",
+                        "inputSchema": { "type": "object", "properties": {} },
+                    }));
+                    tools.push(json!({
+                        "name": "image",
+                        "description": "Return an image",
+                        "inputSchema": { "type": "object", "properties": {} },
+                    }));
+                    tools.push(json!({
+                        "name": "slow",
+                        "description": "Sleep before answering",
+                        "inputSchema": { "type": "object", "properties": {} },
+                    }));
+                    tools.push(json!({
+                        "name": "grow",
+                        "description": "Announce a changed tool list",
+                        "inputSchema": { "type": "object", "properties": {} },
+                    }));
+                    // 调用过 grow 之后多出一个工具，并已发过 list_changed。
+                    if grew {
+                        tools.push(json!({
+                            "name": "echo2",
+                            "description": "Appears after grow",
                             "inputSchema": { "type": "object", "properties": {} },
-                        },
-                        {
-                            "name": "image",
-                            "description": "Return an image",
-                            "inputSchema": { "type": "object", "properties": {} },
-                        },
-                        {
-                            "name": "slow",
-                            "description": "Sleep before answering",
-                            "inputSchema": { "type": "object", "properties": {} },
-                        },
-                    ])
-                };
+                        }));
+                    }
+                }
                 write(
                     &mut stdout,
                     json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools } }),
@@ -122,6 +137,20 @@ fn main() {
                     "slow" => {
                         std::thread::sleep(Duration::from_secs(2));
                         json!({ "content": [{ "type": "text", "text": "slow done" }] })
+                    }
+                    "grow" => {
+                        if !grew {
+                            grew = true;
+                            // 先通知再回结果：客户端 watcher 应当重列并看到 echo2。
+                            write(
+                                &mut stdout,
+                                json!({
+                                    "jsonrpc": "2.0",
+                                    "method": "notifications/tools/list_changed",
+                                }),
+                            );
+                        }
+                        json!({ "content": [{ "type": "text", "text": "grown" }] })
                     }
                     other => {
                         write(

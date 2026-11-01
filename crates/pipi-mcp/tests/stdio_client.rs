@@ -41,7 +41,7 @@ async fn tools_carry_schema_and_description() {
     let client = connect("").await;
     let tools = client.tools().await.expect("tools/list should succeed");
     let names: Vec<&str> = tools.iter().map(|tool| tool.name.as_str()).collect();
-    assert_eq!(names, ["echo", "fail", "image", "slow"]);
+    assert_eq!(names, ["echo", "fail", "image", "slow", "grow"]);
     let echo = &tools[0];
     assert_eq!(echo.description.as_deref(), Some("Echo the message back"));
     assert_eq!(echo.input_schema["required"][0], "message");
@@ -133,5 +133,54 @@ async fn empty_tool_list_is_not_an_error() {
             .expect("empty list is valid")
             .is_empty()
     );
+    client.shutdown().await;
+}
+
+#[tokio::test]
+async fn cancellation_drops_the_wait_and_keeps_the_connection() {
+    use tokio_util::sync::CancellationToken;
+
+    let client = connect("").await;
+    let token = CancellationToken::new();
+    let canceller = token.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        canceller.cancel();
+    });
+    let error = client
+        .call_tool_cancellable(
+            "slow",
+            serde_json::json!({}),
+            Duration::from_secs(5),
+            Some(&token),
+        )
+        .await
+        .expect_err("cancelled call should not return a result");
+    assert!(matches!(error, McpError::Cancelled));
+
+    // 服务器还在睡那 2 秒；睡完后连接照常可用（迟到的响应被丢弃）。
+    let echo = client
+        .call_tool("echo", serde_json::json!({ "message": "alive" }))
+        .await
+        .expect("connection should survive cancellation");
+    assert!(matches!(&echo.content[0], ContentPart::Text(text) if text == "echo: alive"));
+    client.shutdown().await;
+}
+
+#[tokio::test]
+async fn tools_changed_notification_bumps_the_watch_version() {
+    let client = connect("").await;
+    let mut watch = client.watch_tools();
+    assert_eq!(client.tools().await.expect("list").len(), 5);
+    client
+        .call_tool("grow", serde_json::json!({}))
+        .await
+        .expect("grow should succeed");
+    tokio::time::timeout(Duration::from_secs(2), watch.changed())
+        .await
+        .expect("list_changed should be observed")
+        .expect("watch channel is alive");
+    let tools = client.tools().await.expect("relist");
+    assert!(tools.iter().any(|tool| tool.name == "echo2"));
     client.shutdown().await;
 }

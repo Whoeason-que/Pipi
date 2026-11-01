@@ -12,6 +12,8 @@ pub enum McpError {
     Io(String),
     /// 连接已关闭（服务器退出、stdin 已关）。
     Closed,
+    /// 调用方主动取消（用户点了停止）。服务器可能仍在执行，只是不再等结果。
+    Cancelled,
     /// 请求超时。带上方法名，方便判断是 `initialize` 卡住还是单次调用太慢。
     Timeout { method: String, after: Duration },
     /// 对端发来的消息不符合协议（JSON 解析失败、缺字段）。
@@ -31,6 +33,7 @@ impl fmt::Display for McpError {
             McpError::Spawn(detail) => write!(f, "failed to start MCP server: {detail}"),
             McpError::Io(detail) => write!(f, "MCP transport error: {detail}"),
             McpError::Closed => write!(f, "MCP server connection is closed"),
+            McpError::Cancelled => write!(f, "MCP request was cancelled"),
             McpError::Timeout { method, after } => write!(
                 f,
                 "MCP request \"{method}\" timed out after {}ms",

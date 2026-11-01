@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use pipi_mcp::{ConnectOptions, McpClient, McpToolDef};
 use pipi_protocol::permissions::{SandboxMode, SandboxPolicy};
@@ -18,6 +19,8 @@ use super::cache;
 /// 每个 Agent 一次装配最多声明多少个 MCP 工具。工具描述要进提示词，几十个
 /// 服务器的全量清单会把上下文吃光；超出的部分直接不声明（见 README）。
 const MAX_TOOLS_PER_AGENT: usize = 64;
+/// 工具清单 watcher 的核对周期（连接被替换后让它退出）。
+const WATCH_TICK: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ServerKey {
@@ -68,6 +71,11 @@ struct Slot {
     error: Option<String>,
     /// 每台服务器一把：并发调用同一台时只建立一条连接。
     connect_lock: Arc<tokio::sync::Mutex<()>>,
+    /// `parallelCalls: false`（默认）时串行化工具调用：很多服务器假设调用不并发。
+    call_lock: Arc<tokio::sync::Mutex<()>>,
+    parallel_calls: bool,
+    call_timeout: Duration,
+    startup_timeout: Duration,
 }
 
 /// 一条可注册的工具声明。
@@ -169,6 +177,11 @@ impl McpManager {
                 } else if slot.plan.is_none() {
                     slot.plan = Some(plan);
                 }
+                // 超时与并发开关不影响进程本身，但每次 prepare 都跟着配置走。
+                let (call_timeout, startup_timeout) = timeouts(server);
+                slot.call_timeout = call_timeout;
+                slot.startup_timeout = startup_timeout;
+                slot.parallel_calls = server.parallel_calls;
                 let needs_connect = !slot.connecting
                     && slot.client.as_ref().is_none_or(|client| client.is_closed());
                 if needs_connect {
@@ -226,23 +239,52 @@ impl McpManager {
     }
 
     /// 调用一台服务器的工具；连接已断时重连一次。
+    /// 调用一台服务器的工具；连接已断时重连一次，用户中止时立刻放弃。
+    ///
+    /// `parallelCalls: false`（默认）时按服务器串行：同一时间只允许一个调用
+    /// 在途，避免有状态服务器被并发请求踩坏。
     pub async fn call(
         &self,
         agent_name: &str,
         server_name: &str,
         tool: &str,
         arguments: serde_json::Value,
+        abort: &pipi_protocol::AbortSignal,
     ) -> Result<pipi_mcp::CallToolResult, String> {
         let key = ServerKey::new(agent_name, server_name);
+        let (parallel, timeout, lock) = {
+            let servers = self.inner.servers();
+            let slot = servers.get(&key).ok_or_else(|| {
+                format!(
+                    "MCP server \"{}\" is not configured for this Agent",
+                    key.server_name
+                )
+            })?;
+            (
+                slot.parallel_calls,
+                slot.call_timeout,
+                slot.call_lock.clone(),
+            )
+        };
+        let _serial = if parallel {
+            None
+        } else {
+            Some(lock.lock_owned().await)
+        };
+        let token = abort.token();
         let client = self.ensure_client(&key).await?;
-        match client.call_tool(tool, arguments.clone()).await {
+        match client
+            .call_tool_cancellable(tool, arguments.clone(), timeout, Some(&token))
+            .await
+        {
             Err(pipi_mcp::McpError::Closed) => {
                 let client = self.reconnect(&key).await?;
                 client
-                    .call_tool(tool, arguments)
+                    .call_tool_cancellable(tool, arguments, timeout, Some(&token))
                     .await
                     .map_err(|error| describe(&error, &client.stderr_tail()))
             }
+            Err(pipi_mcp::McpError::Cancelled) => Err("Operation aborted".into()),
             result => result.map_err(|error| describe(&error, &client.stderr_tail())),
         }
     }
@@ -378,7 +420,20 @@ impl McpManager {
 
     async fn connect_with_plan(&self, key: &ServerKey, plan: &SpawnPlan) -> Result<(), String> {
         let command = build_command(plan)?;
-        let client = McpClient::connect(command, ConnectOptions::default())
+        let (call_timeout, startup_timeout) = {
+            let servers = self.inner.servers();
+            let slot = servers.get(key);
+            (
+                slot.map_or(Duration::from_secs(60), |slot| slot.call_timeout),
+                slot.map_or(Duration::from_secs(20), |slot| slot.startup_timeout),
+            )
+        };
+        let options = ConnectOptions {
+            initialize_timeout: startup_timeout,
+            request_timeout: call_timeout,
+            ..ConnectOptions::default()
+        };
+        let client = McpClient::connect(command, options)
             .await
             .map_err(|error| describe(&error, ""))?;
         let tools = match client.tools().await {
@@ -409,7 +464,71 @@ impl McpManager {
             return Ok(());
         }
         cache::store(&key.agent_name, &key.server_name, &fingerprint, &tools);
+        self.spawn_tool_watcher(key.clone(), client, fingerprint);
         Ok(())
+    }
+
+    /// 跟随服务器的 `notifications/tools/list_changed`：重列并更新槽位与快照。
+    ///
+    /// 连接被替换（重连 / 配置变化）时自然退出：`changed()` 在发送端析构后
+    /// 返回错误，而且每次更新前都核对还是不是当前连接。
+    fn spawn_tool_watcher(&self, key: ServerKey, client: Arc<McpClient>, fingerprint: String) {
+        let mut changes = client.watch_tools();
+        let manager = self.clone();
+        self.runtime.spawn(async move {
+            loop {
+                // 周期性核对：连接被替换后 `changed()` 不会再触发（发送端还活着），
+                // 靠这个 tick 让孤儿 watcher 退出。
+                let notified = match tokio::time::timeout(WATCH_TICK, changes.changed()).await {
+                    Ok(Ok(())) => true,
+                    Ok(Err(_)) => return,
+                    Err(_) => false,
+                };
+                if client.is_closed() || !manager.is_current_client(&key, &client) {
+                    return;
+                }
+                if !notified {
+                    continue;
+                }
+                let Ok(tools) = client.tools().await else {
+                    // 列不出来说明连接已经坏了；下一次调用会走重连。
+                    return;
+                };
+                manager.install_tools(&key, &fingerprint, &client, tools);
+            }
+        });
+    }
+
+    fn is_current_client(&self, key: &ServerKey, client: &Arc<McpClient>) -> bool {
+        self.inner
+            .servers()
+            .get(key)
+            .and_then(|slot| slot.client.as_ref())
+            .is_some_and(|live| Arc::ptr_eq(live, client))
+    }
+
+    fn install_tools(
+        &self,
+        key: &ServerKey,
+        fingerprint: &str,
+        client: &Arc<McpClient>,
+        tools: Vec<McpToolDef>,
+    ) {
+        let mut servers = self.inner.servers();
+        let Some(slot) = servers.get_mut(key) else {
+            return;
+        };
+        if slot.fingerprint != fingerprint
+            || !slot
+                .client
+                .as_ref()
+                .is_some_and(|live| Arc::ptr_eq(live, client))
+        {
+            return;
+        }
+        slot.tools = tools.clone();
+        drop(servers);
+        cache::store(&key.agent_name, &key.server_name, fingerprint, &tools);
     }
 
     fn record_error(&self, key: &ServerKey, error: String) {
@@ -423,8 +542,6 @@ impl McpManager {
     }
 }
 
-/// 把一条服务器声明变成启动计划；`${VAR}` 只从 av 契约解析出的环境里取值，
-/// 缺值即失败（秘密值永远引用式，不内联）。
 /// MCP 服务器用的子进程环境：去掉按会话变化的键。
 ///
 /// 服务器按 (Agent, 名字) 缓存、被该 Agent 的所有会话共享；把 `AV_SESSION`
@@ -433,6 +550,14 @@ fn server_env(env: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     let mut env = env.clone();
     env.remove("AV_SESSION");
     env
+}
+
+/// 单台服务器的 (调用超时, 握手超时)，缺省 60s / 20s。
+fn timeouts(server: &McpServerConfig) -> (Duration, Duration) {
+    (
+        Duration::from_secs(server.timeout_seconds.unwrap_or(60)),
+        Duration::from_secs(server.startup_timeout_seconds.unwrap_or(20)),
+    )
 }
 
 /// 把一条服务器声明变成启动计划；`${VAR}` 只从 av 契约解析出的环境里取值，

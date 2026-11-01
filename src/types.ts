@@ -53,6 +53,12 @@ interface McpServer {
   enabled: boolean;
   /** 启动沙箱档位；缺省跟随 Agent 的 permissions.sandbox。 */
   sandbox?: SandboxMode | null;
+  /** 单次工具调用超时（秒），缺省 60。 */
+  timeoutSeconds?: number | null;
+  /** 握手超时（秒），缺省 20。 */
+  startupTimeoutSeconds?: number | null;
+  /** 允许同一台服务器的工具并发执行，缺省 false（串行）。 */
+  parallelCalls?: boolean;
 }
 
 /** 宿主报告的 MCP 服务器连接状态（`mcp_status` 命令）。 */
