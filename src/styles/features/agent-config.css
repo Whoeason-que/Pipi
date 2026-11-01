@@ -447,3 +447,31 @@
 .agent-settings-panel .file-editor {
   min-height: 220px;
 }
+
+/* MCP 服务器状态（Agent 工作台「基础」页）：连接点 + 工具数 + 覆盖的沙箱档。 */
+.mcp-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mcp-status-item {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.mcp-status-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong, var(--line));
+}
+
+.mcp-status-dot.on {
+  background: var(--ok);
+}

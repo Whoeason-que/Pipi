@@ -11,6 +11,7 @@ import { ChoiceSelect } from "../Select";
 import type { SessionRuntime } from "../session-runtime";
 import {
   type AgentDefinition,
+  type McpServerStatusView,
   type PromptScope,
   type ProviderConfig,
   type SessionInfoView,
@@ -101,6 +102,27 @@ export default function AgentWorkbench({
     contextWindow: agent.provider?.contextWindow ?? 0,
   }));
   const [saving, setSaving] = useState(false);
+
+  // —— MCP 服务器状态（只读，来自宿主）：切换页签或保存后刷新 ——
+  const [mcpStatus, setMcpStatus] = useState<McpServerStatusView[]>([]);
+  useEffect(() => {
+    if (!agent.mcpServers.length) {
+      setMcpStatus([]);
+      return;
+    }
+    let cancelled = false;
+    invoke("mcp_status", { agentName: agent.name })
+      .then((statuses) => {
+        if (!cancelled) setMcpStatus(statuses);
+      })
+      .catch(() => {
+        // 状态查询失败不影响配置编辑，按「未连接」展示。
+        if (!cancelled) setMcpStatus([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.name, agent.mcpServers.length, settingsTab, saving]);
 
   // —— 元信息 / 权限编辑（agent.json 全字段）——
   const [subagent, setSubagent] = useState(agent.subagent);
@@ -586,16 +608,45 @@ export default function AgentWorkbench({
                 </div>
                 <div className="settings-summary-row">
                   <span className="field-label">MCP 服务</span>
-                  <div className="settings-tags">
-                    {agent.mcpServers.length ? (
-                      agent.mcpServers.map((server) => (
-                        <span className="tag" key={server.name}>
-                          {server.name}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="dim">未配置</span>
-                    )}
+                  {agent.mcpServers.length ? (
+                    <div className="mcp-status-list">
+                      {agent.mcpServers.map((server) => {
+                        const status = mcpStatus.find(
+                          (item) => item.name === server.name,
+                        );
+                        const connected = status?.connected ?? false;
+                        return (
+                          <div className="mcp-status-item" key={server.name}>
+                            <span
+                              className={`mcp-status-dot${connected ? " on" : ""}`}
+                              title={connected ? "已连接" : "未连接"}
+                            />
+                            <span className="mono">{server.name}</span>
+                            <span className="dim">
+                              {!server.enabled
+                                ? "已停用"
+                                : status
+                                  ? `${status.tools} 个工具`
+                                  : "未连接"}
+                            </span>
+                            {server.sandbox === "danger-full-access" && (
+                              <span className="dim">无沙箱</span>
+                            )}
+                            {status?.error && (
+                              <span className="field-error">{status.error}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <span className="dim">未配置</span>
+                  )}
+                  <div className="hint">
+                    在 agent.json 的 mcpServers 里声明 stdio 服务器（command /
+                    args / env）；env 的值用 {"${VAR}"} 引用 agent.toml
+                    的键。服务器进程默认跟随沙箱档位，联网类服务器可单独写
+                    sandbox: danger-full-access。
                   </div>
                 </div>
                 <AgentFileEditor
