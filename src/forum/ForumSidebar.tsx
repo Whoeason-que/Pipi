@@ -2,7 +2,8 @@
 
 import { useContext } from "react";
 import { LayoutContext } from "../app/layout-context";
-import { IconClose, IconForum, IconPlus, IconRefresh, IconSearch } from "../icons";
+import { IconForum, IconPlus, IconRefresh } from "../icons";
+import { SidebarSearch } from "../components/SidebarSearch";
 import { useForum } from "./forum-state";
 import { formatRelativeTime } from "./time";
 
@@ -44,29 +45,12 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
   return (
     <>
       {/* 搜索置顶：过滤框作为侧栏第一行 */}
-      <div className="sb-filter">
-        <div className="search">
-          <IconSearch />
-          <input
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            placeholder="搜索主题 / 作者 / 标签…"
-            aria-label="搜索论坛主题"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {filterText && (
-            <button
-              type="button"
-              className="search-clear"
-              title="清空搜索"
-              onClick={() => setFilterText("")}
-            >
-              <IconClose />
-            </button>
-          )}
-        </div>
-      </div>
+      <SidebarSearch
+        value={filterText}
+        onChange={setFilterText}
+        placeholder="搜索主题 / 作者 / 标签…"
+        label="搜索论坛主题"
+      />
 
       <div className="caption sb-sec forum-sidebar-heading">
         <span>论坛</span>

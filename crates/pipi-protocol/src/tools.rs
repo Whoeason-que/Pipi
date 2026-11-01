@@ -1,7 +1,7 @@
 //! 工具端口：执行结果、执行上下文、工具 trait 与注册表容器。
 //!
-//! 内置工具的**实现**在 `pipi-tools`（bash / read / write / edit / glob /
-//! grep / memory），组合工具在宿主（`pipi-core::tools`）—— 两侧都实现这里的
+//! 内置工具的**实现**在 `pipi-tools`（bash / read / write / edit / memory /
+//! notebook），组合工具在宿主（`pipi-core::tools`）—— 两侧都实现这里的
 //! [`AgentTool`]，引擎只认这个 trait 与 [`ToolRegistry`] 容器。
 //! 「按权限装配哪些内置工具」是实现的策略，见 `pipi_tools::builtin_registry`。
 
@@ -107,12 +107,12 @@ pub trait AgentTool: Send + Sync {
 }
 
 /// 把相对路径解析到工作目录下（绝对路径原样通过）。同 pi 的 path-utils。
-pub fn resolve_path(workspace: &Path, path: &str) -> Result<PathBuf, String> {
-    let p = Path::new(path);
-    if p.is_absolute() {
-        Ok(p.to_path_buf())
+pub fn resolve_path(workspace: &Path, path: &str) -> PathBuf {
+    let requested = Path::new(path);
+    if requested.is_absolute() {
+        requested.to_path_buf()
     } else {
-        Ok(workspace.join(p))
+        workspace.join(requested)
     }
 }
 
@@ -125,12 +125,9 @@ pub fn resolve_read_path(
     read_roots: &[PathBuf],
     path: &str,
 ) -> Result<PathBuf, String> {
-    let requested = resolve_path(workspace, path)?;
+    let requested = resolve_path(workspace, path);
     let target = std::fs::canonicalize(&requested)
         .map_err(|e| format!("Cannot read file {path}: failed to resolve path (file does not exist or link is invalid): {e}"))?;
-    std::fs::metadata(&target).map_err(|e| {
-        format!("Cannot read file {path}: failed to verify target file status: {e}")
-    })?;
 
     let mut roots = Vec::with_capacity(read_roots.len() + 1);
     roots.push(workspace.to_path_buf());
@@ -165,7 +162,7 @@ pub fn resolve_read_path(
 }
 
 /// 按工具名查 schema 里的 required 字段做轻量校验（完整 JSON Schema 校验
-/// 是后续项，见 lib.rs「尚未移植」）。
+/// 是后续项）。
 pub fn validate_args(parameters: &Value, args: &Value) -> Result<(), String> {
     if !args.is_object() {
         return Err("Tool arguments must be a JSON object".into());

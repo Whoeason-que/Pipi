@@ -1,9 +1,6 @@
 use super::PushSubscription;
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::{self, OpenOptions},
-    io::Write,
-};
+use std::fs;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -32,26 +29,9 @@ pub(super) fn load(path: Option<&std::path::Path>) -> Result<Option<Store>, Stri
 pub(super) fn save(path: Option<&std::path::Path>, store: &Store) -> Result<(), String> {
     let path = path.ok_or("Cannot locate Pipi data directory")?;
     pipi_protocol::fs::ensure_real_file(path, "Push subscription store")?;
-    let parent = path.parent().ok_or("Missing Pipi data directory")?;
-    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let temp = parent.join(format!(".push-{}", uuid::Uuid::new_v4().simple()));
-    let result = (|| -> std::io::Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp)?;
-        file.write_all(&serde_json::to_vec_pretty(store)?)?;
-        file.sync_all()?;
-        fs::rename(&temp, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
-    }
-    result.map_err(|e| format!("Cannot save push subscriptions: {e}"))
+    let bytes = serde_json::to_vec_pretty(store).map_err(|e| e.to_string())?;
+    pipi_protocol::fs::write_private_atomic(path, bytes)
+        .map_err(|e| format!("Cannot save push subscriptions: {e}"))
 }
 
 #[cfg(test)]

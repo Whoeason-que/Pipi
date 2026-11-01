@@ -86,12 +86,6 @@ impl MessageQueue {
     pub fn drain(&self) -> Vec<Message> {
         std::mem::take(&mut self.0.lock().unwrap())
     }
-    pub fn len(&self) -> usize {
-        self.0.lock().unwrap().len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

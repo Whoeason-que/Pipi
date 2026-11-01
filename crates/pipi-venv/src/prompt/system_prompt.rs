@@ -206,10 +206,13 @@ fn append_skills(prompt: &mut String, skills: &[crate::av::SkillMeta], read_tool
     prompt.push_str("When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n");
     for skill in visible_skills {
         prompt.push_str("  <skill>\n");
-        prompt.push_str(&format!("    <name>{}</name>\n", escape_xml(&skill.name)));
+        prompt.push_str(&format!(
+            "    <name>{}</name>\n",
+            pipi_protocol::text::escape_xml_text(&skill.name)
+        ));
         prompt.push_str(&format!(
             "    <description>{}</description>\n",
-            escape_xml(skill.description.as_deref().unwrap_or_default())
+            pipi_protocol::text::escape_xml_text(skill.description.as_deref().unwrap_or_default())
         ));
         prompt.push_str(&format!(
             "    <location>{}</location>\n",
@@ -239,21 +242,12 @@ fn append_memory_index(prompt: &mut String, memory_files: &[MemoryFileMeta], rea
         if !file.summary.is_empty() {
             prompt.push_str(&format!(
                 "    <summary>{}</summary>\n",
-                escape_xml(&file.summary)
+                pipi_protocol::text::escape_xml_text(&file.summary)
             ));
         }
         prompt.push_str("  </memory>\n");
     }
     prompt.push_str("</persistent_memory>");
-}
-
-fn escape_xml(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 #[cfg(test)]

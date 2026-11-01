@@ -20,9 +20,6 @@ pub enum Theme {
 }
 
 impl Theme {
-    pub const DARK: &'static str = "dark";
-    pub const LIGHT: &'static str = "light";
-
     pub fn as_str(&self) -> &str {
         match self {
             Self::Dark => "dark",
@@ -51,26 +48,6 @@ impl<'de> Deserialize<'de> for Theme {
             "dark" => Ok(Theme::Dark),
             "light" => Ok(Theme::Light),
             _ => Ok(Theme::Custom(s)),
-        }
-    }
-}
-
-impl From<&str> for Theme {
-    fn from(s: &str) -> Self {
-        match s {
-            "dark" => Theme::Dark,
-            "light" => Theme::Light,
-            _ => Theme::Custom(s.to_string()),
-        }
-    }
-}
-
-impl From<String> for Theme {
-    fn from(s: String) -> Self {
-        match s.as_str() {
-            "dark" => Theme::Dark,
-            "light" => Theme::Light,
-            _ => Theme::Custom(s),
         }
     }
 }

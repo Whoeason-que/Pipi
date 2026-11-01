@@ -180,13 +180,7 @@ impl RuntimeState {
         session_id: &str,
         up_to_entry_id: Option<&str>,
     ) -> Result<SessionInfo, String> {
-        if session_id.is_empty()
-            || !session_id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-')
-        {
-            return Err("Invalid session ID".into());
-        }
+        validate_session_id(session_id)?;
         let def = agents::load_agent(agent_name)?;
         let repo = session_repo(&def)?;
         if !repo.exists(session_id)? {

@@ -161,12 +161,17 @@ pub struct SessionImportFailure {
 /// 会话 id 同时是 git 分支名与旧会话文件名（导入），必须拒绝
 /// 路径分隔符、`.` 与空串；所有载体共用这一条规则，别在调用点各写一份。
 pub fn validate_session_id(session_id: &str) -> Result<(), String> {
-    if session_id.is_empty()
-        || !session_id
+    validate_ascii_id(session_id, "session ID")
+}
+
+/// id 进文件路径前的通用字符集校验（会话 id / 论坛 id 共用）。
+pub(crate) fn validate_ascii_id(id: &str, label: &str) -> Result<(), String> {
+    if id.is_empty()
+        || !id
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || character == '-')
     {
-        return Err("Invalid session ID".into());
+        return Err(format!("Invalid {label}"));
     }
     Ok(())
 }
@@ -184,8 +189,6 @@ pub trait SessionLog: Send {
     fn tip_id(&self) -> Option<&str>;
     /// 与内存消息序列一一对应的条目 id（规则见 [`replay`]）。
     fn message_ids(&self) -> &[String];
-    /// 标记环境记账已存在（分叉拷贝含 Env 条目时用，避免重复记账）。
-    fn mark_env_recorded(&mut self);
     /// 追加一条消息（挂在当前 tip 上），返回新条目 id。
     fn append_message(&mut self, message: &Message) -> std::io::Result<String>;
     /// 追加一条后台任务完成通知（回放时是一条带标签的 User 消息）。

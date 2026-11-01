@@ -3,8 +3,8 @@
 //! - `estimate_tokens` / `prune_cut_index` 移植自
 //!   `packages/agent/src/harness/compaction/compaction.ts` 的启发式部分
 //!   （chars/4、图片按 4800 chars 计）。估算只是兜底：有效的助手 usage 存在时，
-//!   `context_tokens` 以真实占用为锚、只估算之后的增量（同 pi 的 `estimateContextTokens`）。上游的完整 compaction 用 LLM 做
-//!   摘要替换，属「有意推迟」；这里的切点规则由压缩管线（`compaction`）使用。
+//!   `context_tokens` 以真实占用为锚、只估算之后的增量（同 pi 的 `estimateContextTokens`）。
+//!   LLM 摘要替换在 `compaction::llm`，这里的切点规则由压缩管线（`compaction`）使用。
 //! - 环境上下文的注入（`environment_context`，移植自 codex）随提示词层落在
 //!   `pipi-venv/src/prompt/environment.rs` —— 这个 crate 只做策略，不装配提示词。
 

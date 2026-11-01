@@ -91,7 +91,6 @@ impl SessionLog for MemoryLog {
     fn message_ids(&self) -> &[String] {
         &self.ids
     }
-    fn mark_env_recorded(&mut self) {}
     fn append_message(&mut self, message: &Message) -> std::io::Result<String> {
         self.append(EntryKind::Message {
             message: message.clone(),

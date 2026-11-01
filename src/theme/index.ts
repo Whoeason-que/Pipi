@@ -1,5 +1,6 @@
 import { compileThemeTokens, resolveTheme, DEFAULT_THEME_ID } from "./registry.ts";
 import type { ThemeDefinition } from "./types.ts";
+import { readStored, writeStored } from "../storage.ts";
 
 export const STORAGE_THEME_KEY = "pipi-theme";
 
@@ -47,13 +48,7 @@ export function applyTheme(themeId: string | null | undefined): ThemeDefinition 
     styleTag.textContent = `:root[data-theme][data-palette] {\n${lines.join("\n")}\n}`;
   }
 
-  try {
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(STORAGE_THEME_KEY, theme.id);
-    }
-  } catch {
-    // 忽略受限环境下的 localStorage 读写异常
-  }
+  writeStored(STORAGE_THEME_KEY, theme.id);
 
   return theme;
 }
@@ -62,15 +57,8 @@ export function applyTheme(themeId: string | null | undefined): ThemeDefinition 
  * 读取初始主题 ID（首选 localStorage，其次回退到默认主题）
  */
 export function getInitialThemeId(): string {
-  try {
-    if (typeof localStorage !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_THEME_KEY);
-      if (saved) return saved;
-    }
-  } catch {
-    // 忽略异常
-  }
-  return DEFAULT_THEME_ID;
+  const saved = readStored(STORAGE_THEME_KEY, "");
+  return saved || DEFAULT_THEME_ID;
 }
 
 export * from "./types.ts";

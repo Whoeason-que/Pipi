@@ -461,7 +461,7 @@ impl AgentTool for EditTool {
         ) {
             resolve_write_path(&ctx.workspace, path)?
         } else {
-            let abs = resolve_path(&ctx.workspace, path)?;
+            let abs = resolve_path(&ctx.workspace, path);
             ctx.ensure_writable(&abs)?;
             abs
         };

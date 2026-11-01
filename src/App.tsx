@@ -10,6 +10,7 @@ import AppNavigation, { NavigationToggle } from "./app/AppNavigation";
 import AgentSidebar from "./app/AgentSidebar";
 import { useArchiveActions, type ConfirmRequest } from "./app/use-archive-actions";
 import { useHostEvents } from "./app/use-host-events";
+import { readStored, writeStored } from "./storage.ts";
 import { useNotificationNavigation } from "./app/use-notification-navigation";
 import { useSessionList } from "./app/use-session-list";
 import { useSessionNavigation } from "./app/use-session-navigation";
@@ -77,9 +78,9 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 860px)").matches);
   const sidebarRef = useRef<HTMLElement>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try { return localStorage.getItem("pipi-sidebar-collapsed") === "true"; } catch { return false; }
-  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => readStored("pipi-sidebar-collapsed", "false") === "true",
+  );
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [forumVisited, setForumVisited] = useState(false);
@@ -282,7 +283,7 @@ export default function App() {
   }, []);
   const layout = useMemo(() => ({ navigationOpen: sidebarOpen, closeNavigation, toggleNavigation }), [sidebarOpen, closeNavigation, toggleNavigation]);
 
-  useEffect(() => { try { localStorage.setItem("pipi-sidebar-collapsed", String(sidebarCollapsed)); } catch { /* 内存状态仍有效 */ } }, [sidebarCollapsed]);
+  useEffect(() => { writeStored("pipi-sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => {
     const query = window.matchMedia("(max-width: 860px)");
     const change = () => { setMobile(query.matches); setSidebarOpen(false); };

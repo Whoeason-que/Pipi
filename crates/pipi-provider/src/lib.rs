@@ -49,7 +49,6 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc::{self, Sender};
 
 pub mod catalog;
-pub use catalog::normalize_endpoint;
 mod classify;
 mod diagnostics;
 mod reasoning;
@@ -365,18 +364,15 @@ pub(crate) fn to_rig_messages(context: &Context, api: Api) -> Vec<RigMessage> {
                             id,
                             name,
                             arguments,
-                        } => {
-                            let _ = content;
-                            AssistantContent::ToolCall(rig::message::ToolCall {
-                                id: CallId::from_wire(id.clone()),
-                                function: rig::message::ToolFunction {
-                                    name: tool_name(name),
-                                    arguments: arguments.clone(),
-                                },
-                                signature: None,
-                                additional_params: None,
-                            })
-                        }
+                        } => AssistantContent::ToolCall(rig::message::ToolCall {
+                            id: CallId::from_wire(id.clone()),
+                            function: rig::message::ToolFunction {
+                                name: tool_name(name),
+                                arguments: arguments.clone(),
+                            },
+                            signature: None,
+                            additional_params: None,
+                        }),
                     })
                     .collect();
                 if !blocks.is_empty() {

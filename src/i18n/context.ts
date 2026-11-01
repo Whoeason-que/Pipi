@@ -14,6 +14,7 @@ import {
   STORAGE_LOCALE_KEY,
   type Locale,
 } from "./core.ts";
+import { writeStored } from "../storage.ts";
 
 export interface I18nContextValue {
   locale: Locale;
@@ -32,11 +33,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next);
-    try {
-      localStorage.setItem(STORAGE_LOCALE_KEY, next);
-    } catch {
-      // 忽略存储失败
-    }
+    writeStored(STORAGE_LOCALE_KEY, next);
     if (typeof document !== "undefined") {
       document.documentElement.lang = next;
     }

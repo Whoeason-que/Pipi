@@ -18,12 +18,6 @@ pub struct LlmSummarize;
 impl LlmSummarize {
     pub(super) const NAME: &'static str = "llm-summarize";
 
-    /// 前置条件：有没有东西可压。阈值由 runtime 判（自动看 needs_compaction、
-    /// 手动不看）；`run` 里切不出旧轮次时会给出可读错误。
-    pub(super) fn applies(&self, prep: &Preparation<'_>) -> bool {
-        !prep.messages.is_empty()
-    }
-
     /// 让同一个模型把旧轮次压成一条摘要。
     pub(super) async fn run(
         &self,

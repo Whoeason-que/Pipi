@@ -1,7 +1,8 @@
 // 技能库侧栏：已安装技能列表（选择 + 过滤）。安装 / 校验等动作在主区。
 
 import { useMemo, useState } from "react";
-import { IconClose, IconRefresh, IconSearch, IconSkill } from "../icons";
+import { IconRefresh, IconSkill } from "../icons";
+import { SidebarSearch } from "../components/SidebarSearch";
 import type { SkillLibrary } from "../types";
 import { shortHash, sourceLabel } from "./labels";
 
@@ -36,24 +37,12 @@ export function SkillsSidebar({
   return (
     <>
       {/* 搜索置顶：过滤框作为侧栏第一行 */}
-      <div className="sb-filter">
-        <div className="search">
-          <IconSearch />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索已安装技能…"
-            aria-label="搜索已安装技能"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {query && (
-            <button type="button" className="search-clear" title="清空搜索" onClick={() => setQuery("")}>
-              <IconClose />
-            </button>
-          )}
-        </div>
-      </div>
+      <SidebarSearch
+        value={query}
+        onChange={setQuery}
+        placeholder="搜索已安装技能…"
+        label="搜索已安装技能"
+      />
 
       <div className="caption sb-sec skills-heading">
         <span>技能库</span>

@@ -402,7 +402,6 @@ fn parse_usize(args: &Value, name: &str) -> Result<Option<usize>, String> {
 fn resolve_workspace_cwd(ctx: &ToolContext, requested: Option<&str>) -> Result<PathBuf, String> {
     let path = requested
         .map(|value| pipi_protocol::tools::resolve_path(&ctx.workspace, value))
-        .transpose()?
         .unwrap_or_else(|| ctx.workspace.clone());
     let canonical = std::fs::canonicalize(&path)
         .map_err(|error| format!("Background task cwd is not available: {error}"))?;

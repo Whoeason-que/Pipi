@@ -25,7 +25,6 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -700,10 +699,7 @@ fn verify_entry_in(store_root: &Path, entry: &SkillLockEntry) -> Result<VerifyOu
 
 /// RFC3339（UTC，秒精度）当前时间；不引入时间库。
 pub fn now_iso8601() -> String {
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let seconds = pipi_protocol::ids::now_secs();
     let days = seconds.div_euclid(86_400);
     let sod = seconds.rem_euclid(86_400);
     let (year, month, day) = civil_from_days(days);
@@ -736,34 +732,16 @@ fn monotonic_nonce() -> u128 {
         .unwrap_or(0)
 }
 
-/// 原子写文本：同目录暂存 + rename（tempfile 保证唯一命名与失败清理）。
+/// 原子写文本：同目录暂存 + fsync + rename（tempfile 保证唯一命名与失败清理）。
 /// 公开给 CLI（改写用户 agent.toml 时复用同一条原子路径）。
 pub fn write_text_atomic(path: &Path, text: &str) -> Result<(), String> {
-    let dir = path
-        .parent()
-        .ok_or_else(|| format!("无法确定目录：{}", path.display()))?;
-    fs::create_dir_all(dir).map_err(|e| format!("无法创建目录 {}: {e}", dir.display()))?;
-    let mut file = tempfile::NamedTempFile::new_in(dir)
-        .map_err(|e| format!("无法创建临时文件（{}）: {e}", dir.display()))?;
-    file.write_all(text.as_bytes())
-        .map_err(|e| format!("无法写入临时文件：{e}"))?;
-    file.flush().map_err(|e| format!("无法刷新临时文件：{e}"))?;
-    file.persist(path)
-        .map_err(|e| format!("无法替换 {}: {}", path.display(), e.error))?;
-    Ok(())
+    pipi_protocol::fs::write_atomic(path, text)
+        .map_err(|e| format!("无法写入 {}: {e}", path.display()))
 }
 
 /// 目录边界检查：存在且是真实目录（非符号链接）→ true；不存在 → false。
 fn ensure_real_dir(path: &Path, label: &str) -> Result<bool, String> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(format!("{label} 不能是符号链接: {}", path.display()))
-        }
-        Ok(metadata) if !metadata.is_dir() => Err(format!("{label} 不是目录: {}", path.display())),
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!("无法检查 {label} {}: {error}", path.display())),
-    }
+    pipi_protocol::fs::ensure_real_directory(path, label)
 }
 
 #[cfg(test)]

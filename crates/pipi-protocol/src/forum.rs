@@ -246,14 +246,7 @@ pub trait ForumRepo: Send + Sync {
 /// 与 [`crate::session::validate_session_id`] 同款：id 会进文件路径，必须拒绝
 /// 路径分隔符、`.` 与空串。
 pub fn validate_forum_id(id: &str) -> Result<(), String> {
-    if id.is_empty()
-        || !id
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '-')
-    {
-        return Err("Invalid forum id".into());
-    }
-    Ok(())
+    crate::session::validate_ascii_id(id, "forum id")
 }
 
 /// 提及标名校验：trim 后非空、无控制字符、无路径分隔符（存在性由调用方另行校验）。
@@ -281,7 +274,9 @@ fn is_name_char(character: char) -> bool {
 /// **正文 token 是提及的权威来源之一**：人机共写下，人会直接在正文里 `@builder`，
 /// 写入时由载体与显式 `mentions` 合并落库。规则：
 ///
-/// - 名字字符集与 Agent 名一致（ASCII 字母数字 + `-` / `_`）；
+/// - 名字字符集固定为 ASCII 字母数字 + `-` / `_`（比允许 Unicode 的
+///   `pipi_venv::agents::validate_agent_name` 更窄；中文 Agent 名目前无法通过
+///   `@` 提及，属已知差异）；
 /// - `@` 前一个字符必须是行首或**非名字字符**（避免 `a@b.com` 这类误判）；
 /// - 跳过 ``` 围栏代码块内的内容；
 /// - 去重、保持出现顺序。

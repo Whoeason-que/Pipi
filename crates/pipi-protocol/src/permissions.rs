@@ -95,9 +95,6 @@ impl SandboxPolicy {
 /// 给出的「无匹配」经常是错的。搜索统一走 bash（`rg` 优先，`grep -rn` 兜底）。
 pub const DEFAULT_TOOLS: [&str; 6] = ["read", "write", "edit", "bash", "memory", "notebook"];
 
-/// Agent 组合工具：必须在 `permissions.tools` 中显式启用。
-pub const AGENT_TOOLS: [&str; 3] = ["create_agent", "run_agent", "read_agent"];
-
 /// 后台任务托管工具：必须显式启用。它们允许进程跨越当前模型轮次继续运行，
 /// 因此不随普通 bash 权限默认开放。
 pub const BACKGROUND_TASK_TOOLS: [&str; 3] = [

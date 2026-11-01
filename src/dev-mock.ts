@@ -2,6 +2,8 @@
 // 让前端 UI 可以脱离桌面壳独立开发调试。Tauri 生产构建不受影响。
 import type { AgentDefinition, Settings, RemoteAccessStatus, PromptQueueSnapshot } from "./types";
 import type { ModelCatalog } from "./catalog";
+import { sessionKey } from "./session-key.ts";
+import { readStored } from "./storage.ts";
 import { DEMO_WORKSPACE, demoWorkspaceChanges, demoWorkspaceDiff, demoWorkspaceFile, demoWorkspaceListing } from "./dev-workspace";
 
 const demoAgent: AgentDefinition = {
@@ -171,13 +173,11 @@ interface DemoConversation {
   queueTimer?: ReturnType<typeof setTimeout>;
 }
 
-const conversationKey = (agentName: string, sessionId: string) => `${agentName}\u0000${sessionId}`;
-
 const demoConversations = new Map<string, DemoConversation>();
 
 /** 打开（必要时按历史装载）一条会话；已打开则原样返回。 */
 function openConversation(agentName: string, sessionId: string): DemoConversation {
-  const key = conversationKey(agentName, sessionId);
+  const key = sessionKey(agentName, sessionId);
   const existing = demoConversations.get(key);
   if (existing) return existing;
   const state = stateFor(agentName);
@@ -216,7 +216,7 @@ function createTestConversation(agentName: string): DemoConversation {
     runTimer: null,
     queue: { revision: 0, paused: false, error: null, messages: [] },
   };
-  demoConversations.set(conversationKey(agentName, sessionId), conversation);
+  demoConversations.set(sessionKey(agentName, sessionId), conversation);
   return conversation;
 }
 
@@ -228,7 +228,7 @@ function testConversationOf(agentName: string): DemoConversation | undefined {
 
 /** 取一条已打开的会话（没打开返回 undefined）。 */
 function conversationOf(agentName: string, sessionId: string): DemoConversation | undefined {
-  return demoConversations.get(conversationKey(agentName, sessionId));
+  return demoConversations.get(sessionKey(agentName, sessionId));
 }
 
 /** 新建一条会话（还没发消息的「新会话」也算）。 */
@@ -547,7 +547,7 @@ const demoCatalog: ModelCatalog = {
 
 const settings: Settings = {
   notifications: { desktopEnabled: false, completed: true, failed: true },
-  theme: localStorage.getItem("pipi-theme") || "ink-blue",
+  theme: readStored("pipi-theme", "") || "ink-blue",
   providers: [
     {
       id: "anthropic",
@@ -847,7 +847,7 @@ export function installDevMock(): void {
             const target = demoAgents.find((agent) => agent.name === def.name);
             if (target) Object.assign(target, def);
           }
-          if (current) demoConversations.delete(conversationKey(current.agentName, current.sessionId));
+          if (current) demoConversations.delete(sessionKey(current.agentName, current.sessionId));
           return Promise.resolve(null);
         }
         case "list_workspace_files":
@@ -885,7 +885,7 @@ export function installDevMock(): void {
           if (current?.running) {
             return Promise.reject(new Error("临时测试仍在运行，请先停止再保存文件"));
           }
-          if (current) demoConversations.delete(conversationKey(agentName, current.sessionId));
+          if (current) demoConversations.delete(sessionKey(agentName, current.sessionId));
           return Promise.resolve(null);
         }
         case "list_sessions": {
@@ -966,7 +966,7 @@ export function installDevMock(): void {
             if (current?.running) {
               return Promise.reject(new Error("临时测试仍在运行，请先停止再清空或保存设置"));
             }
-            if (current) demoConversations.delete(conversationKey(agentName, current.sessionId));
+            if (current) demoConversations.delete(sessionKey(agentName, current.sessionId));
             const conversation = createTestConversation(agentName);
             return Promise.resolve({
               agentName,
@@ -1162,7 +1162,7 @@ export function installDevMock(): void {
           if (current?.running) {
             return Promise.reject(new Error(`Agent「${name}」的临时测试仍在运行，请先停止再归档`));
           }
-          if (current) demoConversations.delete(conversationKey(name, current.sessionId));
+          if (current) demoConversations.delete(sessionKey(name, current.sessionId));
           if (!demoAgentDeleted.has(name)) demoAgentArchived.add(name);
           return Promise.resolve(null);
         }
@@ -1182,7 +1182,7 @@ export function installDevMock(): void {
           if (current?.running) {
             return Promise.reject(new Error(`Agent「${name}」的临时测试仍在运行，请先停止再删除`));
           }
-          if (current) demoConversations.delete(conversationKey(name, current.sessionId));
+          if (current) demoConversations.delete(sessionKey(name, current.sessionId));
           // 真实后端：删除目录 → Agent 永久消失（不复活，不重新播种）
           demoAgentDeleted.add(name);
           demoAgentArchived.delete(name);
@@ -1204,7 +1204,7 @@ export function installDevMock(): void {
           const history = state.histories.get(sid);
           if (history !== undefined) {
             // 与核心一致：归档前释放仍打开但空闲的会话槽。
-            demoConversations.delete(conversationKey(agentName, sid));
+            demoConversations.delete(sessionKey(agentName, sid));
             state.histories.delete(sid);
             state.archivedSessions.set(sid, history);
           }
@@ -1233,7 +1233,7 @@ export function installDevMock(): void {
           if (current?.running) {
             return Promise.reject(new Error(`会话「${sid}」正在运行，请先停止再删除`));
           }
-          demoConversations.delete(conversationKey(agentName, sid));
+          demoConversations.delete(sessionKey(agentName, sid));
           state.histories.delete(sid);
           return Promise.resolve(null);
         }

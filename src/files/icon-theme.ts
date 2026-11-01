@@ -2,7 +2,7 @@ import { invoke } from "../platform.ts";
 import { languageFor } from "./model.ts";
 
 import type { Associations, IconTheme } from "./icon-theme-types.ts";
-export type { IconTheme, IconThemeList } from "./icon-theme-types.ts";
+export type { IconThemeList } from "./icon-theme-types.ts";
 type RenderIcon = { image: string } | { character: string; family: string; color?: string; size?: string };
 
 let current: IconTheme | null = null;

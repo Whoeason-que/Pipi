@@ -9,7 +9,8 @@
 //! - [`import_legacy_sessions`] / [`load_session`]：旧 `sessions/*.jsonl` 的显式
 //!   导入与逐行读取（逃生通道，供未迁移的机器使用）。
 
-use pipi_protocol::session::{EntryKind, SessionEntry, active_path, kept_start, replay};
+use pipi_protocol::session::{EntryKind, SessionEntry, active_path, kept_start};
+use pipi_protocol::text::truncate_chars;
 use pipi_protocol::{Message, new_id};
 
 /// 会话标题：首个用户消息的首行（截断 48 字符）；没有用户消息时「(空会话)」。
@@ -51,15 +52,6 @@ fn latest_assistant_model<'a>(
     })
 }
 
-/// 按字符数截断，超出时补省略号（标题与 commit 摘要共用）。
-fn truncate_chars(text: &str, max: usize) -> String {
-    let mut cut = text.chars().take(max).collect::<String>();
-    if text.chars().count() > max {
-        cut.push('…');
-    }
-    cut
-}
-
 /// 写侧账本状态：tip / seq / 环境记账 / 消息 id 映射。
 ///
 /// [`GitSink`]（git）与 [`MemoryLog`]（内存）共用这一套推进规则 —— 回放、压缩
@@ -95,8 +87,11 @@ impl LedgerState {
             .iter()
             .any(|entry| matches!(entry.kind, EntryKind::Env { .. }));
         // 消息 ↔ 条目 id 映射：与 rebuild_messages 同一套回放规则，
-        // 保证「内存第 i 条消息」的条目 id 可查。
-        let message_ids = replay(&active_path(entries)).1;
+        // 保证「内存第 i 条消息」的条目 id 可查。只算 id，不重建消息。
+        let mut message_ids = Vec::new();
+        for entry in active_path(entries) {
+            track_message_ids(&mut message_ids, entry);
+        }
         Self {
             tip_id,
             seq,
@@ -154,7 +149,7 @@ pub use memory::MemoryLog;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pipi_protocol::session::CompactionRecord;
+    use pipi_protocol::session::{CompactionRecord, replay};
 
     /// 账本推进（`message_ids`）必须与回放结果一致 —— 下一次压缩的
     /// `keep_from_entry` 换算就靠这份一致性；git 写侧与内存账本共用它。

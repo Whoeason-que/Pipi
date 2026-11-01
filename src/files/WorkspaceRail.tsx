@@ -9,7 +9,7 @@ import { IconCopy, IconFile, IconGit, IconFolder } from "../icons";
 import type { WorkspaceChanges, WorkspaceDiff, WorkspaceFile } from "./types";
 import { FileGlyph } from "./FileGlyph";
 import { formatSize } from "./FilePreview";
-import { gitStatusMeta, parsePatch } from "./diff";
+import { gitStatusMeta, parsePatch, summarizeChanges } from "./diff";
 
 export function WorkspaceRail({
   controller,
@@ -35,7 +35,7 @@ export function WorkspaceRail({
   const clipboard = useCopyFeedback();
   const parsed = useMemo(() => source?.type === "git" ? parsePatch(source.diff.patch) : null, [source]);
   const status = selectedPath ? changes?.files.find((file) => file.path === selectedPath) : undefined;
-  const summary = summarize(changes?.files ?? []);
+  const summary = summarizeChanges(changes?.files ?? []);
   const title = mode === "files" ? "文件信息" : "Git 改动";
   const label = source?.type === "file" ? source.file.path.split("/").pop() ?? source.file.path
     : source?.type === "git" ? source.diff.path.split("/").pop() ?? source.diff.path
@@ -129,7 +129,7 @@ function WorkspaceInfo({ mode, workspaceName, root, summary, changes, selectedPa
   mode: "files" | "git";
   workspaceName: string;
   root: string;
-  summary: ReturnType<typeof summarize>;
+  summary: ReturnType<typeof summarizeChanges>;
   changes: WorkspaceChanges | null;
   selectedPath: string | null;
 }) {
@@ -162,19 +162,4 @@ function WorkspaceInfo({ mode, workspaceName, root, summary, changes, selectedPa
       <p className="caption right-rail-note">右上角刷新会重新读取目录；文件内容、标签与滚动位置按 Agent 工作区隔离保存。</p>
     </section>}
   </>;
-}
-
-function summarize(files: WorkspaceChanges["files"]) {
-  let staged = 0;
-  let unstaged = 0;
-  let untracked = 0;
-  for (const file of files) {
-    const meta = gitStatusMeta(file.status);
-    if (meta.tone === "untracked") untracked += 1;
-    else {
-      if (meta.staged) staged += 1;
-      if (meta.unstaged) unstaged += 1;
-    }
-  }
-  return { staged, unstaged, untracked, total: files.length };
 }

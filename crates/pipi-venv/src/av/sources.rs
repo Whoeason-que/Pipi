@@ -363,12 +363,7 @@ fn run_git(args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
         .map_err(|e| format!("无法执行 git（需要系统 git）: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail = stderr.trim();
-        let tail = if tail.len() > 500 {
-            &tail[tail.len() - 500..]
-        } else {
-            tail
-        };
+        let tail = pipi_protocol::text::tail_at_char_boundary(stderr.trim(), 500);
         return Err(format!("git {} 失败: {tail}", args.join(" ")));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
