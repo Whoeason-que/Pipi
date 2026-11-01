@@ -80,6 +80,7 @@ pub const COMMANDS: &[&str] = &[
     "set_session_model",
     "session_messages",
     "session_stats",
+    "agent_stats",
     "fork_session",
     "archive_agent",
     "restore_agent",
@@ -849,6 +850,18 @@ pub fn session_stats(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentStatsArgs {
+    pub agent_name: String,
+    pub range_days: Option<u32>,
+}
+
+/// Agent 级跨会话统计（趋势 / 模型 / 工具 / 成本估算）。
+pub fn agent_stats(args: AgentStatsArgs) -> Result<crate::stats::AgentStats, String> {
+    crate::stats::agent_stats(&args.agent_name, args.range_days)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ForkSessionArgs {
     pub agent_name: String,
     pub session_id: String,
@@ -1276,6 +1289,7 @@ pub async fn dispatch(
         "set_session_model" => to_value(set_session_model(runtime, parse(args)?)?),
         "session_messages" => to_value(session_messages(runtime, parse(args)?).await?),
         "session_stats" => to_value(session_stats(runtime, parse(args)?)?),
+        "agent_stats" => to_value(agent_stats(parse(args)?)?),
         "fork_session" => to_value(fork_session(runtime, parse(args)?)?),
         "archive_agent" => to_value(archive_agent(runtime, parse(args)?)?),
         "restore_agent" => to_value(restore_agent(runtime, parse(args)?)?),
@@ -1329,8 +1343,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            67,
-            "宿主命令数应为 67（前端 CommandMap 同步）"
+            68,
+            "宿主命令数应为 68（前端 CommandMap 同步）"
         );
     }
 

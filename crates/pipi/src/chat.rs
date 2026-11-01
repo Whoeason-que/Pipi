@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use pipi_agent::stats::SessionStats;
 use pipi_core::commands::{
-    ArchiveAgentArgs, ArchiveSessionArgs, CancelQueuedPromptArgs, CompactNowArgs,
+    AgentStatsArgs, ArchiveAgentArgs, ArchiveSessionArgs, CancelQueuedPromptArgs, CompactNowArgs,
     CreateSessionArgs, DeleteAgentArgs, DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs,
     ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs,
     OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs, QueuePromptArgs, RestoreAgentArgs,
@@ -189,6 +189,14 @@ pub fn session_stats(
     args: InvokeArgs<SessionStatsArgs>,
 ) -> Result<SessionStats, String> {
     pipi_core::commands::session_stats(&state, args.0)
+}
+
+/// Agent 级跨会话统计（趋势 / 模型 / 工具 / 成本估算）。
+#[tauri::command]
+pub fn agent_stats(
+    args: InvokeArgs<AgentStatsArgs>,
+) -> Result<pipi_core::stats::AgentStats, String> {
+    pipi_core::commands::agent_stats(args.0)
 }
 
 #[tauri::command]

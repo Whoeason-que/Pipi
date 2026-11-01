@@ -349,6 +349,15 @@ export function IconSkill() {
   );
 }
 
+/** 统计 / 用量趋势 */
+export function IconChart() {
+  return (
+    <IconBase>
+      <path d="M4 20V10m6 10V4m6 16v-7m4 7H2" />
+    </IconBase>
+  );
+}
+
 /** 刷新 / 重新读取 */
 export function IconRefresh() {
   return (

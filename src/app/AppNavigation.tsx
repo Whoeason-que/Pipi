@@ -2,6 +2,7 @@ import { useContext } from "react";
 import { useI18n } from "../i18n";
 import {
   IconAgent,
+  IconChart,
   IconForum,
   IconFolder,
   IconGit,
@@ -55,6 +56,7 @@ export default function AppNavigation({
             ["workspaces", isWorkspaceFiltered ? `工作区 · ${activeWorkspaceName || "已过滤"}` : "工作区 · 全部", IconHome],
             ["agents", t("nav.agents"), IconAgent],
             ["subagents", t("nav.subagents"), IconSubagent],
+            ["stats", t("nav.stats"), IconChart],
             ["files", "File · 文件", IconFolder],
             ["git", "Git · 改动", IconGit],
             ["search", t("common.search"), IconSearch],

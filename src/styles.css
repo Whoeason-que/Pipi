@@ -18,6 +18,7 @@
 @import "./styles/features/composer.css";
 @import "./styles/features/session-layout.css";
 @import "./styles/features/session-inspector.css";
+@import "./styles/features/stats.css";
 @import "./styles/features/search.css";
 @import "./styles/features/skills.css";
 @import "./styles/features/preferences.css";

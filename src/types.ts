@@ -172,6 +172,97 @@ export interface SessionStatsView {
   contextPercent?: number;
 }
 
+// ---- Agent 级统计（Rust stats::AgentStats 的序列化）----
+
+export interface StatsTotalsView {
+  sessions: number;
+  userMessages: number;
+  assistantCalls: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  tokens: number;
+  toolCalls: number;
+  toolErrors: number;
+  compactions: number;
+  assistantErrors: number;
+  aborted: number;
+  generationMs: number;
+  cost?: number;
+  unpricedCalls: number;
+}
+
+export interface StatsDayView {
+  dayStart: number;
+  userMessages: number;
+  assistantCalls: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  tokens: number;
+  toolCalls: number;
+  toolErrors: number;
+  assistantErrors: number;
+  sessions: number;
+  cost?: number;
+  unpricedCalls: number;
+}
+
+export interface StatsModelView {
+  model: string;
+  calls: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  tokens: number;
+  errors: number;
+  cost?: number;
+  unpricedCalls: number;
+}
+
+export interface StatsToolView {
+  name: string;
+  calls: number;
+  errors: number;
+}
+
+export interface StatsSessionRowView {
+  id: string;
+  title: string;
+  startedAt: number;
+  lastActive: number;
+  model?: string;
+  userMessages: number;
+  assistantCalls: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  tokens: number;
+  toolCalls: number;
+  toolErrors: number;
+  compactions: number;
+  assistantErrors: number;
+  aborted: number;
+  cost?: number;
+  unpricedCalls: number;
+}
+
+export interface AgentStatsView {
+  agentName: string;
+  generatedAt: number;
+  rangeDays?: number;
+  totals: StatsTotalsView;
+  days: StatsDayView[];
+  models: StatsModelView[];
+  tools: StatsToolView[];
+  sessions: StatsSessionRowView[];
+  sessionsTruncated: boolean;
+}
+
 export interface SessionSummaryView {
   id: string;
   title: string;

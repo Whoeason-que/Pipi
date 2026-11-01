@@ -481,6 +481,9 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
   `session_messages` / `set_session_model` / `compact_now`；`send_prompt` 的
   `sessionId` 为空 = 新建一条）；`session_infos` 返回所有打开中的会话，前端由此
   得到「哪些会话正在跑」的**集合**，侧栏把标记打在那条**会话行**上。
+- **Agent 级统计**：`agent_stats` 按 Agent 扫描活跃会话的 git 条目，汇总 token、
+  模型/工具分布与按天趋势；成本按 models.dev 报价估算（每百万 token），没有可信
+  价格时显示未知而不是按 0 计算。数据只在读侧聚合，不新增账本或数据库。
 - **事件本就带身份**：所有 envelope 都带 `agentName` + `sessionId` + `runId`，前端
   按身份过滤 —— 所以多会话并发不需要新的分发通道。
 - **前端**：离开会话视图**不再中止运行**（后台继续跑、继续落盘；回到视图时用

@@ -50,6 +50,8 @@ import SettingsView from "./settings/SettingsView";
 import SettingsSidebar from "./settings/SettingsSidebar";
 import type { SettingsSection } from "./settings/settings-sections";
 import { SkillsSidebar } from "./skills/SkillsSidebar";
+import { StatsSidebar } from "./stats/StatsSidebar";
+import StatsView from "./stats/StatsView";
 import { SkillsView } from "./skills/SkillsView";
 import { applyTheme } from "./theme";
 import type { AgentDefinition, SessionInfoView, SessionSummaryView, SkillLibrary } from "./types";
@@ -203,6 +205,7 @@ export default function App() {
     else if (next.kind === "workspaces") setNavSection("workspaces");
     else if (next.kind === "home") setNavSection(next.section ?? "agents");
     else if (next.kind === "create") setNavSection("agents");
+    else if (next.kind === "stats") setNavSection("stats");
     else if ("agentName" in next) setNavSection(agentSection(agents.find(agent => agent.name === next.agentName)));
     commitView(next, remember, options);
   };
@@ -223,6 +226,8 @@ export default function App() {
         navigate({ kind: "home", section: collection }, false);
       } else if (view.kind === "files" || view.kind === "git") {
         navigate({ kind: view.kind, agentName: fallback });
+      } else if (view.kind === "stats") {
+        navigate({ kind: "stats", agentName: fallback });
       }
     }
   };
@@ -339,7 +344,7 @@ export default function App() {
     if (target.kind === "agent") selectAgent(target.agentName);
     else if (target.kind === "chat") openSession(target.agentName, target.sessionId);
     else if (target.action === "new-session") { if (selected) void navigation.startNewSession(selected); }
-    else if (target.action === "files" || target.action === "git") openSection(target.action);
+    else if (target.action === "files" || target.action === "git" || target.action === "stats") openSection(target.action);
     else if (target.action === "workspaces") navigate({ kind: "workspaces" });
     else navigate({ kind: target.action });
   };
@@ -428,6 +433,11 @@ export default function App() {
         // 回退总览可能只是当前工作区过滤了原 Agent，保留原有记忆。
         navigate(target, target.kind !== "home", navOptions);
       }
+    } else if (section === "stats") {
+      const target = selected && filteredAgents.some(agent => agent.name === selected)
+        ? selected
+        : filteredAgents[0]?.name ?? null;
+      navigate({ kind: "stats", agentName: target }, true, navOptions);
     } else if (section === "files" || section === "git") {
       if (!previewWorkspacePaths[section] && currentWorkspaceTarget?.workspace) {
         setPreviewWorkspacePaths(previous => ({ ...previous, [section]: currentWorkspaceTarget.workspace }));
@@ -464,7 +474,7 @@ export default function App() {
   };
   const workspaceDisplayName = activeWorkspace === "all" ? null : (workspaces.find(w => w.path === activeWorkspace)?.name || getWorkspaceBasename(activeWorkspace));
   const baseTitle = view.kind === "home" ? t(collection === "subagents" ? "nav.subagents" : "nav.workspace") : view.kind === "settings" ? t("nav.settings") : view.kind === "create" ? t("nav.newAgent")
-    : view.kind === "skills" ? t("nav.skills") : view.kind === "forum" ? "论坛" : view.kind === "workspaces" ? "工作区" : current?.name ?? "Pipi";
+    : view.kind === "skills" ? t("nav.skills") : view.kind === "stats" ? t("nav.stats") : view.kind === "forum" ? "论坛" : view.kind === "workspaces" ? "工作区" : current?.name ?? "Pipi";
   const title = workspaceDisplayName && view.kind === "home" ? `${baseTitle} · ${workspaceDisplayName}` : baseTitle;
   const sessionTitle = view.kind === "chat" ? (sessionsByAgent[view.agentName] ?? []).find(session => session.id === view.sessionId)?.title : undefined;
   const overviewProps = { section: collection, agents: visibleAgents, sessions: filteredSessionsByAgent, running: runningSessions, onAgent: selectAgent, onSession: openSession,
@@ -486,7 +496,7 @@ export default function App() {
         running={{ agents: agentsInSection(filteredAgents, "agents").some(agent => agentHasRunning(agent.name)),
           subagents: agentsInSection(filteredAgents, "subagents").some(agent => agentHasRunning(agent.name)) }}
         onOpenSection={openSection} />
-      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "files" || navSection === "git" ? "工作区文件与 Git 改动" : "Agent 与会话列表"}>
+      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "stats" ? t("stats.title") : navSection === "files" || navSection === "git" ? "工作区文件与 Git 改动" : "Agent 与会话列表"}>
         {/* 带局部过滤/搜索的分区不再叠一个全局快捷搜索按钮；⌘K 仍可用。 */}
         {view.kind === "settings" || navSection === "agents" || navSection === "subagents" ? (
           <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
@@ -513,6 +523,11 @@ export default function App() {
           : navSection === "skills" ? <SkillsSidebar library={skillLibrary} selected={skillSelected} error={skillLoadError}
             onSelect={name => { setSkillSelected(name); setSidebarOpen(false); }} onRefresh={() => void loadSkillLibrary()} />
           : navSection === "forum" ? <ForumSidebar onSelect={() => { if (view.kind !== "forum") navigate({ kind: "forum" }); }} />
+          : navSection === "stats" || view.kind === "stats" ? <StatsSidebar
+            agents={filteredAgents}
+            selected={view.kind === "stats" ? view.agentName : selected}
+            sessionsByAgent={filteredSessionsByAgent}
+            onSelect={name => navigate({ kind: "stats", agentName: name })} />
           : <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
             viewSessionId={view.kind === "chat" ? view.sessionId : null}
             archivedSessions={archivedSessions} archivedSessionsExpanded={archivedSessionsExpanded} archivedOpen={archivedOpen}
@@ -590,6 +605,11 @@ export default function App() {
           : current && view.kind === "workbench" && settings ? <AgentWorkbench onOpenFile={path => openWorkspaceFile(current.name, path)} key={current.name} agent={current} providers={settings.providers}
             onSaved={async () => { await refresh(); }} onBack={() => selectAgent(current.name)} onError={safeSetError}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} sessions={sessionRuntime} onRunningChange={handleRunningChange} />
+          : view.kind === "stats" ? <StatsView
+            agent={filteredAgents.find(item => item.name === view.agentName) ?? null}
+            agents={filteredAgents}
+            onSelectAgent={name => navigate({ kind: "stats", agentName: name })}
+            onOpenSession={openSession} />
           : <WorkspaceOverview {...overviewProps} agent={view.kind === "agent" ? current : undefined} />}
         {forumVisited && <div className="screen" inert={view.kind !== "forum"} style={{ display: view.kind === "forum" ? "flex" : "none" }}>
           <ForumView />

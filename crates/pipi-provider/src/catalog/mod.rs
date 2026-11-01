@@ -61,6 +61,37 @@ pub struct CatalogModel {
     /// `None` = 与 provider 级相同，按 provider 的协议请求。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api: Option<Api>,
+    /// 上游标价（每百万 token，USD）。缺失 = 没有可信价格，统计里显示未知
+    /// 而不是按 0 计算。自定义/本地模型可以没有这一项。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<ModelCost>,
+}
+
+/// 模型单价（`models.dev` 的 `cost` 字段，单位：USD / 1M tokens）。
+///
+/// 只用于**估算**：订阅制套餐、折扣、区域价与上游缓存价都可能不同，前端必须
+/// 标成“按 API 价估算”。缓存字段缺失时按 0 计（没有缓存计价的模型通常也不
+/// 单独收费），输入/输出缺失则整条价格不可用。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCost {
+    pub input: f64,
+    pub output: f64,
+    #[serde(default)]
+    pub cache_read: f64,
+    #[serde(default)]
+    pub cache_write: f64,
+}
+
+impl ModelCost {
+    /// 按一次用量的四段 token 估算成本（USD）。
+    pub fn estimate(&self, input: u64, output: u64, cache_read: u64, cache_write: u64) -> f64 {
+        (input as f64 * self.input
+            + output as f64 * self.output
+            + cache_read as f64 * self.cache_read
+            + cache_write as f64 * self.cache_write)
+            / 1_000_000.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -241,6 +272,22 @@ fn assert_invariants(catalog: &ModelCatalog, min_providers: usize) -> Result<(),
     Ok(())
 }
 
+fn cost_of(model: &serde_json::Value) -> Option<ModelCost> {
+    let cost = model.get("cost")?.as_object()?;
+    let price = |key: &str| {
+        cost.get(key)
+            .and_then(serde_json::Value::as_f64)
+            .filter(|value| value.is_finite() && *value >= 0.0)
+    };
+    // 输入/输出是估价的必需项；只有缓存价没有意义，按未知处理。
+    Some(ModelCost {
+        input: price("input")?,
+        output: price("output")?,
+        cache_read: price("cache_read").unwrap_or(0.0),
+        cache_write: price("cache_write").unwrap_or(0.0),
+    })
+}
+
 /// 上游 provider → 模型清单：只收 `tool_call` 为真的模型（不能工具调用的模型在
 /// Pipi 里没有意义），**不再截断**（搜索交给 UI），保持上游顺序。
 ///
@@ -288,6 +335,7 @@ fn models_of(provider: &serde_json::Value, provider_api: Api) -> Vec<CatalogMode
             output: limit.and_then(|l| l.get("output")).and_then(|v| v.as_u64()),
             reasoning: model.get("reasoning").and_then(|v| v.as_bool()) == Some(true),
             api,
+            cost: cost_of(model),
         });
     }
     list
@@ -619,7 +667,8 @@ mod tests {
                 "models": {
                     "deepseek-chat": {
                         "id": "deepseek-chat", "name": "DeepSeek Chat", "tool_call": true,
-                        "reasoning": false, "limit": { "context": 128000, "output": 8192 }
+                        "reasoning": false, "limit": { "context": 128000, "output": 8192 },
+                        "cost": { "input": 0.28, "output": 0.42, "cache_read": 0.028, "cache_write": 0 }
                     },
                     "deepseek-reasoner": {
                         "id": "deepseek-reasoner", "name": "DeepSeek Reasoner", "tool_call": true,
@@ -728,7 +777,36 @@ mod tests {
         assert_eq!(reasoner.context, Some(128000));
         assert_eq!(reasoner.output, Some(65536));
         assert!(reasoner.reasoning);
+        // 上游 cost 必须原样保留下来（统计页据此估算成本）。
+        let chat = deepseek
+            .models
+            .iter()
+            .find(|m| m.id == "deepseek-chat")
+            .unwrap();
+        assert_eq!(
+            chat.cost,
+            Some(ModelCost {
+                input: 0.28,
+                output: 0.42,
+                cache_read: 0.028,
+                cache_write: 0.0,
+            })
+        );
+        assert_eq!(reasoner.cost, None, "上游未给价格时不能编造 0");
         assert!(!find(&catalog, "deepseek").local);
+    }
+
+    #[test]
+    fn 成本估算按每百万_token_计价() {
+        let cost = ModelCost {
+            input: 3.0,
+            output: 15.0,
+            cache_read: 0.3,
+            cache_write: 3.75,
+        };
+        let estimated = cost.estimate(1_000_000, 1_000_000, 1_000_000, 1_000_000);
+        assert!((estimated - 22.05).abs() < 1e-9, "estimated={estimated}");
+        assert_eq!(cost.estimate(0, 0, 0, 0), 0.0);
     }
 
     #[test]

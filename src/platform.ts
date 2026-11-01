@@ -301,6 +301,7 @@ const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }
   session_info: { sessionId: "required" },
   session_messages: { sessionId: "required" },
   session_stats: { sessionId: "required" },
+  agent_stats: {},
   stop_run: { sessionId: "required" },
   query_background_tasks: { sessionId: "required" },
   manage_background_task: { sessionId: "required" },

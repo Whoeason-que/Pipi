@@ -5,7 +5,7 @@ import type { UserImage } from "./types";
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
-import type { PromptQueueEnvelope, RemoteAccessConfig, RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
+import type { AgentStatsView, PromptQueueEnvelope, RemoteAccessConfig, RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, ForumThreadView, ModelConfig, PermissionsConfig, PostView, SearchHitView, SessionChangedPayload, SessionImportReportView, SessionInfoView, SessionSnapshotView, SessionStatsView, SessionSummaryView, Settings, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify, ThreadSummaryView, ThreadView } from "./types";
 
 export interface BackgroundTaskSnapshot {
   task: {
@@ -66,6 +66,7 @@ export interface CommandMap {
   set_session_model: { args: { agentName: string; sessionId: string; model?: ModelConfig | null }; result: void };
   session_messages: { args: { agentName: string; sessionId: string }; result: MessageView[] };
   session_stats: { args: { agentName: string; sessionId: string }; result: SessionStatsView };
+  agent_stats: { args: { agentName: string; rangeDays?: number | null }; result: AgentStatsView };
   fork_session: { args: { agentName: string; sessionId: string; upToEntryId?: string | null }; result: SessionInfoView };
   archive_agent: { args: { name: string }; result: void };
   restore_agent: { args: { name: string }; result: void };

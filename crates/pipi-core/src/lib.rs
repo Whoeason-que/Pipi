@@ -32,6 +32,7 @@ pub mod notifications;
 pub mod remote;
 pub mod runtime;
 pub mod settings;
+pub mod stats;
 pub mod tools;
 pub mod workspace;
 

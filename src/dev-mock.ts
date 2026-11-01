@@ -1006,6 +1006,55 @@ export function installDevMock(): void {
             contextMax: 200000,
             contextPercent: 0,
           });
+        case "agent_stats": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const now = Date.now();
+          const day = 86_400_000;
+          const days = Array.from({ length: 7 }, (_, index) => ({
+            dayStart: Math.floor(now / day) * day - (6 - index) * day,
+            userMessages: 2 + (index % 3),
+            assistantCalls: 4 + index,
+            input: 1800 + index * 420,
+            output: 240 + index * 60,
+            cacheRead: 9000 + index * 1200,
+            cacheWrite: 0,
+            tokens: 11040 + index * 1680,
+            toolCalls: 3 + (index % 4),
+            toolErrors: index % 2,
+            assistantErrors: 0,
+            sessions: 1 + (index % 2),
+            cost: 0.018 + index * 0.004,
+            unpricedCalls: 0,
+          }));
+          return Promise.resolve({
+            agentName,
+            generatedAt: now,
+            rangeDays: args.rangeDays == null ? undefined : Number(args.rangeDays),
+            totals: {
+              sessions: 4, userMessages: 18, assistantCalls: 49,
+              input: 18400, output: 2840, cacheRead: 74200, cacheWrite: 0,
+              tokens: 95440, toolCalls: 27, toolErrors: 3, compactions: 1,
+              assistantErrors: 0, aborted: 0, generationMs: 96_000,
+              cost: 0.174, unpricedCalls: 0,
+            },
+            days,
+            models: [
+              { model: "claude-sonnet-4-6", calls: 31, input: 12000, output: 1900, cacheRead: 52000, cacheWrite: 0, tokens: 65900, errors: 0, cost: 0.13, unpricedCalls: 0 },
+              { model: "gpt-5.2-codex", calls: 18, input: 6400, output: 940, cacheRead: 22200, cacheWrite: 0, tokens: 29540, errors: 0, cost: 0.044, unpricedCalls: 0 },
+            ],
+            tools: [
+              { name: "read", calls: 12, errors: 0 },
+              { name: "bash", calls: 8, errors: 2 },
+              { name: "edit", calls: 5, errors: 1 },
+              { name: "write", calls: 2, errors: 0 },
+            ],
+            sessions: [
+              { id: "demo-session-1", title: "统计页面设计", startedAt: now - 3 * day, lastActive: now - 2 * 3600_000, model: "claude-sonnet-4-6", userMessages: 6, assistantCalls: 18, input: 7000, output: 1100, cacheRead: 26000, cacheWrite: 0, tokens: 34100, toolCalls: 10, toolErrors: 1, compactions: 0, assistantErrors: 0, aborted: 0, cost: 0.08, unpricedCalls: 0 },
+              { id: "demo-session-2", title: "回归测试修复", startedAt: now - 5 * day, lastActive: now - day, model: "gpt-5.2-codex", userMessages: 4, assistantCalls: 12, input: 4300, output: 700, cacheRead: 15800, cacheWrite: 0, tokens: 20800, toolCalls: 8, toolErrors: 2, compactions: 1, assistantErrors: 0, aborted: 0, cost: 0.034, unpricedCalls: 0 },
+            ],
+            sessionsTruncated: false,
+          });
+        }
         case "create_session": {
           const agentName = String(args.agentName ?? demoAgent.name);
           const conversation = createConversation(agentName);

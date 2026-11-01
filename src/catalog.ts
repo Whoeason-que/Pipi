@@ -9,12 +9,21 @@ export type ProviderGroup = "聚合网关" | "国内" | "国际" | "本地";
 /** 分组顺序即选择器里的顺序（与 core 的 GROUPS 一致）。 */
 export const PROVIDER_GROUPS: ProviderGroup[] = ["聚合网关", "国内", "国际", "本地"];
 
+export interface CatalogCost {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
 export interface CatalogModel {
   id: string;
   name: string;
   context?: number;
   output?: number;
   reasoning?: boolean;
+  /** models.dev 报价（USD / 1M tokens）；缺失 = 没有可信价格。 */
+  cost?: CatalogCost;
   /**
    * 模型级协议覆盖（上游 models.dev 的 `model.provider.npm` 与 provider 级不同时
    * 才有）。`undefined` = 与 provider 级相同，跟随条目声明的协议。

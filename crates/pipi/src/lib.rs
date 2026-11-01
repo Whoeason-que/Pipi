@@ -59,6 +59,7 @@ pub fn run() {
             chat::create_session,
             chat::session_messages,
             chat::session_stats,
+            chat::agent_stats,
             chat::list_sessions,
             chat::open_session,
             chat::session_info,
