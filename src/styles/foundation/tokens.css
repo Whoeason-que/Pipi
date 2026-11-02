@@ -68,7 +68,7 @@
   --text-sm: 12.5px;
   --text-md: 13px;
   --text-body: 14px;
-  --text-prose: 16px;
+  --text-prose: 15px;
   --text-title: 26px;
   --space-1: 4px;
   --space-2: 8px;
@@ -83,7 +83,7 @@
   --touch-target: 44px;
   /* 侧栏列表行（Agent / 会话 / 文件 / Git / 分组标题）共用同一套密度。 */
   --row-height: 28px;
-  --row-font: 12px;
+  --row-font: 13px;
   --row-line: 1.3;
   --icon-sm: 14px;
   --icon: 16px;
