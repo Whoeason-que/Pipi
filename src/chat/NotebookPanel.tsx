@@ -1,5 +1,6 @@
 import type { AgentDefinition } from "../types";
 import { Markdown } from "../Markdown";
+import { useI18n } from "../i18n";
 import { parsePlan } from "./notebook-plan";
 import type { NotebookSnapshot } from "./notebook";
 
@@ -11,6 +12,7 @@ export function NotebookPanel({
   notebook: NotebookSnapshot;
   agent: AgentDefinition;
 }) {
+  const { t } = useI18n();
   const progress = parsePlan(notebook.content);
   const percent = progress.total
     ? Math.round((progress.done / progress.total) * 100)
@@ -19,7 +21,7 @@ export function NotebookPanel({
   return (
     <div className="file-workbench notebook-panel">
       <div className="file-workbench-header">
-        <strong>笔记本</strong>
+        <strong>{t("inspector.notebook")}</strong>
         {progress.total > 0 && (
           <small className="notebook-progress-label">
             {progress.done} / {progress.total}
@@ -31,8 +33,8 @@ export function NotebookPanel({
       ) : !notebook.content ? (
         <p className="file-notice">
           {notebook.loading
-            ? "正在读取…"
-            : "这个会话还没有笔记本。Agent 开始多步任务后，计划与走查会写在这里。"}
+            ? t("common.loading")
+            : t("inspector.notebookEmpty")}
         </p>
       ) : (
         <>
@@ -40,7 +42,7 @@ export function NotebookPanel({
             <span
               className="notebook-progress"
               role="progressbar"
-              aria-label="计划完成度"
+              aria-label={t("inspector.planProgress")}
               aria-valuenow={progress.done}
               aria-valuemin={0}
               aria-valuemax={progress.total}

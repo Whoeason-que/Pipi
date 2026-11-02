@@ -12,7 +12,7 @@ test("attachments preserve order and keep images separate from escaped text", as
   assert.match(result.text, /\[图片：image.png\]/);
   assert.match(result.text, /&lt;instructions&gt;unsafe/);
   assert.ok(result.text.indexOf("image.png") < result.text.indexOf("a.txt"));
-  await assert.rejects(prepareAttachments("", [new File([new Uint8Array([0, 255])], "x.bin")]), /不支持/);
+  await assert.rejects(prepareAttachments("", [new File([new Uint8Array([0, 255])], "x.bin")]), /Unsupported/);
 });
 
 test("new edits and attachments survive a late acknowledgement", () => {

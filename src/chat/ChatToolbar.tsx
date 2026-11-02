@@ -29,11 +29,11 @@ export default function ChatToolbar({
   onBack,
   onClear,
 }: ChatToolbarProps) {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
   return (
     <header
       className="screen-bar chat-toolbar"
-      aria-label={locale === "en" ? "Session toolbar" : "会话工具栏"}
+      aria-label={t("chat.toolbar")}
     >
       <NavigationToggle />
       <span className="toolbar-divider" />
@@ -50,9 +50,7 @@ export default function ChatToolbar({
         <span className="chat-title-separator" aria-hidden="true">·</span>
         <b>
           {temporary
-            ? locale === "en"
-              ? "Agent workbench"
-              : "Agent 工作台"
+            ? t("chat.agentWorkbench")
             : title}
         </b>
       </span>
@@ -64,8 +62,8 @@ export default function ChatToolbar({
           onClick={onInspectorToggle}
           aria-expanded={inspectorOpen}
           aria-controls="session-inspector"
-          aria-label={locale === "en" ? "Session inspector" : "会话检查器"}
-          title={locale === "en" ? "Session inspector" : "会话检查器"}
+          aria-label={t("inspector.ariaLabel")}
+          title={t("inspector.ariaLabel")}
         >
           <IconPanelRight />
           {hasDetail && !inspectorOpen && <span className="tab-dot" />}
@@ -74,7 +72,7 @@ export default function ChatToolbar({
         <>
           <span className="test-mode-pill">
             <span className={`test-mode-dot${running ? " running" : ""}`} />
-            {locale === "en" ? "Temporary test" : "临时测试"}
+            {t("chat.temporaryTest")}
           </span>
           <button
             type="button"
@@ -82,8 +80,8 @@ export default function ChatToolbar({
             onClick={onInspectorToggle}
             aria-expanded={inspectorOpen}
             aria-controls="session-inspector"
-            aria-label={locale === "en" ? "Agent settings" : "Agent 设置"}
-            title={locale === "en" ? "Agent settings" : "Agent 设置"}
+            aria-label={t("chat.agentSettings")}
+            title={t("chat.agentSettings")}
           >
             <IconGear />
           </button>
@@ -95,21 +93,11 @@ export default function ChatToolbar({
               disabled={!ready || running || clearing}
               title={
                 running
-                  ? locale === "en"
-                    ? "Stop the test first"
-                    : "请先停止测试"
-                  : locale === "en"
-                    ? "Clear temporary context"
-                    : "清空临时上下文"
+                  ? t("chat.stopTestFirst")
+                  : t("chat.clearTemporaryContext")
               }
             >
-              {clearing
-                ? locale === "en"
-                  ? "Clearing…"
-                  : "清空中…"
-                : locale === "en"
-                  ? "Clear test"
-                  : "清空测试"}
+              {clearing ? t("chat.clearing") : t("chat.clearTest")}
             </button>
           )}
         </>

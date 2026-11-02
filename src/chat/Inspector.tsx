@@ -15,6 +15,7 @@ import {
 import { SessionFilesPanel } from "../files/SessionFilesPanel";
 import { NotebookPanel } from "./NotebookPanel";
 import { useNotebook } from "./notebook";
+import { useI18n } from "../i18n";
 // ============ 右侧检查器 ============
 
 export interface InspectorProps {
@@ -65,6 +66,7 @@ export default function Inspector({
   onPinFind,
   searchInputRef,
 }: InspectorProps) {
+  const { t } = useI18n();
   const localSearchInputRef = useRef<HTMLInputElement>(null);
   const searchInput = searchInputRef ?? localSearchInputRef;
   const {
@@ -205,18 +207,18 @@ export default function Inspector({
       aria-hidden={hidden || undefined}
       className={embedded ? "embedded-inspector" : "inspector"}
       id={embedded ? undefined : "session-inspector"}
-      aria-label={embedded ? "临时测试信息" : "会话检查器"}
+      aria-label={t(embedded ? "inspector.temporaryAria" : "inspector.ariaLabel")}
     >
       {tabStyle === "icon" ? (
         <div className="inspector-head inspector-head-tabs">
           <div
             className="inspector-tabs"
             role="tablist"
-            aria-label="检查器视图"
+            aria-label={t("inspector.viewsLabel")}
             onKeyDown={handleTabKeys}
           >
             {tabs.map((item) => {
-              const label = getInspectorTabLabel(item.id);
+              const label = getInspectorTabLabel(item.id, t);
               return (
                 <button
                   key={item.id}
@@ -250,8 +252,8 @@ export default function Inspector({
               type="button"
               className="icon-btn inspector-close"
               onClick={onClose}
-              aria-label="关闭检查器"
-              title="关闭检查器"
+              aria-label={t("inspector.close")}
+              title={t("inspector.close")}
             >
               <IconClose />
             </button>
@@ -261,7 +263,7 @@ export default function Inspector({
         <div
           className="itabs"
           role="tablist"
-          aria-label="检查器视图"
+          aria-label={t("inspector.viewsLabel")}
           onKeyDown={handleTabKeys}
         >
           {tabs.map((item) => (
@@ -276,7 +278,7 @@ export default function Inspector({
               className={`itab${tab === item.id ? " active" : ""}`}
               onClick={() => setTab(item.id)}
             >
-              {item.label}
+              {getInspectorTabLabel(item.id, t)}
             </button>
           ))}
         </div>
@@ -310,8 +312,8 @@ export default function Inspector({
               <span className="icon-tile inspector-empty-icon">
                 <InspectorTabIcon tab="detail" />
               </span>
-              <strong>查看调用过程</strong>
-              <p>悬浮工具或思考标签以预览详情，点击后固定到这里。</p>
+              <strong>{t("inspector.detailTitle")}</strong>
+              <p>{t("inspector.noDetail")}</p>
             </div>
           )}
         </div>
@@ -322,12 +324,12 @@ export default function Inspector({
           aria-labelledby="itab-stats"
         >
           <div className="ip context-stats">
-            <h4>当前上下文</h4>
+            <h4>{t("inspector.currentContext")}</h4>
             {stats?.contextPercent != null || stats?.cacheHitPct != null ? (
               <>
                 {stats?.contextPercent != null && (
                   <div className="context-meter">
-                    <span className="m-k">上下文占用</span>
+                    <span className="m-k">{t("inspector.contextUsage")}</span>
                     <strong className="context-percent">
                       {Math.round(stats.contextPercent * 10) / 10}
                       <small>%</small>
@@ -338,7 +340,7 @@ export default function Inspector({
                     </span>
                     <span
                       className="track"
-                      title="最近一次请求的 prompt 用量 / 上下文窗口"
+                      title={t("inspector.contextUsageHint")}
                     >
                       <i
                         style={{
@@ -350,11 +352,11 @@ export default function Inspector({
                 )}
                 {stats?.cacheHitPct != null && (
                   <div className="metric cache-metric">
-                    <span className="m-k">缓存命中</span>
+                    <span className="m-k">{t("inspector.cacheHit")}</span>
                     <span className="m-v">{stats.cacheHitPct.toFixed(0)}%</span>
                     <span
                       className="track"
-                      title="最近一次调用：cache_read / prompt"
+                      title={t("inspector.cacheHint")}
                     >
                       <i
                         className="cache"
@@ -367,17 +369,17 @@ export default function Inspector({
                 )}
               </>
             ) : (
-              <div className="ip-note">暂无统计：本次会话还没有产生调用。</div>
+              <div className="ip-note">{t("inspector.noStats")}</div>
             )}
           </div>
 
           <div className="ip">
-            <h4>近 10 次调用</h4>
+            <h4>{t("inspector.recentCalls")}</h4>
             {stats && (stats.avgTps != null || stats.avgLatencyS != null) ? (
               <div className="stat-pair">
                 {stats.avgTps != null && (
                   <div className="stat-number">
-                    <span className="m-k">输出速度</span>
+                    <span className="m-k">{t("inspector.outputSpeed")}</span>
                     <span className="m-v">
                       {stats.avgTps.toFixed(1)}
                       <small>tok/s</small>
@@ -386,7 +388,7 @@ export default function Inspector({
                 )}
                 {stats.avgLatencyS != null && (
                   <div className="stat-number">
-                    <span className="m-k">平均延迟</span>
+                    <span className="m-k">{t("inspector.avgLatency")}</span>
                     <span className="m-v">
                       {stats.avgLatencyS.toFixed(2)}
                       <small>s</small>
@@ -395,18 +397,18 @@ export default function Inspector({
                 )}
               </div>
             ) : (
-              <div className="ip-note">有效调用不足，暂不计算窗口指标。</div>
+              <div className="ip-note">{t("inspector.notEnoughCalls")}</div>
             )}
           </div>
 
           <div className="ip">
-            <h4>累计</h4>
+            <h4>{t("inspector.cumulative")}</h4>
             <div className="metric">
-              <span className="m-k">调用次数</span>
+              <span className="m-k">{t("inspector.calls")}</span>
               <span className="m-v">{stats?.calls ?? 0}</span>
             </div>
             <div className="metric">
-              <span className="m-k">输入 / 输出</span>
+              <span className="m-k">{t("inspector.inputOutput")}</span>
               <span className="m-v dim">
                 {formatTokens(stats?.input)} / {formatTokens(stats?.output)}
               </span>
@@ -414,7 +416,7 @@ export default function Inspector({
           </div>
 
           <div className="ip">
-            <h4>工具调用</h4>
+            <h4>{t("inspector.toolCalls")}</h4>
             {toolSummary.length > 0 ? (
               <div className="tl">
                 {toolSummary.map((item) => (
@@ -430,14 +432,18 @@ export default function Inspector({
                       />
                     </span>
                     <span className={`d${item.errors > 0 ? " fail" : ""}`}>
-                      {item.count} 次
-                      {item.errors > 0 ? ` · ${item.errors} 失败` : ""}
+                      {item.errors > 0
+                        ? t("inspector.toolCountErrors", {
+                            count: item.count,
+                            errors: item.errors,
+                          })
+                        : t("inspector.toolCount", { count: item.count })}
                     </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="ip-note">本次会话尚未调用工具。</div>
+              <div className="ip-note">{t("inspector.noToolCalls")}</div>
             )}
           </div>
         </div>
@@ -449,9 +455,9 @@ export default function Inspector({
           aria-labelledby="itab-state"
         >
           <div className="ip">
-            <h4>运行状态</h4>
+            <h4>{t("inspector.runtimeState")}</h4>
             <div className="kv-row">
-              <span className="k">{runningTool ? "当前工具" : "最近工具"}</span>
+              <span className="k">{runningTool ? t("inspector.currentTool") : t("inspector.lastTool")}</span>
               <span className="v">
                 {runningTool || lastTool ? (
                   <>
@@ -460,10 +466,10 @@ export default function Inspector({
                     </span>{" "}
                     <span className="dim">
                       {runningTool
-                        ? "运行中"
+                        ? t("common.running")
                         : lastTool!.isError
-                          ? "失败"
-                          : "完成"}
+                          ? t("common.failed")
+                          : t("chat.statusDone")}
                     </span>
                   </>
                 ) : (
@@ -472,39 +478,39 @@ export default function Inspector({
               </span>
             </div>
             <div className="kv-row">
-              <span className="k">消息条数</span>
+              <span className="k">{t("inspector.messageCount")}</span>
               <span className="v mono">{entries.length}</span>
             </div>
             <div className="kv-row">
-              <span className="k">调用次数</span>
+              <span className="k">{t("inspector.calls")}</span>
               <span className="v mono">{stats?.calls ?? 0}</span>
             </div>
             <div className="kv-row">
-              <span className="k">阻塞会话</span>
+              <span className="k">{t("inspector.blockedSessions")}</span>
               <span className="v mono dim">{blockedCount}</span>
             </div>
           </div>
 
           <div className="ip">
-            <h4>会话</h4>
+            <h4>{t("inspector.session")}</h4>
             <div className="kv-row">
-              <span className="k">模型</span>
+              <span className="k">{t("inspector.model")}</span>
               <span className="v mono">
-                {sessionModel?.id || "未配置"}
+                {sessionModel?.id || t("inspector.notConfigured")}
                 {sessionModel && (
                   <span className="dim">
                     {" "}
-                    {isCustomModel ? "自定义" : "默认"}
+                    {isCustomModel ? t("inspector.custom") : t("inspector.default")}
                   </span>
                 )}
               </span>
             </div>
             <div className="kv-row">
-              <span className="k">会话 ID</span>
-              <span className="v mono">{sessionId ?? "（新会话）"}</span>
+              <span className="k">{t("inspector.sessionId")}</span>
+              <span className="v mono">{sessionId ?? t("inspector.newSession")}</span>
             </div>
             <div className="kv-row">
-              <span className="k">上下文</span>
+              <span className="k">{t("inspector.context")}</span>
               <span className="v mono">
                 {stats?.contextPercent != null ? (
                   <>
@@ -521,18 +527,18 @@ export default function Inspector({
                     className="compact-now"
                     onClick={onCompact}
                     disabled={!canCompact}
-                    title="立即压缩当前会话（跳过阈值；走与自动压缩相同的分叉/归档设置）"
+                    title={t("inspector.compactHint")}
                   >
-                    {compacting ? "压缩中…" : "立即压缩"}
+                    {compacting ? t("inspector.compacting") : t("inspector.compactNow")}
                   </button>
                 )}
               </span>
             </div>
             <div className="kv-row">
-              <span className="k">会话存储</span>
+              <span className="k">{t("inspector.sessionStorage")}</span>
               <span className="v mono dim">
                 {temporary
-                  ? "内存（不落盘）"
+                  ? t("inspector.memoryNoPersist")
                   : sessionId
                     ? `~/.pipi/agents/${agent.name}/sessions.git/`
                     : "—"}
@@ -541,23 +547,23 @@ export default function Inspector({
           </div>
 
           <div className="ip">
-            <h4>约束</h4>
+            <h4>{t("inspector.constraints")}</h4>
             <div className="kv-row">
-              <span className="k">沙箱</span>
+              <span className="k">{t("inspector.sandbox")}</span>
               <span className="v">
                 <span className="tag ok">{agent.permissions.sandbox}</span>
               </span>
             </div>
             <div className="kv-row">
-              <span className="k">工作目录</span>
+              <span className="k">{t("inspector.workingDirectory")}</span>
               <span className="v mono">{workspace}</span>
             </div>
             <div className="kv-row">
-              <span className="k">工具</span>
+              <span className="k">{t("inspector.tools")}</span>
               <span className="v mono dim">
                 {agent.permissions.tools.length
                   ? agent.permissions.tools.join(" · ")
-                  : "（无）"}
+                  : t("inspector.none")}
               </span>
             </div>
           </div>
@@ -587,8 +593,8 @@ export default function Inspector({
                 value={searchQuery}
                 onChange={(e) => onSearchQueryChange?.(e.target.value)}
                 onKeyDown={handleSearchKeyDown}
-                placeholder="搜索当前会话消息…"
-                aria-label="搜索当前会话消息"
+                placeholder={t("inspector.searchPlaceholder")}
+                aria-label={t("inspector.searchPlaceholder")}
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -597,8 +603,8 @@ export default function Inspector({
                   type="button"
                   className="search-clear-btn"
                   onClick={() => onSearchQueryChange?.("")}
-                  aria-label="清空搜索"
-                  title="清空搜索"
+                  aria-label={t("inspector.clearSearch")}
+                  title={t("inspector.clearSearch")}
                 >
                   <IconClose />
                 </button>
@@ -607,11 +613,11 @@ export default function Inspector({
             <div className="caption search-stats-bar">
               <span className="search-stats-count">
                 {searchQuery.trim()
-                  ? `共找到 ${searchHits.length} 条匹配`
-                  : "按消息正文检索"}
+                  ? t("inspector.searchResults", { count: searchHits.length })
+                  : t("inspector.searchHint")}
               </span>
               {searchHits.length > 0 && (
-                <span className="search-stats-hint">悬浮预览 · 点击固定</span>
+                <span className="search-stats-hint">{t("inspector.searchResultHint")}</span>
               )}
             </div>
           </div>
@@ -624,15 +630,15 @@ export default function Inspector({
                 <span className="icon-tile search-empty-icon">
                   <IconSearch />
                 </span>
-                <p className="search-empty-text">输入关键词检索当前会话消息</p>
+                <p className="search-empty-text">{t("inspector.searchEmpty")}</p>
                 <span className="caption search-empty-kbd">
-                  <kbd>Enter</kbd> / <kbd>↓</kbd> 切换下一条
+                  <kbd>Enter</kbd> / <kbd>↓</kbd> {t("inspector.searchNextHint")}
                 </span>
               </div>
             ) : searchHits.length === 0 ? (
               <div className="empty-state search-empty-state">
                 <p className="search-empty-text">
-                  未找到与 “{searchQuery}” 相关的消息
+                  {t("inspector.noSearchResults")}
                 </p>
               </div>
             ) : (
@@ -651,7 +657,7 @@ export default function Inspector({
                   >
                     <div className="search-hit-top">
                       <span className={`search-hit-badge ${hit.role}`}>
-                        {hit.role === "user" ? "用户" : "助手"}
+                        {hit.role === "user" ? t("inspector.userRole") : t("inspector.assistantRole")}
                       </span>
                       {hit.timestamp ? (
                         <span className="caption search-hit-time">
@@ -660,11 +666,11 @@ export default function Inspector({
                       ) : null}
                       <span className="spacer" />
                       {isPinned && (
-                        <span className="search-hit-status pinned">已固定</span>
+                        <span className="search-hit-status pinned">{t("inspector.pinned")}</span>
                       )}
                       {!isPinned && isPreview && (
                         <span className="search-hit-status preview">
-                          预览中
+                          {t("inspector.previewing")}
                         </span>
                       )}
                     </div>

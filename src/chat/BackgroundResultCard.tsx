@@ -1,4 +1,5 @@
 import { IconAlertTriangle, IconCheck } from "../icons";
+import { useI18n } from "../i18n";
 import {
   backgroundResultLabel,
   type BackgroundResultView,
@@ -10,6 +11,7 @@ export default function BackgroundResultCard({
 }: {
   result: BackgroundResultView;
 }) {
+  const { t } = useI18n();
   const failed = result.status === "failed";
   return (
     <div
@@ -21,7 +23,7 @@ export default function BackgroundResultCard({
           {failed ? <IconAlertTriangle size={16} /> : <IconCheck />}
         </span>
         <span className="background-title">
-          {failed ? "后台任务失败" : "后台任务完成"}
+          {failed ? t("chat.backgroundFailed") : t("chat.backgroundDone")}
         </span>
         <span className="background-meta mono" title={result.jobId}>
           {backgroundResultLabel(result)}
@@ -31,7 +33,7 @@ export default function BackgroundResultCard({
       {result.error && <div className="background-error">{result.error}</div>}
       {result.output && (
         <details className="background-output">
-          <summary>输出</summary>
+          <summary>{t("inspector.output")}</summary>
           <pre>{result.output}</pre>
         </details>
       )}

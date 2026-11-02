@@ -97,7 +97,7 @@ export default function ChatTimeline({
                   <div className="row-inner">
                     <div className="user-bubble">
                       {entry.text && <div className="user-text">{entry.text}</div>}
-                      {!!entry.images?.length && <div className="user-images">{entry.images.map((image, index) => ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(image.mimeType) ? <img key={index} src={`data:${image.mimeType};base64,${image.data}`} alt={locale === "en" ? "Attached image" : "上传的图片"} /> : null)}</div>}
+                      {!!entry.images?.length && <div className="user-images">{entry.images.map((image, index) => ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(image.mimeType) ? <img key={index} src={`data:${image.mimeType};base64,${image.data}`} alt={t("chat.attachedImage")} /> : null)}</div>}
                     </div>
                     <div className="row-meta">
                       {entry.timestamp ? (

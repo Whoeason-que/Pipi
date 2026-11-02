@@ -69,7 +69,7 @@ export default function ChatComposer({
   onScrollToLatest,
   onError,
 }: ChatComposerProps) {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
   const { text, files } = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
   const [delayMinutes, setDelayMinutes] = useState("0");
   const delayOpen = delayMinutes !== "0";
@@ -136,9 +136,9 @@ export default function ChatComposer({
   };
 
   const sendLabel = uncertain ? t("chat.sendPending")
-    : delayOpen ? (locale === "en" ? "Send later" : "延迟发送")
-    : running || queue.messages.length ? (locale === "en" ? "Queue" : "排队") : t("chat.send");
-  const modelName = model?.id || (locale === "en" ? "No model" : "未配置模型");
+    : delayOpen ? t("chat.sendLater")
+    : running || queue.messages.length ? t("chat.queue") : t("chat.send");
+  const modelName = model?.id || t("chat.noModel");
   return (
     <div className="composer" ref={containerRef}>
       {!atTail && (
@@ -148,36 +148,30 @@ export default function ChatComposer({
           onClick={onScrollToLatest}
         >
           <IconArrowDown />
-          {locale === "en" ? "Latest messages" : "回到最新消息"}
+          {t("chat.latestMessages")}
         </button>
       )}
       {temporary && (
         <div className="caption test-safety-note" role="note">
-          <span>临时仅指对话记录</span>
-          工具仍按当前权限真实运行，对工作区造成的改动会保留。
+          <span>{t("chat.testSafetyTitle")}</span>
+          {t("chat.testSafetyBody")}
         </div>
       )}
       <ComposerQueue queue={queue} onCancel={onCancelQueued} onPause={onPauseQueue} onError={onError} />
       <div className={`composer-box${running ? " is-running" : ""}`}>
-        {!!files.length && <div className="composer-attachments">{files.map((file, index) => <span className="composer-attachment" key={`${file.name}-${index}`} title={file.name}><span className="truncate">{file.name}</span><button type="button" aria-label={`移除 ${file.name}`} onClick={() => draft.setFiles(files.filter((_, i) => i !== index))}>×</button></span>)}</div>}
+        {!!files.length && <div className="composer-attachments">{files.map((file, index) => <span className="composer-attachment" key={`${file.name}-${index}`} title={file.name}><span className="truncate">{file.name}</span><button type="button" aria-label={t("chat.removeAttachment", { name: file.name })} onClick={() => draft.setFiles(files.filter((_, i) => i !== index))}>×</button></span>)}</div>}
         <textarea
           ref={input}
           value={text}
-          aria-label={temporary ? "临时测试消息" : "会话消息"}
+          aria-label={temporary ? t("chat.testMessageAria") : t("chat.messageAria")}
           onChange={(event) => draft.write(event.target.value)}
           disabled={!ready}
           placeholder={
             ready
               ? running
-                ? locale === "en"
-                  ? "Guide the current task, or queue the next message…"
-                  : "引导当前任务，或排队发送下一条消息…"
-                : locale === "en"
-                  ? "Describe what you want to get done…"
-                  : "描述你想完成的工作…"
-              : locale === "en"
-                ? "Connecting to Agent…"
-                : "正在连接 Agent…"
+                ? t("chat.placeholderRunning")
+                : t("chat.placeholderIdle")
+              : t("chat.connectingAgent")
           }
           onCompositionStart={() => {
             composingRef.current = true;
@@ -202,38 +196,33 @@ export default function ChatComposer({
         />
         <div className="composer-bar">
           <input ref={fileInput} type="file" multiple hidden onChange={event => { const picked = Array.from(event.target.files ?? []); if (picked.length) draft.setFiles([...draft.getSnapshot().files, ...picked]); event.target.value = ""; }} />
-          <button type="button" className="composer-attach" disabled={!ready || sending} title={locale === "en" ? "Attach images or text files" : "添加图片或文本文件"} aria-label={locale === "en" ? "Attach files" : "添加文件"} onClick={() => fileInput.current?.click()}>+</button>
+          <button type="button" className="composer-attach" disabled={!ready || sending} title={t("chat.attachFilesTitle")} aria-label={t("chat.attachFiles")} onClick={() => fileInput.current?.click()}>+</button>
           {!temporary ? <ModelEffortPicker
             model={model}
             customModel={customModel}
             disabled={!ready || running || stopping || sending || updatingReasoning || uncertain}
-            disabledReason={running ? (locale === "en" ? "Cannot change model while running" : "Agent 运行中不可切换模型") : undefined}
+            disabledReason={running ? t("chat.cannotChangeModelWhileRunning") : undefined}
             onOpenModel={onOpenModel}
             onEffortChange={changeReasoning}
           /> : <span className="truncate caption test-model" title={modelName}>{modelName}</span>}
           <span className="spacer" />
           <span className="caption composer-state" role="status">
             {updatingReasoning
-              ? locale === "en" ? "Saving…" : "正在保存…"
+              ? t("chat.saving")
               : stopping
-              ? locale === "en"
-                ? "Stopping…"
-                : "正在停止…"
+              ? t("chat.stopping")
               : sending
-                ? locale === "en"
-                  ? "Sending…"
-                  : "正在提交…"
+                ? t("chat.sending")
                 : uncertain
                   ? t("chat.sendPending")
                   : null}
           </span>
-          <DelayPicker value={delayMinutes} en={locale === "en"} onChange={setDelayMinutes} />
+          <DelayPicker value={delayMinutes} onChange={setDelayMinutes} />
           <SendAction
-            en={locale === "en"}
             running={running}
             stopping={stopping}
             busy={uncertain || sending || stopping}
-            stopLabel={stopping ? (locale === "en" ? "Stopping…" : "正在停止…") : t("chat.stop")}
+            stopLabel={stopping ? t("chat.stopping") : t("chat.stop")}
             sendLabel={sendLabel}
             steerDisabled={!running || !ready || uncertain || (!text.trim() && !files.length) || sending || stopping || updatingReasoning}
             sendDisabled={!ready || uncertain || (!text.trim() && !files.length) || sending || stopping || updatingReasoning || !validDelay}

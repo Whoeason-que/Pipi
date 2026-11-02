@@ -5,6 +5,7 @@ import {
 } from "../chat-runtime";
 import { IconCheck, IconChevronRight, IconCopy } from "../icons";
 import { useCopyFeedback } from "../components/use-copy";
+import { useI18n } from "../i18n";
 
 
 export function formatClock(timestamp: number): string {
@@ -15,13 +16,16 @@ export function formatClock(timestamp: number): string {
 
 /** 消息操作：复制正文（hover 出现的操作行里，成功后短暂显示对勾） */
 export function CopyButton({ text }: { text: string }) {
-  const { state, copy, label } = useCopyFeedback();
+  const { t } = useI18n();
+  const { state, copy } = useCopyFeedback();
+  const label = state === "copied" ? t("common.copied")
+    : state === "failed" ? t("chat.copyFailed") : t("common.copy");
   return (
     <button
       type="button"
       className={`icon-btn copy-btn${state === "copied" ? " copied" : ""}${state === "failed" ? " copy-failed" : ""}`}
       title={label}
-      aria-label={state === "idle" ? "复制消息" : label}
+      aria-label={state === "idle" ? t("chat.copyMessage") : label}
       disabled={!text}
       onClick={() => void copy(text)}
     >
@@ -51,6 +55,7 @@ export function ChipRow({
   onPreviewEnd: () => void;
   onTogglePin: (id: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="row chip-line">
       <div className="row-inner">
@@ -69,9 +74,15 @@ export function ChipRow({
                 onFocus={() => onPreview(chip.id)}
                 onBlur={onPreviewEnd}
                 onClick={() => onTogglePin(chip.id)}
-                title={`${chip.name} · ${
-                  chip.status === "running" ? "运行中" : chip.status === "error" ? "失败" : "已完成"
-                }（悬浮预览 · 点击固定到右栏）`}
+                title={t("chat.chipTitle", {
+                  name: chip.name,
+                  status:
+                    chip.status === "running"
+                      ? t("common.running")
+                      : chip.status === "error"
+                        ? t("common.failed")
+                        : t("chat.statusDone"),
+                })}
                 aria-expanded={chip.id === pinnedId}
               >
                 {chip.status === "running" && <span className="chip-dot" aria-hidden="true" />}
@@ -87,6 +98,7 @@ export function ChipRow({
 }
 
 function ToolResultCard({ entry }: { entry: ChatEntry }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(!entry.text.includes("\n") || Boolean(entry.isError) || Boolean(entry.toolRunning));
   const toolName = entry.toolName ?? "tool";
   const running = Boolean(entry.toolRunning);
@@ -121,11 +133,11 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
         )}
         <span className="caption tool-meta">
           {running ? (
-            <span className="run">● 运行中</span>
+            <span className="run">● {t("common.running")}</span>
           ) : failed ? (
-            <span className="fail">✕ 失败</span>
+            <span className="fail">✕ {t("common.failed")}</span>
           ) : (
-            <span className="ok">✓ 完成</span>
+            <span className="ok">✓ {t("chat.statusDone")}</span>
           )}
           <IconChevronRight expanded={open} />
         </span>
@@ -135,12 +147,12 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
         <div className="tool-body">
           {argsText && (
             <div className="tpane">
-              <div className="caption plabel">参数</div>
+              <div className="caption plabel">{t("inspector.args")}</div>
               <pre className="code">{argsText}</pre>
             </div>
           )}
           <div className={`tpane${argsText ? "" : " full"}`}>
-            <div className="caption plabel">输出</div>
+            <div className="caption plabel">{t("inspector.output")}</div>
             {hasDiff ? (
               <pre className="code">
                 {details!.diff!.split("\n").map((line, index) => {
@@ -157,7 +169,7 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
                 })}
               </pre>
             ) : (
-              <pre className="code">{toolOutputBody(entry) || (running ? "执行中…" : "（无输出）")}</pre>
+              <pre className="code">{toolOutputBody(entry) || (running ? t("inspector.runningOutput") : t("inspector.noOutput"))}</pre>
             )}
           </div>
         </div>
@@ -196,20 +208,21 @@ export function ChipDetailPane({
   canUnpin: boolean;
   onUnpin: () => void;
 }) {
+  const { t } = useI18n();
   const entry = entries.find((candidate) => candidate.key === chip.entryKey);
   return (
     <div className="detail-pane">
       <div className="tool-detail-head">
         <span className={`detail-name chip-${chip.status}`}>{chip.name}</span>
-        <span className="caption detail-mode">{mode === "preview" ? "预览" : "已固定"}</span>
+        <span className="caption detail-mode">{mode === "preview" ? t("inspector.preview") : t("inspector.pinned")}</span>
         <span className="spacer" />
         {canUnpin && (
           <button
             type="button"
             className="icon-btn detail-unpin"
             onClick={onUnpin}
-            title="取消固定"
-            aria-label="取消固定"
+            title={t("inspector.unpin")}
+            aria-label={t("inspector.unpin")}
           >
             ×
           </button>
@@ -221,7 +234,7 @@ export function ChipDetailPane({
         ) : entry ? (
           <ToolResultCard entry={entry} />
         ) : (
-          <div className="empty-state detail-empty">该条目的记录已不在当前会话中。</div>
+          <div className="empty-state detail-empty">{t("inspector.entryGone")}</div>
         )}
       </div>
     </div>

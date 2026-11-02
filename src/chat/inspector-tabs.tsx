@@ -3,12 +3,12 @@ import type { ReactNode } from "react";
 export type InspectorTab = "notebook" | "detail" | "stats" | "state" | "files" | "search";
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
-  { id: "notebook", label: "笔记本" },
-  { id: "detail", label: "调用详情" },
-  { id: "stats", label: "会话统计" },
-  { id: "state", label: "当前状态" },
-  { id: "files", label: "会话文件" },
-  { id: "search", label: "会话搜索" },
+  { id: "notebook", label: "Notebook" },
+  { id: "detail", label: "Details" },
+  { id: "stats", label: "Stats" },
+  { id: "state", label: "State" },
+  { id: "files", label: "Session files" },
+  { id: "search", label: "Find" },
 ];
 
 export function getInspectorTabLabel(

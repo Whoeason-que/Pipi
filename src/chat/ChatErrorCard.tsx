@@ -68,7 +68,10 @@ export function ChatErrorCard({ info }: { info: ChatErrorInfo }) {
     <div
       className={`chat-error-card chat-error-${info.category}`}
       role="alert"
-      aria-label={`${info.title}：${info.badge}`}
+      aria-label={t("chat.errorAriaLabel", {
+        title: info.title,
+        badge: info.badge,
+      })}
     >
       <div className="chat-error-head">
         <div className="chat-error-icon">{renderCategoryIcon(info.category)}</div>

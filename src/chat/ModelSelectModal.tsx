@@ -17,6 +17,7 @@ import { ReasoningSelect } from "../ReasoningSelect";
 import { ChoiceSelect } from "../Select";
 import { API_LABELS, pinnedProtocolHint, type ModelConfig, type ProviderConfig, type ReasoningEffort } from "../types";
 import { useCatalog } from "../use-catalog";
+import { useI18n } from "../i18n";
 
 
 // ============ 会话模型选择 ============
@@ -40,6 +41,7 @@ export default function ModelSelectModal({
   agentDefaultModel,
   providers,
 }: ModelSelectModalProps) {
+  const { t } = useI18n();
   const [mode, setMode] = useState<"default" | "custom">(isCustomModel ? "custom" : "default");
 
   const initialProvider = providers.find((p) => {
@@ -101,13 +103,13 @@ export default function ModelSelectModal({
       } else {
         const trimmed = modelId.trim();
         if (!trimmed) {
-          setModalError("请输入模型 ID（如 claude-3-7-sonnet-20250219）");
+          setModalError(t("chat.modelIdRequired"));
           setSaving(false);
           return;
         }
         const provider = providers.find((p) => p.id === selectedProviderId);
         if (!provider) {
-          setModalError("请选择有效的供应商配置");
+          setModalError(t("chat.providerRequired"));
           setSaving(false);
           return;
         }
@@ -138,7 +140,7 @@ export default function ModelSelectModal({
     >
       <div className="modal model-select-modal">
         <div className="modal-header">
-          <h2>选择会话模型</h2>
+          <h2>{t("chat.selectSessionModel")}</h2>
           <button type="button" className="icon-btn close-btn" onClick={onClose} disabled={saving}>
             ✕
           </button>
@@ -151,12 +153,12 @@ export default function ModelSelectModal({
               className={`mode-toggle-card ${mode === "default" ? "active" : ""}`}
               onClick={() => setMode("default")}
             >
-              <div className="mode-toggle-title">跟随 Agent 默认</div>
+              <div className="mode-toggle-title">{t("chat.followAgentDefault")}</div>
               <div className="mode-toggle-desc">
                 {agentDefaultModel ? (
                   <span className="mono">{agentDefaultModel.id}</span>
                 ) : (
-                  <span className="mode-toggle-hint">（Agent 暂未绑定默认模型）</span>
+                  <span className="mode-toggle-hint">{t("chat.noAgentDefault")}</span>
                 )}
               </div>
             </button>
@@ -166,9 +168,9 @@ export default function ModelSelectModal({
               className={`mode-toggle-card ${mode === "custom" ? "active" : ""}`}
               onClick={() => setMode("custom")}
             >
-              <div className="mode-toggle-title">自定义会话模型</div>
+              <div className="mode-toggle-title">{t("chat.customSessionModel")}</div>
               <div className="mode-toggle-desc">
-                仅对当前会话生效，后续可随时切换
+                {t("chat.customSessionModelHint")}
               </div>
             </button>
           </div>
@@ -177,34 +179,37 @@ export default function ModelSelectModal({
         {mode === "custom" && (
           <div className="modal-section custom-model-form">
             <div className="form-row">
-              <label className="label" htmlFor="model-provider-select">供应商</label>
+              <label className="label" htmlFor="model-provider-select">{t("chat.provider")}</label>
               {providers.length > 0 ? (
                 <ChoiceSelect
                   id="model-provider-select"
                   value={selectedProviderId}
                   choices={providers.map((p) => ({
                     value: p.id,
-                    label: `${p.name || p.id}（${API_LABELS[p.api]} 协议）`,
+                    label: t("chat.providerOption", {
+                      name: p.name || p.id,
+                      protocol: API_LABELS[p.api],
+                    }),
                   }))}
                   onChange={handleProviderChange}
                   menuInPortal
                 />
               ) : (
                 <div className="form-warning">
-                  未检测到配置的供应商，请先在右上角「设置」中添加供应商 API Key。
+                  {t("chat.noProviders")}
                 </div>
               )}
             </div>
 
             <div className="form-row">
-              <label className="label" htmlFor="session-model-id">模型</label>
+              <label className="label" htmlFor="session-model-id">{t("chat.model")}</label>
               <ModelPicker
                 id="session-model-id"
                 providers={providers}
                 providerId={selectedProviderId}
                 modelId={modelId}
                 disabled={saving}
-                placeholder="如 gpt-4o、deepseek-chat、anthropic/claude-sonnet-4.5"
+                placeholder={t("chat.modelPlaceholder")}
                 onModelChange={(nextId, model) => {
                   if (nextId !== modelId) setReasoningEffort(null);
                   setModelId(nextId);
@@ -228,13 +233,26 @@ export default function ModelSelectModal({
             {entry && entry.models.length > 0 ? (
               <div className="form-row">
                 <div className="hint">
-                  {`模型列表来自 models.dev：${entry.name} 收录 ${entry.models.length} 个可工具调用的模型（来源 ${catalog ? catalogSourceLabel(catalog) : "目录"}）；目录外的模型直接输入模型 ID 回车即可。`}
+                  {t("chat.catalogHint", {
+                    provider: entry.name,
+                    count: entry.models.length,
+                    source: catalog
+                      ? catalogSourceLabel(catalog)
+                      : t("chat.catalogSourceFallback"),
+                  })}
                 </div>
                 {pickedModel && (
                   <div className="hint mono">
-                    已选 {pickedModel.name} · 上下文 {formatTokens(pickedModel.context)} · 最大输出{" "}
-                    {formatTokens(pickedModel.output)}
-                    {modelOverride ? ` · 协议 ${API_LABELS[modelOverride]}（按模型）` : ""}
+                    {t("chat.selectedModelSummary", {
+                      model: pickedModel.name,
+                      context: formatTokens(pickedModel.context),
+                      output: formatTokens(pickedModel.output),
+                    })}
+                    {modelOverride
+                      ? ` · ${t("chat.selectedModelProtocol", {
+                          protocol: API_LABELS[modelOverride],
+                        })}`
+                      : ""}
                   </div>
                 )}
                 {pinnedConflict && (
@@ -245,7 +263,7 @@ export default function ModelSelectModal({
               providers.length > 0 && (
                 <div className="form-row">
                   <div className="hint">
-                    该供应商不在模型目录里（自定义端点）：直接输入模型 ID 即可。
+                    {t("chat.providerNotInCatalog")}
                   </div>
                 </div>
               )
@@ -257,7 +275,7 @@ export default function ModelSelectModal({
 
         <div className="modal-actions">
           <button type="button" className="btn ghost" onClick={onClose} disabled={saving}>
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -265,7 +283,7 @@ export default function ModelSelectModal({
             onClick={handleSave}
             disabled={saving || (mode === "custom" && (!modelId.trim() || !selectedProviderId))}
           >
-            {saving ? "切换中…" : "确认切换"}
+            {saving ? t("chat.switching") : t("chat.confirmSwitch")}
           </button>
         </div>
       </div>

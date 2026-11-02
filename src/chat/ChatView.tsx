@@ -67,7 +67,7 @@ interface ChatViewProps {
 }
 
 export default function ChatView({
-  title = "新会话",
+  title,
   agent,
   providers,
   sessionId: initialSessionId,
@@ -86,7 +86,8 @@ export default function ChatView({
   renderInspector,
   onInspectDetail,
 }: ChatViewProps) {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
+  const displayTitle = title ?? t("chat.newSessionTitle");
   const isTest = mode === "test";
   const controller = useMemo(
     () => initialController ?? sessions.get(agent, initialSessionId, isTest),
@@ -413,7 +414,7 @@ export default function ChatView({
       <div className="content-pane chat-main">
       <ChatToolbar
         agentName={agent.name}
-        title={title}
+        title={displayTitle}
         running={running}
         temporary={isTest}
         ready={ready}
@@ -440,9 +441,9 @@ export default function ChatView({
               <div className="chat-welcome">
                 {isTest ? (
                   <>
-                    在这里验证 <span className="mono">{agent.name}</span>{" "}
-                    的已保存配置。
-                    测试上下文只保留在本次应用运行期，不会进入会话历史。
+                    {t("chat.testWelcomePrefix")}{" "}
+                    <span className="mono">{agent.name}</span>
+                    {t("chat.testWelcomeSuffix")}
                   </>
                 ) : (
                   <>
@@ -453,14 +454,10 @@ export default function ChatView({
                     />
                     <span className="caption welcome-kicker">{agent.name}</span>
                     <h2>
-                      {locale === "en"
-                        ? "What are we working on?"
-                        : "这次想完成什么？"}
+                      {t("chat.welcomeTitle")}
                     </h2>
                     <p>
-                      {locale === "en"
-                        ? "Share your goal. Your Agent will take it from here."
-                        : "从一个目标开始，让 Agent 帮你向前推进。"}
+                      {t("chat.welcomeBody")}
                     </p>
                   </>
                 )}
@@ -500,9 +497,9 @@ export default function ChatView({
 
           {snapshot.load === "failed" && (
             <div className="chat-load-failed" role="alert">
-              <span>{locale === "en" ? "Session failed to load." : "会话加载失败。"}</span>
+              <span>{t("chat.loadFailed")}</span>
               <button type="button" className="btn" onClick={() => void controller.hydrate()}>
-                {locale === "en" ? "Retry" : "重试"}
+                {t("common.retry")}
               </button>
             </div>
           )}
@@ -546,8 +543,8 @@ export default function ChatView({
       {inspectorOpen && (
           <div
             className="resize-handle inspector-resize"
-            title="拖动调整检查器宽度（←/→ 微调）"
-            aria-label="调整检查器宽度"
+            title={t("inspector.resizeHandleTitle")}
+            aria-label={t("inspector.resizeHandle")}
             {...inspectorResize.handleProps}
           />
         )}
@@ -559,15 +556,15 @@ export default function ChatView({
             aria-hidden={!inspectorOpen || undefined}
             className="inspector agent-settings-inspector"
             id="session-inspector"
-            aria-label="Agent 设置与测试信息"
+            aria-label={t("inspector.agentSettingsAndTest")}
           >
             {narrow && (
               <button
                 type="button"
                 className="icon-btn agent-settings-close"
                 onClick={() => setInspectorOpen(false)}
-                aria-label="关闭 Agent 设置"
-                title="关闭 Agent 设置"
+                aria-label={t("inspector.closeAgentSettings")}
+                title={t("inspector.closeAgentSettings")}
               >
                 <IconClose />
               </button>
@@ -603,7 +600,7 @@ export default function ChatView({
         <button
           type="button"
           className="inspector-backdrop"
-          aria-label="关闭检查器"
+          aria-label={t("inspector.close")}
           onClick={() => setInspectorOpen(false)}
         />
       )}
