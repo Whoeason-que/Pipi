@@ -4,6 +4,7 @@
 //! 只暴露「字符串值 + 选项数组」这一层，调用方不必接触 react-select 的类型。
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
+import { useI18n } from "./i18n";
 
 export interface Choice {
   value: string;
@@ -63,6 +64,7 @@ export function ChoiceSelect({
   className,
   searchable = true,
 }: ChoiceProps & { isClearable?: boolean; menuPlacement?: "auto" | "top" | "bottom" }) {
+  const { t } = useI18n();
   const all = flatten(choices, groups);
   return (
     <Select<Choice, false>
@@ -83,7 +85,7 @@ export function ChoiceSelect({
     onChange={(option) => onChange(option ? option.value : "")}
     menuPortalTarget={menuInPortal && typeof document !== "undefined" ? document.body : undefined}
     styles={menuInPortal ? PORTAL_STYLES : undefined}
-    noOptionsMessage={() => "没有匹配项"}
+    noOptionsMessage={() => t("components.noOptions")}
   />
   );
 }
@@ -100,6 +102,7 @@ export function ChoiceCreatable({
   ariaLabel,
   createLabel,
 }: ChoiceProps & { createLabel?: (input: string) => string }) {
+  const { t } = useI18n();
   return (
     <CreatableSelect<Choice, false>
       inputId={id}
@@ -114,10 +117,10 @@ export function ChoiceCreatable({
       onChange={(option) => onChange(option ? option.value : "")}
       onCreateOption={(input) => onChange(input.trim())}
       isValidNewOption={(input) => input.trim().length > 0}
-      formatCreateLabel={(input) => (createLabel ? createLabel(input) : `使用自定义值 ${input}`)}
+      formatCreateLabel={(input) => (createLabel ? createLabel(input) : t("components.useCustomValue", { input }))}
       menuPortalTarget={menuInPortal && typeof document !== "undefined" ? document.body : undefined}
       styles={menuInPortal ? PORTAL_STYLES : undefined}
-      noOptionsMessage={() => "目录里没有：直接输入模型 ID 回车即可"}
+      noOptionsMessage={() => t("components.noCatalogModelOptions")}
     />
   );
 }

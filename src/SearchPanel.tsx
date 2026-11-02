@@ -4,6 +4,7 @@
 
 import { useMemo } from "react";
 import { SidebarSearch } from "./components/SidebarSearch";
+import { useI18n } from "./i18n";
 import { sessionKey } from "./session-key.ts";
 import type { AgentDefinition, SessionSummaryView } from "./types";
 
@@ -35,6 +36,7 @@ export function SearchPanel({
   onSelectAgent,
   onOpenSession,
 }: SearchPanelProps) {
+  const { t } = useI18n();
   const normalized = query.trim().toLowerCase();
   const { agentHits, sessionHits, totalSessions } = useMemo(() => {
     if (!normalized) {
@@ -75,15 +77,15 @@ export function SearchPanel({
       <SidebarSearch
         value={query}
         onChange={onQueryChange}
-        placeholder="搜索 Agent / 会话…"
-        label="搜索 Agent 与会话"
+        placeholder={t("app.searchPlaceholder")}
+        label={t("app.searchLabel")}
         // 触屏不自动聚焦：不然切到搜索分区就弹软键盘
         autoFocus={window.matchMedia("(hover: hover)").matches}
       />
 
       <div className="search-panel">
         {!normalized ? (
-          <p className="search-tip">按 Agent 名称、描述或会话标题检索；点击结果直接跳转。</p>
+          <p className="search-tip">{t("app.searchTip")}</p>
         ) : (
           <>
             {agentHits.length > 0 && (
@@ -105,13 +107,13 @@ export function SearchPanel({
                   {agent.name}
                   {agent.subagent && <span className="search-item-tag">SUBS</span>}
                 </span>
-                <span className="truncate caption search-item-meta">{agent.description || "（暂无描述）"}</span>
+                <span className="truncate caption search-item-meta">{agent.description || t("app.noDescription")}</span>
               </button>
             ))}
 
             {sessionHits.length > 0 && (
               <div className="caption sb-sec search-group">
-                <span>会话</span>
+                <span>{t("app.sessionsSection")}</span>
                 <span className="spacer" />
                 <span className="caption sb-count">
                   {sessionHits.length}
@@ -128,17 +130,17 @@ export function SearchPanel({
                 onClick={() => onOpenSession(hit.agentName, hit.session.id)}
               >
                 <span className="truncate search-item-name">
-                  {hit.running && <span className="search-item-live" title="正在运行" aria-hidden="true" />}
-                  {hit.session.title || "（无标题）"}
+                  {hit.running && <span className="search-item-live" title={t("common.running")} aria-hidden="true" />}
+                  {hit.session.title || t("workspace.untitled")}
                 </span>
                 <span className="truncate caption search-item-meta">{hit.agentName}</span>
               </button>
             ))}
 
             {truncated > 0 && (
-              <p className="search-tip">另有 {truncated} 条会话结果，输入更多关键字以缩小范围。</p>
+              <p className="search-tip">{t("app.searchMore", { count: truncated })}</p>
             )}
-            {empty && <div className="session pending">没有匹配的 Agent 或会话</div>}
+            {empty && <div className="session pending">{t("app.searchEmpty")}</div>}
           </>
         )}
       </div>

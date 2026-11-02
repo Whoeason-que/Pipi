@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useI18n } from "../i18n";
 import { useDialogFocus } from "./use-dialog-focus";
 import {
   IconClose
@@ -8,7 +9,7 @@ import {
 export default function ConfirmModal({
   title,
   message,
-  confirmLabel = "彻底删除",
+  confirmLabel,
   onConfirm,
   onCancel,
 }: {
@@ -18,6 +19,7 @@ export default function ConfirmModal({
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   useDialogFocus(root, () => { if (!busy) onCancel(); });
@@ -35,7 +37,7 @@ export default function ConfirmModal({
       >
         <div className="modal-header">
           <h2 id="confirm-title">{title}</h2>
-          <button type="button" className="icon-btn close-btn" onClick={onCancel} title="取消" disabled={busy}>
+          <button type="button" className="icon-btn close-btn" onClick={onCancel} title={t("common.cancel")} disabled={busy}>
             <IconClose />
           </button>
         </div>
@@ -44,7 +46,7 @@ export default function ConfirmModal({
         </div>
         <div className="modal-actions">
           <button type="button" className="btn ghost" onClick={onCancel} disabled={busy}>
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -61,7 +63,7 @@ export default function ConfirmModal({
               }
             }}
           >
-            {busy ? "删除中…" : confirmLabel}
+            {busy ? t("components.deleting") : confirmLabel ?? t("components.deletePermanently")}
           </button>
         </div>
       </div>

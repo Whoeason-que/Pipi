@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { formatRuntimeError } from "../chat-runtime";
+import { useI18n } from "../i18n";
 import { invoke } from "../platform";
 import type { SessionRuntime } from "../session-runtime";
 import type { SessionInfoView, SessionSummaryView } from "../types";
@@ -53,6 +54,7 @@ export interface ArchiveActionState {
  * 避免界面继续把已归档/已删除的会话当成可发送目标。
  */
 export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionState {
+  const { t } = useI18n();
   const {
     sessionRuntime,
     safeSetError,
@@ -128,11 +130,10 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
   };
 
   const deleteAgent = async (name: string, archived: boolean) => {
-    const kind = archived ? "已归档 Agent" : "Agent";
+    const kind = t(archived ? "app.archivedAgentKind" : "app.agentKind");
     setConfirmState({
-      title: `彻底删除${kind}「${name}」？`,
-      message:
-        "其目录下的会话、技能、记忆与工作区文件将一并删除，此操作不可恢复。",
+      title: t("app.deleteAgentTitle", { kind, name }),
+      message: t("app.deleteAgentMessage"),
       action: async () => {
         try {
           await invoke("delete_agent", { name, archived });
@@ -180,8 +181,8 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
 
   const deleteSession = async (agentName: string, sessionId: string) => {
     setConfirmState({
-      title: "彻底删除该会话？",
-      message: "其记录文件将被删除，此操作不可恢复。",
+      title: t("app.deleteSessionTitle"),
+      message: t("app.deleteSessionMessage"),
       action: async () => {
         try {
           await invoke("delete_session", { agentName, sessionId });
@@ -225,8 +226,8 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
 
   const deleteArchivedSession = async (agentName: string, sessionId: string) => {
     setConfirmState({
-      title: "彻底删除该归档会话？",
-      message: "其记录文件将被删除，此操作不可恢复。",
+      title: t("app.deleteArchivedSessionTitle"),
+      message: t("app.deleteSessionMessage"),
       action: async () => {
         try {
           await invoke("delete_session", { agentName, sessionId, archived: true });

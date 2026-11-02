@@ -1,4 +1,5 @@
 import { IconClose, IconSearch } from "../icons";
+import { useI18n } from "../i18n";
 
 /**
  * 侧栏顶部的搜索/筛选框。
@@ -11,7 +12,7 @@ export function SidebarSearch({
   onChange,
   placeholder,
   label,
-  clearLabel = "清空搜索",
+  clearLabel,
   autoFocus = false,
 }: {
   value: string;
@@ -21,6 +22,8 @@ export function SidebarSearch({
   clearLabel?: string;
   autoFocus?: boolean;
 }) {
+  const { t } = useI18n();
+  const clear = clearLabel ?? t("components.clearSearch");
   return (
     <div className="sb-filter">
       <div className="search">
@@ -38,8 +41,8 @@ export function SidebarSearch({
           <button
             type="button"
             className="search-clear"
-            title={clearLabel}
-            aria-label={clearLabel}
+            title={clear}
+            aria-label={clear}
             onClick={() => onChange("")}
           >
             <IconClose />

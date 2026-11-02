@@ -759,7 +759,7 @@ function listDemoSessions(agentName: string): Array<Record<string, unknown>> {
     .filter(([, messages]) => messages.length > 0)
     .map(([id, messages]) => ({
       id,
-      title: state.titles.get(id) ?? "未命名会话",
+      title: state.titles.get(id) ?? "Untitled session",
       messageCount: messages.length,
       startedAt: Number(id.split("-")[0]) || 0,
       lastActive: Number(id.split("-")[0]) || 0,
@@ -827,7 +827,7 @@ export function installDevMock(): void {
           );
         case "create_agent": {
           const name = String(args.name ?? "");
-          if (demoAgents.some(agent => agent.name === name)) return Promise.reject(new Error("Agent 名称已存在"));
+          if (demoAgents.some(agent => agent.name === name)) return Promise.reject(new Error("An Agent with this name already exists"));
           const created: AgentDefinition = { ...structuredClone(demoAgent), name,
             description: String(args.description ?? ""), workspace: (args.workspace as string | null) ?? null,
             provider: (args.provider as AgentDefinition["provider"]) ?? null, model: String(args.model ?? ""),
@@ -841,7 +841,7 @@ export function installDevMock(): void {
           const def = args.def as AgentDefinition | undefined;
           const current = def ? testConversationOf(def.name) : undefined;
           if (current?.running) {
-            return Promise.reject(new Error("临时测试仍在运行，请先停止再保存设置"));
+            return Promise.reject(new Error("A temporary test is still running. Stop it before saving settings"));
           }
           if (def) {
             const target = demoAgents.find((agent) => agent.name === def.name);
@@ -886,7 +886,7 @@ export function installDevMock(): void {
           const agentName = String(args.agentName ?? demoAgent.name);
           const current = testConversationOf(agentName);
           if (current?.running) {
-            return Promise.reject(new Error("临时测试仍在运行，请先停止再保存文件"));
+            return Promise.reject(new Error("A temporary test is still running. Stop it before saving files"));
           }
           if (current) demoConversations.delete(sessionKey(agentName, current.sessionId));
           return Promise.resolve(null);
@@ -898,7 +898,7 @@ export function installDevMock(): void {
             return Promise.resolve(
               [...state.archivedSessions.entries()].map(([id, messages]) => ({
                 id,
-                title: state.titles.get(id) ?? "已归档会话",
+                title: state.titles.get(id) ?? "Archived session",
                 messageCount: messages.length,
                 startedAt: Number(id.split("-")[0]) || 0,
                 lastActive: Number(id.split("-")[0]) || 0,
@@ -967,7 +967,7 @@ export function installDevMock(): void {
           if (args.reset) {
             const current = testConversationOf(agentName);
             if (current?.running) {
-              return Promise.reject(new Error("临时测试仍在运行，请先停止再清空或保存设置"));
+              return Promise.reject(new Error("A temporary test is still running. Stop it before clearing or saving settings"));
             }
             if (current) demoConversations.delete(sessionKey(agentName, current.sessionId));
             const conversation = createTestConversation(agentName);
@@ -1076,7 +1076,7 @@ export function installDevMock(): void {
           // 与核心同构：同一条会话不允许并发两轮（别的会话互不影响）
           if (conversation.running) {
             return Promise.reject(
-              new Error(`会话「${conversation.sessionId}」正在运行，请等待完成或先停止`),
+              new Error(`Session "${conversation.sessionId}" is still running. Wait for it to finish or stop it first`),
             );
           }
           startDemoRun(conversation, String(args.prompt ?? ""), Array.isArray(args.images) ? args.images as Array<{ data: string; mimeType: string }> : []);
@@ -1091,7 +1091,7 @@ export function installDevMock(): void {
         }
         case "compact_now":
           // 演示模式没有真实会话可压：返回拒绝的 Promise，让 UI 的错误通路走到
-          return Promise.reject(new Error("演示模式不支持压缩上下文（接上核心后才可用）"));
+          return Promise.reject(new Error("Demo mode does not support context compaction (available with the real core)"));
         case "steer": {
           // 演示桩：把插话作为用户消息回显
           const conversation = conversationOf(
@@ -1163,7 +1163,7 @@ export function installDevMock(): void {
           const name = String(args.name ?? "");
           const current = testConversationOf(name);
           if (current?.running) {
-            return Promise.reject(new Error(`Agent「${name}」的临时测试仍在运行，请先停止再归档`));
+            return Promise.reject(new Error(`Agent "${name}" still has a temporary test running. Stop it before archiving`));
           }
           if (current) demoConversations.delete(sessionKey(name, current.sessionId));
           if (!demoAgentDeleted.has(name)) demoAgentArchived.add(name);
@@ -1183,7 +1183,7 @@ export function installDevMock(): void {
           }
           const current = testConversationOf(name);
           if (current?.running) {
-            return Promise.reject(new Error(`Agent「${name}」的临时测试仍在运行，请先停止再删除`));
+            return Promise.reject(new Error(`Agent "${name}" still has a temporary test running. Stop it before deleting`));
           }
           if (current) demoConversations.delete(sessionKey(name, current.sessionId));
           // 真实后端：删除目录 → Agent 永久消失（不复活，不重新播种）
@@ -1202,7 +1202,7 @@ export function installDevMock(): void {
           const sid = String(args.sessionId ?? "");
           const current = conversationOf(agentName, sid);
           if (current?.running) {
-            return Promise.reject(new Error(`会话「${sid}」正在运行，请先停止再归档`));
+            return Promise.reject(new Error(`Session "${sid}" is still running. Stop it before archiving`));
           }
           const history = state.histories.get(sid);
           if (history !== undefined) {
@@ -1234,7 +1234,7 @@ export function installDevMock(): void {
           const state = stateFor(agentName);
           const current = conversationOf(agentName, sid);
           if (current?.running) {
-            return Promise.reject(new Error(`会话「${sid}」正在运行，请先停止再删除`));
+            return Promise.reject(new Error(`Session "${sid}" is still running. Stop it before deleting`));
           }
           demoConversations.delete(sessionKey(agentName, sid));
           state.histories.delete(sid);
@@ -1252,13 +1252,13 @@ export function installDevMock(): void {
         }
         case "forum_read": {
           const found = demoForumThreads.find((item) => item.thread.id === args.threadId);
-          if (!found) return Promise.reject(new Error("主题不存在"));
+          if (!found) return Promise.reject(new Error("Topic not found"));
           return Promise.resolve({ thread: found.thread, posts: found.posts });
         }
         case "forum_post": {
           const thread = {
             id: `demo-thread-${Date.now().toString(36)}`,
-            title: String(args.title ?? "未命名主题"),
+            title: String(args.title ?? "Untitled topic"),
             author: "human",
             created: Date.now(),
             tags: Array.isArray(args.tags) ? args.tags : [],
@@ -1281,8 +1281,8 @@ export function installDevMock(): void {
         }
         case "forum_reply": {
           const found = demoForumThreads.find((item) => item.thread.id === args.threadId);
-          if (!found) return Promise.reject(new Error("主题不存在"));
-          if (found.thread.status === "closed") return Promise.reject(new Error("主题已关闭"));
+          if (!found) return Promise.reject(new Error("Topic not found"));
+          if (found.thread.status === "closed") return Promise.reject(new Error("Topic is closed"));
           found.posts.push({
             id: `demo-post-${Date.now().toString(36)}`,
             seq: found.posts.length + 1,
@@ -1325,7 +1325,7 @@ export function installDevMock(): void {
         }
         case "install_skill": {
           const source = String(args.source ?? "").trim();
-          if (!source) return Promise.reject(new Error("请填写技能来源"));
+          if (!source) return Promise.reject(new Error("Enter a Skill source"));
           const raw =
             (source.replace(/\.git$/, "").split(/[#?]/)[0].split(/[\\/]/).filter(Boolean).pop() ?? "skill")
               .toLowerCase()
@@ -1379,13 +1379,13 @@ export function installDevMock(): void {
         case "remove_store_skill": {
           const name = String(args.name ?? "");
           const index = demoSkillLibrary.findIndex((skill) => skill.name === name);
-          if (index < 0) return Promise.reject(new Error(`技能「${name}」不在 store 索引中`));
+          if (index < 0) return Promise.reject(new Error(`Skill "${name}" is not in the store index`));
           const declaredBy = [...demoAgentSkillUse.entries()]
             .filter(([, use]) => use.has(name))
             .map(([agent]) => agent);
           if (declaredBy.length > 0) {
             return Promise.reject(
-              new Error(`技能「${name}」仍被这些 Agent 声明启用：${declaredBy.join("、")}；先在技能页禁用后再移除`),
+              new Error(`Skill "${name}" is still enabled by these Agents: ${declaredBy.join(", ")}; disable it on the Skills page before removing`),
             );
           }
           demoSkillLibrary.splice(index, 1);

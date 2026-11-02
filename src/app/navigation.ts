@@ -1,3 +1,4 @@
+import { getTranslation } from "../i18n/core.ts";
 import type { AgentDefinition, SessionSummaryView } from "../types.ts";
 
 export type AgentSection = "agents" | "subagents";
@@ -25,25 +26,30 @@ export type QuickTarget =
   | { kind: "action"; action: "home" | "create" | "skills" | "settings" | "new-session" | "files" | "git" | "workspaces" | "stats" };
 export interface QuickItem { id: string; label: string; detail: string; target: QuickTarget }
 
-export function quickItems(agents: AgentDefinition[], sessions: Record<string, SessionSummaryView[]>, current: string | null): QuickItem[] {
+export type Translate = (path: string, params?: Record<string, string | number>) => string;
+
+/** 默认英文（权威字典）；调用方传入 useI18n 的 t 以跟随当前语言。 */
+const ENGLISH: Translate = (path, params) => getTranslation("en", path, params);
+
+export function quickItems(agents: AgentDefinition[], sessions: Record<string, SessionSummaryView[]>, current: string | null, t: Translate = ENGLISH): QuickItem[] {
   const actions: QuickItem[] = [
-    { id: "home", label: "回到首页", detail: "浏览全部 Agent", target: { kind: "action", action: "home" } },
-    { id: "workspaces", label: "工作区管理", detail: "切换与管理工作区", target: { kind: "action", action: "workspaces" } },
-    { id: "stats", label: "Agent 统计", detail: "跨会话查看用量、成本与工具趋势", target: { kind: "action", action: "stats" } },
-    { id: "create", label: "新建 Agent", detail: "创建一个持久的助手", target: { kind: "action", action: "create" } },
-    { id: "files", label: "打开 File 文件", detail: current || "选择 Agent 工作区", target: { kind: "action", action: "files" } },
-    { id: "git", label: "打开 Git 改动", detail: current || "选择 Agent 工作区", target: { kind: "action", action: "git" } },
-    { id: "skills", label: "打开技能库", detail: "管理能力包", target: { kind: "action", action: "skills" } },
-    { id: "settings", label: "打开设置", detail: "模型供应商与外观", target: { kind: "action", action: "settings" } },
+    { id: "home", label: t("app.quickHome"), detail: t("app.quickHomeDetail"), target: { kind: "action", action: "home" } },
+    { id: "workspaces", label: t("app.quickWorkspaces"), detail: t("app.quickWorkspacesDetail"), target: { kind: "action", action: "workspaces" } },
+    { id: "stats", label: t("stats.title"), detail: t("app.quickStatsDetail"), target: { kind: "action", action: "stats" } },
+    { id: "create", label: t("nav.newAgent"), detail: t("app.quickCreateAgentDetail"), target: { kind: "action", action: "create" } },
+    { id: "files", label: t("app.quickFiles"), detail: current || t("app.quickWorkspaceFallback"), target: { kind: "action", action: "files" } },
+    { id: "git", label: t("app.quickGit"), detail: current || t("app.quickWorkspaceFallback"), target: { kind: "action", action: "git" } },
+    { id: "skills", label: t("app.quickSkills"), detail: t("app.quickSkillsDetail"), target: { kind: "action", action: "skills" } },
+    { id: "settings", label: t("nav.openSettings"), detail: t("app.quickSettingsDetail"), target: { kind: "action", action: "settings" } },
   ];
-  if (current) actions.unshift({ id: "new-session", label: "新建会话", detail: current,
+  if (current) actions.unshift({ id: "new-session", label: t("nav.newSession"), detail: current,
     target: { kind: "action", action: "new-session" } });
   const recent = agents.flatMap(agent => (sessions[agent.name] ?? []).map(session => ({ agent, session })))
     .sort((a, b) => b.session.lastActive - a.session.lastActive);
   return [...actions, ...agents.map(agent => ({ id: `agent:${agent.name}`, label: agent.name,
-    detail: agent.description || "Agent 概览", target: { kind: "agent" as const, agentName: agent.name } })),
+    detail: agent.description || t("app.agentOverview"), target: { kind: "agent" as const, agentName: agent.name } })),
     ...recent.map(({ agent, session }) => ({ id: `session:${JSON.stringify([agent.name, session.id])}`,
-      label: session.title || "未命名会话", detail: agent.name,
+      label: session.title || t("workspace.untitled"), detail: agent.name,
       target: { kind: "chat" as const, agentName: agent.name, sessionId: session.id } }))];
 }
 

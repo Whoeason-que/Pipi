@@ -53,15 +53,23 @@ export default function AppNavigation({
       <div className="rail-sections">
         {(
           [
-            ["workspaces", isWorkspaceFiltered ? `工作区 · ${activeWorkspaceName || "已过滤"}` : "工作区 · 全部", IconHome],
+            [
+              "workspaces",
+              isWorkspaceFiltered
+                ? activeWorkspaceName
+                  ? t("app.workspaceWithName", { name: activeWorkspaceName })
+                  : t("app.workspaceFiltered")
+                : t("app.workspaceAll"),
+              IconHome,
+            ],
             ["agents", t("nav.agents"), IconAgent],
             ["subagents", t("nav.subagents"), IconSubagent],
             ["stats", t("nav.stats"), IconChart],
-            ["files", "File · 文件", IconFolder],
-            ["git", "Git · 改动", IconGit],
+            ["files", t("app.filesNav"), IconFolder],
+            ["git", t("app.gitNav"), IconGit],
             ["search", t("common.search"), IconSearch],
             ["skills", t("nav.skills"), IconSkill],
-            ["forum", "论坛", IconForum],
+            ["forum", t("app.forum"), IconForum],
           ] as const
         ).map(([section, label, Icon]) => (
           <button
@@ -79,7 +87,7 @@ export default function AppNavigation({
             {section === "workspaces" && isWorkspaceFiltered && (
               <span
                 className="rail-filter-badge"
-                aria-label="工作区过滤中"
+                aria-label={t("app.workspaceFiltering")}
               />
             )}
             {(section === "agents" || section === "subagents") &&

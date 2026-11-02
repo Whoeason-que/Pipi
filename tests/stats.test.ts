@@ -32,6 +32,6 @@ test("fillDays pads a fixed range and preserves active days for all history", ()
 
 test("stats is reachable from quick actions", () => {
   const items = quickItems([], {}, null);
-  const stats = filterQuickItems(items, "统计");
+  const stats = filterQuickItems(items, "Stats");
   assert.ok(stats.some((item) => item.id === "stats"));
 });

@@ -5,13 +5,18 @@
  */
 export type SessionRunStatus = "running" | "retrying" | "completed" | "error";
 
-export const SESSION_STATUS_LABEL: Record<SessionRunStatus, string> = {
-  running: "正在运行",
-  retrying: "正在重试",
-  completed: "已完成",
-  error: "出错或已中断",
+/** 状态文案的 i18n 键；翻译在调用方进行（本模块保持无 React 依赖）。 */
+export const SESSION_STATUS_KEY: Record<SessionRunStatus, string> = {
+  running: "common.running",
+  retrying: "app.sessionStatus.retrying",
+  completed: "app.sessionStatus.completed",
+  error: "app.sessionStatus.error",
 };
 
-export function sessionStatusLabel(status: SessionRunStatus, unread: boolean): string {
-  return status === "completed" && unread ? "已完成 · 未读" : SESSION_STATUS_LABEL[status];
+type Translate = (path: string) => string;
+
+export function sessionStatusLabel(status: SessionRunStatus, unread: boolean, t: Translate): string {
+  return status === "completed" && unread
+    ? t("app.sessionStatus.completedUnread")
+    : t(SESSION_STATUS_KEY[status]);
 }

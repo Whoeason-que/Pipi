@@ -66,7 +66,10 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             className="agent-marker"
             aria-expanded={expanded}
             aria-controls={`agent-sessions-${agent.name}`}
-            aria-label={`${expanded ? "收起" : "展开"} ${agent.name} 的会话`}
+            aria-label={t(
+              expanded ? "app.collapseAgentSessions" : "app.expandAgentSessions",
+              { name: agent.name },
+            )}
             onClick={() => toggleAgent(agent.name)}
           >
             <AgentAvatar
@@ -95,29 +98,29 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             <button
               type="button"
               className="icon-btn"
-              aria-label={`为 ${agent.name} 新建会话`}
-              title="新建会话"
+              aria-label={t("app.newSessionFor", { name: agent.name })}
+              title={t("nav.newSession")}
               onClick={() => props.onStartNewSession(agent.name)}
             >
               <IconPlus />
             </button>
             <ActionMenu
-              label={`${agent.name} 的更多操作`}
+              label={t("app.agentMenu", { name: agent.name })}
               actions={[
                 {
-                  label: "Agent 概览",
+                  label: t("app.agentOverview"),
                   run: () => props.onSelectAgent(agent.name),
                 },
                 {
-                  label: "配置与测试",
+                  label: t("workspace.configure"),
                   run: () => props.onConfigure(agent.name),
                 },
                 {
-                  label: "归档 Agent",
+                  label: t("app.archiveAgent"),
                   run: () => props.onArchiveAgent(agent.name),
                 },
                 {
-                  label: "彻底删除 Agent",
+                  label: t("app.deleteAgent"),
                   danger: true,
                   run: () => props.onDeleteAgent(agent.name, false),
                 },
@@ -149,25 +152,25 @@ export default function AgentSidebar(props: AgentSidebarProps) {
                     className="session-link"
                     title={
                       status
-                        ? `${session.title} · ${sessionStatusLabel(status, unread)}`
+                        ? `${session.title} · ${sessionStatusLabel(status, unread, t)}`
                         : session.title
                     }
                     onClick={() => props.onOpenSession(agent.name, session.id)}
                     aria-current={active ? "page" : undefined}
                   >
                     <span className="truncate session-title">
-                      {session.title || "未命名会话"}
+                      {session.title || t("workspace.untitled")}
                     </span>
                   </button>
                   <ActionMenu
-                    label={`会话 ${session.title} 的更多操作`}
+                    label={t("app.sessionMenu", { title: session.title })}
                     actions={[
                       {
-                        label: "归档会话",
+                        label: t("app.archiveSession"),
                         run: () => props.onArchiveSession(agent.name, session.id),
                       },
                       {
-                        label: "彻底删除会话",
+                        label: t("app.deleteSession"),
                         danger: true,
                         run: () => props.onDeleteSession(agent.name, session.id),
                       },
@@ -176,7 +179,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
                 </div>
               );
             })}
-            {!sessions.length && <div className="caption sidebar-note">尚无会话</div>}
+            {!sessions.length && <div className="caption sidebar-note">{t("app.noSessions")}</div>}
             <button
               type="button"
               className="caption archive-toggle"
@@ -191,7 +194,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
                   <IconChevronRight />
                 </span>
               </span>
-              <span className="archive-toggle-label">已归档</span>
+              <span className="archive-toggle-label">{t("app.archived")}</span>
             </button>
             {props.archivedSessionsExpanded[agent.name] &&
               (props.archivedSessions[agent.name] ?? []).map((session) => (
@@ -200,15 +203,15 @@ export default function AgentSidebar(props: AgentSidebarProps) {
                     {session.title}
                   </span>
                   <ActionMenu
-                    label={`归档会话 ${session.title} 的操作`}
+                    label={t("app.archivedSessionMenu", { title: session.title })}
                     actions={[
                       {
-                        label: "恢复会话",
+                        label: t("app.restoreSession"),
                         run: () =>
                           props.onRestoreSession(agent.name, session.id),
                       },
                       {
-                        label: "彻底删除会话",
+                        label: t("app.deleteSession"),
                         danger: true,
                         run: () =>
                           props.onDeleteArchivedSession(agent.name, session.id),
@@ -223,7 +226,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
     );
   };
   return (
-    <nav className="agents agent-sidebar" aria-label={`${group} 与会话`}>
+    <nav className="agents agent-sidebar" aria-label={t("app.groupAndSessions", { group })}>
       <section className="agent-sidebar-group">
         {props.agents.map(renderAgent)}
         {!props.agents.length && (
@@ -245,7 +248,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             onClick={props.onToggleArchivedOpen}
           >
             <IconChevronRight expanded={props.archivedOpen} />
-            已归档的 Agent{" "}
+            {t("nav.archivedAgents")}{" "}
             <span className="archive-toggle-meta">
               {props.archivedAgents.length}
             </span>
@@ -255,14 +258,14 @@ export default function AgentSidebar(props: AgentSidebarProps) {
               <div className="agent-row archived-agent" key={agent.name}>
                 <span className="truncate session-title">{agent.name}</span>
                 <ActionMenu
-                  label={`已归档 Agent ${agent.name} 的操作`}
+                  label={t("app.archivedAgentMenu", { name: agent.name })}
                   actions={[
                     {
-                      label: "恢复 Agent",
+                      label: t("app.restoreAgent"),
                       run: () => props.onRestoreAgent(agent.name),
                     },
                     {
-                      label: "彻底删除 Agent",
+                      label: t("app.deleteAgent"),
                       danger: true,
                       run: () => props.onDeleteAgent(agent.name, true),
                     },

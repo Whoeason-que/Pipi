@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../i18n";
 
 /** 消息与代码复制使用同一套真实结果反馈；失败时提供手动复制指引。 */
 export function useCopyFeedback() {
+  const { t } = useI18n();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mounted = useRef(true);
@@ -20,5 +22,5 @@ export function useCopyFeedback() {
     setState(result); clearTimeout(timer.current);
     timer.current = setTimeout(() => setState("idle"), result === "copied" ? 1800 : 5000);
   };
-  return { state, copy, label: state === "copied" ? "已复制" : state === "failed" ? "复制失败，请选中文本手动复制" : "复制" };
+  return { state, copy, label: state === "copied" ? t("common.copied") : state === "failed" ? t("chat.copyFailed") : t("common.copy") };
 }

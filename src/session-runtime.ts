@@ -54,7 +54,7 @@ export class SessionRuntime {
       if (epoch !== this.connectionEpoch || failed) {
         subscriptions.forEach(unlisten => unlisten());
         if (epoch === this.connectionEpoch) this.connection = null;
-        throw failed?.status === "rejected" ? failed.reason : new Error("事件订阅已结束");
+        throw failed?.status === "rejected" ? failed.reason : new Error("Event subscription ended");
       }
       this.unlisten = subscriptions;
     });

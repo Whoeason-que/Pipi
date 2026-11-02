@@ -109,10 +109,10 @@ export default function App() {
   }, [navigationMemory]);
   const safeSetError = useCallback((message: string | null) => {
     if (message?.includes("需要 PIPI_AUTH_TOKEN") || message?.includes("PIPI_AUTH_TOKEN")) return;
-    if (message?.includes("当前会话仍在运行") || message?.includes("is running")) message = "当前会话正在运行，请先停止或使用插话继续沟通";
-    if (message?.includes("正在运行或有托管后台任务") || message?.includes("background tasks")) message = "会话仍在运行或有后台任务，请先停止再操作";
+    if (message?.includes("当前会话仍在运行") || message?.includes("is running")) message = t("app.sessionRunningError");
+    if (message?.includes("正在运行或有托管后台任务") || message?.includes("background tasks")) message = t("app.backgroundTaskError");
     setError(message);
-  }, []);
+  }, [t]);
   const { agents, archivedAgents, sessionsByAgent, refresh, refreshSessions, refreshArchived,
     removeAgentSessions, sessionsFor } = useSessionList(safeSetError);
   agentsRef.current = agents;
@@ -464,7 +464,7 @@ export default function App() {
       ? workspaceAgents.find(agent => agent.name === current?.name) ?? workspaceAgents[0]
       : workspaceAgents.find(agent => sessionsByAgent[agent.name]?.some(session => session.id === sessionId));
     if (!targetAgent) {
-      throw new Error("当前工作区没有可用的 Agent 或目标会话已不可用，无法写入会话草稿");
+      throw new Error(t("app.noTargetAgent"));
     }
     const targetAgentName = targetAgent.name;
     const draft = sessionRuntime.composerDrafts.get(targetAgentName, sessionId);
@@ -475,7 +475,7 @@ export default function App() {
   };
   const workspaceDisplayName = activeWorkspace === "all" ? null : (workspaces.find(w => w.path === activeWorkspace)?.name || getWorkspaceBasename(activeWorkspace));
   const baseTitle = view.kind === "home" ? t(collection === "subagents" ? "nav.subagents" : "nav.workspace") : view.kind === "settings" ? t("nav.settings") : view.kind === "create" ? t("nav.newAgent")
-    : view.kind === "skills" ? t("nav.skills") : view.kind === "stats" ? t("nav.stats") : view.kind === "forum" ? "论坛" : view.kind === "workspaces" ? "工作区" : current?.name ?? "Pipi";
+    : view.kind === "skills" ? t("nav.skills") : view.kind === "stats" ? t("nav.stats") : view.kind === "forum" ? t("app.forum") : view.kind === "workspaces" ? t("nav.workspace") : current?.name ?? "Pipi";
   const title = workspaceDisplayName && view.kind === "home" ? `${baseTitle} · ${workspaceDisplayName}` : baseTitle;
   const sessionTitle = view.kind === "chat" ? (sessionsByAgent[view.agentName] ?? []).find(session => session.id === view.sessionId)?.title : undefined;
   const overviewProps = { section: collection, agents: visibleAgents, sessions: filteredSessionsByAgent, running: runningSessions, onAgent: selectAgent, onSession: openSession,
@@ -497,7 +497,7 @@ export default function App() {
         running={{ agents: agentsInSection(filteredAgents, "agents").some(agent => agentHasRunning(agent.name)),
           subagents: agentsInSection(filteredAgents, "subagents").some(agent => agentHasRunning(agent.name)) }}
         onOpenSection={openSection} />
-      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "stats" ? t("stats.title") : navSection === "files" || navSection === "git" ? "工作区文件与 Git 改动" : "Agent 与会话列表"}>
+      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "stats" ? t("stats.title") : navSection === "files" || navSection === "git" ? t("app.sidebarFilesGit") : t("app.sidebarAgents")}>
         {/* 带局部过滤/搜索的分区不再叠一个全局快捷搜索按钮；⌘K 仍可用。 */}
         {view.kind === "settings" || navSection === "agents" || navSection === "subagents" ? (
           <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
@@ -541,20 +541,20 @@ export default function App() {
             onRestoreSession={(name, id) => void archive.restoreSession(name, id)} onDeleteArchivedSession={(name, id) => void archive.deleteArchivedSession(name, id)}
             onToggleArchivedOpen={() => setArchivedOpen(open => !open)} />}
       </aside>
-      <div className="resize-handle sidebar-resize" title="拖动调整侧栏宽度" aria-label="调整侧栏宽度" {...sidebarResize.handleProps} />
+      <div className="resize-handle sidebar-resize" title={t("app.resizeSidebar")} aria-label={t("app.resizeSidebarLabel")} {...sidebarResize.handleProps} />
       {/* 窄屏抽屉统一模态：点右侧内容（遮罩）收起，和右侧检查器一致。 */}
-      {sidebarOpen && <button type="button" className="sidebar-backdrop" aria-label="关闭导航" onClick={closeNavigation} />}
+      {sidebarOpen && <button type="button" className="sidebar-backdrop" aria-label={t("app.closeNavigation")} onClick={closeNavigation} />}
       <main className="content-pane main" inert={mobile && sidebarOpen}>
         {(view.kind === "home" || view.kind === "agent" || (!current && (view.kind === "chat" || view.kind === "workbench"))) && <header className="workspace-toolbar">
           <NavigationToggle />
           <span className="toolbar-divider" /><span>{title}</span><span className="spacer" />
-          <button type="button" className="icon-btn" aria-label="打开快捷操作" title="快捷操作 Ctrl/⌘ K" onClick={() => setPaletteOpen(true)}><IconSearch /></button>
+          <button type="button" className="icon-btn" aria-label={t("app.openQuickActions")} title={t("app.quickActionsShortcut")} onClick={() => setPaletteOpen(true)}><IconSearch /></button>
         </header>}
         {error && (
           <div className="error" role="alert">
             <IconAlertTriangle size={15} />
             <span>{error}</span>
-            <button type="button" className="error-dismiss" aria-label="关闭错误提示" onClick={() => setError(null)}>
+            <button type="button" className="error-dismiss" aria-label={t("app.dismissError")} onClick={() => setError(null)}>
               <IconClose />
             </button>
           </div>
@@ -617,7 +617,7 @@ export default function App() {
         </div>}
       </main>
     </div>
-    {paletteOpen && <CommandPalette items={quickItems(filteredAgents, filteredSessionsByAgent, selected)} onChoose={chooseQuick} onClose={closePalette} />}
+    {paletteOpen && <CommandPalette items={quickItems(filteredAgents, filteredSessionsByAgent, selected, t)} onChoose={chooseQuick} onClose={closePalette} />}
     {confirmState && <ConfirmModal title={confirmState.title} message={confirmState.message} onConfirm={confirmState.action} onCancel={() => setConfirmState(null)} />}
     {createWorkspaceOpen && <CreateWorkspaceModal onCreated={handleCreateWorkspace} onCancel={() => setCreateWorkspaceOpen(false)} />}
   </div></ForumProvider></LayoutContext.Provider>;

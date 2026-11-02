@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useI18n } from "../i18n";
 import { IconClose } from "../icons";
 import { useResizableWidth, type ResizableHandleProps } from "../resizable";
 import { readStored, writeStored } from "../storage.ts";
@@ -106,6 +107,7 @@ export function RightRail({
   className = "",
   actions,
 }: RightRailProps) {
+  const { t } = useI18n();
   const [internalTab, setInternalTab] = useState<string>();
   const selectedId = activeTab ?? internalTab ?? tabs[0]?.id;
   const selected = tabs.find((tab) => tab.id === selectedId) ?? tabs[0];
@@ -118,8 +120,8 @@ export function RightRail({
     {controller.open && !controller.narrow && (
       <div
         className="resize-handle right-rail-resize"
-        title="拖动调整右侧面板宽度（←/→ 微调）"
-        aria-label="调整右侧面板宽度"
+        title={t("app.resizeRightRail")}
+        aria-label={t("app.resizeRightRailLabel")}
         {...controller.handleProps}
       />
     )}
@@ -137,12 +139,12 @@ export function RightRail({
           {subtitle && <small>{subtitle}</small>}
         </div>
         <div className="right-rail-actions">{actions}</div>
-        <button type="button" className="icon-btn" title="关闭右侧面板" aria-label="关闭右侧面板" onClick={controller.close}>
+        <button type="button" className="icon-btn" title={t("app.closeRightRail")} aria-label={t("app.closeRightRail")} onClick={controller.close}>
           <IconClose />
         </button>
       </header>
       {tabs.length > 1 && (
-        <div className="right-rail-tabs" role="tablist" aria-label={`${label}内容`}>
+        <div className="right-rail-tabs" role="tablist" aria-label={t("app.rightRailTabs", { label })}>
           {tabs.map((tab) => (
             <button key={tab.id} type="button" role="tab" aria-selected={tab.id === selected?.id}
               className={`caption right-rail-tab${tab.id === selected?.id ? " active" : ""}`}
@@ -155,7 +157,7 @@ export function RightRail({
       <div className="right-rail-body">{body}</div>
     </aside>
     {controller.open && controller.narrow && (
-      <button type="button" className="right-rail-backdrop" aria-label="关闭右侧面板" onClick={controller.close} />
+      <button type="button" className="right-rail-backdrop" aria-label={t("app.closeRightRail")} onClick={controller.close} />
     )}
   </>;
 }

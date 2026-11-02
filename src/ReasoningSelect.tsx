@@ -11,20 +11,20 @@ interface ReasoningSelectProps {
 }
 
 export function ReasoningSelect({ id, value, onChange, disabled }: ReasoningSelectProps) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const en = locale === "en";
   const choices = reasoningChoices(en);
   return (
     <>
       <label className="label" htmlFor={id}>
-        {en ? "Reasoning effort" : "思考程度"}
+        {t("app.reasoningEffort")}
       </label>
       <ChoiceSelect
         id={id}
         value={value ?? "default"}
         choices={choices}
         disabled={disabled}
-        ariaLabel={en ? "Reasoning effort" : "思考程度"}
+        ariaLabel={t("app.reasoningEffort")}
         onChange={(next) => {
           const choice = choices.find((candidate) => candidate.value === next);
           onChange(choice && choice.value !== "default" ? choice.value : null);
@@ -33,9 +33,7 @@ export function ReasoningSelect({ id, value, onChange, disabled }: ReasoningSele
         menuPlacement="auto"
       />
       <span className="hint">
-        {en
-          ? "Higher effort can take longer and use more tokens. Available levels depend on the model and provider; default leaves the choice to the model."
-          : "较高档位可能增加耗时和 token 用量。支持的档位取决于模型和供应商；默认沿用模型自身行为。"}
+        {t("app.reasoningHint")}
       </span>
     </>
   );

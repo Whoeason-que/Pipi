@@ -9,6 +9,7 @@ import {
   type CatalogModel,
 } from "./catalog";
 import { ChoiceCreatable } from "./Select";
+import { useI18n } from "./i18n";
 import { API_LABELS, pinnedProtocolHint, type ProviderConfig } from "./types";
 import { useCatalog } from "./use-catalog";
 
@@ -39,6 +40,7 @@ export function ModelPicker({
   disabled,
   placeholder,
 }: ModelPickerProps) {
+  const { t } = useI18n();
   const provider = providers.find((p) => p.id === providerId);
   const { catalog, loading, error } = useCatalog();
 
@@ -53,14 +55,18 @@ export function ModelPicker({
   const pinnedConflict = pinnedApiConflict(selectedModel, providerApi, apiMode);
 
   const hint = (() => {
-    if (loading) return "正在加载模型目录（models.dev）…";
-    if (error) return `模型目录不可用：${error} —— 直接输入模型 ID，端点以你绑定的供应商为准。`;
-    if (!catalog) return "模型目录不可用（离线或拉取失败）：直接输入模型 ID，端点以你绑定的供应商为准。";
-    if (!providerId) return "先选择供应商；也可以先填模型 ID，稍后再绑定。";
-    if (!entry) return "该供应商不在模型目录里（自定义端点）：直接输入模型 ID。";
+    if (loading) return t("app.catalogLoading");
+    if (error) return t("app.catalogError", { error });
+    if (!catalog) return t("app.catalogOffline");
+    if (!providerId) return t("app.selectProviderFirst");
+    if (!entry) return t("app.providerNotInCatalog");
     const source = catalogSourceLabel(catalog);
-    const note = entry.baseUrlNote ? `（${entry.baseUrlNote}）` : "";
-    return `${entry.name}：目录收录 ${entry.models.length} 个可工具调用的模型 · 来源 ${source}${note}`;
+    const note = entry.baseUrlNote ? ` (${entry.baseUrlNote})` : "";
+    return `${t("app.catalogSummary", {
+      name: entry.name,
+      count: entry.models.length,
+      source,
+    })}${note}`;
   })();
 
   return (
@@ -71,15 +77,15 @@ export function ModelPicker({
         choices={choices}
         // 加载中不禁用：离线/弱网时用户仍要能手填模型 ID（禁用等于把退化路径堵死）
         disabled={disabled}
-        placeholder={loading ? "正在加载模型目录（也可直接输入模型 ID）…" : placeholder ?? "选择或输入模型 ID"}
+        placeholder={loading ? t("app.catalogLoadingPlaceholder") : placeholder ?? t("app.modelPlaceholder")}
         onChange={(next) => onModelChange(next, findCatalogModel(entry, next))}
-        createLabel={(input) => `使用自定义模型 ID：${input}`}
+        createLabel={(input) => t("app.useCustomModelId", { input })}
         menuInPortal
       />
       <span className="hint">{hint}</span>
       {modelOverride && (
         <span className="hint">
-          该模型走 {API_LABELS[modelOverride]} 协议（按模型目录）。
+          {t("app.modelProtocolHint", { api: API_LABELS[modelOverride] })}
         </span>
       )}
       {pinnedConflict && (

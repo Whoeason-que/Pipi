@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "./i18n";
 import { loginWithToken } from "./platform";
 
 interface LoginProps {
@@ -6,6 +7,7 @@ interface LoginProps {
 }
 
 export default function Login({ onSuccess }: LoginProps) {
+  const { t } = useI18n();
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +17,7 @@ export default function Login({ onSuccess }: LoginProps) {
     e.preventDefault();
     const trimmed = token.trim();
     if (!trimmed) {
-      setError("请输入访问 Token");
+      setError(t("login.tokenRequired"));
       return;
     }
     setLoading(true);
@@ -25,10 +27,10 @@ export default function Login({ onSuccess }: LoginProps) {
       if (res.ok) {
         onSuccess();
       } else {
-        setError(res.error || "Token 错误，请核对后重试");
+        setError(res.error || t("login.invalidToken"));
       }
     } catch {
-      setError("登录请求异常，请检查网络连接");
+      setError(t("login.requestFailed"));
     } finally {
       setLoading(false);
     }
@@ -39,13 +41,13 @@ export default function Login({ onSuccess }: LoginProps) {
       <div className="login-card">
         <div className="login-header">
           <h1 className="wordmark-lg">Pipi</h1>
-          <p className="login-desc">该服务已开启访问保护，请输入访问 Token 进入</p>
+          <p className="login-desc">{t("login.description")}</p>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
           <div className="login-field">
             <label className="label" htmlFor="pipi-token-input">
-              访问 Token
+              {t("login.tokenLabel")}
             </label>
             <div className="login-input-wrap">
               <input
@@ -66,8 +68,8 @@ export default function Login({ onSuccess }: LoginProps) {
                 type="button"
                 className="login-toggle-pw"
                 onClick={() => setShowPassword((prev) => !prev)}
-                title={showPassword ? "隐藏" : "显示"}
-                aria-label={showPassword ? "隐藏 Token" : "显示 Token"}
+                title={showPassword ? t("login.hide") : t("login.show")}
+                aria-label={showPassword ? t("login.hideToken") : t("login.showToken")}
                 aria-pressed={showPassword}
               >
                 {showPassword ? "🙈" : "👁️"}
@@ -86,12 +88,12 @@ export default function Login({ onSuccess }: LoginProps) {
             className="btn primary wide"
             disabled={loading || !token.trim()}
           >
-            {loading ? "验证中…" : "进入 Pipi"}
+            {loading ? t("login.verifying") : t("login.submit")}
           </button>
         </form>
 
         <div className="login-hint">
-          <span>提示：服务端由环境变量 <code>PIPI_AUTH_TOKEN</code> 保护</span>
+          <span>{t("login.hintBefore")}<code>PIPI_AUTH_TOKEN</code>{t("login.hintAfter")}</span>
         </div>
       </div>
     </div>

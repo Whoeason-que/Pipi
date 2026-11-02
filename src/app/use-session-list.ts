@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatRuntimeError, isAuthSilentError } from "../chat-runtime";
+import { useI18n } from "../i18n";
 import { invoke } from "../platform";
 import type { AgentDefinition, SessionSummaryView } from "../types";
 
@@ -25,6 +26,7 @@ export interface SessionListState {
 export function useSessionList(
   setError: (message: string | null) => void,
 ): SessionListState {
+  const { locale, t } = useI18n();
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
   const [archivedAgents, setArchivedAgents] = useState<AgentDefinition[]>([]);
   const [sessionsByAgent, setSessionsByAgent] = useState<
@@ -63,8 +65,10 @@ export function useSessionList(
       .filter((result) => result.failed
         && result.requestId === sessionListRequestRef.current.get(result.name))
       .map((result) => result.name);
-    if (failedNames.length) setError(`会话列表加载失败：${failedNames.join("、")}（保留旧数据）`);
-  }, [setError]);
+    if (failedNames.length) setError(t("app.sessionListFailed", {
+      names: failedNames.join(locale === "zh" ? "、" : ", "),
+    }));
+  }, [locale, setError, t]);
 
   const refresh = useCallback(async () => {
     const requestId = ++agentRequestRef.current;
