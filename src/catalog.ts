@@ -9,6 +9,14 @@ export type ProviderGroup = "聚合网关" | "国内" | "国际" | "本地";
 /** 分组顺序即选择器里的顺序（与 core 的 GROUPS 一致）。 */
 export const PROVIDER_GROUPS: ProviderGroup[] = ["聚合网关", "国内", "国际", "本地"];
 
+/** 分组在界面上的英文显示名（内部值来自目录数据，保持中文以匹配 Rust GROUPS）。 */
+export const PROVIDER_GROUP_LABELS: Record<ProviderGroup, string> = {
+  "聚合网关": "Aggregators",
+  "国内": "China",
+  "国际": "Global",
+  "本地": "Local",
+};
+
 export interface CatalogCost {
   input: number;
   output: number;
@@ -207,7 +215,7 @@ export function providerGroups(
 /** 目录来源的一句话描述（状态栏/提示用）。 */
 export function catalogSourceLabel(catalog: ModelCatalog): string {
   if (catalog.source === "cache") {
-    return catalog.stale ? "本地缓存（刷新失败，可能过期）" : "本地缓存";
+    return catalog.stale ? "Local cache (refresh failed, may be stale)" : "Local cache";
   }
   return "models.dev";
 }

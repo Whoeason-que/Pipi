@@ -138,9 +138,9 @@ export async function loginWithToken(token: string): Promise<{ ok: boolean; erro
       ensureWebSocket();
       return { ok: true };
     }
-    return { ok: false, error: data.error || "Token 错误，请核对后重试" };
+    return { ok: false, error: data.error || "Invalid token. Check it and try again." };
   } catch {
-    return { ok: false, error: "连接服务器失败，请检查网络" };
+    return { ok: false, error: "Could not reach the server. Check your network." };
   }
 }
 
@@ -173,7 +173,7 @@ async function webInvoke<T>(
   }
   if (response.status === 401) {
     notifyAuthRequired();
-    const authErr = new Error("需要 PIPI_AUTH_TOKEN");
+    const authErr = new Error("PIPI_AUTH_TOKEN required");
     (authErr as unknown as { isAuthError?: boolean }).isAuthError = true;
     throw authErr;
   }
@@ -340,12 +340,12 @@ function assertSessionArgs(command: string, args?: Record<string, unknown>): voi
   if (!spec) return;
   const agentName = args?.agentName;
   if (typeof agentName !== "string" || agentName.length === 0) {
-    throw new Error(`调用 ${command} 少了 agentName（Agent 级命令必须指明是哪个 Agent）`);
+    throw new Error(`Command ${command} is missing agentName (Agent-level commands must name the Agent)`);
   }
   if (spec.sessionId === "required") {
     const sessionId = args?.sessionId;
     if (typeof sessionId !== "string" || sessionId.length === 0) {
-      throw new Error(`调用 ${command} 少了 sessionId（同一个 Agent 可以有多条会话）`);
+      throw new Error(`Command ${command} is missing sessionId (one Agent can have several sessions)`);
     }
   }
 }

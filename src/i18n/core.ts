@@ -1,21 +1,30 @@
-import { zh, type I18nSchema } from "./zh.ts";
-import { en } from "./en.ts";
+import { zh } from "./zh.ts";
+import { en, type DeepPartial, type I18nSchema } from "./en.ts";
 import { readStored } from "../storage.ts";
 
 export type Locale = "zh" | "en";
 
-export const dictionaries: Record<Locale, I18nSchema> = { zh, en };
+export const dictionaries: Record<Locale, DeepPartial<I18nSchema>> = { en, zh };
 
 export const STORAGE_LOCALE_KEY = "pipi-locale";
 
-/** 检测默认语言（首选 localStorage，其次操作系统/浏览器环境）。 */
+/** 默认语言是 en；只有用户显式选过 zh 才用中文（zh 未覆盖的键回退到 en）。 */
 export function getDefaultLocale(): Locale {
   const saved = readStored(STORAGE_LOCALE_KEY, "");
   if (saved === "zh" || saved === "en") return saved;
-  if (typeof navigator !== "undefined" && typeof navigator.language === "string") {
-    if (navigator.language.toLowerCase().startsWith("zh")) return "zh";
-  }
   return "en";
+}
+
+function lookup(dict: unknown, keys: string[]): unknown {
+  let cur: unknown = dict;
+  for (const key of keys) {
+    if (cur && typeof cur === "object" && key in cur) {
+      cur = (cur as Record<string, unknown>)[key];
+    } else {
+      return undefined;
+    }
+  }
+  return cur;
 }
 
 /**
@@ -31,30 +40,10 @@ export function getTranslation(
   params?: Record<string, string | number>,
 ): string {
   const keys = path.split(".");
-  let cur: unknown = dictionaries[locale] ?? dictionaries.zh;
 
-  for (const key of keys) {
-    if (cur && typeof cur === "object" && key in cur) {
-      cur = (cur as Record<string, unknown>)[key];
-    } else {
-      cur = undefined;
-      break;
-    }
-  }
-
-  // 缺失时回退到中文
-  if (typeof cur !== "string" && locale !== "zh") {
-    let fallback: unknown = dictionaries.zh;
-    for (const key of keys) {
-      if (fallback && typeof fallback === "object" && key in fallback) {
-        fallback = (fallback as Record<string, unknown>)[key];
-      } else {
-        fallback = undefined;
-        break;
-      }
-    }
-    if (typeof fallback === "string") cur = fallback;
-  }
+  // 当前语言缺失时回退到 en（权威字典）
+  let cur = lookup(dictionaries[locale] ?? en, keys);
+  if (typeof cur !== "string") cur = lookup(en, keys);
 
   let result = typeof cur === "string" ? cur : path;
 

@@ -3,18 +3,31 @@ import test from "node:test";
 import { getTranslation, getDefaultLocale, zh, en } from "../src/i18n/core.ts";
 import { classifyChatError } from "../src/chat/chat-errors.ts";
 
-test("i18n dictionaries are complete and match keys", () => {
-  // 确保 en 和 zh 的一级命名空间完全一致
-  const zhKeys = Object.keys(zh);
-  const enKeys = Object.keys(en);
-  assert.deepEqual(enKeys.sort(), zhKeys.sort());
-
-  // 确保每个命名空间下的二级字段完全一致
-  for (const k of zhKeys) {
-    const zhSub = Object.keys((zh as Record<string, Record<string, string>>)[k]);
-    const enSub = Object.keys((en as Record<string, Record<string, string>>)[k]);
-    assert.deepEqual(enSub.sort(), zhSub.sort(), `Mismatch in namespace ${k}`);
+test("en is the authoritative dictionary", () => {
+  // en 必须覆盖全部命名空间；它既是默认语言，也是所有回退的终点
+  for (const [namespace, section] of Object.entries(en)) {
+    assert.equal(typeof section, "object", `Namespace ${namespace} must be an object`);
   }
+});
+
+test("zh only overrides keys that exist in en", () => {
+  const enNs = en as Record<string, Record<string, unknown>>;
+  const zhNs = zh as Record<string, Record<string, unknown>>;
+  for (const namespace of Object.keys(zhNs)) {
+    assert.ok(Object.hasOwn(enNs, namespace), `Unknown namespace in zh: ${namespace}`);
+    for (const key of Object.keys(zhNs[namespace])) {
+      assert.ok(Object.hasOwn(enNs[namespace], key), `Unknown key in zh: ${namespace}.${key}`);
+    }
+  }
+});
+
+test("default locale is en when nothing is stored", () => {
+  assert.equal(getDefaultLocale(), "en");
+});
+
+test("zh falls back to en for untranslated keys", () => {
+  // unknownError 只在 en 里有，zh 未覆盖 → 回退到英文
+  assert.equal(getTranslation("zh", "common.unknownError"), "Unknown error");
 });
 
 test("getTranslation returns correct text in both languages", () => {

@@ -6,7 +6,7 @@ test("errorMessage normalizes Error, string and host-shaped messages", () => {
   assert.equal(errorMessage(new Error("boom")), "boom");
   assert.equal(errorMessage(" plain "), " plain ");
   assert.equal(errorMessage({ message: "host failure" }), "host failure");
-  assert.equal(errorMessage({ message: "  " }), "未知错误");
-  assert.equal(errorMessage({ code: 42 }), "未知错误");
+  assert.equal(errorMessage({ message: "  " }), "Unknown error");
+  assert.equal(errorMessage({ code: 42 }), "Unknown error");
   assert.equal(errorMessage(null, "fallback"), "fallback");
 });

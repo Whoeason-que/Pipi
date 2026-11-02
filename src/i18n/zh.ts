@@ -1,4 +1,10 @@
-export const zh = {
+import type { DeepPartial, I18nSchema } from "./en.ts";
+
+/**
+ * 中文翻译（部分覆盖即可）：缺失的键回退到 en。
+ * 新增文案优先只加 en；补齐 zh 是显式投入，不是必需。
+ */
+export const zh: DeepPartial<I18nSchema> = {
   common: {
     confirm: "确认",
     cancel: "取消",
@@ -258,8 +264,8 @@ export const zh = {
     "rotateConfirm": "重新生成后，已连接的浏览器会断开，旧令牌立即失效。继续生成？",
     "rotated": "令牌已更新，请在浏览器中重新登录。",
     "saved": "远程访问配置已保存",
-    "invalidPort": "端口必须是 1–65535 之间的整数"
-},
+    "invalidPort": "端口必须是 1–65535 之间的整数",
+  },
   errors: {
     abortedTitle: "生成已由用户中止",
     abortedBadge: "已中止",
@@ -288,11 +294,4 @@ export const zh = {
     genericBadge: "运行错误",
     genericSuggestion: "模型调用或执行环节遇到未预期异常，可尝试重新发送或检查模型服务状态。",
   },
-} as const;
-
-export type TranslationSchema<T> = {
-  [K in keyof T]: T[K] extends string ? string : TranslationSchema<T[K]>;
 };
-
-export type I18nSchema = TranslationSchema<typeof zh>;
-

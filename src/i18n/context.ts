@@ -23,9 +23,9 @@ export interface I18nContextValue {
 }
 
 export const I18nContext = createContext<I18nContextValue>({
-  locale: "zh",
+  locale: "en",
   setLocale: () => {},
-  t: (path, params) => getTranslation("zh", path, params),
+  t: (path, params) => getTranslation("en", path, params),
 });
 
 export function I18nProvider({ children }: { children: ReactNode }) {

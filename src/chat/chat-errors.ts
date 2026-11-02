@@ -1,7 +1,5 @@
 /** 后端提供类别；旧会话只使用保守的文案兜底，原始错误始终保留。 */
-import { getDefaultLocale, type Locale } from "../i18n/core.ts";
-import { zh } from "../i18n/zh.ts";
-import { en } from "../i18n/en.ts";
+import { getDefaultLocale, getTranslation, type Locale } from "../i18n/core.ts";
 import { hasVisibleText, type AssistantErrorKind } from "../chat-runtime.ts";
 
 export type ChatErrorCategory = "aborted" | "auth" | "rate_limit" | "quota" | "context_overflow"
@@ -37,8 +35,8 @@ export function classifyChatError(input: {
   if (!raw && input.text?.trim().startsWith("⚠ ")) raw = input.text.trim().slice(2).trim();
   if (!raw) raw = aborted ? (locale === "en" ? "Aborted" : "已中止")
     : (locale === "en" ? "Agent returned an unknown error" : "Agent 返回未知错误");
-  const dict = locale === "en" ? en.errors : zh.errors;
-  if (aborted) return { category: "aborted", title: dict.abortedTitle, badge: dict.abortedBadge, rawError: raw };
+  const text = (key: string) => getTranslation(locale, `errors.${key}`);
+  if (aborted) return { category: "aborted", title: text("abortedTitle"), badge: text("abortedBadge"), rawError: raw };
   const categories: Record<AssistantErrorKind, ChatErrorCategory> = {
     auth: "auth", rateLimit: "rate_limit", quota: "quota", contextOverflow: "context_overflow",
     network: "network", protocol: "protocol", generic: "generic",
@@ -46,14 +44,14 @@ export function classifyChatError(input: {
   const category = input.errorKind && Object.hasOwn(categories, input.errorKind)
     ? categories[input.errorKind] : legacyCategory(raw);
   const presentation = {
-    auth: [dict.authTitle, dict.authBadge, dict.authSuggestion],
-    rate_limit: [dict.rateLimitTitle, dict.rateLimitBadge, dict.rateLimitSuggestion],
-    quota: [dict.quotaTitle, dict.quotaBadge, dict.quotaSuggestion],
-    context_overflow: [dict.contextTitle, dict.contextBadge, dict.contextSuggestion],
-    network: [dict.networkTitle, dict.networkBadge, dict.networkSuggestion],
-    protocol: [dict.protocolTitle, dict.protocolBadge, dict.protocolSuggestion],
-    permission: [dict.permissionTitle, dict.permissionBadge, dict.permissionSuggestion],
-    generic: [dict.genericTitle, dict.genericBadge, dict.genericSuggestion],
+    auth: [text("authTitle"), text("authBadge"), text("authSuggestion")],
+    rate_limit: [text("rateLimitTitle"), text("rateLimitBadge"), text("rateLimitSuggestion")],
+    quota: [text("quotaTitle"), text("quotaBadge"), text("quotaSuggestion")],
+    context_overflow: [text("contextTitle"), text("contextBadge"), text("contextSuggestion")],
+    network: [text("networkTitle"), text("networkBadge"), text("networkSuggestion")],
+    protocol: [text("protocolTitle"), text("protocolBadge"), text("protocolSuggestion")],
+    permission: [text("permissionTitle"), text("permissionBadge"), text("permissionSuggestion")],
+    generic: [text("genericTitle"), text("genericBadge"), text("genericSuggestion")],
   };
   const [title, badge, suggestion] = presentation[category as Exclude<ChatErrorCategory, "aborted">];
   return { category, title, badge, suggestion, rawError: raw };

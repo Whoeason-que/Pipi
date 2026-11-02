@@ -1,0 +1,15 @@
+export const login = {
+  description: "This service is protected. Enter an access token to continue",
+  tokenLabel: "Access token",
+  tokenRequired: "Enter an access token",
+  invalidToken: "Invalid token. Check it and try again",
+  requestFailed: "Sign-in request failed. Check your network connection",
+  show: "Show",
+  hide: "Hide",
+  showToken: "Show token",
+  hideToken: "Hide token",
+  verifying: "Verifying…",
+  submit: "Enter Pipi",
+  hintBefore: "Note: the server is protected by the ",
+  hintAfter: " environment variable",
+};

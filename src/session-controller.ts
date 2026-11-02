@@ -140,7 +140,7 @@ export class SessionController {
     this.patch({ error: { revision: ++this.revision, message: formatRuntimeError(error) } });
   }
   requireSessionId(): string {
-    if (!this.identity) throw new Error("尚未确定会话身份，请稍后重试");
+    if (!this.identity) throw new Error("Session identity is not ready yet. Try again in a moment.");
     return this.identity.sessionId;
   }
 
@@ -264,7 +264,7 @@ export class SessionController {
         if (!identityValid) {
           this.pending = [];
           this.patch({ load: "failed" });
-          this.fail("无法确认当前会话身份，请返回后重试");
+          this.fail("Could not confirm the current session identity. Go back and try again.");
           return;
         }
         snapshotCoverage = { messages: snapshot.messages, info };
@@ -381,7 +381,7 @@ export class SessionController {
         }
       } catch { /* 查询失败不代表原请求失败；继续保留消息和停止入口。 */ }
       if (!this.uncertainSend) return true;
-      this.fail("连接中断，暂时无法确认发送结果。消息已保留，不会自动重发；恢复连接后会同步，也可点击停止。");
+      this.fail("The connection dropped before delivery was confirmed. Your message is preserved and will not be resent automatically; it will sync when the connection recovers, or you can click Stop.");
       return false;
     } finally { this.sending = false; }
   }
@@ -433,7 +433,7 @@ export class SessionController {
           this.patch({ operation: "idle" });
           return;
         }
-        if (attempt === 50) throw new Error("停止请求已发送，但后端仍在运行；请稍后重试");
+        if (attempt === 50) throw new Error("The stop request was sent but the backend is still running. Try again in a moment.");
         await this.delay(100);
       }
     } catch (error) {

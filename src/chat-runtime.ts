@@ -254,8 +254,8 @@ export function messageText(message: MessageView): string {
   }
   if (text) return text;
   if (message.errorMessage) return `⚠ ${message.errorMessage}`;
-  if (message.stopReason === "aborted") return "■ 已中止";
-  if (message.stopReason === "error") return "⚠ Agent 返回错误";
+  if (message.stopReason === "aborted") return "■ Aborted";
+  if (message.stopReason === "error") return "⚠ Agent returned an error";
   return "";
 }
 
@@ -328,7 +328,7 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
       key,
       role: "assistant",
       kind: "compaction",
-      text: "♻ 已压缩上下文",
+      text: "♻ Compacted context",
       summary,
       timestamp: message.timestamp,
       transient,
@@ -350,14 +350,14 @@ export function entryFromMessage(message: MessageView, key: string, transient = 
   return { ...messageFields(message), key, transient };
 }
 
-/** 重试退避时长的可读显示（850 毫秒 / 2 秒 / 1 分 5 秒）。 */
+/** 重试退避时长的可读显示（850 ms / 2 s / 1 min 5 s）。 */
 export function formatRetryDelay(delayMs: number): string {
-  if (delayMs < 1000) return `${Math.round(delayMs)} 毫秒`;
+  if (delayMs < 1000) return `${Math.round(delayMs)} ms`;
   const seconds = delayMs / 1000;
-  if (seconds < 60) return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} 秒`;
+  if (seconds < 60) return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} s`;
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds % 60);
-  return rest > 0 ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`;
+  return rest > 0 ? `${minutes} min ${rest} s` : `${minutes} min`;
 }
 
 /** token 数量的紧凑显示（1.2M / 34.5k / 812）。 */
@@ -385,7 +385,7 @@ export function assistantFooter(message: MessageView): string | null {
   }
   const promptTotal = promptTokens(message.usage);
   if (promptTotal > 0 && message.usage.cacheRead > 0) {
-    parts.push(`缓存命中 ${((message.usage.cacheRead / promptTotal) * 100).toFixed(0)}%`);
+    parts.push(`Cache hit ${((message.usage.cacheRead / promptTotal) * 100).toFixed(0)}%`);
   }
   parts.push(`${message.usage.output} tok`);
   return parts.length ? parts.join(" · ") : null;
@@ -404,7 +404,7 @@ export function isAuthSilentError(error: unknown): boolean {
   if (error && typeof error === "object" && (error as { isAuthError?: boolean }).isAuthError) {
     return true;
   }
-  return formatRuntimeError(error) === "需要 PIPI_AUTH_TOKEN";
+  return formatRuntimeError(error) === "PIPI_AUTH_TOKEN required";
 }
 
 function sameImages(left: UserImage[] = [], right: UserImage[] = []): boolean {
@@ -644,7 +644,7 @@ function finishRunningEntries(entries: ChatEntry[]): ChatEntry[] {
     if (entry.role === "assistant" && entry.streaming) {
       return [{
         ...entry,
-        text: entry.text ? `${entry.text}\n■ 已中止` : "■ 已中止",
+        text: entry.text ? `${entry.text}\n■ Aborted` : "■ Aborted",
         isError: true,
         status: entry.status ?? "aborted",
         streaming: false,
@@ -654,7 +654,7 @@ function finishRunningEntries(entries: ChatEntry[]): ChatEntry[] {
     if (entry.toolRunning) {
       return [{
         ...entry,
-        text: `✕ ${entry.toolName ?? "工具"} 已中止`,
+        text: `✕ ${entry.toolName ?? "Tool"} aborted`,
         isError: true,
         status: "aborted",
         toolRunning: false,
@@ -716,7 +716,7 @@ function applyCompletedMessage(state: ChatState, message: MessageView, key: stri
 function finishCompaction(entries: ChatEntry[], key: string | null, message?: string): ChatEntry[] {
   if (!key) return entries;
   return entries.map(entry => entry.key === key && entry.kind === "compaction"
-    ? { ...entry, text: message ? "压缩上下文失败" : "压缩未完成", errorMessage: message, status: "error" as const, transient: false }
+    ? { ...entry, text: message ? "Context compaction failed" : "Compaction incomplete", errorMessage: message, status: "error" as const, transient: false }
     : entry);
 }
 
@@ -853,7 +853,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           const nextEntry: ChatEntry = {
             key,
             role: "toolResult",
-            text: `⚙ ${event.toolName} 运行中…`,
+            text: `⚙ ${event.toolName} running…`,
             toolName: event.toolName,
             toolCallId: event.toolCallId,
             toolArgs: event.args ?? existing?.toolArgs,
@@ -899,7 +899,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             key,
             role: "toolResult",
             text: event.isError
-              ? `✕ ${toolOutputText(event.result, "工具执行失败")}`
+              ? `✕ ${toolOutputText(event.result, "Tool execution failed")}`
               : `⚙ ${event.toolName}`,
             toolName: event.toolName,
             toolCallId: event.toolCallId,
@@ -932,7 +932,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 role: "assistant",
                 kind: "retry",
                 transient: true,
-                text: `↻ ${formatRetryDelay(event.delayMs)}后重试（${event.attempt}/${retries}）· ${event.cause}`,
+                text: `↻ Retrying in ${formatRetryDelay(event.delayMs)} (${event.attempt}/${retries}) · ${event.cause}`,
                 timestamp: Date.now(),
               },
             ],
@@ -951,7 +951,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 key: action.key,
                 role: "assistant",
                 kind: "compaction",
-                text: "♻ 正在压缩上下文…",
+                text: "♻ Compacting context…",
                 timestamp: Date.now(),
                 transient: true,
               },
@@ -964,7 +964,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           return {
             ...state,
             entries: key ? finishCompaction(state.entries, key, event.message)
-              : [...state.entries, { key: action.key, role: "assistant", kind: "compaction", text: "压缩上下文失败", status: "error", errorMessage: event.message, timestamp: Date.now() }],
+              : [...state.entries, { key: action.key, role: "assistant", kind: "compaction", text: "Context compaction failed", status: "error", errorMessage: event.message, timestamp: Date.now() }],
             activeCompactionKey: null,
           };
         }
@@ -974,9 +974,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           // 把策略与前后 token 摆出来，用户能判断要不要继续。
           const saved =
             event.tokensBefore != null && event.tokensAfter != null
-              ? `：${formatTokens(event.tokensBefore)} → ${formatTokens(event.tokensAfter)} tok`
+              ? `: ${formatTokens(event.tokensBefore)} → ${formatTokens(event.tokensAfter)} tok`
                 + (event.tokensBefore > 0
-                  ? `（估算保留约 ${Math.round(event.tokensAfter / event.tokensBefore * 100)}%）`
+                  ? ` (about ${Math.round(event.tokensAfter / event.tokensBefore * 100)}% retained)`
                   : "")
               : "";
           const nextEntry: ChatEntry = {
@@ -985,8 +985,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             kind: "compaction",
             text:
               event.replaced > 0
-                ? `♻ 已压缩上下文：${event.replaced} 条旧消息已并入摘要${saved}`
-                : `♻ 已压缩上下文${saved}`,
+                ? `♻ Compacted context: ${event.replaced} older messages merged into the summary${saved}`
+                : `♻ Compacted context${saved}`,
             summary: event.summary,
             timestamp: Date.now(),
           };

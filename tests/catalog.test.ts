@@ -217,6 +217,6 @@ test("目录不可用时的兜底：常用清单非空且 label 带 id", () => {
 test("来源文案区分「本次刷新」与「本地缓存/过期」", () => {
   const catalog = catalogFixture();
   assert.equal(catalogSourceLabel(catalog), "models.dev");
-  assert.equal(catalogSourceLabel({ ...catalog, source: "cache" }), "本地缓存");
-  assert.equal(catalogSourceLabel({ ...catalog, source: "cache", stale: true }), "本地缓存（刷新失败，可能过期）");
+  assert.equal(catalogSourceLabel({ ...catalog, source: "cache" }), "Local cache");
+  assert.equal(catalogSourceLabel({ ...catalog, source: "cache", stale: true }), "Local cache (refresh failed, may be stale)");
 });

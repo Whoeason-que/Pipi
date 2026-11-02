@@ -420,7 +420,7 @@ test("runtime errors are normalized without stringifying objects", () => {
   assert.equal(formatRuntimeError(new Error("failed")), "failed");
   assert.equal(formatRuntimeError({ message: "rejected" }), "rejected");
   assert.equal(formatRuntimeError("plain"), "plain");
-  assert.equal(formatRuntimeError(null), "未知错误");
+  assert.equal(formatRuntimeError(null), "Unknown error");
 });
 
 test("thinking content is extracted and updated during streaming", () => {
@@ -494,13 +494,13 @@ test("compaction events produce a single system entry with collapsible summary",
   const pendingKey = state.activeCompactionKey;
   assert.ok(pendingKey);
   assert.equal(state.entries.at(-1)?.kind, "compaction");
-  assert.equal(state.entries.at(-1)?.text, "♻ 正在压缩上下文…");
+  assert.equal(state.entries.at(-1)?.text, "♻ Compacting context…");
 
   state = event(state, { type: "compaction_end", summary: "## 摘要\n- 修好了 bug", replaced: 12 });
   assert.equal(state.activeCompactionKey, null);
   // 进行中条目被原位替换，而不是追加第二条
   assert.equal(state.entries.filter((entry) => entry.kind === "compaction").length, 1);
-  assert.equal(state.entries.at(-1)?.text, "♻ 已压缩上下文：12 条旧消息已并入摘要");
+  assert.equal(state.entries.at(-1)?.text, "♻ Compacted context: 12 older messages merged into the summary");
   assert.equal(state.entries.at(-1)?.summary, "## 摘要\n- 修好了 bug");
 
   // agent_end 清理压缩态
@@ -768,7 +768,7 @@ test("compaction failures and interrupted runs clear the pending state", () => {
 
   let interrupted = event(INITIAL_CHAT_STATE, { type: "compaction_start" });
   interrupted = event(interrupted, { type: "agent_end" });
-  assert.equal(interrupted.entries.at(-1)?.text, "压缩未完成");
+  assert.equal(interrupted.entries.at(-1)?.text, "Compaction incomplete");
   assert.equal(interrupted.entries.at(-1)?.transient, false);
   assert.equal(interrupted.activeCompactionKey, null);
 });
