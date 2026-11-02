@@ -30,9 +30,9 @@ export function makeReference(file: WorkspaceFile, lines: [number, number] | nul
     const source = file.content.split("\n");
     const start = Math.max(1, Math.min(...lines));
     const end = Math.min(source.length, Math.max(...lines));
-    if (end < start) throw new Error("请选择有效的行范围");
+    if (end < start) throw new Error("Select a valid line range");
     const excerpt = source.slice(start - 1, end).join("\n");
-    if (excerpt.length > 16_000) throw new Error("选区过大，请缩小到 16000 字符以内");
+    if (excerpt.length > 16_000) throw new Error("Selection is too large. Narrow it to 16,000 characters or fewer");
     Object.assign(reference, { startLine: start, endLine: end, excerpt });
   }
   return reference;
@@ -42,7 +42,7 @@ export function makeReference(file: WorkspaceFile, lines: [number, number] | nul
 export function formatReference(reference: FileReference): string {
   const locator = reference.startLine === undefined ? "" : ` · L${reference.startLine}–${reference.endLine}`;
   const identity = JSON.stringify({ workspace: reference.workspace, path: reference.path, sha256: reference.version || null });
-  return `文件引用${locator}\n${identity}${reference.excerpt === undefined ? "" : `\n${codeFence(reference.excerpt)}`}${reference.comment ? `\n意见：${reference.comment}` : ""}`;
+  return `File reference${locator}\n${identity}${reference.excerpt === undefined ? "" : `\n${codeFence(reference.excerpt)}`}${reference.comment ? `\nComment: ${reference.comment}` : ""}`;
 }
 
 export function parentPath(path: string): string { return path.split("/").slice(0, -1).join("/"); }

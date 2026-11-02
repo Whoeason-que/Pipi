@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useState } from "react";
+import { useI18n } from "../i18n";
 import { IconArrowDown, IconArrowUp } from "../icons";
 import { parsePatch, type DiffRow } from "./diff";
 
@@ -14,11 +15,12 @@ const SIGN: Record<DiffRow["kind"], string> = {
 /** 统一 diff 表格：VS Code 风格双行号、hunk 分节与跳转导航、增删高亮。 */
 export const DiffView = memo(function DiffView({
   patch,
-  emptyText = "此文件没有文本差异。",
+  emptyText,
 }: {
   patch: string;
   emptyText?: string;
 }) {
+  const { t } = useI18n();
   const parsed = useMemo(() => parsePatch(patch), [patch]);
   const [activeHunk, setActiveHunk] = useState(0);
   const [wrap, setWrap] = useState(false);
@@ -41,7 +43,7 @@ export const DiffView = memo(function DiffView({
     element?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  if (!parsed.rows.length) return <p className="file-notice">{emptyText}</p>;
+  if (!parsed.rows.length) return <p className="file-notice">{emptyText ?? t("files.noTextDiff")}</p>;
 
   let hunkCounter = 0;
 
@@ -50,9 +52,9 @@ export const DiffView = memo(function DiffView({
       <div className="diff-summary">
         <span className="diff-stat added">+{parsed.added}</span>
         <span className="diff-stat removed">−{parsed.removed}</span>
-        <span className="diff-stat muted">{parsed.hunks} 个差异块</span>
-        <div className="diff-hunk-nav" role="group" aria-label="差异视图工具">
-          <button type="button" className="diff-wrap-toggle" aria-pressed={wrap} onClick={() => setWrap(value => !value)} title="切换自动换行">自动换行</button>
+        <span className="diff-stat muted">{t("files.hunkCount", { count: parsed.hunks })}</span>
+        <div className="diff-hunk-nav" role="group" aria-label={t("files.diffTools")}>
+          <button type="button" className="diff-wrap-toggle" aria-pressed={wrap} onClick={() => setWrap(value => !value)} title={t("files.toggleWrap")}>{t("files.wordWrap")}</button>
           {hunkIndices.length > 1 && <>
             <span className="diff-hunk-pos">
               {currentHunk + 1} / {hunkIndices.length}
@@ -60,8 +62,8 @@ export const DiffView = memo(function DiffView({
             <button
               type="button"
               className="icon-btn small"
-              title="上一处更改"
-              aria-label="上一处更改"
+              title={t("files.previousChange")}
+              aria-label={t("files.previousChange")}
               disabled={currentHunk <= 0}
               onClick={() => jumpToHunk(currentHunk - 1)}
             >
@@ -70,8 +72,8 @@ export const DiffView = memo(function DiffView({
             <button
               type="button"
               className="icon-btn small"
-              title="下一处更改"
-              aria-label="下一处更改"
+              title={t("files.nextChange")}
+              aria-label={t("files.nextChange")}
               disabled={currentHunk >= hunkIndices.length - 1}
               onClick={() => jumpToHunk(currentHunk + 1)}
             >
@@ -81,7 +83,7 @@ export const DiffView = memo(function DiffView({
         </div>
       </div>
       <div className="diff-lines">
-        <div className="diff-table" role="table" aria-label="文本差异">
+        <div className="diff-table" role="table" aria-label={t("files.textDiff")}>
           {parsed.rows.map((row, index) => {
             if (row.kind === "hunk") {
               const hIdx = hunkCounter++;

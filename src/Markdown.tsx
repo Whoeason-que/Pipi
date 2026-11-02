@@ -14,6 +14,7 @@ import rehypeHighlight from "rehype-highlight";
 import { useCopyFeedback } from "./components/use-copy";
 import { MarkdownImage, type ImageAgent } from "./files/MarkdownImage";
 import { markdownImagePath } from "./files/model";
+import { useI18n } from "./i18n";
 
 /**
  * 流式安全：生成中的消息常以未闭合的 ``` 代码块结尾，
@@ -44,8 +45,10 @@ type PreProps = ClassAttributes<HTMLPreElement> & HTMLAttributes<HTMLPreElement>
  */
 function CodeBlockPre({ children }: PreProps) {
   const preRef = useRef<HTMLPreElement>(null);
-  const { copy, label } = useCopyFeedback();
+  const { copy, state } = useCopyFeedback();
+  const { t } = useI18n();
   const lang = extractLang(children);
+  const copyLabel = state === "copied" ? t("common.copied") : state === "failed" ? t("chat.copyFailed") : t("common.copy");
 
   const handleCopy = () => {
     const text = preRef.current?.innerText ?? "";
@@ -57,7 +60,7 @@ function CodeBlockPre({ children }: PreProps) {
       <div className="codeblock-head">
         <span className="codeblock-lang">{lang ?? "text"}</span>
         <button type="button" className="codeblock-copy" onClick={handleCopy}>
-          {label}
+          {copyLabel}
         </button>
       </div>
       <pre ref={preRef}>{children}</pre>

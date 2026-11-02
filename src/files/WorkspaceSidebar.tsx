@@ -15,6 +15,7 @@ import {
   IconTree,
 } from "../icons";
 import { SidebarSearch } from "../components/SidebarSearch";
+import { useI18n } from "../i18n";
 import { invoke } from "../platform";
 import { gitStatusMeta, summarizeChanges } from "./diff";
 import { FileGlyph, FolderGlyph } from "./FileGlyph";
@@ -32,6 +33,7 @@ export function WorkspaceSidebar({
   onSelectWorkspace?: (path: string) => void;
 }) {
   const { closeNavigation } = useContext(LayoutContext);
+  const { t } = useI18n();
   const [path, setPath] = useState("");
   const [gitViewMode, setGitViewMode] = useState<"list" | "tree">("list");
   const [selectedRepo, setSelectedRepo] = useState<string>("all");
@@ -64,13 +66,13 @@ export function WorkspaceSidebar({
   const groups = [
     {
       id: "staged",
-      name: "已暂存的更改",
+      name: t("files.stagedChanges"),
       tone: "staged" as const,
       files: changeFiles.filter((file) => gitStatusMeta(file.status).staged),
     },
     {
       id: "unstaged",
-      name: "更改",
+      name: t("files.changes"),
       tone: "unstaged" as const,
       files: changeFiles.filter((file) => {
         const meta = gitStatusMeta(file.status);
@@ -79,7 +81,7 @@ export function WorkspaceSidebar({
     },
     {
       id: "untracked",
-      name: "未跟踪的文件",
+      name: t("files.untrackedFiles"),
       tone: "untracked" as const,
       files: changeFiles.filter(
         (file) => gitStatusMeta(file.status).tone === "untracked"
@@ -128,9 +130,9 @@ export function WorkspaceSidebar({
         <SidebarSearch
           value={view.query}
           onChange={(value) => store?.setQuery(value)}
-          placeholder={mode === "files" ? "筛选已展开的文件…" : "筛选更改…"}
-          label="筛选文件名"
-          clearLabel="清空筛选"
+          placeholder={mode === "files" ? t("files.filterFiles") : t("files.filterChanges")}
+          label={t("files.filterFileName")}
+          clearLabel={t("files.clearFilter")}
         />
       )}
 
@@ -140,11 +142,11 @@ export function WorkspaceSidebar({
           {workspaces.length > 0 ? (
             <ChoiceSelect
               className="workspace-header-select"
-              ariaLabel="切换工作区"
+              ariaLabel={t("files.switchWorkspace")}
               value={currentWorkspacePath}
               choices={workspaces.map(w => ({ value: w.path, label: w.name || getWorkspaceBasename(w.path) }))}
               onChange={value => onSelectWorkspace?.(value)}
-              placeholder="选择工作区"
+              placeholder={t("files.selectWorkspace")}
               searchable={false}
               menuInPortal
               menuPlacement="auto"
@@ -159,8 +161,8 @@ export function WorkspaceSidebar({
               <button
                 type="button"
                 className={`icon-btn small${gitViewMode === "tree" ? " active" : ""}`}
-                title="切换到树状视图 (View as Tree)"
-                aria-label="树状视图"
+                title={t("files.viewAsTree")}
+                aria-label={t("files.treeView")}
                 aria-pressed={gitViewMode === "tree"}
                 onClick={() => setGitViewMode("tree")}
               >
@@ -169,8 +171,8 @@ export function WorkspaceSidebar({
               <button
                 type="button"
                 className={`icon-btn small${gitViewMode === "list" ? " active" : ""}`}
-                title="切换到列表视图 (View as List)"
-                aria-label="列表视图"
+                title={t("files.viewAsList")}
+                aria-label={t("files.listView")}
                 aria-pressed={gitViewMode === "list"}
                 onClick={() => setGitViewMode("list")}
               >
@@ -179,8 +181,8 @@ export function WorkspaceSidebar({
               <button
                 type="button"
                 className="icon-btn small"
-                title="全部折叠 (Collapse All)"
-                aria-label="全部折叠"
+                title={t("files.collapseAll")}
+                aria-label={t("files.collapseAll")}
                 onClick={handleCollapseAll}
               >
                 <IconCollapseAll />
@@ -191,8 +193,8 @@ export function WorkspaceSidebar({
             <button
               type="button"
               className={`icon-btn small${view.showHidden ? " active" : ""}`}
-              title="显示隐藏文件"
-              aria-label="显示隐藏文件"
+              title={t("files.showHiddenFiles")}
+              aria-label={t("files.showHiddenFiles")}
               aria-pressed={view.showHidden}
               onClick={() => store?.setHidden(!view.showHidden)}
             >
@@ -202,8 +204,8 @@ export function WorkspaceSidebar({
           <button
             type="button"
             className="icon-btn small"
-            title="刷新 (Refresh)"
-            aria-label="刷新"
+            title={t("common.refresh")}
+            aria-label={t("common.refresh")}
             onClick={state.refresh}
             disabled={!target}
           >
@@ -215,8 +217,8 @@ export function WorkspaceSidebar({
       {!target ? (
         <div className="empty-state workspace-sidebar-empty">
           <IconFolder />
-          <p>暂无可预览的工作区</p>
-          <small>请先在工作区列表创建或关联工作区。</small>
+          <p>{t("files.noWorkspace")}</p>
+          <small>{t("files.noWorkspaceHintSidebar")}</small>
         </div>
       ) : (
         <>
@@ -224,13 +226,13 @@ export function WorkspaceSidebar({
             <div className="scm-repo-bar">
               <div className="scm-repo-picker">
                 <span className="scm-repo-picker-label">
-                  <IconGitBranch /> 仓库
+                  <IconGitBranch /> {t("files.repository")}
                 </span>
                 <ChoiceSelect
                   className="workspace-picker-select"
-                  ariaLabel="选择 Git 仓库"
+                  ariaLabel={t("files.selectRepository")}
                   value={selectedRepo}
-                  choices={[{ value: "all", label: `全部仓库 (${repositories.length})` },
+                  choices={[{ value: "all", label: t("files.allRepositories", { count: repositories.length }) },
                     ...repositories.map(r => ({ value: r.name, label: `${r.name}${r.branch ? ` (${r.branch})` : ""}` }))]}
                   onChange={setSelectedRepo}
                   searchable={false} menuInPortal menuPlacement="auto"
@@ -242,13 +244,13 @@ export function WorkspaceSidebar({
           {mode === "git" && changes.value?.isRepo && (
             <div className="workspace-git-summary scm-stat-bar">
               <span>
-                <b className="stat-staged">{summary.staged}</b> 已暂存
+                <b className="stat-staged">{summary.staged}</b> {t("files.staged")}
               </span>
               <span>
-                <b className="stat-unstaged">{summary.unstaged}</b> 更改
+                <b className="stat-unstaged">{summary.unstaged}</b> {t("files.changes")}
               </span>
               <span>
-                <b className="stat-untracked">{summary.untracked}</b> 未跟踪
+                <b className="stat-untracked">{summary.untracked}</b> {t("files.untracked")}
               </span>
             </div>
           )}
@@ -256,14 +258,14 @@ export function WorkspaceSidebar({
           {/* 改动列表/树容器 */}
           <div
             className="workspace-file-list scm-resource-list"
-            aria-label={mode === "files" ? "工作区文件树" : "Git 改动列表"}
+            aria-label={mode === "files" ? t("files.workspaceFileTree") : t("files.gitChangesList")}
           >
             {mode === "files" ? (
               <Directory key={store?.key} path="" depth={0} state={state} onOpen={open} />
             ) : changes.loading ? (
               <div className="workspace-list-state" role="status">
                 <span className="file-state-spinner" />
-                读取 Git 状态…
+                {t("files.readingGitStatus")}
               </div>
             ) : changes.error && !changes.value ? (
               <p className="file-error" role="alert">
@@ -272,10 +274,10 @@ export function WorkspaceSidebar({
             ) : !changes.value?.isRepo ? (
               <div className="empty-state workspace-sidebar-empty scm-empty-guide">
                 <IconGit />
-                <p>非 Git 仓库</p>
-                <small>当前工作区未检测到 Git 仓库。</small>
+                <p>{t("files.notGitRepo")}</p>
+                <small>{t("files.notGitRepoDetected")}</small>
                 <div className="scm-pipi-toml-hint">
-                  <span>在项目根目录的 <code>pipi.toml</code> 中声明子仓库：</span>
+                  <span>{t("files.declareSubreposPrefix")} <code>pipi.toml</code> {t("files.declareSubreposSuffix")}</span>
                   <pre>
                     {`[git]\nrepositories = [\n  "subproject-a",\n  "packages/subproject-b"\n]`}
                   </pre>
@@ -284,11 +286,11 @@ export function WorkspaceSidebar({
             ) : !changes.value.files.length ? (
               <div className="empty-state workspace-sidebar-empty scm-clean-state">
                 <IconGit />
-                <p>没有未提交的更改</p>
-                <small>工作区干净 (Working tree clean)。</small>
+                <p>{t("files.noUncommittedChanges")}</p>
+                <small>{t("files.workingTreeClean")}</small>
               </div>
             ) : !changeFiles.length ? (
-              <p className="file-notice">没有匹配的改动文件。</p>
+              <p className="file-notice">{t("files.noMatchingChanges")}</p>
             ) : (
               groups
                 .filter((group) => group.files.length > 0)
@@ -341,7 +343,7 @@ export function WorkspaceSidebar({
             )}
           </div>
 
-          {mode === "git" && changes.error && changes.value && <p className="file-error" role="status">刷新失败，显示上次结果：{changes.error}</p>}
+          {mode === "git" && changes.error && changes.value && <p className="file-error" role="status">{t("files.refreshFailed", { error: changes.error })}</p>}
 
           {mode === "files" ? (
             <form
@@ -353,19 +355,19 @@ export function WorkspaceSidebar({
             >
               <input
                 className="text-input"
-                aria-label="打开工作区文件路径"
-                placeholder="按路径打开文件…"
+                aria-label={t("files.openByPath")}
+                placeholder={t("files.openByPathPlaceholder")}
                 value={path}
                 onChange={(event) => setPath(event.target.value)}
               />
               <button type="submit" className="btn small" disabled={!path}>
-                打开
+                {t("files.open")}
               </button>
             </form>
           ) : (
             <div className="scm-footer">
-              <span className="scm-footer-base"><IconGitBranch /> HEAD <span>↔</span> 工作区</span>
-              <p className="caption file-sidebar-hint">已暂存与未暂存差异合并展示</p>
+              <span className="scm-footer-base"><IconGitBranch /> HEAD <span>↔</span> {t("files.workspace")}</span>
+              <p className="caption file-sidebar-hint">{t("files.mergedDiffHint")}</p>
             </div>
           )}
         </>
@@ -385,7 +387,8 @@ function GitRow({
   multiRepo: boolean;
   onOpen: (path: string) => void;
 }) {
-  const meta = gitStatusMeta(file.status);
+  const { t, locale } = useI18n();
+  const meta = gitStatusMeta(file.status, locale);
   const split = file.path.lastIndexOf("/");
   const name = split < 0 ? file.path : file.path.slice(split + 1);
   return (
@@ -401,7 +404,7 @@ function GitRow({
           <span className="truncate scm-filename">{name}</span>
         </span>
         {multiRepo && file.repository && (
-          <span className="truncate scm-repo-tag" title={`仓库：${file.repository}`}>
+          <span className="truncate scm-repo-tag" title={t("files.repositoryTitle", { name: file.repository })}>
             {file.repository}
           </span>
         )}
@@ -552,6 +555,7 @@ function GitTree({
   onOpen: (path: string) => void;
   multiRepo: boolean;
 }) {
+  const { t, locale } = useI18n();
   return (
     <>
       {nodes.map((node) => {
@@ -594,7 +598,7 @@ function GitTree({
         }
 
         const file = node.file!;
-        const meta = gitStatusMeta(file.status);
+        const meta = gitStatusMeta(file.status, locale);
         const isActive = file.path === selected;
 
         return (
@@ -612,7 +616,7 @@ function GitTree({
                 <span className="truncate scm-filename">{node.name}</span>
               </span>
               {multiRepo && file.repository && (
-                <span className="truncate scm-repo-tag" title={`仓库：${file.repository}`}>
+                <span className="truncate scm-repo-tag" title={t("files.repositoryTitle", { name: file.repository })}>
                   {file.repository}
                 </span>
               )}
@@ -642,6 +646,7 @@ function Directory({
   state: WorkspaceFilesState;
   onOpen: (path: string) => void;
 }) {
+  const { t } = useI18n();
   const { target, store, view } = state;
   const lookupTarget = target?.workspace || target?.name || "";
   const nested = useFileResource<WorkspaceListing>(
@@ -654,7 +659,7 @@ function Directory({
     return (
       <div className="workspace-list-state" role="status">
         <span className="file-state-spinner" />
-        读取目录…
+        {t("files.readingDirectory")}
       </div>
     );
   if (resource.error && !resource.value)
@@ -672,9 +677,9 @@ function Directory({
     ) ?? [];
   return (
     <>
-      {resource.error && resource.value && <p className="file-error" role="status">刷新失败，显示上次目录：{resource.error}</p>}
+      {resource.error && resource.value && <p className="file-error" role="status">{t("files.refreshFailed", { error: resource.error })}</p>}
       {!entries.length && (
-        <p className="file-notice">{view.query ? "没有匹配的文件。" : "空目录"}</p>
+        <p className="file-notice">{view.query ? t("files.noMatchingFiles") : t("files.emptyDirectory")}</p>
       )}
       {entries.map((item) => {
         const directory = item.kind === "directory";
@@ -690,7 +695,7 @@ function Directory({
               style={{ paddingLeft: 6 + depth * 15 }}
               title={
                 item.kind === "symlink"
-                  ? `${item.path}（符号链接不允许预览）`
+                  ? t("files.symlinkUnpreviewable", { path: item.path })
                   : item.path
               }
               aria-expanded={directory ? expanded : undefined}
@@ -728,7 +733,7 @@ function Directory({
         );
       })}
       {resource.value?.truncated && (
-        <p className="file-notice">此目录超过 2000 项，仅显示部分内容。</p>
+        <p className="file-notice">{t("files.directoryTruncated")}</p>
       )}
     </>
   );

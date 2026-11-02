@@ -1,6 +1,8 @@
 // 统一 diff 的展示模型：Git 预览与会话工具差异共用。
 // 只解析展示所需的位置信息（旧/新行号、增删统计），不改写补丁内容。
 
+import { getDefaultLocale, getTranslation, type Locale } from "../i18n/core.ts";
+
 export type DiffKind = "meta" | "hunk" | "context" | "add" | "del" | "note";
 
 export interface DiffRow {
@@ -100,19 +102,20 @@ export interface GitStatusMeta {
   unstaged: boolean;
 }
 
-export function gitStatusMeta(status: string): GitStatusMeta {
+export function gitStatusMeta(status: string, locale: Locale = getDefaultLocale()): GitStatusMeta {
   const code = status.slice(0, 2).padEnd(2, " ");
   const staged = code[0] !== " " && code[0] !== "?";
   const unstaged = code[1] !== " " && code[1] !== "?";
-  if (code.includes("?")) return { code: "??", label: "未跟踪", tone: "untracked", staged: false, unstaged: true };
+  const label = (key: string) => getTranslation(locale, `files.status.${key}`);
+  if (code.includes("?")) return { code: "??", label: label("untracked"), tone: "untracked", staged: false, unstaged: true };
   if (code.includes("U") || code === "AA" || code === "DD") {
-    return { code, label: "冲突", tone: "conflict", staged, unstaged };
+    return { code, label: label("conflict"), tone: "conflict", staged, unstaged };
   }
-  if (code.includes("A")) return { code, label: "新增", tone: "added", staged, unstaged };
-  if (code.includes("D")) return { code, label: "删除", tone: "deleted", staged, unstaged };
-  if (code.includes("R")) return { code, label: "重命名", tone: "modified", staged, unstaged };
-  if (code.includes("M") || code.includes("T")) return { code, label: "修改", tone: "modified", staged, unstaged };
-  return { code, label: "变更", tone: "neutral", staged, unstaged };
+  if (code.includes("A")) return { code, label: label("added"), tone: "added", staged, unstaged };
+  if (code.includes("D")) return { code, label: label("deleted"), tone: "deleted", staged, unstaged };
+  if (code.includes("R")) return { code, label: label("renamed"), tone: "modified", staged, unstaged };
+  if (code.includes("M") || code.includes("T")) return { code, label: label("modified"), tone: "modified", staged, unstaged };
+  return { code, label: label("changed"), tone: "neutral", staged, unstaged };
 }
 
 /**

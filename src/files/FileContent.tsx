@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { useCopyFeedback } from "../components/use-copy";
+import { useI18n } from "../i18n";
 import { codeFence, languageFor, linkedPath } from "./model";
 import type { WorkspaceFile } from "./types";
 
@@ -26,10 +27,12 @@ interface Props {
 }
 
 export const FileContent = memo(function FileContent({ file, lines, onLines, onOpen }: Props) {
+  const { t } = useI18n();
   const url = useMediaUrl(file);
   const [rendered, setRendered] = useState(file.kind === "markdown");
   const [query, setQuery] = useState("");
   const clipboard = useCopyFeedback();
+  const copyLabel = clipboard.state === "copied" ? t("common.copied") : clipboard.state === "failed" ? t("chat.copyFailed") : t("common.copy");
   const [matchIndex, setMatchIndex] = useState(0);
   const source = useRef<HTMLDivElement>(null);
   const content = file.content;
@@ -45,42 +48,42 @@ export const FileContent = memo(function FileContent({ file, lines, onLines, onO
     {file.kind === "audio" && <audio controls src={url} preload="metadata" />}
     {file.kind === "video" && <video controls src={url} preload="metadata" />}
     {file.kind === "pdf" && <object data={url} type="application/pdf" aria-label={file.path}>
-      <p>当前环境不支持内嵌 PDF，请下载后打开。</p>
+      <p>{t("files.pdfUnsupported")}</p>
     </object>}
-    <a href={url} download={file.path.split("/").pop()}>下载文件</a>
+    <a href={url} download={file.path.split("/").pop()}>{t("files.downloadFile")}</a>
   </div>;
-  if (content === null) return <p className="file-notice">{file.truncated && file.kind !== "binary" ? "文件超过 8 MiB 媒体预览上限。" : file.base64 ? "正在准备预览…" : "此二进制格式暂不支持预览。Office 文档支持将在后续补充。"}</p>;
+  if (content === null) return <p className="file-notice">{file.truncated && file.kind !== "binary" ? t("files.mediaPreviewLimit") : file.base64 ? t("files.preparingPreview") : t("files.binaryUnsupported")}</p>;
   // 极端的短行文件也要限制 DOM 数量；用户仍可引用文件路径。
-  if (textLines.length > 10_000) return <p className="file-notice">文本超过 10000 行，请使用外部编辑器查看。</p>;
+  if (textLines.length > 10_000) return <p className="file-notice">{t("files.tooManyLines")}</p>;
 
   return <>
     <div className="file-content-toolbar">
-      {file.kind === "markdown" && <button type="button" className="btn small" onClick={() => setRendered(!rendered)}>{rendered ? "查看源码" : "渲染预览"}</button>}
+      {file.kind === "markdown" && <button type="button" className="btn small" onClick={() => setRendered(!rendered)}>{rendered ? t("files.viewSource") : t("files.renderPreview")}</button>}
       {!rendered && <>
-        <input className="text-input" aria-label="查找文件内容" placeholder="查找内容…" value={query} onChange={e => { setQuery(e.target.value); setMatchIndex(0); }}
+        <input className="text-input" aria-label={t("files.findInFile")} placeholder={t("files.findPlaceholder")} value={query} onChange={e => { setQuery(e.target.value); setMatchIndex(0); }}
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setMatchIndex(i => i + (e.shiftKey ? Math.max(1, matches.length - 1) : 1)); } }} />
         <button type="button" className="btn small ghost" disabled={!matches.length} onClick={() => setMatchIndex(i => i + 1)}>{matches.length ? `${matchIndex % matches.length + 1}/${matches.length}` : "0"} ↓</button>
       </>}
       <div className="file-content-meta">
         <span>{languageFor(file.path)}</span>
-        <span>{textLines.length.toLocaleString()} 行</span>
+        <span>{t("files.lineCount", { count: textLines.length.toLocaleString() })}</span>
       </div>
-      <button type="button" className="btn small ghost" onClick={() => void clipboard.copy(content)}>{clipboard.label}</button>
+      <button type="button" className="btn small ghost" onClick={() => void clipboard.copy(content)}>{copyLabel}</button>
     </div>
-    {file.truncated && <p className="file-notice">仅展示前 256 KiB；截断内容不能作为完整文件版本或选区引用。</p>}
+    {file.truncated && <p className="file-notice">{t("files.truncatedPreview")}</p>}
     {rendered ? <div className="md file-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}
       components={{
-        img: ({ alt, src }) => { const path = linkedPath(file.path, src ?? ""); return path ? <button type="button" className="btn small" onClick={() => onOpen(path)}>打开图片：{alt || path}</button> : <span>[外部图片：{alt || "未自动加载"}]</span>; },
+        img: ({ alt, src }) => { const path = linkedPath(file.path, src ?? ""); return path ? <button type="button" className="btn small" onClick={() => onOpen(path)}>{t("files.openImage", { name: alt || path })}</button> : <span>{t("files.externalImage", { name: alt || t("files.externalImageNotLoaded") })}</span>; },
         a: ({ href, children }) => { const path = linkedPath(file.path, href ?? ""); return path ? <button type="button" className="file-link" onClick={() => onOpen(path)}>{children}</button> : /^https?:\/\//i.test(href ?? "") ? <a href={href} target="_blank" rel="noreferrer noopener">{children}</a> : <span>{children}</span>; },
       }}>{content}</ReactMarkdown></div> : <>
-      <p className="caption file-selection-hint">点击行号选择一行，Shift + 点击选择范围。</p>
+      <p className="caption file-selection-hint">{t("files.selectionHint")}</p>
       <div className="file-source" ref={source}>
-        <div className="file-line-numbers" aria-label="选择代码行">
+        <div className="file-line-numbers" aria-label={t("files.selectCodeLines")}>
           {textLines.map((_, index) => {
             const line = index + 1;
             const selected = lines && line >= Math.min(...lines) && line <= Math.max(...lines);
             return <button type="button" key={line} data-line={line} className={`${selected ? "selected" : ""}${line === match ? " matched" : ""}`}
-              aria-label={`第 ${line} 行`} aria-pressed={!!selected} disabled={file.truncated}
+              aria-label={t("files.lineLabel", { line })} aria-pressed={!!selected} disabled={file.truncated}
               onClick={e => onLines(e.shiftKey && lines ? [lines[0], line] : [line, line])}>{line}</button>;
           })}
         </div>

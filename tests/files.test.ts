@@ -43,7 +43,7 @@ test("引用保留工作区和版本，反向选区按实际行号保存，不�
   assert.match(formatReference(reference), /sha256-test/);
   assert.match(formatReference(reference), /L2–3/);
   assert.equal(file.content, "one\ntwo\nthree");
-  assert.throws(() => makeReference({ ...file, content: "x".repeat(16_001) }, [1, 1], ""), /选区过大/);
+  assert.throws(() => makeReference({ ...file, content: "x".repeat(16_001) }, [1, 1], ""), /Selection is too large/);
 });
 
 test("截断预览不伪造完整版本和选区，代码围栏不会被源文件中的围栏截断", () => {
@@ -146,9 +146,9 @@ test("diff 解析保留双行号与增删统计，末尾空行不算新增内容
 });
 
 test("git 状态码按暂存区与工作树拆分，未跟踪文件不伪造编辑状态", () => {
-  assert.deepEqual(gitStatusMeta("M "), { code: "M ", label: "修改", tone: "modified", staged: true, unstaged: false });
-  assert.deepEqual(gitStatusMeta(" M"), { code: " M", label: "修改", tone: "modified", staged: false, unstaged: true });
-  assert.deepEqual(gitStatusMeta("??"), { code: "??", label: "未跟踪", tone: "untracked", staged: false, unstaged: true });
+  assert.deepEqual(gitStatusMeta("M "), { code: "M ", label: "Modified", tone: "modified", staged: true, unstaged: false });
+  assert.deepEqual(gitStatusMeta(" M"), { code: " M", label: "Modified", tone: "modified", staged: false, unstaged: true });
+  assert.deepEqual(gitStatusMeta("??"), { code: "??", label: "Untracked", tone: "untracked", staged: false, unstaged: true });
   assert.equal(gitStatusMeta("A ").tone, "added");
   assert.equal(gitStatusMeta(" D").tone, "deleted");
   assert.equal(gitStatusMeta("UU").tone, "conflict");
