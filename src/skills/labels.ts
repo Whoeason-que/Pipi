@@ -2,12 +2,16 @@
 
 import type { AgentSkillStatus, SkillVerifyStatus } from "../types";
 
+/** 翻译函数（与 useI18n().t 同形，供非组件模块复用）。 */
+export type SkillTranslate = (path: string, params?: Record<string, string | number>) => string;
+
+/** 状态标签的 i18n key（展示前经 t() 解析）。 */
 export const AGENT_SKILL_STATUS_LABELS: Record<AgentSkillStatus, string> = {
-  ready: "已就绪",
-  missing: "内容缺失",
-  broken: "内容不可解析",
-  unresolved: "未解析",
-  filtered: "被过滤",
+  ready: "skills.status.ready",
+  missing: "skills.status.missing",
+  broken: "skills.status.broken",
+  unresolved: "skills.status.unresolved",
+  filtered: "skills.status.filtered",
 };
 
 export type SkillTone = "ok" | "warn" | "error" | "muted";
@@ -20,19 +24,19 @@ export const AGENT_SKILL_STATUS_TONES: Record<AgentSkillStatus, SkillTone> = {
   filtered: "muted",
 };
 
-/** 状态含义（悬浮提示用，与 av 的 fail-closed 判据对齐）。 */
+/** 状态含义的 i18n key（悬浮提示用，与 av 的 fail-closed 判据对齐）。 */
 export const AGENT_SKILL_STATUS_HINTS: Record<AgentSkillStatus, string> = {
-  ready: "锁记录与 store 内容齐备，会话启动会注入这个技能",
-  missing: "有解析锁但 store 里没有对应内容：同步可复现，未修复前会话启动会失败",
-  broken: "内容在但 SKILL.md 缺失或不可解析：会话启动会失败",
-  unresolved: "契约声明了 use，但同层 agent.lock 里没有解析记录：同步补齐",
-  filtered: "被 only / exclude 过滤，不会进入系统提示",
+  ready: "skills.statusHint.ready",
+  missing: "skills.statusHint.missing",
+  broken: "skills.statusHint.broken",
+  unresolved: "skills.statusHint.unresolved",
+  filtered: "skills.statusHint.filtered",
 };
 
 export const SKILL_VERIFY_LABELS: Record<SkillVerifyStatus, string> = {
-  ok: "一致",
-  missing: "缺失",
-  mismatch: "漂移",
+  ok: "skills.verify.ok",
+  missing: "skills.verify.missing",
+  mismatch: "skills.verify.mismatch",
 };
 
 export const SKILL_VERIFY_TONES: Record<SkillVerifyStatus, SkillTone> = {
@@ -48,8 +52,13 @@ export function shortHash(hash: string | null | undefined): string {
 }
 
 /** store 来源的一行描述。 */
-export function sourceLabel(source: string, sourceType: string, revision?: string | null): string {
-  if (sourceType === "local") return `本地 ${source}`;
+export function sourceLabel(
+  t: SkillTranslate,
+  source: string,
+  sourceType: string,
+  revision?: string | null,
+): string {
+  if (sourceType === "local") return t("skills.source.local", { path: source });
   return revision ? `${source}@${revision.slice(0, 12)}` : source;
 }
 

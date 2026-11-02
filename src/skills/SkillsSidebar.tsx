@@ -1,6 +1,7 @@
 // 技能库侧栏：已安装技能列表（选择 + 过滤）。安装 / 校验等动作在主区。
 
 import { useMemo, useState } from "react";
+import { useI18n } from "../i18n";
 import { IconRefresh, IconSkill } from "../icons";
 import { SidebarSearch } from "../components/SidebarSearch";
 import type { SkillLibrary } from "../types";
@@ -21,6 +22,7 @@ export function SkillsSidebar({
   onSelect,
   onRefresh,
 }: SkillsSidebarProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const skills = library?.skills ?? [];
   const filtered = useMemo(() => {
@@ -40,19 +42,19 @@ export function SkillsSidebar({
       <SidebarSearch
         value={query}
         onChange={setQuery}
-        placeholder="搜索已安装技能…"
-        label="搜索已安装技能"
+        placeholder={t("skills.searchPlaceholder")}
+        label={t("skills.searchInstalled")}
       />
 
       <div className="caption sb-sec skills-heading">
-        <span>技能库</span>
+        <span>{t("nav.skills")}</span>
         <span className="spacer" />
         <span className="caption sb-count">{skills.length}</span>
         <button
           type="button"
           className="icon-btn"
-          title="重新读取 store"
-          aria-label="重新读取 store"
+          title={t("skills.reloadStore")}
+          aria-label={t("skills.reloadStore")}
           onClick={onRefresh}
         >
           <IconRefresh />
@@ -60,12 +62,12 @@ export function SkillsSidebar({
       </div>
 
       {error && <div className="session pending skills-side-error">{error}</div>}
-      {!library && !error && <div className="session pending">正在读取全局 store…</div>}
+      {!library && !error && <div className="session pending">{t("skills.loadingStore")}</div>}
       {library && skills.length === 0 && (
-        <div className="session pending">store 为空：在右侧「安装技能」装入第一个技能</div>
+        <div className="session pending">{t("skills.storeEmptySidebar")}</div>
       )}
 
-      <nav className="skills-list" aria-label="已安装技能">
+      <nav className="skills-list" aria-label={t("skills.installed")}>
         {filtered.map((skill) => {
           const current = skill.versions.find((version) => version.contentHash === skill.currentHash);
           const missing = !current || !current.present;
@@ -82,14 +84,14 @@ export function SkillsSidebar({
               <span className="skills-item-body">
                 <span className="truncate search-item-name">
                   {skill.name}
-                  {missing && <span className="skill-dot error" title="当前版本内容缺失" />}
+                  {missing && <span className="skill-dot error" title={t("skills.currentVersionMissing")} />}
                 </span>
                 <span className="truncate caption search-item-meta">
-                  {sourceLabel(skill.source, skill.sourceType, current?.revision ?? null)}
+                  {sourceLabel(t, skill.source, skill.sourceType, current?.revision ?? null)}
                 </span>
                 <span className="caption skills-item-foot">
                   <span className="mono">{shortHash(skill.currentHash)}</span>
-                  <span>{skill.versions.length} 个版本</span>
+                  <span>{t("skills.versionCount", { count: skill.versions.length })}</span>
                 </span>
               </span>
             </button>
@@ -97,7 +99,7 @@ export function SkillsSidebar({
         })}
       </nav>
       {library && skills.length > 0 && filtered.length === 0 && (
-        <div className="session pending">没有匹配的技能</div>
+        <div className="session pending">{t("skills.noMatches")}</div>
       )}
     </>
   );
