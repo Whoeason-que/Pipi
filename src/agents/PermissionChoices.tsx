@@ -1,10 +1,17 @@
+import { useI18n } from "../i18n";
 import {
-  PROMPT_SCOPE_LABELS,
   SANDBOX_LABELS,
   type PromptScope,
   type SandboxMode,
 } from "../types";
 import { KNOWN_TOOLS } from "./agent-fields";
+
+const PROMPT_SCOPE_KEYS: Record<PromptScope, string> = {
+  both: "agents.promptScopeBoth",
+  agent: "agents.promptScopeAgent",
+  workspace: "agents.promptScopeWorkspace",
+  none: "agents.promptScopeNone",
+};
 
 export function ToolChoices({
   value,
@@ -74,9 +81,10 @@ export function PromptScopeChoices({
   name: string;
   className?: string;
 }) {
+  const { t } = useI18n();
   return (
     <div className={className}>
-      {(Object.keys(PROMPT_SCOPE_LABELS) as PromptScope[]).map((scope) => (
+      {(Object.keys(PROMPT_SCOPE_KEYS) as PromptScope[]).map((scope) => (
         <label key={scope} className="tool-check">
           <input
             type="radio"
@@ -84,7 +92,7 @@ export function PromptScopeChoices({
             checked={value === scope}
             onChange={() => onChange(scope)}
           />
-          <span>{PROMPT_SCOPE_LABELS[scope]}</span>
+          <span>{t(PROMPT_SCOPE_KEYS[scope])}</span>
         </label>
       ))}
     </div>

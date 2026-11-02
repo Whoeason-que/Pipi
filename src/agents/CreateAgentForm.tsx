@@ -7,6 +7,7 @@ import {
 import {
   formatRuntimeError
 } from "../chat-runtime";
+import { useI18n } from "../i18n";
 import {
   IconBack
 } from "../icons";
@@ -42,6 +43,7 @@ export default function CreateAgentForm({
   onCancel,
   onError,
 }: CreateAgentFormProps) {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const fields = useAgentConfigFields({
     providerId: defaultProviderId && providers.some((p) => p.id === defaultProviderId)
@@ -98,53 +100,60 @@ export default function CreateAgentForm({
     <div className="screen">
       <div className="screen-bar">
         <NavigationToggle />
-        <button type="button" className="icon-btn" title="返回" onClick={onCancel}>
+        <button
+          type="button"
+          className="icon-btn"
+          title={t("common.back")}
+          onClick={onCancel}
+        >
           <IconBack />
         </button>
         <span className="truncate caption crumb">
-          新建 Agent
+          {t("nav.newAgent")}
         </span>
       </div>
       <div className="detail">
         <div className="form">
           <div>
-            <h2>新建 Agent</h2>
-            <div className="sub">
-              给 Agent 一个名字，选择模型与工作目录。指令、技能和记忆会随它一起保留。
-            </div>
+            <h2>{t("nav.newAgent")}</h2>
+            <div className="sub">{t("agents.createSubtitle")}</div>
           </div>
 
           <div className="field">
-            <label className="label" htmlFor="agent-name">名称</label>
+            <label className="label" htmlFor="agent-name">
+              {t("agents.name")}
+            </label>
             <input
               id="agent-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="例如：code-reviewer"
+              placeholder={t("agents.namePlaceholder")}
               autoFocus
             />
-            <div className="hint">仅限字母、数字、- 和 _，将作为目录名</div>
+            <div className="hint">{t("agents.nameHint")}</div>
           </div>
 
           <div className="field">
-            <label className="label" htmlFor="agent-desc">描述</label>
+            <label className="label" htmlFor="agent-desc">
+              {t("agents.description")}
+            </label>
             <textarea
               id="agent-desc"
               value={fields.description}
               onChange={(e) => fields.setDescription(e.target.value)}
-              placeholder="这个 Agent 是做什么的？"
+              placeholder={t("agents.descriptionPlaceholder")}
             />
           </div>
 
           <div className="field">
-            <label className="label">默认模型</label>
+            <label className="label">{t("workspace.defaultModel")}</label>
             <div className="bind-row">
               <div className="provider-picker">
                 <ChoiceSelect
                   id="agent-create-provider"
                   value={fields.providerId}
                   choices={providers.map((p) => ({ value: p.id, label: p.name }))}
-                  placeholder="（未绑定提供商）"
+                  placeholder={t("agents.noProvider")}
                   isClearable
                   menuInPortal
                   onChange={fields.changeProvider}
@@ -155,11 +164,11 @@ export default function CreateAgentForm({
                 providers={providers}
                 providerId={fields.providerId}
                 modelId={fields.modelId}
-                placeholder="模型 ID，如 claude-sonnet-4-5 / gpt-4o"
+                placeholder={t("agents.modelIdPlaceholderWithPresets")}
                 onModelChange={fields.changeModel}
               />
             </div>
-            <div className="hint">新建会话时将默认使用此模型；也可留空稍后在详情页配置</div>
+            <div className="hint">{t("agents.createModelHint")}</div>
           </div>
 
           <div className="field">
@@ -172,43 +181,40 @@ export default function CreateAgentForm({
           </div>
 
           <div className="field">
-            <label className="label" htmlFor="agent-workspace">工作目录</label>
+            <label className="label" htmlFor="agent-workspace">
+              {t("workspace.directory")}
+            </label>
             <input
               id="agent-workspace"
               className="mono"
               value={fields.workspace}
               onChange={(e) => fields.setWorkspace(e.target.value)}
-              placeholder="例如：~/projects/my-app"
+              placeholder={t("agents.workspaceExamplePlaceholder")}
             />
-            <div className="hint">
-              Agent 只在此目录内工作；留空使用默认的 agent 目录内 workspace/
-            </div>
+            <div className="hint">{t("agents.createWorkspaceHint")}</div>
           </div>
 
           <div className="field">
-            <span className="label">工具</span>
+            <span className="label">{t("agents.tools")}</span>
             <ToolChoices value={fields.tools} onToggle={fields.toggleTool} />
           </div>
 
           <div className="field">
-            <span className="label">沙箱</span>
+            <span className="label">{t("agents.sandbox")}</span>
             <SandboxChoices value={fields.sandbox} onChange={fields.setSandbox} name="sandbox" />
-            <div className="hint">
-              只读：文件系统只读、网络默认关闭；工作目录内可写：只有工作目录与
-              临时目录可写；完全访问：不挂沙箱（显式逃生门）
-            </div>
+            <div className="hint">{t("agents.sandboxHintCreate")}</div>
           </div>
 
           <div className="actions">
             <button className="btn ghost" onClick={onCancel}>
-              取消
+              {t("common.cancel")}
             </button>
             <button
               className="btn primary"
               disabled={!name.trim() || fields.tools.length === 0 || submitting}
               onClick={submit}
             >
-              {submitting ? "创建中…" : "创建"}
+              {submitting ? t("agents.creating") : t("common.create")}
             </button>
           </div>
         </div>

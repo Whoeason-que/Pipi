@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   formatRuntimeError
 } from "../chat-runtime";
+import { useI18n } from "../i18n";
 import {
   invoke
 } from "../platform";
@@ -20,6 +21,7 @@ interface AgentFileEditorProps {
 }
 
 export default function AgentFileEditor({ agentName, onError, disabled = false, onSaved }: AgentFileEditorProps) {
+  const { t } = useI18n();
   const [files, setFiles] = useState<AgentEditableFiles>(EMPTY_FILES);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [content, setContent] = useState("");
@@ -114,7 +116,7 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
 
   return (
     <div className="drow file-editor-row">
-      <span className="k">指令 · 记忆</span>
+      <span className="k">{t("agents.instructionsAndMemory")}</span>
       <div className="v">
         <div className="file-tabs">
           {[...files.instructions, ...files.memory].map((file) => (
@@ -135,7 +137,7 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
             value={newFileName}
             disabled={disabled}
             onChange={(e) => setNewFileName(e.target.value)}
-            placeholder="新建 memory 文件，例如 user-prefs"
+            placeholder={t("agents.newMemoryFilePlaceholder")}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -149,28 +151,24 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
             disabled={disabled || !newFileName.trim() || newFileName.trim().includes("/")}
             onClick={() => void createMemoryFile()}
           >
-            新建
+            {t("agents.newFile")}
           </button>
         </div>
         <textarea
           className="mono file-editor"
-          value={loading ? "加载中…" : content}
+          value={loading ? t("common.loading") : content}
           onChange={(e) => setContent(e.target.value)}
           disabled={disabled || !activeFile || loading}
-          placeholder={activeFile ? undefined : "选择或新建一个文件开始编辑"}
+          placeholder={
+            activeFile ? undefined : t("agents.selectFilePlaceholder")
+          }
           rows={8}
           spellCheck={false}
         />
         <div className="hint">
-          {activeFile ? (
-            <>
-              {activeFile} —— harness/AGENTS.md 在每次运行注入为系统指令（策略为
-              「仅工作区」或「无系统提示词」时不注入）；memory 索引常驻上下文、
-              正文由模型按需读取。改动需手动保存。
-            </>
-          ) : (
-            "harness/AGENTS.md 是系统级指令，harness/memory/ 是 Agent 的持久记忆"
-          )}
+          {activeFile
+            ? t("agents.fileHint", { file: activeFile })
+            : t("agents.fileHintEmpty")}
         </div>
         <button
           type="button"
@@ -178,7 +176,13 @@ export default function AgentFileEditor({ agentName, onError, disabled = false, 
           disabled={disabled || !dirty || saving}
           onClick={() => void saveFile()}
         >
-          {saving ? "保存中…" : disabled ? "测试运行中" : dirty ? "保存文件" : "已保存"}
+          {saving
+            ? t("agents.saving")
+            : disabled
+              ? t("agents.testRunning")
+              : dirty
+                ? t("agents.saveFile")
+                : t("agents.saved")}
         </button>
       </div>
     </div>

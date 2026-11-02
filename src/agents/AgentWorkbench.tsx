@@ -3,6 +3,7 @@ import { resolveContextWindow, resolveMaxTokens } from "../catalog";
 import ChatView from "../chat/ChatView";
 import { formatRuntimeError } from "../chat-runtime";
 import Inspector from "../chat/Inspector";
+import { useI18n } from "../i18n";
 import { IconBack } from "../icons";
 import { ModelPicker } from "../ModelPicker";
 import { ReasoningSelect } from "../ReasoningSelect";
@@ -54,6 +55,7 @@ export default function AgentWorkbench({
   sessions,
   onRunningChange,
 }: AgentWorkbenchProps) {
+  const { t } = useI18n();
   const [testSession, setTestSession] = useState<SessionInfoView | null>(null);
   const [testLoadError, setTestLoadError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -163,14 +165,24 @@ export default function AgentWorkbench({
       const report = await invoke("import_sessions", { agentName: agent.name });
       const failed = report.failed.length;
       setImportReport(
-        `已导入 ${report.imported.length} 条，跳过 ${report.skipped.length} 条` +
-          (failed ? `，失败 ${failed} 条` : ""),
+        failed
+          ? t("agents.importReportFailed", {
+              imported: report.imported.length,
+              skipped: report.skipped.length,
+              failed,
+            })
+          : t("agents.importReport", {
+              imported: report.imported.length,
+              skipped: report.skipped.length,
+            }),
       );
       if (failed) {
         onError(
-          `导入失败：${report.failed
-            .map((item) => `${item.sessionId}（${item.reason}）`)
-            .join("；")}`,
+          t("agents.importFailed", {
+            details: report.failed
+              .map((item) => `${item.sessionId} (${item.reason})`)
+              .join("; "),
+          }),
         );
       }
       await onSaved();
@@ -242,7 +254,7 @@ export default function AgentWorkbench({
   const saveConfiguration = async (running: boolean) => {
     if (saving || running || tools.length === 0) return;
     if (providerId && !modelId.trim()) {
-      onError("请选择或填写默认模型后再保存");
+      onError(t("agents.selectModelFirst"));
       return;
     }
     const targetPercent =
@@ -253,7 +265,7 @@ export default function AgentWorkbench({
         targetPercent < 1 ||
         targetPercent > 99)
     ) {
-      onError("压缩后目标比例须为 1–99 的整数，或留空使用默认行为");
+      onError(t("agents.invalidCompactTarget"));
       return;
     }
     setSaving(true);
@@ -311,18 +323,22 @@ export default function AgentWorkbench({
           <button
             type="button"
             className="icon-btn"
-            title="返回"
-            aria-label="返回"
+            title={t("common.back")}
+            aria-label={t("common.back")}
             onClick={onBack}
           >
             <IconBack />
           </button>
           <span className="truncate caption crumb">
-            Agent 工作台 · <b>{agent.name}</b>
+            {t("agents.workbenchTitle")} · <b>{agent.name}</b>
           </span>
         </div>
         <div className="empty-state empty compact-empty">
-          <h2>{testLoadError ? "临时测试初始化失败" : "正在准备临时测试…"}</h2>
+          <h2>
+            {testLoadError
+              ? t("agents.testInitFailed")
+              : t("agents.testPreparing")}
+          </h2>
           {testLoadError && <p>{testLoadError}</p>}
           {testLoadError && (
             <button
@@ -330,7 +346,7 @@ export default function AgentWorkbench({
               className="btn primary"
               onClick={() => setTestLoadVersion((value) => value + 1)}
             >
-              重试
+              {t("common.retry")}
             </button>
           )}
         </div>
@@ -363,25 +379,27 @@ export default function AgentWorkbench({
               <div className="agent-settings-title">
                 <span className="mono">{agent.name}</span>
                 {configurationDirty && (
-                  <span className="dirty-badge">未保存</span>
+                  <span className="dirty-badge">{t("agents.unsaved")}</span>
                 )}
               </div>
-              <div className="sub">{agent.description || "（暂无描述）"}</div>
+              <div className="sub">
+                {agent.description || t("agents.noDescription")}
+              </div>
             </div>
           </div>
 
           <div
             className="agent-settings-tabs"
             role="tablist"
-            aria-label="Agent 设置"
+            aria-label={t("agents.settingsAria")}
           >
             {(
               [
-                ["basic", "基础"],
-                ["permissions", "权限"],
-                ["skills", "技能"],
-                ["files", "文件"],
-                ["test", "测试"],
+                ["basic", t("agents.tabs.basic")],
+                ["permissions", t("agents.tabs.permissions")],
+                ["skills", t("nav.skills")],
+                ["files", t("agents.tabs.files")],
+                ["test", t("agents.tabs.test")],
               ] as const
             ).map(([tab, label]) => (
               <button
@@ -401,7 +419,9 @@ export default function AgentWorkbench({
             {settingsTab === "basic" && (
               <section className="settings-section">
                 <div className="settings-field">
-                  <label htmlFor="agent-provider-select">模型提供商</label>
+                  <label htmlFor="agent-provider-select">
+                    {t("agents.modelProvider")}
+                  </label>
                   <ChoiceSelect
                     id="agent-provider-select"
                     value={providerId}
@@ -409,7 +429,7 @@ export default function AgentWorkbench({
                       value: provider.id,
                       label: provider.name,
                     }))}
-                    placeholder="（未绑定提供商）"
+                    placeholder={t("agents.noProvider")}
                     isClearable
                     menuInPortal
                     onChange={(next) => {
@@ -419,19 +439,19 @@ export default function AgentWorkbench({
                   />
                 </div>
                 <div className="settings-field">
-                  <label htmlFor="agent-default-model">默认模型</label>
+                  <label htmlFor="agent-default-model">
+                    {t("workspace.defaultModel")}
+                  </label>
                   <ModelPicker
                     id="agent-default-model"
                     providers={providers}
                     providerId={providerId}
                     modelId={modelId}
                     disabled={saving}
-                    placeholder="模型 ID，如 claude-sonnet-4-5"
+                    placeholder={t("agents.modelIdPlaceholder")}
                     onModelChange={changeModel}
                   />
-                  <span className="hint">
-                    保存后，新的临时测试和正式会话会使用此模型。
-                  </span>
+                  <span className="hint">{t("agents.modelHint")}</span>
                   {draftProvider && (
                     <span className="hint mono">
                       {draftProvider.api} · {draftProvider.baseUrl}
@@ -447,18 +467,20 @@ export default function AgentWorkbench({
                   />
                 </div>
                 <div className="settings-field">
-                  <label htmlFor="agent-description">描述</label>
+                  <label htmlFor="agent-description">
+                    {t("agents.description")}
+                  </label>
                   <textarea
                     id="agent-description"
                     className="text-input meta-editor"
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
-                    placeholder="这个 Agent 是做什么的？"
+                    placeholder={t("agents.descriptionPlaceholder")}
                     rows={3}
                   />
                 </div>
                 <div className="settings-field">
-                  <span className="field-label">Agent 分组</span>
+                  <span className="field-label">{t("agents.group")}</span>
                   <label className="ios-toggle">
                     <input
                       type="checkbox"
@@ -468,39 +490,40 @@ export default function AgentWorkbench({
                     />
                     <span className="slider" />
                     <span className="toggle-label">
-                      {subagent ? "归入 Subagent" : "归入 Agent"}
+                      {subagent
+                        ? t("agents.groupSubagent")
+                        : t("agents.groupAgent")}
                     </span>
                   </label>
-                  <span className="hint">
-                    由 Agent 的 create_agent
-                    工具创建时默认开启；可在此更改分组。
-                  </span>
+                  <span className="hint">{t("agents.groupHint")}</span>
                 </div>
                 <div className="settings-field">
-                  <label htmlFor="agent-workspace">工作目录</label>
+                  <label htmlFor="agent-workspace">
+                    {t("workspace.directory")}
+                  </label>
                   <input
                     id="agent-workspace"
                     className="text-input mono"
                     value={workspace}
                     onChange={(event) => setWorkspace(event.target.value)}
-                    placeholder={`~/.pipi/agents/${agent.name}/workspace（默认）`}
+                    placeholder={t("agents.workspacePlaceholder", {
+                      name: agent.name,
+                    })}
                   />
                 </div>
                 <div className="settings-field">
-                  <span className="field-label">系统提示词来源</span>
+                  <span className="field-label">{t("agents.promptScope")}</span>
                   <PromptScopeChoices
                     value={promptScope}
                     onChange={setPromptScope}
                     name="agent-prompt-scope"
                   />
-                  <span className="hint">
-                    Agent 侧使用 agent.toml
-                    声明的指令、记忆与技能；工作区侧使用项目指令与技能。
-                    选择「无系统提示词」时，只发送对话与工具定义。
-                  </span>
+                  <span className="hint">{t("agents.promptScopeHint")}</span>
                 </div>
                 <div className="settings-field compact-threshold-field">
-                  <label htmlFor="agent-compact-threshold">自动压缩阈值</label>
+                  <label htmlFor="agent-compact-threshold">
+                    {t("agents.compactThreshold")}
+                  </label>
                   <div className="inline-value">
                     <input
                       id="agent-compact-threshold"
@@ -516,11 +539,13 @@ export default function AgentWorkbench({
                     <span>%</span>
                   </div>
                   <span className="hint">
-                    上下文占用达到模型窗口的该比例时自动压缩。
+                    {t("agents.compactThresholdHint")}
                   </span>
                 </div>
                 <div className="settings-field compact-threshold-field">
-                  <label htmlFor="agent-compact-target">压缩后目标比例</label>
+                  <label htmlFor="agent-compact-target">
+                    {t("agents.compactTarget")}
+                  </label>
                   <div className="inline-value">
                     <input
                       id="agent-compact-target"
@@ -531,14 +556,11 @@ export default function AgentWorkbench({
                       step={1}
                       value={compactTarget}
                       onChange={(event) => setCompactTarget(event.target.value)}
-                      placeholder="默认"
+                      placeholder={t("agents.defaultPlaceholder")}
                     />
                     <span>%</span>
                   </div>
-                  <span className="hint">
-                    相对本次压缩前的上下文，目标包含摘要；留空沿用近期 2 万
-                    token 的原文预算。实际结果受完整轮次边界影响。
-                  </span>
+                  <span className="hint">{t("agents.compactTargetHint")}</span>
                 </div>
               </section>
             )}
@@ -546,27 +568,29 @@ export default function AgentWorkbench({
             {settingsTab === "permissions" && (
               <section className="settings-section">
                 <div className="settings-field">
-                  <span className="field-label">可用工具</span>
+                  <span className="field-label">{t("agents.availableTools")}</span>
                   <ToolChoices
                     value={tools}
                     className="tool-row settings-choice-grid"
                     onToggle={toggleTool}
                   />
                   {tools.length === 0 && (
-                    <span className="field-error">至少保留一个工具。</span>
+                    <span className="field-error">
+                      {t("agents.atLeastOneTool")}
+                    </span>
                   )}
                 </div>
                 <div className="settings-field">
-                  <span className="field-label">沙箱权限</span>
+                  <span className="field-label">
+                    {t("agents.sandboxPermissions")}
+                  </span>
                   <SandboxChoices
                     value={sandbox}
                     onChange={setSandbox}
                     name="agent-sandbox"
                     className="tool-row vertical-choices"
                   />
-                  <span className="hint">
-                    临时测试会按保存后的真实权限执行；工具造成的工作区改动不会回滚。
-                  </span>
+                  <span className="hint">{t("agents.sandboxHint")}</span>
                 </div>
               </section>
             )}
@@ -582,11 +606,13 @@ export default function AgentWorkbench({
             {settingsTab === "files" && (
               <section className="settings-section settings-files">
                 <div className="settings-summary-row">
-                  <span className="field-label">Agent 目录</span>
+                  <span className="field-label">
+                    {t("agents.agentDirectory")}
+                  </span>
                   <span className="mono">~/.pipi/agents/{agent.name}/</span>
                 </div>
                 <div className="settings-summary-row">
-                  <span className="field-label">旧会话</span>
+                  <span className="field-label">{t("agents.legacySessions")}</span>
                   <div className="settings-tags">
                     <button
                       type="button"
@@ -594,20 +620,18 @@ export default function AgentWorkbench({
                       disabled={importing || context.running}
                       onClick={() => void importLegacySessions()}
                     >
-                      {importing ? "导入中…" : "导入到 git"}
+                      {importing
+                        ? t("agents.importing")
+                        : t("agents.importToGit")}
                     </button>
                     {importReport && (
                       <span className="dim">{importReport}</span>
                     )}
                   </div>
                 </div>
-                <div className="hint">
-                  把 sessions/*.jsonl 里的旧会话逐条导入 git
-                  分支（读回校验、幂等）； 原文件改名 .jsonl.imported
-                  保留，不删数据。
-                </div>
+                <div className="hint">{t("agents.legacyImportHint")}</div>
                 <div className="settings-summary-row">
-                  <span className="field-label">MCP 服务</span>
+                  <span className="field-label">{t("agents.mcpServers")}</span>
                   {agent.mcpServers.length ? (
                     <div className="mcp-status-list">
                       {agent.mcpServers.map((server) => {
@@ -619,18 +643,24 @@ export default function AgentWorkbench({
                           <div className="mcp-status-item" key={server.name}>
                             <span
                               className={`mcp-status-dot${connected ? " on" : ""}`}
-                              title={connected ? "已连接" : "未连接"}
+                              title={
+                                connected
+                                  ? t("agents.connected")
+                                  : t("agents.disconnected")
+                              }
                             />
                             <span className="mono">{server.name}</span>
                             <span className="dim">
                               {!server.enabled
-                                ? "已停用"
+                                ? t("agents.disabled")
                                 : status
-                                  ? `${status.tools} 个工具`
-                                  : "未连接"}
+                                  ? t("agents.toolCount", {
+                                      count: status.tools,
+                                    })
+                                  : t("agents.disconnected")}
                             </span>
                             {server.sandbox === "danger-full-access" && (
-                              <span className="dim">无沙箱</span>
+                              <span className="dim">{t("agents.noSandbox")}</span>
                             )}
                             {status?.error && (
                               <span className="field-error">{status.error}</span>
@@ -640,14 +670,9 @@ export default function AgentWorkbench({
                       })}
                     </div>
                   ) : (
-                    <span className="dim">未配置</span>
+                    <span className="dim">{t("agents.notConfigured")}</span>
                   )}
-                  <div className="hint">
-                    在 agent.json 的 mcpServers 里声明 stdio 服务器（command /
-                    args / env）；env 的值用 {"${VAR}"} 引用 agent.toml
-                    的键。服务器进程默认跟随沙箱档位，联网类服务器可单独写
-                    sandbox: danger-full-access。
-                  </div>
+                  <div className="hint">{t("agents.mcpHint")}</div>
                 </div>
                 <AgentFileEditor
                   agentName={agent.name}
@@ -677,10 +702,10 @@ export default function AgentWorkbench({
             <div className="agent-settings-footer">
               <div className="truncate caption save-state">
                 {context.running
-                  ? "测试运行中，请先停止"
+                  ? t("agents.runningHint")
                   : configurationDirty
-                    ? "有未保存的 Agent 配置"
-                    : "配置已保存"}
+                    ? t("agents.unsavedConfig")
+                    : t("agents.configSaved")}
               </div>
               <button
                 type="button"
@@ -694,7 +719,7 @@ export default function AgentWorkbench({
                 }
                 onClick={() => void saveConfiguration(context.running)}
               >
-                {saving ? "保存中…" : "保存配置"}
+                {saving ? t("agents.saving") : t("agents.saveConfig")}
               </button>
             </div>
           )}

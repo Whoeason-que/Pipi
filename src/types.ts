@@ -13,21 +13,21 @@ export type ApiKind = "anthropic-messages" | "openai-completions";
 export type ApiMode = "auto" | "manual";
 
 export const API_MODE_LABELS: Record<ApiMode, string> = {
-  auto: "自动",
-  manual: "固定",
+  auto: "Auto",
+  manual: "Pinned",
 };
 
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 
 export const SANDBOX_LABELS: Record<SandboxMode, string> = {
-  "read-only": "只读",
-  "workspace-write": "工作目录内可写",
-  "danger-full-access": "完全访问",
+  "read-only": "Read only",
+  "workspace-write": "Workspace write",
+  "danger-full-access": "Full access",
 };
 
 export const API_LABELS: Record<ApiKind, string> = {
   "anthropic-messages": "Anthropic",
-  "openai-completions": "OpenAI 兼容",
+  "openai-completions": "OpenAI-compatible",
 };
 
 /**
@@ -35,8 +35,8 @@ export const API_LABELS: Record<ApiKind, string> = {
  * 模型选择器（ModelPicker）与聊天里的换模型弹窗共用同一句。
  */
 export function pinnedProtocolHint(conflict: ApiKind, providerApi: ApiKind): string {
-  return `目录标注该模型走 ${API_LABELS[conflict]} 协议，但此提供商的协议已固定为 `
-    + `${API_LABELS[providerApi]}：固定模式不会自动改写，改为「自动」即可按模型选择。`;
+  return `The catalog lists this model on the ${API_LABELS[conflict]} protocol, but this provider is pinned to `
+    + `${API_LABELS[providerApi]}. Pinned mode never rewrites the protocol; switch to "Auto" to follow the model.`;
 }
 
 export interface PermissionsConfig {
@@ -120,13 +120,6 @@ export interface AgentEditableFiles {
  * 工具可用性不受影响。
  */
 export type PromptScope = "both" | "agent" | "workspace" | "none";
-
-export const PROMPT_SCOPE_LABELS: Record<PromptScope, string> = {
-  both: "Pipi + 工作区",
-  agent: "仅 Pipi",
-  workspace: "仅工作区",
-  none: "无系统提示词",
-};
 
 export interface ProviderConfig {
   id: string;
