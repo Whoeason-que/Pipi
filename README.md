@@ -121,7 +121,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |
 | Agent 分组 | `agent.json` → `subagent` | `false`（默认）显示在 AGENTS；Agent 的 `create_agent` 工具创建时写为 `true` 并显示在 SUBS；可在设置中更改 |
 | 压缩阈值 | `agent.json` → `compactThresholdPercent` | 上下文占用达到模型窗口的这个百分比时自动压缩（默认 75）；窗口未知（0）时不压缩 |
-| 压缩后目标 | `agent.json` → `compactTargetPercent` | 可选的压缩后上下文目标，占本次压缩前估算 token 的百分比（1–99）；未设置时仍保留最多 2 万 token 近期原文，避免改变旧 Agent 行为 |
+| 压缩后目标 | `agent.json` → `compactTargetPercent` | 可选的压缩后上下文目标，占本次压缩前估算 token 的百分比（1–99）；同时决定摘要输出上限 = `min(压缩前估算 token × 百分比, 20k)`；未设置时摘要沿用固定预算（13,107）并保留最多 2 万 token 近期原文，避免改变旧 Agent 行为 |
 | 请求重试 | `settings.json` → `retry` | 可重试错误的重发策略：`maxAttempts`（含首次，1 = 不重试）/ `baseDelayMs` / `maxDelayMs`；默认 3 次尝试、1s 起指数退避、30s 封顶、25% 抖动，尊重 `Retry-After` |
 | MCP | `agent.json` → `mcpServers` | Stdio MCP 服务器：启用的服务器把工具以 `mcp__<server>__<tool>` 声明给模型；连接由宿主缓存在后台建立，工具清单快照在 `<Agent 目录>/mcp-cache/<server>.json`。进程默认跟随 Agent 沙箱，可用 `sandbox` 单独覆盖；env 值用 `${VAR}` 引用 `agent.toml` 的键 |
 | 环境契约 | `agent.toml`（Agent 定义目录，**必需**；项目根可选）+ `agent.local.toml` + `agent.lock` | av 标准：env 声明、工具链断言、资源覆盖与技能包管理（`av skill`）；**Agent 层契约还负责编排 Agent 侧素材的路径**（`instructions` / `memory` / `skills.sources` 三项必须显式声明，`[]` = 不要），项目层不得声明 `memory`；会话启动解析一次，秘密值永不内联 |
@@ -271,21 +271,32 @@ Markdown 外部图片。桌面与远程共用同一组宿主命令。
 
 ### Agent 组合（第一阶段）
 
-Agent 可以通过三项显式工具组合已有 Agent：
+Agent 可以通过三项显式工具组合已有 Agent。**委派一次任务不等于定义一个
+Agent**：一次性工作走 `run_agent` 的 inline 模式，只有会被反复使用的角色才
+值得 `create_agent`。
 
-- `create_agent`：用结构化参数创建一个持久的 Agent，并将 `agent.json` 的
-  `subagent` 设为 `true`；模型、工作目录、沙箱和基础工具从调用者继承，
-  `instructions` 写入新 Agent 的 `harness/AGENTS.md`，并写好 `agent.toml`
-  （默认契约：三项素材位置）与 `harness/` 骨架。设置界面可将它改回普通 Agent。
-  新 Agent 不继承三项 Agent 组合工具。
-- `run_agent`：默认在目标 Agent 下创建一个全新 session；传入 `sessionId` 时
-  在已有 session 上继续（保留历史、模型选择与统计，运行中/归档会话会被拒绝，
-  且只支持前台等待）。若当前 Agent 同时启用了
-  `query_background_tasks` 与 `manage_background_task`，默认提交为托管后台任务并
-  立即返回 `jobId`；可用 `background:false` 保留同步等待并返回最终文本与
-  `sessionId`。异步任务通过同一组后台任务工具查询输出、等待变化或终止。
-  单次 child 运行有 10 分钟时间上限，超时与中止一样落盘为可读取的终态；运行
-  期间的工具调用与轮次完成作为任务输出记录。
+- `create_agent`：用结构化参数创建一个持久的、可复用的 Agent，并将 `agent.json`
+  的 `subagent` 设为 `true`（显示在 SUBS）；模型、工作目录、沙箱和基础工具从
+  调用者继承，`instructions` 写入新 Agent 的 `harness/AGENTS.md`，并写好
+  `agent.toml`（默认契约：三项素材位置）与 `harness/` 骨架。设置界面可将它改回
+  普通 Agent。新 Agent 不继承三项 Agent 组合工具。**只在同一角色会被反复使用时
+  调用**；一次性任务用下面的 inline 模式，避免 SUBS 持续膨胀。
+- `run_agent` 有两种模式：
+  - **已有 Agent**：默认在目标 Agent 下创建一个全新 session；传入 `sessionId` 时
+    在已有 session 上继续（保留历史、模型选择与统计，运行中/归档会话会被拒绝，
+    且只支持前台等待）。若当前 Agent 同时启用了
+    `query_background_tasks` 与 `manage_background_task`，默认提交为托管后台任务并
+    立即返回 `jobId`；可用 `background:false` 保留同步等待并返回最终文本与
+    `sessionId`。异步任务通过同一组后台任务工具查询输出、等待变化或终止。
+    单次 child 运行有 10 分钟时间上限，超时与中止一样落盘为可读取的终态；运行
+    期间的工具调用与轮次完成作为任务输出记录。
+  - **一次性子运行（inline）**：不传 `name`、改传 `instructions`（可再传 `tools`
+    限定基础工具子集）。宿主在**调用者自己的 `sessions.git`** 里开一条 child
+    session，首条条目写 `subagent_run` 标记（父 Agent + 父会话 id），不创建任何
+    Agent 目录；工作区、沙箱、env 与模型继承调用者，系统提示是「委派身份 +
+    instructions + 环境/工具清单」，不继承调用者的 harness/记忆/技能索引。仅支持
+    前台；一次性子运行的会话不能按普通会话续跑（否则会按调用者的完整定义重新
+    装配工具，破坏单层委派）。侧栏不列出这些会话，`read_agent(sessionId)` 仍可读。
 - `read_agent`：按 `sessionId` 读取目标 Agent 已落盘的最终输出；省略时读取
   最近活跃的 session。
 
@@ -404,7 +415,8 @@ Agent 身份样式由 `components/AgentAvatar.tsx` 统一渲染。样式按职�
 手动压缩、交互运行和一次性子运行共用进程级 runId 分配与同会话互斥。
 
 `pipi_core::runtime` 的公共入口位于 `runtime/mod.rs`，内部按 `slots`（多会话索引）、
-`lifecycle`（宿主生命周期）、`execution` / `child` / `compaction`（能力装配与调度）、
+`lifecycle`（宿主生命周期）、`execution` / `child` / `ephemeral` / `compaction`
+（能力装配与调度）、
 `model`（模型与凭据解析）、`events`（身份信封与宿主重键）拆分。内核压缩更换账本后
 通知宿主移动索引和后台任务归属，再发旧 id 的 `session-switched`，后续事件用新 id。
 宿主事件协议（`RuntimeEvent` 与各 envelope）在 `pipi_core::events`；
@@ -433,8 +445,10 @@ server`）。前端 `ipc.ts` 声明命令参数、返回值和事件类型，`np
   **手动压缩**（右栏「状态」→ 上下文行的「立即压缩」）跳过阈值 —— 用户点了就压，
   其余路径完全相同（同一个 `run_compaction`，因此同样分叉/归档/换会话）；
 - 「压到多少」独立于触发线：可选的 Agent 级 `compactTargetPercent` 以本次压缩前
-  的估算 token 为基数，先给摘要预留输出预算，再决定保留多少近期原文；未设置时
-  沿用固定 2 万 token 尾部预算。切点只落 user 边界，故目标是近似值；压缩事件
+  的估算 token 为基数，既决定摘要输出上限（`min(压缩前估算 token × 百分比, 20k)`），
+  也决定保留多少近期原文；未设置时摘要沿用固定预算（13,107）与固定 2 万 token
+  尾部预算。摘要撞到输出上限时，会把截断的摘要作为输入压短重试一次；仍截断则
+  fail-closed 丢弃，不保存半截摘要。切点只落 user 边界，故目标是近似值；压缩事件
   展示前后估算 token 与保留比例。该设置不改变何时触发自动压缩；保存后对已打开会话随后启动的轮次或手动压缩生效，正在执行的轮次沿用启动时的设置；
 - 投影式流水线按成本从低到高跑：**先清旧工具输出**（不花 LLM 调用、不动对话
   结构，对齐 Claude Code 的「先清旧工具输出再摘要」与 Anthropic context editing
@@ -530,9 +544,10 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
   `session_messages` / `set_session_model` / `compact_now`；`send_prompt` 的
   `sessionId` 为空 = 新建一条）；`session_infos` 返回所有打开中的会话，前端由此
   得到「哪些会话正在跑」的**集合**，侧栏把标记打在那条**会话行**上。
-- **Agent 级统计**：`agent_stats` 按 Agent 扫描活跃会话的 git 条目，汇总 token、
-  模型/工具分布与按天趋势；成本按 models.dev 报价估算（每百万 token），没有可信
-  价格时显示未知而不是按 0 计算。数据只在读侧聚合，不新增账本或数据库。
+- **Agent 级统计**：`agent_stats` 按主 Agent 扫描活跃会话的 git 条目，汇总 token、
+  模型/工具分布与按天趋势；Subagent 由主 Agent 组合产生，不计入统计（后端 fail-closed）。
+  成本按 models.dev 报价估算（每百万 token），没有可信价格时显示未知而不是按 0 计算。
+  数据只在读侧聚合，不新增账本或数据库；同一会话指纹 + 目录价格的响应会走进程内缓存。
 - **事件本就带身份**：所有 envelope 都带 `agentName` + `sessionId` + `runId`，前端
   按身份过滤 —— 所以多会话并发不需要新的分发通道。
 - **前端**：离开会话视图**不再中止运行**（后台继续跑、继续落盘；回到视图时用

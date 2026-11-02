@@ -88,6 +88,7 @@ mod attachments;
 mod background_wake;
 mod child;
 mod compaction;
+mod ephemeral;
 mod events;
 mod execution;
 mod lifecycle;

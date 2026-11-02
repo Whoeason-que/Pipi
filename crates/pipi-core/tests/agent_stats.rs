@@ -73,3 +73,32 @@ fn agent_stats_aggregates_committed_sessions() {
     pipi_test_support::set_env_var("HOME", &previous);
     let _ = std::fs::remove_dir_all(&home);
 }
+
+#[test]
+fn subagents_are_excluded_from_statistics() {
+    let _guard = pipi_test_support::HOME_LOCK.lock().unwrap();
+    let home = pipi_test_support::temp_dir("pipi-agent-stats-subagent");
+    let previous = std::env::var("HOME").unwrap_or_default();
+    pipi_test_support::set_env_var("HOME", &home);
+
+    pipi_venv::agents::create_agent_with_instructions(
+        "stats-child",
+        "child",
+        None,
+        None,
+        None,
+        None,
+        None,
+        true,
+    )
+    .unwrap();
+    let error = agent_stats(AgentStatsArgs {
+        agent_name: "stats-child".into(),
+        range_days: None,
+    })
+    .expect_err("subagent stats must be rejected");
+    assert!(error.contains("primary"), "error={error}");
+
+    pipi_test_support::set_env_var("HOME", &previous);
+    let _ = std::fs::remove_dir_all(&home);
+}

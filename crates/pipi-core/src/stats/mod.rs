@@ -21,8 +21,12 @@ use pipi_protocol::session::{
 };
 use pipi_venv::agents;
 
+mod cache;
 mod pricing;
+mod usage;
+use cache::{CacheKey, cache_lookup, cache_store};
 use pricing::Pricing;
+use usage::{AddUsage, token_total};
 
 /// 单次最多扫描的会话数（按最近活跃倒序）。
 pub const MAX_SESSIONS: usize = 300;
@@ -151,16 +155,32 @@ pub struct SessionStatsRow {
     pub unpriced_calls: u64,
 }
 
-/// 扫描一个 Agent 的活跃会话并聚合。`range_days = None` 表示全部历史。
+/// 扫描一个主 Agent 的活跃会话并聚合。`range_days = None` 表示全部历史。
+///
+/// Subagent 不计入统计：它们由主 Agent 组合出来，重复计入会让用量/成本虚高。
+/// 命令层 fail-closed，前端也只展示主 Agent。
 pub fn agent_stats(agent_name: &str, range_days: Option<u32>) -> Result<AgentStats, String> {
     let def = agents::load_agent(agent_name)?;
+    if def.subagent {
+        return Err("Statistics are only available for primary Agents (subagents are excluded)".into());
+    }
+    let sessions_dir = def.sessions_dir().ok_or("Cannot resolve session directory")?;
+    let repo_path = sessions_dir
+        .parent()
+        .ok_or("Cannot resolve agent directory")?
+        .join("sessions.git");
     let repo = agent_repo(&def)?;
     let now = pipi_protocol::now_millis();
-    let since = range_days.map(|days| now.saturating_sub(u64::from(days).saturating_mul(DAY_MS)));
-
-    let mut aggregator = Aggregator::new(agent_name, range_days, now);
 
     let summaries = repo.list();
+    let key = CacheKey::new(repo_path, range_days, &summaries);
+    if let Some(mut stats) = cache_lookup(&key) {
+        stats.generated_at = now;
+        return Ok(stats);
+    }
+
+    let since = range_days.map(|days| now.saturating_sub(u64::from(days).saturating_mul(DAY_MS)));
+    let mut aggregator = Aggregator::new(agent_name, range_days, now);
     let mut scanned = 0usize;
     for summary in &summaries {
         if since.is_some_and(|start| summary.last_active < start) {
@@ -181,7 +201,9 @@ pub fn agent_stats(agent_name: &str, range_days: Option<u32>) -> Result<AgentSta
         }
     }
 
-    Ok(aggregator.finish())
+    let stats = aggregator.finish();
+    cache_store(key, stats.clone());
+    Ok(stats)
 }
 
 struct Aggregator {
@@ -409,87 +431,13 @@ impl Aggregator {
     }
 }
 
-fn token_total(input: u64, output: u64, cache_read: u64, cache_write: u64) -> u64 {
-    input + output + cache_read + cache_write
-}
-
-trait AddUsage {
-    fn add_call(&mut self, usage: &pipi_protocol::Usage, cost: Option<f64>);
-}
-
-impl AddUsage for StatsTotals {
-    fn add_call(&mut self, usage: &pipi_protocol::Usage, cost: Option<f64>) {
-        self.assistant_calls += 1;
-        self.input += usage.input;
-        self.output += usage.output;
-        self.cache_read += usage.cache_read;
-        self.cache_write += usage.cache_write;
-        self.tokens = token_total(self.input, self.output, self.cache_read, self.cache_write);
-        if let Some(value) = cost {
-            self.cost = Some(round_cost(self.cost.unwrap_or(0.0) + value));
-        } else {
-            self.unpriced_calls += 1;
-        }
-    }
-}
-
-impl AddUsage for DayStats {
-    fn add_call(&mut self, usage: &pipi_protocol::Usage, cost: Option<f64>) {
-        self.assistant_calls += 1;
-        self.input += usage.input;
-        self.output += usage.output;
-        self.cache_read += usage.cache_read;
-        self.cache_write += usage.cache_write;
-        self.tokens = token_total(self.input, self.output, self.cache_read, self.cache_write);
-        if let Some(value) = cost {
-            self.cost = Some(round_cost(self.cost.unwrap_or(0.0) + value));
-        } else {
-            self.unpriced_calls += 1;
-        }
-    }
-}
-
-impl AddUsage for ModelStats {
-    fn add_call(&mut self, usage: &pipi_protocol::Usage, cost: Option<f64>) {
-        self.calls += 1;
-        self.input += usage.input;
-        self.output += usage.output;
-        self.cache_read += usage.cache_read;
-        self.cache_write += usage.cache_write;
-        self.tokens = token_total(self.input, self.output, self.cache_read, self.cache_write);
-        if let Some(value) = cost {
-            self.cost = Some(round_cost(self.cost.unwrap_or(0.0) + value));
-        } else {
-            self.unpriced_calls += 1;
-        }
-    }
-}
-
-impl SessionStatsRow {
-    fn add_call(&mut self, usage: &pipi_protocol::Usage, cost: Option<f64>) {
-        self.assistant_calls += 1;
-        self.input += usage.input;
-        self.output += usage.output;
-        self.cache_read += usage.cache_read;
-        self.cache_write += usage.cache_write;
-        self.tokens = token_total(self.input, self.output, self.cache_read, self.cache_write);
-        if let Some(value) = cost {
-            self.cost = Some(round_cost(self.cost.unwrap_or(0.0) + value));
-        } else {
-            self.unpriced_calls += 1;
-        }
-    }
-}
-
-fn round_cost(value: f64) -> f64 {
-    (value * 1_000_000.0).round() / 1_000_000.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stats::cache::summaries_fingerprint;
     use pipi_protocol::{StopReason, Usage};
     use pipi_provider::catalog::ModelCost;
+    use std::path::PathBuf;
 
     fn summary(id: &str, model: &str) -> SessionSummary {
         SessionSummary {
@@ -499,6 +447,7 @@ mod tests {
             started_at: 0,
             last_active: 10_000,
             model: Some(model.into()),
+            parent_session_id: None,
         }
     }
 
@@ -561,6 +510,44 @@ mod tests {
                 message: Message::user_text(text),
             },
         }
+    }
+
+    #[test]
+    fn cache_key_roundtrips_and_separates_ranges() {
+        let key = CacheKey {
+            repo: PathBuf::from(format!("/tmp/pipi-stats-cache-{}", std::process::id())),
+            range_days: Some(30),
+            sessions: 7,
+            pricing: 11,
+        };
+        let stats = AgentStats {
+            agent_name: "cache-test".into(),
+            generated_at: 1,
+            ..Default::default()
+        };
+        cache_store(key.clone(), stats);
+        let hit = cache_lookup(&key).expect("cache hit");
+        assert_eq!(hit.agent_name, "cache-test");
+        assert_eq!(hit.generated_at, 1);
+        assert!(
+            cache_lookup(&CacheKey {
+                range_days: Some(7),
+                ..key
+            })
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn session_fingerprint_changes_when_a_session_appends() {
+        let base = vec![summary("s1", "m")];
+        let mut changed = base.clone();
+        changed[0].last_active += 1;
+        changed[0].message_count += 1;
+        assert_ne!(
+            summaries_fingerprint(&base),
+            summaries_fingerprint(&changed)
+        );
     }
 
     #[test]

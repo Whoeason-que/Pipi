@@ -218,9 +218,8 @@ impl RuntimeState {
         let mut registry = pipi_tools::builtin_registry(&tool_context);
         let background_owner =
             BackgroundTaskOwner::new(def.name.clone(), session_id.clone(), run_id);
-        if tool_context.permissions.tool_enabled("create_agent") {
-            registry.push(Arc::new(CreateAgentTool::new(model.clone())));
-        }
+        // run_agent 先于 create_agent 注册：一次性委派是默认动作，创建持久
+        // Agent 只在同一角色会被复用时才发生（工具顺序会影响模型的选择）。
         if tool_context.permissions.tool_enabled("run_agent") {
             let default_background = tool_context
                 .permissions
@@ -239,8 +238,12 @@ impl RuntimeState {
                     Arc::new(self.background.clone()),
                     default_background,
                 )
+                .with_caller_model(model.clone())
                 .with_session_sink(make_session_change_sink(event_sink.clone())),
             ));
+        }
+        if tool_context.permissions.tool_enabled("create_agent") {
+            registry.push(Arc::new(CreateAgentTool::new(model.clone())));
         }
         if tool_context.permissions.tool_enabled("read_agent") {
             registry.push(Arc::new(ReadAgentTool));

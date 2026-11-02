@@ -65,6 +65,13 @@ pub enum EntryKind {
     BackgroundResult {
         result: crate::BackgroundTaskResult,
     },
+    /// 一次性子运行标记（Pipi 新增）。`run_agent` 的 inline 模式在调用者
+    /// Agent 的会话库里开一条 child session，首条条目记录父会话身份；
+    /// 回放中性（不产生消息），会话列表据此把子运行与顶层会话分开。
+    SubagentRun {
+        parent_agent: String,
+        parent_session: String,
+    },
 }
 
 /// 环境记账单条：变量键 + 来源层标签（"runtime" 或契约层 label）。
@@ -134,6 +141,11 @@ pub struct SessionSummary {
     /// 会话使用的模型（从最新 model_change 或最新 assistant 消息提取）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// 一次性子运行的父会话 id（顶层会话为 `None`）。前端据此把子运行从
+    /// 侧栏的顶层会话列表里分出去；`read_agent(sessionId)` 仍可按 id 读取，
+    /// 但按普通会话续跑会被拒绝（一次性语义，见 `run_agent_in_session`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_session_id: Option<String>,
 }
 
 /// 显式导入（旧 JSONL 会话 → git 分支）的结果：宿主命令回报给用户。
@@ -197,6 +209,12 @@ pub trait SessionLog: Send {
         result: &crate::BackgroundTaskResult,
     ) -> std::io::Result<String>;
     fn append_custom(&mut self, custom_type: &str) -> std::io::Result<String>;
+    /// 追加一次性子运行标记（新会话的首条条目）：记录父 Agent 与父会话。
+    fn append_subagent_run(
+        &mut self,
+        parent_agent: &str,
+        parent_session: &str,
+    ) -> std::io::Result<String>;
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String>;
     fn append_model_change(&mut self, model: &Model) -> std::io::Result<String>;
     /// 追加环境契约记账条目（每会话至多一条，重复调用幂等跳过）。
@@ -477,6 +495,31 @@ mod tests {
                 message: Message::user_text(text),
             },
         }
+    }
+
+    /// 一次性子运行标记：独立的 wire 形状，回放中性（不产生消息）。
+    #[test]
+    fn subagent_run_marker_roundtrips_and_replays_neutrally() {
+        let entry = SessionEntry {
+            id: "e1".into(),
+            parent_id: None,
+            seq: 0,
+            timestamp: 1,
+            kind: EntryKind::SubagentRun {
+                parent_agent: "caller".into(),
+                parent_session: "1730000000000-parent".into(),
+            },
+        };
+        let line = serde_json::to_string(&entry).unwrap();
+        assert!(line.contains("\"type\":\"subagent_run\""), "{line}");
+        let back: SessionEntry = serde_json::from_str(&line).unwrap();
+        assert!(matches!(
+            back.kind,
+            EntryKind::SubagentRun { ref parent_session, .. } if parent_session == "1730000000000-parent"
+        ));
+        let entries = [&back];
+        assert!(replay(&entries).0.is_empty());
+        assert!(rebuild_messages(&entries).is_empty());
     }
 
     fn compaction_entry(id: &str, parent: &str, seq: u64, keep: &str) -> SessionEntry {

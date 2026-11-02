@@ -76,11 +76,11 @@ export default function StatsView({
   }, [agent?.name, rangeDays, refresh]);
 
   const choices = useMemo(
-    () => agents.map((item) => ({
+    () => agents.filter((item) => !item.subagent).map((item) => ({
       value: item.name,
-      label: item.subagent ? `${item.name} · ${t("nav.subagents")}` : item.name,
+      label: item.name,
     })),
-    [agents, t],
+    [agents],
   );
   const totals = stats?.totals;
   const hit = totals ? cacheHitPct(totals) : null;
@@ -136,6 +136,7 @@ export default function StatsView({
           <div className="overview-intro">
             <h1>{t("stats.title")}</h1>
             <p>{agent ? `${agent.name} · ${t("stats.subtitle")}` : t("stats.selectAgent")}</p>
+            <p className="caption stats-primary-only">{t("stats.primaryOnly")}</p>
             {stats && (
               <div className="stats-generated">
                 <IconClock />

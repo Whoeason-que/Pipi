@@ -5,7 +5,7 @@
 //! 清单。新增的是「产出 [`Plan`] 而不是直接改历史」，以及把摘要调用的
 //! usage 带回上层（计入会话账本）。
 
-use super::{Plan, Preparation, StrategyEnv, file_operations};
+use super::{MIN_SUMMARY_MAX_TOKENS, Plan, Preparation, StrategyEnv, file_operations};
 use pipi_protocol::{AbortSignal, Context, Message, StopReason, StreamEvent, StreamOptions, Usage};
 
 /// 摘要调用的系统提示：限定为总结者角色，禁止把对话接下去（对齐 pi）。
@@ -32,7 +32,7 @@ impl LlmSummarize {
         let (summary_text, usage) = summarize(
             to_summarize,
             prep.previous_summary(),
-            prep.budget.summary_max,
+            prep.budget.summary_max_for(prep.tokens()),
             env,
         )
         .await?;
@@ -182,7 +182,7 @@ pub(super) async fn summarize(
     summary_max: u32,
     env: &StrategyEnv<'_>,
 ) -> Result<(String, Option<Usage>), String> {
-    let context = Context {
+    let mut context = Context {
         system_prompt: Some(SUMMARY_SYSTEM_PROMPT.to_string()),
         messages: vec![Message::user_text(build_summary_prompt(
             messages,
@@ -200,10 +200,22 @@ pub(super) async fn summarize(
     options.max_tokens = Some(model_max.min(summary_max));
 
     let mut failures: u32 = 0;
+    let mut condensed = false;
     loop {
         match summarize_once(env, &context, &options).await {
             Ok(value) => return Ok(value),
             Err(SummarizeFailure::Fatal(message)) => return Err(message),
+            Err(SummarizeFailure::Truncated { text, usage }) => {
+                // 摘要被输出上限截断：把截断文本本身压短再试一次。同样的输入 +
+                // 同样的上限重发大概率还会撞墙，所以这次换输入与上限。
+                if condensed || text.trim().is_empty() {
+                    return Err(truncated_summary_error(summary_max, usage.as_ref()));
+                }
+                condensed = true;
+                let target = (summary_max / 2).max(MIN_SUMMARY_MAX_TOKENS);
+                context = condense_context(&text, target);
+                options.max_tokens = Some(model_max.min(target));
+            }
             Err(SummarizeFailure::Retryable { message, hint }) => {
                 failures += 1;
                 match crate::retry::retry_decision(&env.retry, failures, hint) {
@@ -224,12 +236,37 @@ pub(super) async fn summarize(
     }
 }
 
-/// 单次摘要尝试的失败：终态 或 可重试（带等待提示）。
+/// 被截断的摘要：把截断文本作为输入，要求模型压成更短的完整摘要。
+fn condense_context(truncated: &str, target_tokens: u32) -> Context {
+    Context {
+        system_prompt: Some(SUMMARY_SYSTEM_PROMPT.to_string()),
+        messages: vec![Message::user_text(format!(
+            "The previous summary was cut off at the output token limit. Rewrite the truncated summary below as a complete, self-contained summary in at most {target_tokens} tokens. Preserve the most important facts, decisions, file paths and error messages; drop redundancy.\n\n<truncated-summary>\n{}\n</truncated-summary>",
+            truncated.trim()
+        ))],
+        tools: vec![],
+    }
+}
+
+fn truncated_summary_error(summary_max: u32, usage: Option<&Usage>) -> String {
+    format!(
+        "摘要调用达到长度上限（请求最多 {} 个输出 token，实际输出 {} 个），压缩重试仍被截断，未保存可能截断的摘要",
+        summary_max,
+        usage.map_or(0, |usage| usage.output)
+    )
+}
+
+/// 单次摘要尝试的失败：终态、可重试（带等待提示）或输出被截断。
 enum SummarizeFailure {
     Fatal(String),
     Retryable {
         message: String,
         hint: Option<pipi_protocol::RetryHint>,
+    },
+    /// 摘要生成撞到输出上限：文本可能是半截的，调用方可以把它压短重试一次。
+    Truncated {
+        text: String,
+        usage: Option<Usage>,
     },
 }
 
@@ -315,11 +352,10 @@ async fn summarize_once(
         });
     }
     if stop_reason == Some(StopReason::Length) {
-        return Err(SummarizeFailure::Fatal(format!(
-            "摘要调用达到长度上限（请求最多 {} 个输出 token，实际输出 {} 个），未保存可能截断的摘要",
-            options.max_tokens.unwrap_or_default(),
-            usage.as_ref().map_or(0, |u| u.output),
-        )));
+        return Err(SummarizeFailure::Truncated {
+            text: summary_text,
+            usage,
+        });
     }
     if summary_text.trim().is_empty() {
         return Err(SummarizeFailure::Fatal(format!(
@@ -433,6 +469,123 @@ mod tests {
         (result, requested[0])
     }
 
+    /// 按脚本逐次回放的摘要 provider：用来验证「截断 → 压短重试」的第二次请求。
+    struct ScriptedSummaryProvider {
+        replies: Mutex<std::collections::VecDeque<(StopReason, Vec<ContentBlock>, Usage)>>,
+        requested_max_tokens: Mutex<Vec<u32>>,
+        prompts: Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for ScriptedSummaryProvider {
+        async fn stream(
+            &self,
+            _model: &Model,
+            context: &Context,
+            options: &StreamOptions,
+            _abort: AbortSignal,
+        ) -> EventStream {
+            self.requested_max_tokens
+                .lock()
+                .unwrap()
+                .push(options.max_tokens.unwrap());
+            let prompt = context
+                .messages
+                .iter()
+                .map(|message| match message {
+                    Message::User { content, .. } => content.text(),
+                    _ => String::new(),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            self.prompts.lock().unwrap().push(prompt);
+            let (reason, content, usage) = self
+                .replies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("scripted summary reply");
+            let message = Message::Assistant {
+                content,
+                api: String::new(),
+                provider: String::new(),
+                model: String::new(),
+                usage,
+                stop_reason: reason,
+                error_message: None,
+                error_kind: None,
+                timestamp: 0,
+                duration_ms: None,
+            };
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            tx.send(StreamEvent::Done {
+                reason,
+                usage,
+                message: Box::new(message),
+            })
+            .await
+            .unwrap();
+            rx
+        }
+    }
+
+    async fn scripted_summary(
+        replies: Vec<(StopReason, &str, u64)>,
+        summary_max: u32,
+    ) -> (
+        Result<(String, Option<Usage>), String>,
+        Vec<u32>,
+        Vec<String>,
+    ) {
+        let replies = replies
+            .into_iter()
+            .map(|(reason, text, output_tokens)| {
+                let content = if text.is_empty() {
+                    vec![ContentBlock::Thinking {
+                        thinking: "reasoning only".into(),
+                        thinking_signature: None,
+                    }]
+                } else {
+                    vec![ContentBlock::Text { text: text.into() }]
+                };
+                (
+                    reason,
+                    content,
+                    Usage {
+                        output: output_tokens,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+        let provider = ScriptedSummaryProvider {
+            replies: Mutex::new(replies),
+            requested_max_tokens: Mutex::new(Vec::new()),
+            prompts: Mutex::new(Vec::new()),
+        };
+        let model = Model {
+            id: "test".into(),
+            name: String::new(),
+            api: Api::OpenAICompletions,
+            base_url: String::new(),
+            max_tokens: 384_000,
+            context_window: 1_000_000,
+            reasoning_effort: None,
+        };
+        let options = StreamOptions::default();
+        let env = StrategyEnv {
+            provider: &provider,
+            model: &model,
+            options: &options,
+            abort: AbortSignal::new(),
+            retry: crate::retry::RetryPolicy::NONE,
+        };
+        let result = summarize(&[Message::user_text("history")], None, summary_max, &env).await;
+        let requested = provider.requested_max_tokens.lock().unwrap().clone();
+        let prompts = provider.prompts.lock().unwrap().clone();
+        (result, requested, prompts)
+    }
+
     #[tokio::test]
     async fn summary_request_uses_budget_bounded_by_model_limit() {
         let budget = super::super::Budget::from_window(1_000_000, 75);
@@ -459,6 +612,49 @@ mod tests {
             summary_reply(384_000, 4_096, StopReason::Length, "partial summary", 4_096).await;
         assert_eq!(requested, 4_096);
         assert!(result.unwrap_err().contains("未保存可能截断的摘要"));
+    }
+
+    /// 第一次撞输出上限：把截断摘要喂回去压短，第二次成功。
+    #[tokio::test]
+    async fn truncated_summary_is_condensed_and_retried_once() {
+        let (result, requested, prompts) = scripted_summary(
+            vec![
+                (StopReason::Length, "partial summary", 8_192),
+                (StopReason::Stop, "condensed summary", 500),
+            ],
+            8_192,
+        )
+        .await;
+        assert_eq!(result.unwrap().0, "condensed summary");
+        // 第一次用原上限，第二次用一半（4,096）并要求压短。
+        assert_eq!(requested, vec![8_192, 4_096]);
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("partial summary"), "{}", prompts[1]);
+        assert!(prompts[1].contains("truncated summary"), "{}", prompts[1]);
+    }
+
+    /// 截断文本为空（例如 reasoning 吃光输出预算）：不压短，直接 fail-closed。
+    #[tokio::test]
+    async fn empty_truncated_summary_is_not_condensed() {
+        let (result, requested, _) =
+            scripted_summary(vec![(StopReason::Length, "", 4_096)], 4_096).await;
+        assert!(result.unwrap_err().contains("未保存可能截断的摘要"));
+        assert_eq!(requested.len(), 1, "空截断不应再发第二次请求");
+    }
+
+    /// 压短重试只做一次：第二次仍被截断就放弃，不无限重试。
+    #[tokio::test]
+    async fn truncated_summary_retries_only_once() {
+        let (result, requested, _) = scripted_summary(
+            vec![
+                (StopReason::Length, "partial summary", 4_096),
+                (StopReason::Length, "still partial", 4_096),
+            ],
+            4_096,
+        )
+        .await;
+        assert!(result.unwrap_err().contains("未保存可能截断的摘要"));
+        assert_eq!(requested.len(), 2);
     }
 
     #[tokio::test]
@@ -518,6 +714,16 @@ mod tests {
         assert_eq!(
             strategy.run(&target, &env).await.unwrap().keep_from,
             Some(1)
+        );
+        // 摘要请求用的是「压缩前上下文 × 目标百分比」，不是 budget.summary_max。
+        assert_eq!(
+            *provider
+                .requested_max_tokens
+                .lock()
+                .unwrap()
+                .last()
+                .unwrap(),
+            target.budget.summary_max_for(target.tokens())
         );
     }
 

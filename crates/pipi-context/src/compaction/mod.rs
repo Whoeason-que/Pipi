@@ -35,6 +35,10 @@ pub const KEEP_RECENT_TOKENS: u64 = 20_000;
 /// 摘要请求的最大输出预算（含模型的思考 token）。对齐 pi：最多使用预留空间的 80%。
 pub const SUMMARY_MAX_TOKENS: u32 = (DEFAULT_RESERVE_TOKENS as u32) * 4 / 5;
 
+/// 显式压缩目标下摘要输出的硬顶。只用于 `summary_max_for` 的目标缩放路径；
+/// 未配置目标的 Agent 仍走 [`SUMMARY_MAX_TOKENS`]，行为不变。
+pub const SUMMARY_MAX_TOKENS_CEILING: u32 = 20_000;
+
 /// 小窗口仍给摘要留出基本的输出空间；这不是大窗口的固定上限。
 const MIN_SUMMARY_MAX_TOKENS: u32 = 1_024;
 
@@ -93,6 +97,25 @@ impl Budget {
     pub fn with_target_percent(mut self, target_percent: Option<u8>) -> Budget {
         self.target_percent = target_percent.filter(|value| (1..=99).contains(value));
         self
+    }
+
+    /// 本次摘要的输出上限。
+    ///
+    /// 显式配置了压缩目标（`compactTargetPercent`）时，按压缩前整段历史的估算
+    /// token 的同一百分比给摘要留输出空间，并收敛到
+    /// [`MIN_SUMMARY_MAX_TOKENS`, `SUMMARY_MAX_TOKENS_CEILING`]；没有目标时沿用
+    /// 固定预算 [`Budget::summary_max`]（旧 Agent 行为不变）。
+    ///
+    /// `tokens_before` 是压缩前整段历史的估算 token（`Preparation::tokens()`），
+    /// 不是只算被摘要的那一段。
+    pub fn summary_max_for(&self, tokens_before: u64) -> u32 {
+        match self.target_percent {
+            Some(percent) => (tokens_before.saturating_mul(percent as u64) / 100).clamp(
+                MIN_SUMMARY_MAX_TOKENS as u64,
+                SUMMARY_MAX_TOKENS_CEILING as u64,
+            ) as u32,
+            None => self.summary_max,
+        }
     }
 
     /// 触发阈值：占用超过「窗口 × 百分比」才值得动用压缩。
@@ -519,6 +542,20 @@ mod tests {
         assert_eq!(normalize_threshold_percent(1), 1);
         assert_eq!(normalize_threshold_percent(100), 100);
         assert_eq!(estimate_tokens(&Message::user_text("abcdefgh")), 2);
+    }
+
+    /// 显式压缩目标下，摘要上限跟着「压缩前上下文 × 目标百分比」缩放并封顶 20k；
+    /// 没配目标时保持旧的固定预算。
+    #[test]
+    fn summary_max_scales_with_the_configured_target() {
+        let targeted = Budget::from_window(1_000_000, 50).with_target_percent(Some(10));
+        assert_eq!(targeted.summary_max_for(500_000), 20_000);
+        assert_eq!(targeted.summary_max_for(150_000), 15_000);
+        assert_eq!(targeted.summary_max_for(5_000), MIN_SUMMARY_MAX_TOKENS);
+        assert_eq!(
+            Budget::from_window(1_000_000, 50).summary_max_for(500_000),
+            SUMMARY_MAX_TOKENS
+        );
     }
 
     #[test]

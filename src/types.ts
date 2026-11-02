@@ -280,6 +280,8 @@ export interface SessionSummaryView {
   startedAt: number;
   lastActive: number;
   model?: string;
+  /** 一次性子运行的父会话 id；顶层会话没有这个字段（不进侧栏列表）。 */
+  parentSessionId?: string;
 }
 
 /** 旧 JSONL 会话导入 git 的结果（逐条校验、幂等；失败逐条回报）。 */

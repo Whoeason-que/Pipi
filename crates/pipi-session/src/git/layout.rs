@@ -43,6 +43,7 @@ pub fn kind_token(kind: &EntryKind) -> &'static str {
         EntryKind::ModelChange { .. } => "model_change",
         EntryKind::Env { .. } => "env",
         EntryKind::BackgroundResult { .. } => "background_result",
+        EntryKind::SubagentRun { .. } => "subagent_run",
     }
 }
 
@@ -105,6 +106,9 @@ pub fn summary_line(entry: &SessionEntry) -> String {
         EntryKind::Env { declared } => format!("env: {} 项声明", declared.len()),
         EntryKind::BackgroundResult { result } => {
             format!("background: {} {}", result.status.as_str(), result.job_id)
+        }
+        EntryKind::SubagentRun { parent_session, .. } => {
+            format!("subagent_run: parent {parent_session}")
         }
     };
     truncate_chars(&line, SUMMARY_CHARS)

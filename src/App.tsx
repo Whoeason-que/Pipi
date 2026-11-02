@@ -158,6 +158,10 @@ export default function App() {
     return result;
   }, [sessionsByAgent, filteredAgents, activeWorkspace]);
 
+  const statsAgents = useMemo(
+    () => filteredAgents.filter((agent) => !agent.subagent),
+    [filteredAgents],
+  );
   const current = filteredAgents.find(agent => agent.name === selected);
   const collection: AgentSection = view.kind === "home" ? view.section ?? "agents"
     : current ? agentSection(current) : navSection === "subagents" ? "subagents" : "agents";
@@ -228,7 +232,10 @@ export default function App() {
       } else if (view.kind === "files" || view.kind === "git") {
         navigate({ kind: view.kind, agentName: fallback });
       } else if (view.kind === "stats") {
-        navigate({ kind: "stats", agentName: fallback });
+        navigate({
+          kind: "stats",
+          agentName: nextFiltered.find((agent) => !agent.subagent)?.name ?? null,
+        });
       }
     }
   };
@@ -435,9 +442,9 @@ export default function App() {
         navigate(target, target.kind !== "home", navOptions);
       }
     } else if (section === "stats") {
-      const target = selected && filteredAgents.some(agent => agent.name === selected)
+      const target = selected && statsAgents.some(agent => agent.name === selected)
         ? selected
-        : filteredAgents[0]?.name ?? null;
+        : statsAgents[0]?.name ?? null;
       navigate({ kind: "stats", agentName: target }, true, navOptions);
     } else if (section === "files" || section === "git") {
       if (!previewWorkspacePaths[section] && currentWorkspaceTarget?.workspace) {
@@ -525,7 +532,7 @@ export default function App() {
             onSelect={name => { setSkillSelected(name); setSidebarOpen(false); }} onRefresh={() => void loadSkillLibrary()} />
           : navSection === "forum" ? <ForumSidebar onSelect={() => { if (view.kind !== "forum") navigate({ kind: "forum" }); }} />
           : navSection === "stats" || view.kind === "stats" ? <StatsSidebar
-            agents={filteredAgents}
+            agents={statsAgents}
             selected={view.kind === "stats" ? view.agentName : selected}
             sessionsByAgent={filteredSessionsByAgent}
             onSelect={name => navigate({ kind: "stats", agentName: name })} />
@@ -607,8 +614,8 @@ export default function App() {
             onSaved={async () => { await refresh(); }} onBack={() => selectAgent(current.name)} onError={safeSetError}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} sessions={sessionRuntime} onRunningChange={handleRunningChange} />
           : view.kind === "stats" ? <StatsView
-            agent={filteredAgents.find(item => item.name === view.agentName) ?? null}
-            agents={filteredAgents}
+            agent={statsAgents.find(item => item.name === view.agentName) ?? null}
+            agents={statsAgents}
             onSelectAgent={name => navigate({ kind: "stats", agentName: name })}
             onOpenSession={openSession} />
           : <WorkspaceOverview {...overviewProps} agent={view.kind === "agent" ? current : undefined} />}
