@@ -1,4 +1,5 @@
 import { IconCheck } from "../icons";
+import { useI18n } from "../i18n";
 import type { ThemeDefinition } from "../theme";
 
 export function ThemeOption({
@@ -10,6 +11,9 @@ export function ThemeOption({
   theme: ThemeDefinition;
   onClick: () => void;
 }) {
+  const { t } = useI18n();
+  const label = t(`themes.${theme.id}.label`);
+  const description = t(`themes.${theme.id}.description`);
   const { preview } = theme;
   const previewStyle = {
     "--preview-bg": preview.bg,
@@ -24,10 +28,10 @@ export function ThemeOption({
     <button
       type="button"
       className={`theme-option${active ? " active" : ""}`}
-      aria-label={theme.label}
+      aria-label={label}
       aria-pressed={active}
       onClick={onClick}
-      title={theme.description}
+      title={description}
     >
       <span
         className={`theme-preview ${theme.mode}`}
@@ -58,10 +62,10 @@ export function ThemeOption({
         </span>
       </span>
       <span className="option-caption">
-        <span>{theme.label}</span>
+        <span>{label}</span>
         <SelectionMark active={active} />
       </span>
-      <span className="theme-description">{theme.description}</span>
+      <span className="theme-description">{description}</span>
     </button>
   );
 }
@@ -77,6 +81,7 @@ export function LocaleOption({
   label: string;
   onClick: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -90,7 +95,7 @@ export function LocaleOption({
       </span>
       <span className="locale-caption">
         <strong>{label}</strong>
-        <span>{code === "ZH" ? "Chinese, Simplified" : "英语"}</span>
+        <span>{code === "ZH" ? t("settings.chineseSimplified") : t("settings.english")}</span>
       </span>
       <SelectionMark active={active} />
     </button>

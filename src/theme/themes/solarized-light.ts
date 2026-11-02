@@ -2,8 +2,8 @@ import type { ThemeDefinition } from "../types.ts";
 
 export const solarizedLightTheme: ThemeDefinition = {
   id: "solarized-light",
-  label: "暖阳素白",
-  description: "温润护眼的羊皮纸暖白底色，配合质朴的暖琥珀强调色。",
+  label: "Warm Paper",
+  description: "Gentle parchment white that is easy on the eyes, with a grounded warm amber accent.",
   mode: "light",
   preview: {
     bg: "#faf6ed",

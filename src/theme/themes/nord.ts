@@ -2,8 +2,8 @@ import type { ThemeDefinition } from "../types.ts";
 
 export const nordTheme: ThemeDefinition = {
   id: "nord",
-  label: "Nord 极光",
-  description: "源于北极冰雪与极光的经典冷色调冷杉冷淡灰蓝。",
+  label: "Nord Aurora",
+  description: "Classic cool blue-grays inspired by Arctic ice and the aurora.",
   mode: "dark",
   preview: {
     bg: "#242933",

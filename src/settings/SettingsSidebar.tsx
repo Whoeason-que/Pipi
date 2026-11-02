@@ -34,25 +34,31 @@ export default function SettingsSidebar({
   const sectionMeta = (id: SettingsSection): string => {
     switch (id) {
       case "appearance":
-        return `${resolveTheme(settings.theme).label} · ${locale.toUpperCase()}`;
+        return `${t(`themes.${resolveTheme(settings.theme).id}.label`)} · ${locale.toUpperCase()}`;
       case "context":
         return settings.compaction.forkBeforeCompact
-          ? "压缩前分叉"
-          : "原地压缩";
+          ? t("settings.forkBeforeCompactShort")
+          : t("settings.inPlaceShort");
       case "retry":
-        return `${settings.retry.maxAttempts} 次尝试 · ${formatRetryDelay(settings.retry.baseDelayMs)}起`;
+        return t("settings.retryMeta", {
+          attempts: settings.retry.maxAttempts,
+          base: formatRetryDelay(settings.retry.baseDelayMs),
+        });
       case "notifications":
         return t("notifications.thisDevice");
       case "providers": {
         const fallback = settings.providers.find(
           (item) => item.id === settings.defaultProviderId,
         );
-        return `${settings.providers.length} 家 · 默认 ${fallback?.name ?? "未设置"}`;
+        return t("settings.providersMeta", {
+          count: settings.providers.length,
+          name: fallback?.name ?? t("settings.notSet"),
+        });
       }
       case "remote":
         return t("remoteAccess.navHint");
       case "account":
-        return "Web 访问保护";
+        return t("settings.webAccessProtection");
     }
   };
 

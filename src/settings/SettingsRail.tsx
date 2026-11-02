@@ -16,7 +16,7 @@ export function SettingsRail({
   controller: ReturnType<typeof useRightRail>;
   section: SettingsSection;
   settings: Settings;
-  t: (key: string) => string;
+  t: (key: string, params?: Record<string, string | number>) => string;
   showLogout?: boolean;
   onClose: () => void;
 }) {
@@ -26,68 +26,70 @@ export function SettingsRail({
     controller={controller}
     id="settings-rail"
     label={info.label}
-    subtitle="设置 · 自动保存"
+    subtitle={t("settings.railSubtitle")}
     icon={<SettingsSectionIcon section={section} />}
     tabs={[
       {
         id: "section",
-        label: "分区",
-        content: <SectionInfo description={info.description} section={section} showLogout={showLogout} onClose={onClose} />,
+        label: t("settings.sectionTab"),
+        content: <SectionInfo description={info.description} section={section} t={t} showLogout={showLogout} onClose={onClose} />,
       },
       {
         id: "storage",
-        label: "存储",
-        content: <StorageInfo settings={settings} defaultProvider={defaultProvider?.id ?? null} />,
+        label: t("settings.storageTab"),
+        content: <StorageInfo settings={settings} defaultProvider={defaultProvider?.id ?? null} t={t} />,
       },
     ]}
   />;
 }
 
-function SectionInfo({ description, section, showLogout, onClose }: {
+function SectionInfo({ description, section, t, showLogout, onClose }: {
   description: string;
   section: SettingsSection;
+  t: (key: string, params?: Record<string, string | number>) => string;
   showLogout?: boolean;
   onClose: () => void;
 }) {
   return <>
     <section className="right-rail-section">
       <p>{description}</p>
-      <div className="right-rail-kv"><span>保存</span><span>{section === "remote" ? "手动应用" : "自动保存"}</span></div>
-      <div className="right-rail-kv"><span>分区</span><span className="mono">{section}</span></div>
-      {showLogout && <div className="right-rail-kv"><span>账户</span><span>Web 远程访问</span></div>}
+      <div className="right-rail-kv"><span>{t("settings.saveMode")}</span><span>{section === "remote" ? t("settings.manualApply") : t("settings.autoSave")}</span></div>
+      <div className="right-rail-kv"><span>{t("settings.sectionLabel")}</span><span className="mono">{section}</span></div>
+      {showLogout && <div className="right-rail-kv"><span>{t("settings.account")}</span><span>{t("settings.webRemoteAccess")}</span></div>}
     </section>
     <section className="right-rail-section">
-      <h3>提示</h3>
+      <h3>{t("settings.tips")}</h3>
       <p className="caption right-rail-note">
-        设置修改会立即写入本机文件，不需要「保存」按钮。按 <kbd>Esc</kbd> 返回之前的界面。
+        {t("settings.autoSaveNote")} <kbd>Esc</kbd> {t("settings.escReturn")}
       </p>
       <div className="right-rail-actions-row">
-        <button type="button" className="btn small ghost" onClick={onClose}>返回</button>
+        <button type="button" className="btn small ghost" onClick={onClose}>{t("common.back")}</button>
       </div>
     </section>
   </>;
 }
 
-function StorageInfo({ settings, defaultProvider }: {
+function StorageInfo({ settings, defaultProvider, t }: {
   settings: Settings;
   defaultProvider: string | null;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }) {
   return <>
     <section className="right-rail-section">
-      <h3>文件</h3>
+      <h3>{t("settings.file")}</h3>
       <div className="right-rail-item active" style={{ cursor: "default" }}>
         <IconGear />
         <span className="truncate right-rail-item-main mono">~/.pipi/settings.json</span>
       </div>
-      <p className="caption right-rail-note">纯文件存储，无数据库、无遥测；修改由宿主原子写回。</p>
+      <p className="caption right-rail-note">{t("settings.fileNote")}</p>
     </section>
     <section className="right-rail-section">
-      <h3>当前值</h3>
-      <div className="right-rail-kv"><span>主题</span><span className="mono">{settings.theme}</span></div>
-      <div className="right-rail-kv"><span>提供商</span><span>{settings.providers.length} 个</span></div>
-      <div className="right-rail-kv"><span>默认提供商</span><span className="mono">{defaultProvider ?? "未设置"}</span></div>
-      <div className="right-rail-kv"><span>压缩</span><span>{settings.compaction.forkBeforeCompact ? "分叉新会话" : "就地替换"}{settings.compaction.archiveOriginal ? " · 原会话归档" : ""}</span></div>
-      <div className="right-rail-kv"><span>重试</span><span>{settings.retry.maxAttempts} 次 · {settings.retry.baseDelayMs}ms → {settings.retry.maxDelayMs}ms</span></div>
+      <h3>{t("settings.currentValues")}</h3>
+      <div className="right-rail-kv"><span>{t("settings.theme")}</span><span className="mono">{settings.theme}</span></div>
+      <div className="right-rail-kv"><span>{t("settings.providers")}</span><span>{t("settings.providerCount", { count: settings.providers.length })}</span></div>
+      <div className="right-rail-kv"><span>{t("settings.defaultProvider")}</span><span className="mono">{defaultProvider ?? t("settings.notSet")}</span></div>
+      <div className="right-rail-kv"><span>{t("settings.compaction")}</span><span>{settings.compaction.forkBeforeCompact ? t("settings.forkNewSession") : t("settings.inPlaceReplace")}{settings.compaction.archiveOriginal ? ` · ${t("settings.originalArchived")}` : ""}</span></div>
+      <div className="right-rail-kv"><span>{t("settings.retry")}</span><span>{t("settings.retrySummary", { attempts: settings.retry.maxAttempts, base: settings.retry.baseDelayMs, max: settings.retry.maxDelayMs })}</span></div>
     </section>
   </>;
 }

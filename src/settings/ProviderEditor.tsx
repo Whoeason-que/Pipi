@@ -1,10 +1,12 @@
 import { useState } from "react";
 import {
   catalogSourceLabel,
+  PROVIDER_GROUP_LABELS,
   providerGroups,
   providerSeed,
   type CatalogProvider
 } from "../catalog";
+import { useI18n } from "../i18n";
 import { ChoiceSelect } from "../Select";
 import {
   API_LABELS,
@@ -26,16 +28,17 @@ interface PresetPickerProps {
  * 搜索与键盘导航交给 react-select；这里只标注「已添加」和来源。
  */
 export function PresetPicker({ existingIds, onPick, onCancel }: PresetPickerProps) {
+  const { t } = useI18n();
   const { catalog, loading, error, reload } = useCatalog();
 
   const groups = catalog
     ? providerGroups(catalog).map((entry) => ({
-        label: entry.label,
+        label: PROVIDER_GROUP_LABELS[entry.label],
         options: entry.options.map((option) => {
           const provider = catalog.providers.find((item) => item.id === option.value);
           const parts = [option.label];
-          if (provider?.api === "anthropic-messages") parts.push("Anthropic 协议");
-          if (existingIds.includes(option.value)) parts.push("已添加");
+          if (provider?.api === "anthropic-messages") parts.push(t("settings.anthropicProtocol"));
+          if (existingIds.includes(option.value)) parts.push(t("settings.alreadyAdded"));
           return { value: option.value, label: parts.join(" · ") };
         }),
       }))
@@ -44,10 +47,10 @@ export function PresetPicker({ existingIds, onPick, onCancel }: PresetPickerProp
   return (
     <div className="preset-picker">
       <div className="preset-picker-head">
-        <span className="label">选择提供商预设</span>
+        <span className="label">{t("settings.choosePreset")}</span>
         <span className="spacer" />
         <button type="button" className="link" onClick={onCancel}>
-          取消
+          {t("common.cancel")}
         </button>
       </div>
 
@@ -56,8 +59,8 @@ export function PresetPicker({ existingIds, onPick, onCancel }: PresetPickerProp
           value=""
           groups={groups}
           disabled={loading || !catalog}
-          placeholder={loading ? "正在加载模型目录…" : "搜索提供商（名称 / id）…"}
-          ariaLabel="选择提供商预设"
+          placeholder={loading ? t("settings.loadingCatalog") : t("settings.searchProviders")}
+          ariaLabel={t("settings.choosePreset")}
           autoFocus
           menuInPortal
           onChange={(id) => {
@@ -69,14 +72,16 @@ export function PresetPicker({ existingIds, onPick, onCancel }: PresetPickerProp
           <div className="form-warning">
             {error}
             <button type="button" className="link" onClick={reload}>
-              重试
+              {t("common.retry")}
             </button>
           </div>
         )}
         {catalog && (
           <div className="hint">
-            {catalog.providers.length} 家提供商 · 来源 {catalogSourceLabel(catalog)}；
-            预设只填端点、协议与环境变量名，密钥始终由你提供（环境变量优先，其次明文）。
+            {t("settings.presetNote", {
+              count: catalog.providers.length,
+              source: catalogSourceLabel(catalog),
+            })}
           </div>
         )}
       </div>
@@ -94,6 +99,7 @@ interface ProviderFormProps {
 }
 
 export function ProviderForm({ initial, preset, existingIds, onSave, onCancel }: ProviderFormProps) {
+  const { t } = useI18n();
   const seed = preset ? providerSeed(preset) : null;
   const [name, setName] = useState(initial?.name ?? seed?.name ?? "");
   const [api, setApi] = useState<ApiKind>(initial?.api ?? seed?.api ?? "anthropic-messages");
@@ -132,39 +138,39 @@ export function ProviderForm({ initial, preset, existingIds, onSave, onCancel }:
       {preset && (
         <div className="preset-banner">
           <div className="preset-banner-head">
-            <span className="badge">目录预设</span>
+            <span className="badge">{t("settings.catalogPreset")}</span>
             <span className="preset-banner-name">{preset.name}</span>
-            <span className="badge neutral">{preset.group}</span>
+            <span className="badge neutral">{PROVIDER_GROUP_LABELS[preset.group]}</span>
             <span className="hint">
               {preset.models.length > 0
-                ? `${preset.models.length} 个可工具调用的模型`
-                : "本地运行时：模型名手填"}
+                ? t("settings.toolCapableModels", { count: preset.models.length })
+                : t("settings.localRuntimeManualModels")}
             </span>
             {preset.doc && (
               <a className="link" href={preset.doc} target="_blank" rel="noreferrer">
-                文档 ↗
+                {t("settings.docs")}
               </a>
             )}
           </div>
           {preset.note && <div className="hint">{preset.note}</div>}
           {preset.baseUrlNote && (
-            <div className="hint mono">端点说明：{preset.baseUrlNote}</div>
+            <div className="hint mono">{t("settings.endpointNote", { note: preset.baseUrlNote })}</div>
           )}
         </div>
       )}
       <div className="grid">
         <div className="form-row">
-          <label className="label">名称</label>
+          <label className="label">{t("settings.name")}</label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="例如：DeepSeek"
+            placeholder={t("settings.namePlaceholder")}
             autoFocus
           />
           <div className="hint mono">{initial ? `id: ${id}` : `id: ${id || "…"}`}</div>
         </div>
         <div className="form-row">
-          <label className="label">API 协议</label>
+          <label className="label">{t("settings.apiProtocol")}</label>
           <select
             value={apiMode === "auto" ? "auto" : api}
             onChange={(e) => {
@@ -177,7 +183,7 @@ export function ProviderForm({ initial, preset, existingIds, onSave, onCancel }:
               }
             }}
           >
-            <option value="auto">自动（按模型目录，推荐）</option>
+            <option value="auto">{t("settings.apiAuto")}</option>
             {(Object.keys(API_LABELS) as ApiKind[]).map((k) => (
               <option key={k} value={k}>
                 {API_LABELS[k]}
@@ -186,8 +192,8 @@ export function ProviderForm({ initial, preset, existingIds, onSave, onCancel }:
           </select>
           <div className="hint">
             {apiMode === "auto"
-              ? `自动：逐模型决定协议（有的网关按模型分协议）；目录不可用时回退到 ${API_LABELS[api]}`
-              : `已固定为 ${API_LABELS[api]}：系统不改写，也不会自动换协议纠错`}
+              ? t("settings.apiAutoHint", { api: API_LABELS[api] })
+              : t("settings.apiManualHint", { api: API_LABELS[api] })}
           </div>
         </div>
         <div className="form-row full">
@@ -200,7 +206,7 @@ export function ProviderForm({ initial, preset, existingIds, onSave, onCancel }:
           />
         </div>
         <div className="form-row">
-          <label className="label">密钥环境变量（推荐）</label>
+          <label className="label">{t("settings.envKey")}</label>
           <input
             className="mono"
             value={envKey}
@@ -209,26 +215,26 @@ export function ProviderForm({ initial, preset, existingIds, onSave, onCancel }:
           />
         </div>
         <div className="form-row">
-          <label className="label">API Key（明文，本机自担）</label>
+          <label className="label">{t("settings.apiKeyPlain")}</label>
           <input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="留空则只用环境变量"
+            placeholder={t("settings.apiKeyPlaceholder")}
           />
         </div>
       </div>
       {idTaken && (
         <div className="form-warning">
-          id「{id}」已存在：改一下名称即可换 id；或关闭本表单后直接「编辑」已有提供商。
+          {t("settings.idTaken", { id })}
         </div>
       )}
       <div className="actions">
         <button className="btn ghost" onClick={onCancel}>
-          取消
+          {t("common.cancel")}
         </button>
         <button className="btn primary" disabled={!valid} onClick={submit}>
-          保存
+          {t("common.save")}
         </button>
       </div>
     </div>

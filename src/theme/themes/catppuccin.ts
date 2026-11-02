@@ -2,8 +2,8 @@ import type { ThemeDefinition } from "../types.ts";
 
 export const catppuccinTheme: ThemeDefinition = {
   id: "catppuccin",
-  label: "Catppuccin 莫卡",
-  description: "舒缓温润的粉彩暗调，柔和温暖的淡紫强调色。",
+  label: "Catppuccin Mocha",
+  description: "A soothing pastel dark palette with a soft, warm lavender accent.",
   mode: "dark",
   preview: {
     bg: "#1e1e2e",

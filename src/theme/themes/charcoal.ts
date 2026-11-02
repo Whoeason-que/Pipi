@@ -2,8 +2,8 @@ import type { ThemeDefinition } from "../types.ts";
 
 export const charcoalTheme: ThemeDefinition = {
   id: "charcoal",
-  label: "深空炭黑",
-  description: "柔和炭灰与中性色层次，适合专注阅读和长时间对话。",
+  label: "Charcoal",
+  description: "Soft charcoal grays and layered neutrals for focused reading and long conversations.",
   mode: "dark",
   preview: {
     bg: "#212121",

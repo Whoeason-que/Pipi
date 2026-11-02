@@ -2,8 +2,8 @@ import type { ThemeDefinition } from "../types.ts";
 
 export const lightTheme: ThemeDefinition = {
   id: "light",
-  label: "极简浅色",
-  description: "纯白内容区与柔和灰阶，让阅读和对话更专注。",
+  label: "Minimal Light",
+  description: "Pure white content areas with soft grays for focused reading and conversation.",
   mode: "light",
   preview: {
     bg: "#fbfbfc",

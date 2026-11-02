@@ -2,8 +2,8 @@ import type { ThemeDefinition } from "../types.ts";
 
 export const inkBlueTheme: ThemeDefinition = {
   id: "ink-blue",
-  label: "墨蓝工作台",
-  description: "Pipi 默认暗色工作台，沉稳墨蓝底色与柔和冷蓝强调。",
+  label: "Ink Blue",
+  description: "Pipi's default dark workspace with deep ink-blue tones and a soft cool accent.",
   mode: "dark",
   preview: {
     bg: "#10151e",
