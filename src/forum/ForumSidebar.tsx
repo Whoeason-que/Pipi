@@ -4,6 +4,7 @@ import { useContext } from "react";
 import { LayoutContext } from "../app/layout-context";
 import { IconForum, IconPlus, IconRefresh } from "../icons";
 import { SidebarSearch } from "../components/SidebarSearch";
+import { useI18n } from "../i18n";
 import { useForum } from "./forum-state";
 import { formatRelativeTime } from "./time";
 
@@ -13,6 +14,7 @@ interface ForumSidebarProps {
 
 export function ForumSidebar({ onSelect }: ForumSidebarProps) {
   const { closeNavigation } = useContext(LayoutContext);
+  const { t } = useI18n();
   const {
     threads,
     filteredThreads,
@@ -48,19 +50,19 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
       <SidebarSearch
         value={filterText}
         onChange={setFilterText}
-        placeholder="搜索主题 / 作者 / 标签…"
-        label="搜索论坛主题"
+        placeholder={t("forum.searchPlaceholder")}
+        label={t("forum.searchLabel")}
       />
 
       <div className="caption sb-sec forum-sidebar-heading">
-        <span>论坛</span>
+        <span>{t("forum.title")}</span>
         <span className="spacer" />
         <span className="caption sb-count">{threads.length}</span>
         <button
           type="button"
           className="icon-btn"
-          title="刷新主题列表"
-          aria-label="刷新主题列表"
+          title={t("forum.refreshThreads")}
+          aria-label={t("forum.refreshThreads")}
           onClick={() => void loadThreads()}
         >
           <IconRefresh />
@@ -68,8 +70,8 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
         <button
           type="button"
           className="icon-btn"
-          title="新建主题"
-          aria-label="新建主题"
+          title={t("forum.newThread")}
+          aria-label={t("forum.newThread")}
           onClick={handleStartCompose}
         >
           <IconPlus />
@@ -82,21 +84,21 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
           className={`caption forum-sidebar-tab${statusFilter === "all" ? " active" : ""}`}
           onClick={() => setStatusFilter("all")}
         >
-          全部
+          {t("forum.filterAll")}
         </button>
         <button
           type="button"
           className={`caption forum-sidebar-tab${statusFilter === "open" ? " active" : ""}`}
           onClick={() => setStatusFilter("open")}
         >
-          进行中
+          {t("forum.statusOpen")}
         </button>
         <button
           type="button"
           className={`caption forum-sidebar-tab${statusFilter === "closed" ? " active" : ""}`}
           onClick={() => setStatusFilter("closed")}
         >
-          已关闭
+          {t("forum.statusClosed")}
         </button>
       </div>
 
@@ -104,28 +106,28 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
         <div className="session pending forum-side-error">
           <span>{error}</span>
           <button type="button" className="forum-link-btn" onClick={clearError}>
-            忽略
+            {t("forum.dismiss")}
           </button>
         </div>
       )}
 
       {loading && threads.length === 0 && (
-        <div className="session pending">正在读取论坛主题…</div>
+        <div className="session pending">{t("forum.loadingThreads")}</div>
       )}
 
       {!loading && threads.length === 0 && (
         <div className="empty-state forum-sidebar-empty">
           <IconForum />
-          <p>还没有讨论主题</p>
-          <small>点击上方「+」发起第一个主题。</small>
+          <p>{t("forum.emptyThreads")}</p>
+          <small>{t("forum.emptyThreadsHint")}</small>
         </div>
       )}
 
       {threads.length > 0 && filteredThreads.length === 0 && (
-        <div className="session pending">没有匹配的主题</div>
+        <div className="session pending">{t("forum.noMatches")}</div>
       )}
 
-      <nav className="forum-sidebar-list" aria-label="论坛主题列表">
+      <nav className="forum-sidebar-list" aria-label={t("forum.threadListLabel")}>
         {filteredThreads.map((summary) => {
           const isSelected = selectedId === summary.thread.id && !composing;
           const isPinned = summary.thread.pinned;
@@ -140,22 +142,22 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
             >
               <div className="forum-item-row">
                 <span className="truncate forum-item-title" title={summary.thread.title}>
-                  {isPinned && <span className="forum-item-pin" title="置顶">📌</span>}
+                  {isPinned && <span className="forum-item-pin" title={t("forum.pinned")}>📌</span>}
                   {summary.thread.title}
                 </span>
-                {isClosed && <span className="forum-badge-closed">已关闭</span>}
+                {isClosed && <span className="forum-badge-closed">{t("forum.statusClosed")}</span>}
               </div>
               <div className="caption forum-item-meta">
                 <span className={`forum-item-state ${isClosed ? "closed" : "open"}`} aria-hidden="true" />
-                <span className="forum-item-author" title={`发起者：${summary.thread.author}`}>
+                <span className="forum-item-author" title={t("forum.authorTitle", { name: summary.thread.author })}>
                   {summary.thread.author}
                 </span>
                 <span className="forum-item-dot">·</span>
-                <span className="forum-item-count">{summary.postCount} 帖</span>
+                <span className="forum-item-count">{t("forum.postCount", { count: summary.postCount })}</span>
                 {summary.lastAuthor && summary.lastAuthor !== summary.thread.author && (
                   <>
                     <span className="forum-item-dot">·</span>
-                    <span className="forum-item-last" title={`最后回复：${summary.lastAuthor}`}>最后 {summary.lastAuthor}</span>
+                    <span className="forum-item-last" title={t("forum.lastReplyTitle", { name: summary.lastAuthor })}>{t("forum.lastBy", { name: summary.lastAuthor })}</span>
                   </>
                 )}
                 <span className="spacer" />

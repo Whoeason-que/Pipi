@@ -17,11 +17,16 @@ export function formatRelativeTime(millis: number): string {
   if (!millis) return "";
   const now = Date.now();
   const diffSec = Math.floor((now - millis) / 1000);
-  if (diffSec < 0 || diffSec < 45) return "刚刚";
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
-  if (diffSec < 86400 * 7) return `${Math.floor(diffSec / 86400)} 天前`;
+  if (diffSec < 0 || diffSec < 45) return "Just now";
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} min ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} hr ago`;
+  if (diffSec < 86400 * 7) return `${Math.floor(diffSec / 86400)} d ago`;
   const d = new Date(millis);
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
 }

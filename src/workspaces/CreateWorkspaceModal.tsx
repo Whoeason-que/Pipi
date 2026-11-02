@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useDialogFocus } from "../components/use-dialog-focus";
 import { IconClose } from "../icons";
 import { normalizeWorkspacePath } from "../app/workspaces";
+import { useI18n } from "../i18n";
 
 interface CreateWorkspaceModalProps {
   onCreated: (path: string, name?: string) => void;
@@ -12,6 +13,7 @@ export function CreateWorkspaceModal({
   onCreated,
   onCancel,
 }: CreateWorkspaceModalProps) {
+  const { t } = useI18n();
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +25,7 @@ export function CreateWorkspaceModal({
     e?.preventDefault();
     const normalized = normalizeWorkspacePath(path);
     if (!normalized) {
-      setError("请输入有效的工作区目录路径");
+      setError(t("workspaces.invalidPath"));
       return;
     }
     setError(null);
@@ -42,12 +44,12 @@ export function CreateWorkspaceModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2 id="create-workspace-title">新建工作区</h2>
+          <h2 id="create-workspace-title">{t("workspaces.newWorkspace")}</h2>
           <button
             type="button"
             className="icon-btn close-btn"
             onClick={onCancel}
-            title="关闭"
+            title={t("common.close")}
           >
             <IconClose />
           </button>
@@ -63,12 +65,12 @@ export function CreateWorkspaceModal({
 
             <div className="field">
               <label className="label" htmlFor="workspace-path-input">
-                工作区目录路径 <span style={{ color: "var(--danger)" }}>*</span>
+                {t("workspaces.pathLabel")} <span style={{ color: "var(--danger)" }}>*</span>
               </label>
               <input
                 id="workspace-path-input"
                 className="input mono"
-                placeholder="例如：/home/user/projects/my-app"
+                placeholder={t("workspaces.pathPlaceholder")}
                 value={path}
                 onChange={(e) => {
                   setPath(e.target.value);
@@ -77,38 +79,38 @@ export function CreateWorkspaceModal({
                 autoFocus
               />
               <div className="hint">
-                本地文件系统上的工作目录绝对路径（如现有代码仓库或新目录）。
+                {t("workspaces.pathHint")}
               </div>
             </div>
 
             <div className="field">
               <label className="label" htmlFor="workspace-name-input">
-                显示名称（可选）
+                {t("workspaces.nameLabel")}
               </label>
               <input
                 id="workspace-name-input"
                 className="input"
-                placeholder="留空则自动提取目录末尾的文件夹名"
+                placeholder={t("workspaces.namePlaceholder")}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
 
             <div className="hint" style={{ lineHeight: 1.6 }}>
-              选择该工作区后，侧栏与主区将仅展示归属于该工作区的 Agent 与内容；新建 Agent 时也将默认填充该目录。
+              {t("workspaces.scopeHint")}
             </div>
           </div>
 
           <div className="modal-actions">
             <button type="button" className="btn ghost" onClick={onCancel}>
-              取消
+              {t("common.cancel")}
             </button>
             <button
               type="submit"
               className="btn primary"
               disabled={!path.trim()}
             >
-              创建并切换
+              {t("workspaces.createAndSwitch")}
             </button>
           </div>
         </form>

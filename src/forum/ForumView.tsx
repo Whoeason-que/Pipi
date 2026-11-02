@@ -19,6 +19,7 @@ import {
 } from "../icons";
 import { Markdown } from "../Markdown";
 import type { PostView } from "../types";
+import { useI18n } from "../i18n";
 import { ForumRail } from "./ForumRail";
 import { useForum } from "./forum-state";
 import { formatFullTime, formatRelativeTime } from "./time";
@@ -41,6 +42,8 @@ export default function ForumView() {
     loadThreads,
     clearError,
   } = useForum();
+
+  const { t } = useI18n();
 
   // 新建主题表单状态
   const [newTitle, setNewTitle] = useState("");
@@ -127,7 +130,7 @@ export default function ForumView() {
     const isSubagent = agents.some((a) => a.name === post.author && a.subagent);
     setReplyText((prev) => {
       if (isSubagent) {
-        const quoteHint = `回复 #${post.seq} 楼：\n`;
+        const quoteHint = `${t("forum.replyToFloor", { seq: post.seq })}:\n`;
         if (prev.includes(quoteHint)) return prev;
         return prev ? `${prev}\n${quoteHint}` : quoteHint;
       }
@@ -146,7 +149,7 @@ export default function ForumView() {
         <NavigationToggle />
         <span className="toolbar-divider" />
         {composing ? (
-          <span className="truncate forum-toolbar-title">新建主题</span>
+          <span className="truncate forum-toolbar-title">{t("forum.newThread")}</span>
         ) : thread ? (
           <div className="forum-toolbar-thread">
             <span className="truncate forum-toolbar-title" title={thread.thread.title}>
@@ -154,18 +157,18 @@ export default function ForumView() {
               {thread.thread.title}
             </span>
             <span className={`badge forum-status-tag ${thread.thread.status === "open" ? "ok" : "neutral"}`}>
-              {thread.thread.status === "open" ? "进行中" : "已关闭"}
+              {thread.thread.status === "open" ? t("forum.statusOpen") : t("forum.statusClosed")}
             </span>
           </div>
         ) : (
-          <span className="truncate forum-toolbar-title">论坛</span>
+          <span className="truncate forum-toolbar-title">{t("forum.title")}</span>
         )}
         <span className="spacer" />
         <button
           type="button"
           className={`icon-btn${rail.open ? " active" : ""}`}
-          title="主题信息"
-          aria-label="切换主题信息面板"
+          title={t("forum.threadInfo")}
+          aria-label={t("forum.toggleInfoPanel")}
           aria-pressed={rail.open}
           onClick={rail.toggle}
         >
@@ -177,15 +180,15 @@ export default function ForumView() {
             className="btn"
             onClick={cancelComposing}
           >
-            取消
+            {t("common.cancel")}
           </button>
         ) : (
           <>
             <button
               type="button"
               className="icon-btn"
-              title="刷新当前讨论"
-              aria-label="刷新当前讨论"
+              title={t("forum.refreshThread")}
+              aria-label={t("forum.refreshThread")}
               onClick={() => {
                 if (selectedId) void loadThread(selectedId);
                 void loadThreads(selectedId ?? undefined);
@@ -199,7 +202,7 @@ export default function ForumView() {
               onClick={startComposing}
             >
               <IconPlus />
-              <span>新建主题</span>
+              <span>{t("forum.newThread")}</span>
             </button>
           </>
         )}
@@ -211,7 +214,7 @@ export default function ForumView() {
           <button
             type="button"
             className="error-dismiss"
-            aria-label="关闭错误提示"
+            aria-label={t("forum.dismissError")}
             onClick={clearError}
           >
             <IconClose />
@@ -224,19 +227,19 @@ export default function ForumView() {
           <div className="forum-content-container">
             <div className="surface forum-compose-box">
               <div className="forum-compose-head">
-                <h2>新建讨论主题</h2>
+                <h2>{t("forum.newDiscussion")}</h2>
                 <p className="forum-compose-desc">
-                  与 Agent 和团队成员共同讨论。正文支持 GitHub 风格 Markdown，输入 <code>@名字</code> 会记为对对应 Agent 的提及。
+                  {t("forum.composeDescription")}
                 </p>
               </div>
 
               <div className="forum-field">
-                <label className="forum-field-label" htmlFor="forum-title">主题标题</label>
+                <label className="forum-field-label" htmlFor="forum-title">{t("forum.threadTitle")}</label>
                 <input
                   type="text"
                   id="forum-title"
                   className="text-input"
-                  placeholder="清晰简明的主题标题…"
+                  placeholder={t("forum.titlePlaceholder")}
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   autoFocus
@@ -244,12 +247,12 @@ export default function ForumView() {
               </div>
 
               <div className="forum-field">
-                <label className="forum-field-label" htmlFor="forum-tags">标签（可选）</label>
+                <label className="forum-field-label" htmlFor="forum-tags">{t("forum.tagsLabel")}</label>
                 <input
                   type="text"
                   id="forum-tags"
                   className="text-input"
-                  placeholder="标签以逗号或空格分隔，例如：bug, refactor, discussion…"
+                  placeholder={t("forum.tagsPlaceholder")}
                   value={newTags}
                   onChange={(e) => setNewTags(e.target.value)}
                 />
@@ -257,7 +260,7 @@ export default function ForumView() {
 
               {mentionableAgents.length > 0 && (
                 <div className="forum-mention-bar">
-                  <span className="forum-mention-title">快捷提及 Agent：</span>
+                  <span className="forum-mention-title">{t("forum.quickMention")}</span>
                   <div className="forum-mention-list">
                     {mentionableAgents.map((agent) => (
                       <button
@@ -275,21 +278,21 @@ export default function ForumView() {
 
               <div className="forum-field">
                 <div className="forum-editor-header">
-                  <label className="forum-field-label" htmlFor="forum-body">主题正文</label>
+                  <label className="forum-field-label" htmlFor="forum-body">{t("forum.bodyLabel")}</label>
                   <div className="forum-tabs">
                     <button
                       type="button"
                       className={`forum-tab${composeTab === "edit" ? " active" : ""}`}
                       onClick={() => setComposeTab("edit")}
                     >
-                      编辑
+                      {t("common.edit")}
                     </button>
                     <button
                       type="button"
                       className={`forum-tab${composeTab === "preview" ? " active" : ""}`}
                       onClick={() => setComposeTab("preview")}
                     >
-                      预览
+                      {t("forum.preview")}
                     </button>
                   </div>
                 </div>
@@ -299,7 +302,7 @@ export default function ForumView() {
                     ref={composeTextareaRef}
                     id="forum-body"
                     className="text-input forum-textarea"
-                    placeholder="输入正文内容（支持 Markdown 语法与 @AgentName 提及）…"
+                    placeholder={t("forum.bodyPlaceholder")}
                     value={newBody}
                     onChange={(e) => setNewBody(e.target.value)}
                     onKeyDown={composeKeyDown}
@@ -310,7 +313,7 @@ export default function ForumView() {
                     {newBody.trim() ? (
                       <Markdown text={newBody} />
                     ) : (
-                      <p className="forum-preview-empty">还没有输入正文内容</p>
+                      <p className="forum-preview-empty">{t("forum.previewEmpty")}</p>
                     )}
                   </div>
                 )}
@@ -318,23 +321,22 @@ export default function ForumView() {
 
               <div className="forum-info-card">
                 <p>
-                  <strong>存储机制：</strong>纯文件存储，默认保存在 <code>~/.pipi/forum</code>；
-                  若当前 Agent 工作区包含 <code>.agents/forum</code> 则优先保存在本地工作区。
+                  <strong>{t("forum.storageLabel")}</strong> {t("forum.storageBody")}
                 </p>
                 <p>
-                  <strong>Agent 参与：</strong>Agent 通过 <code>forum_list / forum_read / forum_post / forum_reply</code> 工具参与协同讨论。
+                  <strong>{t("forum.agentToolsLabel")}</strong> {t("forum.agentToolsBody")}
                 </p>
               </div>
 
               <div className="forum-compose-actions">
-                <span className="caption forum-kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发布</span>
+                <span className="caption forum-kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> {t("forum.publishShortcut")}</span>
                 <span className="spacer" />
                 <button
                   type="button"
                   className="btn"
                   onClick={cancelComposing}
                 >
-                  取消
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
@@ -343,7 +345,7 @@ export default function ForumView() {
                   onClick={() => void handlePublish()}
                 >
                   <IconSend />
-                  <span>{busy ? "正在发布…" : "发布主题"}</span>
+                  <span>{busy ? t("forum.publishing") : t("forum.publishThread")}</span>
                 </button>
               </div>
             </div>
@@ -354,19 +356,19 @@ export default function ForumView() {
             <div className="surface forum-thread-hero">
               <div className="forum-hero-top">
                 <h1 className="forum-hero-title">
-                  {thread.thread.pinned && <span className="forum-hero-pin" title="置顶">📌 </span>}
+                  {thread.thread.pinned && <span className="forum-hero-pin" title={t("forum.pinned")}>📌 </span>}
                   {thread.thread.title}
                 </h1>
                 <span className={`badge forum-status-pill ${thread.thread.status === "open" ? "ok" : "neutral"}`}>
                   {thread.thread.status === "open" ? (
                     <>
                       <span className="status-dot-pulse" />
-                      进行中
+                      {t("forum.statusOpen")}
                     </>
                   ) : (
                     <>
                       <IconLock size={12} />
-                      已关闭
+                      {t("forum.statusClosed")}
                     </>
                   )}
                 </span>
@@ -385,19 +387,19 @@ export default function ForumView() {
                       </span>
                       <span className="forum-author-name">{thread.thread.author}</span>
                       <span className="caption forum-role-tag">
-                        {isHuman ? "用户" : isSubagent ? "Subagent" : "Agent"}
+                        {isHuman ? t("forum.roleUser") : isSubagent ? "Subagent" : "Agent"}
                       </span>
                     </div>
                   );
                 })()}
                 <span className="forum-dot">·</span>
                 <span className="forum-hero-time" title={formatFullTime(thread.thread.created)}>
-                  创建于 {formatRelativeTime(thread.thread.created)}
+                  {t("forum.createdAt", { time: formatRelativeTime(thread.thread.created) })}
                 </span>
                 <span className="forum-dot">·</span>
-                <span className="forum-hero-count">共 {thread.posts.length} 帖</span>
+                <span className="forum-hero-count">{t("forum.postCount", { count: thread.posts.length })}</span>
                 <span className="forum-dot">·</span>
-                <span className="forum-hero-count">{new Set(thread.posts.map(post => post.author)).size} 位参与者</span>
+                <span className="forum-hero-count">{t("forum.participantCount", { count: new Set(thread.posts.map(post => post.author)).size })}</span>
 
                 {thread.thread.tags.length > 0 && (
                   <>
@@ -436,16 +438,16 @@ export default function ForumView() {
                         <span className="forum-post-author-name">{post.author}</span>
                         {isSubagent && <span className="caption forum-role-tag">Subagent</span>}
                         {isOp ? (
-                          <span className="caption forum-floor-tag op">#1 楼主</span>
+                          <span className="caption forum-floor-tag op">{t("forum.floorOp")}</span>
                         ) : (
                           <span className="caption forum-floor-tag">#{post.seq}</span>
                         )}
                         {post.via && post.via !== "other" && (
                           <span className={`forum-via-tag ${post.via}`}>
-                            {post.via === "tool" ? "Agent 工具" : post.via === "cli" ? "CLI" : "Web"}
+                            {post.via === "tool" ? t("forum.viaTool") : post.via === "cli" ? "CLI" : "Web"}
                           </span>
                         )}
-                        {post.replyTo && <span className="forum-reply-to" title={post.replyTo}>回复 #{thread.posts.find(item => item.id === post.replyTo)?.seq ?? "?"}</span>}
+                        {post.replyTo && <span className="forum-reply-to" title={post.replyTo}>{t("forum.replyToFloor", { seq: thread.posts.find(item => item.id === post.replyTo)?.seq ?? "?" })}</span>}
                       </div>
 
                       <div className="forum-post-actions-group">
@@ -456,10 +458,10 @@ export default function ForumView() {
                           <button
                             type="button"
                             className="forum-quote-btn"
-                            title="回复此楼"
+                            title={t("forum.replyToPost")}
                             onClick={() => handleQuotePost(post)}
                           >
-                            回复此楼
+                            {t("forum.replyToPost")}
                           </button>
                         )}
                       </div>
@@ -467,7 +469,7 @@ export default function ForumView() {
 
                     {post.mentions && post.mentions.length > 0 && (
                       <div className="forum-post-mentions">
-                        <span className="forum-mention-label">提及：</span>
+                        <span className="forum-mention-label">{t("forum.mentions")}</span>
                         {post.mentions.map((m) => (
                           <span key={m} className="forum-mention-pill">
                             @{m}
@@ -489,26 +491,26 @@ export default function ForumView() {
               {thread.thread.status === "closed" ? (
                 <div className="forum-closed-banner">
                   <IconLock size={15} />
-                  <span>此讨论主题已被设为关闭状态，不可追加回复。</span>
+                  <span>{t("forum.closedBanner")}</span>
                 </div>
               ) : (
                 <div className="surface forum-reply-card">
                   <div className="forum-reply-header">
-                    <span className="forum-reply-title">发表回复</span>
+                    <span className="forum-reply-title">{t("forum.replyTitle")}</span>
                     <div className="forum-tabs">
                       <button
                         type="button"
                         className={`forum-tab${replyTab === "edit" ? " active" : ""}`}
                         onClick={() => setReplyTab("edit")}
                       >
-                        编辑
+                        {t("common.edit")}
                       </button>
                       <button
                         type="button"
                         className={`forum-tab${replyTab === "preview" ? " active" : ""}`}
                         onClick={() => setReplyTab("preview")}
                       >
-                        预览
+                        {t("forum.preview")}
                       </button>
                     </div>
                   </div>
@@ -517,7 +519,7 @@ export default function ForumView() {
                     <textarea
                       ref={replyTextareaRef}
                       className="text-input forum-reply-textarea"
-                      placeholder="写下你的回复…（支持 Markdown 语法与代码块，可用 @Agent 提及对应助手）"
+                      placeholder={t("forum.replyPlaceholder")}
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
                       onKeyDown={replyKeyDown}
@@ -528,14 +530,14 @@ export default function ForumView() {
                       {replyText.trim() ? (
                         <Markdown text={replyText} />
                       ) : (
-                        <p className="forum-preview-empty">还没有输入回复内容</p>
+                        <p className="forum-preview-empty">{t("forum.previewEmpty")}</p>
                       )}
                     </div>
                   )}
 
                   {mentionableAgents.length > 0 && (
                     <div className="forum-mention-bar">
-                      <span className="forum-mention-title">提及 Agent：</span>
+                      <span className="forum-mention-title">{t("forum.mentionAgent")}</span>
                       <div className="forum-mention-list">
                         {mentionableAgents.map((agent) => (
                           <button
@@ -553,7 +555,7 @@ export default function ForumView() {
 
                   <div className="forum-reply-footer">
                     <span className="caption forum-reply-hint">
-                      正文中写入 <code>@名字</code> 将通知该 Agent 参与协作 · <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发送
+                      {t("forum.replyHint")} · <kbd>Ctrl</kbd> + <kbd>Enter</kbd> {t("forum.sendShortcut")}
                     </span>
                     <button
                       type="button"
@@ -562,7 +564,7 @@ export default function ForumView() {
                       onClick={() => void handleSendReply()}
                     >
                       <IconSend />
-                      <span>{busy ? "正在回复…" : "发送回复"}</span>
+                      <span>{busy ? t("forum.replying") : t("forum.sendReply")}</span>
                     </button>
                   </div>
                 </div>
@@ -571,16 +573,16 @@ export default function ForumView() {
           </div>
         ) : threadLoading ? (
           <div className="forum-loading-container">
-            <span className="forum-loading-text">正在加载主题讨论…</span>
+            <span className="forum-loading-text">{t("forum.loadingThread")}</span>
           </div>
         ) : (
           <div className="empty-state forum-empty-view">
             <div className="icon-tile forum-empty-icon">
               <IconForum />
             </div>
-            <h3>欢迎使用本地论坛讨论区</h3>
+            <h3>{t("forum.emptyTitle")}</h3>
             <p>
-              从左侧帖子列表中选择一个主题开始阅读；或点击「新建主题」发起讨论与 Agent 协作。
+              {t("forum.emptyHint")}
             </p>
             <button
               type="button"
@@ -588,14 +590,14 @@ export default function ForumView() {
               onClick={startComposing}
             >
               <IconPlus />
-              <span>新建讨论主题</span>
+              <span>{t("forum.newDiscussion")}</span>
             </button>
           </div>
         )}
         {!composing && thread && !atBottom && (
-          <button type="button" className="forum-scroll-bottom" onClick={scrollToBottom} aria-label="回到最新回复">
+          <button type="button" className="forum-scroll-bottom" onClick={scrollToBottom} aria-label={t("forum.scrollToLatest")}>
             <IconArrowDown />
-            <span>最新</span>
+            <span>{t("forum.latest")}</span>
           </button>
         )}
       </div>

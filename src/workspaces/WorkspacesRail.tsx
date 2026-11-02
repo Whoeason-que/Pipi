@@ -8,6 +8,7 @@ import {
 } from "../app/workspaces";
 import { IconAgent, IconFolder, IconGit, IconHome, IconPlus } from "../icons";
 import type { AgentDefinition, SessionSummaryView } from "../types";
+import { useI18n } from "../i18n";
 
 export function WorkspacesRail({
   controller,
@@ -30,9 +31,10 @@ export function WorkspacesRail({
   onCreateAgent: (defaultWorkspace?: string) => void;
   onNavigateSection: (section: "agents" | "files" | "git") => void;
 }) {
+  const { t } = useI18n();
   const isAll = activeWorkspace === "all";
   const current = workspaces.find((workspace) => workspace.path === activeWorkspace);
-  const displayName = isAll ? "全部工作区" : current?.name || getWorkspaceBasename(activeWorkspace);
+  const displayName = isAll ? t("workspaces.allWorkspaces") : current?.name || getWorkspaceBasename(activeWorkspace);
   const currentNorm = normalizeWorkspacePath(activeWorkspace);
   const primaryAgents = agents.filter((agent) => !agent.subagent);
   const scopedAgents = isAll ? primaryAgents : primaryAgents.filter((agent) => normalizeWorkspacePath(agent.workspace) === currentNorm);
@@ -42,23 +44,25 @@ export function WorkspacesRail({
     controller={controller}
     id="workspaces-rail"
     label={displayName}
-    subtitle={`${isAll ? workspaces.length : scopedAgents.length} 个工作区范围 · ${scopedAgents.length} 个 Agent`}
+    subtitle={isAll
+      ? t("workspaces.railSubtitleAll", { workspaces: workspaces.length, agents: scopedAgents.length })
+      : t("workspaces.railSubtitleWorkspace", { agents: scopedAgents.length })}
     icon={isAll ? <IconHome /> : <IconFolder />}
-    actions={<button type="button" className="icon-btn" title="新建工作区" aria-label="新建工作区" onClick={onOpenCreateModal}>
+    actions={<button type="button" className="icon-btn" title={t("workspaces.newWorkspace")} aria-label={t("workspaces.newWorkspace")} onClick={onOpenCreateModal}>
       <IconPlus />
     </button>}
     tabs={[
       {
         id: "scope",
-        label: "范围",
-        content: <Scope workspaceName={displayName} path={isAll ? "全部工作区" : activeWorkspace} isAll={isAll}
+        label: t("workspaces.scope"),
+        content: <Scope workspaceName={displayName} path={isAll ? t("workspaces.allWorkspaces") : activeWorkspace} isAll={isAll}
           workspaces={workspaces.length} agents={scopedAgents.length} sessions={sessions}
           onOpenCreateModal={onOpenCreateModal} onCreateAgent={onCreateAgent}
           onNavigateSection={onNavigateSection} />,
       },
       {
         id: "switch",
-        label: "切换",
+        label: t("workspaces.switch"),
         badge: workspaces.length,
         content: <WorkspaceList workspaces={workspaces} activeWorkspace={activeWorkspace}
           onSelectWorkspace={onSelectWorkspace} />,
@@ -78,38 +82,39 @@ function Scope({ workspaceName, path, isAll, workspaces, agents, sessions, onOpe
   onCreateAgent: (defaultWorkspace?: string) => void;
   onNavigateSection: (section: "agents" | "files" | "git") => void;
 }) {
+  const { t } = useI18n();
   return <>
     <section className="right-rail-section">
       <div className="right-rail-item active" style={{ cursor: "default" }}>
         {isAll ? <IconHome /> : <IconFolder />}
         <span className="truncate right-rail-item-main">{workspaceName}</span>
       </div>
-      <div className="right-rail-kv"><span>路径</span><span className="mono">{path}</span></div>
-      <div className="right-rail-kv"><span>范围</span><span>{isAll ? "全部工作区" : "单个工作区"}</span></div>
+      <div className="right-rail-kv"><span>{t("workspaces.path")}</span><span className="mono">{path}</span></div>
+      <div className="right-rail-kv"><span>{t("workspaces.scope")}</span><span>{isAll ? t("workspaces.allWorkspaces") : t("workspaces.singleWorkspace")}</span></div>
     </section>
     <section className="right-rail-section">
-      <h3>概况</h3>
+      <h3>{t("workspaces.overview")}</h3>
       <div className="right-rail-stats">
-        <div className="right-rail-stat"><span>工作区</span><strong>{workspaces}</strong></div>
-        <div className="right-rail-stat"><span>Agent</span><strong>{agents}</strong></div>
-        <div className="right-rail-stat"><span>会话</span><strong>{sessions}</strong></div>
-        <div className="right-rail-stat"><span>模式</span><strong>{isAll ? "全景" : "工作区"}</strong></div>
+        <div className="right-rail-stat"><span>{t("workspaces.stats.workspaces")}</span><strong>{workspaces}</strong></div>
+        <div className="right-rail-stat"><span>{t("workspaces.stats.agents")}</span><strong>{agents}</strong></div>
+        <div className="right-rail-stat"><span>{t("workspaces.stats.sessions")}</span><strong>{sessions}</strong></div>
+        <div className="right-rail-stat"><span>{t("workspaces.stats.mode")}</span><strong>{isAll ? t("workspaces.stats.overviewMode") : t("workspaces.stats.workspaceMode")}</strong></div>
       </div>
     </section>
     <section className="right-rail-section">
-      <h3>快捷操作</h3>
+      <h3>{t("workspaces.quickActions")}</h3>
       <div className="right-rail-actions-row">
-        <button type="button" className="btn small" onClick={onOpenCreateModal}><IconPlus /> 新建工作区</button>
+        <button type="button" className="btn small" onClick={onOpenCreateModal}><IconPlus /> {t("workspaces.newWorkspace")}</button>
         <button type="button" className="btn small ghost" onClick={() => onCreateAgent(isAll ? undefined : path)}>
-          <IconAgent /> 新建 Agent
+          <IconAgent /> {t("nav.newAgent")}
         </button>
         {!isAll && <>
           <button type="button" className="btn small ghost" onClick={() => onNavigateSection("files")}><IconFolder /> File</button>
           <button type="button" className="btn small ghost" onClick={() => onNavigateSection("git")}><IconGit /> Git</button>
         </>}
-        {isAll && <button type="button" className="btn small ghost" onClick={() => onNavigateSection("agents")}><IconAgent /> 全部 Agent</button>}
+        {isAll && <button type="button" className="btn small ghost" onClick={() => onNavigateSection("agents")}><IconAgent /> {t("workspaces.allAgents")}</button>}
       </div>
-      <p className="caption right-rail-note">工作区只聚合主 Agent；Subagent 跟随它所属的 Agent，不单独计入工作区。</p>
+      <p className="caption right-rail-note">{t("workspaces.railNote")}</p>
     </section>
   </>;
 }
@@ -119,20 +124,21 @@ function WorkspaceList({ workspaces, activeWorkspace, onSelectWorkspace }: {
   activeWorkspace: string;
   onSelectWorkspace: (workspace: string) => void;
 }) {
+  const { t } = useI18n();
   return <section className="right-rail-section">
-    <h3>所有工作区 · {workspaces.length}</h3>
+    <h3>{t("workspaces.allListTitleDot", { count: workspaces.length })}</h3>
     <div className="right-rail-list">
       <button type="button" className={`right-rail-item${activeWorkspace === "all" ? " active" : ""}`} onClick={() => onSelectWorkspace("all")}>
         <IconHome />
-        <span className="truncate right-rail-item-main">全部工作区</span>
-        <small>{workspaces.reduce((total, item) => total + item.agentCount, 0)} Agent</small>
+        <span className="truncate right-rail-item-main">{t("workspaces.allWorkspaces")}</span>
+        <small>{t("workspaces.agentCount", { count: workspaces.reduce((total, item) => total + item.agentCount, 0) })}</small>
       </button>
       {workspaces.map((workspace) => <button type="button" key={workspace.path}
         className={`right-rail-item${workspace.path === activeWorkspace ? " active" : ""}`}
         title={workspace.path} onClick={() => onSelectWorkspace(workspace.path)}>
         <IconFolder />
         <span className="truncate right-rail-item-main">{workspace.name || getWorkspaceBasename(workspace.path)}</span>
-        <small>{workspace.agentCount} Agent</small>
+        <small>{t("workspaces.agentCount", { count: workspace.agentCount })}</small>
       </button>)}
     </div>
   </section>;

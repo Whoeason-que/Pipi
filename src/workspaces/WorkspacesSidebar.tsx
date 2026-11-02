@@ -9,6 +9,7 @@ import {
 } from "../icons";
 import { SidebarSearch } from "../components/SidebarSearch";
 import { getWorkspaceBasename, type WorkspaceInfo } from "../app/workspaces";
+import { useI18n } from "../i18n";
 
 interface WorkspacesSidebarProps {
   workspaces: WorkspaceInfo[];
@@ -32,6 +33,7 @@ export function WorkspacesSidebar({
   onCreateAgent,
 }: WorkspacesSidebarProps) {
   const { closeNavigation } = useContext(LayoutContext);
+  const { t } = useI18n();
   const [filterQuery, setFilterQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -56,26 +58,26 @@ export function WorkspacesSidebar({
       <SidebarSearch
         value={filterQuery}
         onChange={setFilterQuery}
-        placeholder="搜索工作区…"
-        label="搜索工作区"
+        placeholder={t("workspaces.searchPlaceholder")}
+        label={t("workspaces.searchLabel")}
       />
 
       <div className="caption sb-sec workspaces-heading">
-        <span>工作区</span>
+        <span>{t("workspaces.title")}</span>
         <span className="spacer" />
         <span className="caption sb-count">{workspaces.length}</span>
         <button
           type="button"
           className="icon-btn"
-          title="新建工作区"
-          aria-label="新建工作区"
+          title={t("workspaces.newWorkspace")}
+          aria-label={t("workspaces.newWorkspace")}
           onClick={onOpenCreateModal}
         >
           <IconPlus />
         </button>
       </div>
 
-      <div className="workspaces-sidebar-list" role="listbox" aria-label="工作区列表">
+      <div className="workspaces-sidebar-list" role="listbox" aria-label={t("workspaces.listLabel")}>
         {/* 全部工作区 (All) */}
         {(!filterQuery || "全部工作区 all".includes(filterQuery.toLowerCase())) && (
           <div
@@ -89,14 +91,14 @@ export function WorkspacesSidebar({
             </span>
             <div className="workspaces-nav-info">
               <div className="workspaces-nav-title-row">
-                <span className="truncate workspaces-nav-name">全部工作区 (All)</span>
+                <span className="truncate workspaces-nav-name">{t("workspaces.allWorkspaces")}</span>
                 {isAll && (
-                  <span className="workspaces-nav-check" title="当前已选择">
+                  <span className="workspaces-nav-check" title={t("workspaces.selected")}>
                     <IconCheck />
                   </span>
                 )}
               </div>
-              <span className="truncate workspaces-nav-sub">显示全部 {totalAgentsCount} 个 Agent</span>
+              <span className="truncate workspaces-nav-sub">{t("workspaces.showAllAgents", { count: totalAgentsCount })}</span>
             </div>
           </div>
         )}
@@ -124,7 +126,7 @@ export function WorkspacesSidebar({
                   </span>
                   <span className="workspaces-nav-badge">{w.agentCount}</span>
                   {isSelected && (
-                    <span className="workspaces-nav-check" title="当前已选择">
+                    <span className="workspaces-nav-check" title={t("workspaces.selected")}>
                       <IconCheck />
                     </span>
                   )}
@@ -132,8 +134,8 @@ export function WorkspacesSidebar({
                     <button
                       type="button"
                       className="workspaces-nav-delete"
-                      title="移除此自定义工作区"
-                      aria-label={`移除 ${displayName}`}
+                      title={t("workspaces.removeCustom")}
+                      aria-label={t("workspaces.removeNamed", { name: displayName })}
                       onClick={(e) => {
                         e.stopPropagation();
                         onRemoveCustomWorkspace?.(w.path);
@@ -161,7 +163,7 @@ export function WorkspacesSidebar({
                           onViewAgents();
                         }}
                       >
-                        查看 Agent
+                        {t("workspaces.viewAgents")}
                       </button>
                     )}
                     {onCreateAgent && (
@@ -173,7 +175,7 @@ export function WorkspacesSidebar({
                           onCreateAgent(w.path);
                         }}
                       >
-                        + 新建 Agent
+                        + {t("nav.newAgent")}
                       </button>
                     )}
                   </div>
@@ -184,7 +186,7 @@ export function WorkspacesSidebar({
         })}
 
         {filtered.length === 0 && filterQuery && (
-          <div className="sb-empty">未匹配到工作区</div>
+          <div className="sb-empty">{t("workspaces.noMatches")}</div>
         )}
       </div>
     </>
