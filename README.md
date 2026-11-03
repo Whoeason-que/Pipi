@@ -115,7 +115,7 @@ Pipi 把抽象层级上移一层：**Agent 是一等公民**。
 | 系统指令 | `agent.toml` → `[resources].instructions` 声明的文件（默认 `harness/AGENTS.md`） | 人直接读写的 Markdown，每次运行注入为系统提示（是否取材由 `systemPrompt` 策略决定） |
 | 技能 | `agent.toml` → `[resources.skills].sources` 声明的目录（默认 `harness/skills/`）；全局 store `~/.av/skills` | 能力包；仅 frontmatter 描述常驻，正文按需加载（M3）。全局安装的技能用 `[resources.skills].use` 声明启用（装 ≠ 启用，见契约一节） |
 | 记忆 | `agent.toml` → `[resources].memory` 声明的目录（默认 `harness/memory/`） | 由 `memory` 工具读写的持久记忆，跨会话生效；索引（路径+摘要）常驻系统提示，正文由模型按需 read |
-| 笔记本 | `~/.pipi/agents/<name>/notebooks/<session-id>.md` | 会话级工作文档：`notebook` 工具维护 `## Plan` 清单、`## Notes` 与 `## Walkthrough`，右栏「笔记本」实时渲染并显示计划完成度；不自动注入上下文，模型在恢复会话时先 read（与记忆同一套渐进召回） |
+| 笔记本 | `~/.pipi/agents/<name>/notebooks/<session-id>.md` | 会话级工作文档：`notebook` 工具维护 `## Plan` 清单、`## Found` 与 `## Walkthrough`，右栏「笔记本」实时渲染并显示计划完成度；不自动注入上下文，模型在恢复会话时先 read（与记忆同一套渐进召回） |
 | 系统提示词策略 | `agent.json` → `systemPrompt` | `both`（默认：Pipi 侧 + 工作区侧）/ `agent`（只取 Agent 侧素材）/ `workspace`（只取项目上下文）/ `none`（完全不发 system 消息，只发对话与工具定义）。策略只影响提示词：权限、沙箱、env 与受信任读取根不受影响，`workspace` 策略的 Agent 照样能用 memory 工具读写契约声明的记忆目录 |
 | 沙箱 | `agent.json` → `permissions.sandbox` | `read-only` / `workspace-write` / `danger-full-access`。Linux 用 Landlock（文件系统）+ seccomp（默认禁网络），macOS 用 Seatbelt；由 `pipi-sandbox` helper 在 `exec` 前安装，子进程全部继承。`workspace-write` 只允许写工作目录、临时目录与 `/dev` 基础设备；`danger-full-access` 是显式逃生门（不挂沙箱） |
 | 工具开关 | `agent.json` → `permissions.tools` | 基础工具按需启用；Agent 组合工具与后台任务托管工具必须显式开启 |

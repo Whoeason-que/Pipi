@@ -2,7 +2,7 @@
 //!
 //! notebook 是一个 Markdown 文件（`<Agent 目录>/notebooks/<session>.md`），由
 //! Agent 维护、在右侧检查器里渲染给用户看。它不是模型的草稿纸，而是
-//! 「计划 / 进度 / 走查」合一的可读交付物：会话重开、压缩之后仍然在。
+//! 「计划 / 发现 / 走查」合一的可读交付物：会话重开、压缩之后仍然在。
 //! 路径由宿主给定（`ToolContext::notebook_path`），工具只在这一个文件上活动。
 
 use std::path::{Path, PathBuf};
@@ -76,9 +76,11 @@ impl AgentTool for NotebookTool {
 
     fn description(&self) -> String {
         "Read and update this session's notebook: a Markdown working document the user sees in \
-         the right sidebar. Keep `## Plan` as a `- [ ]` checklist, record key decisions and \
-         findings under `## Notes`, and end with `## Walkthrough` (what changed and how it was \
-         verified). Read it before resuming work."
+         the right sidebar. Keep it to three sections: `## Plan` (a `- [ ]` checklist you keep \
+         current), `## Found` (what you learned: root cause, key files, decisions and evidence, \
+         summarized rather than raw output), and `## Walkthrough` (what changed and how you \
+         verified it, written for the user to follow). Read it before resuming work, and update \
+         the sections in place instead of growing duplicates."
             .into()
     }
 
@@ -216,14 +218,14 @@ mod tests {
         .unwrap();
         run(
             &tool,
-            json!({"action": "append", "content": "## Notes\n\nfound it"}),
+            json!({"action": "append", "content": "## Found\n\nfound it"}),
         )
         .await
         .unwrap();
         let out = run(&tool, json!({"action": "read"})).await.unwrap();
         assert_eq!(
             text(&out),
-            "## Plan\n\n- [ ] inspect\n\n## Notes\n\nfound it"
+            "## Plan\n\n- [ ] inspect\n\n## Found\n\nfound it"
         );
         std::fs::remove_dir_all(dir).ok();
     }

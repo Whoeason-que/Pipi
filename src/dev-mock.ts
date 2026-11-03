@@ -879,7 +879,7 @@ export function installDevMock(): void {
         case "read_notebook":
           return Promise.resolve(
             String(args.sessionId) === initialDemoSessionId
-              ? "# 会话笔记本\n\n## Plan\n\n- [x] 读取项目结构\n- [x] 总结模块职责\n- [ ] 补充测试\n\n## Notes\n\n核心三块：前端、Tauri 壳、Agent 内核。\n\n## Walkthrough\n\n已梳理项目结构并在时间线里给出结论。\n"
+              ? "# 会话笔记本\n\n## Plan\n\n- [x] 读取项目结构\n- [x] 总结模块职责\n- [ ] 补充测试\n\n## Found\n\n核心三块：前端、Tauri 壳、Agent 内核。\n\n## Walkthrough\n\n已梳理项目结构并在时间线里给出结论。\n"
               : "",
           );
         case "write_agent_file": {
