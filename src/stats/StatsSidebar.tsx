@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import AgentAvatar from "../components/AgentAvatar";
 import { useI18n } from "../i18n";
-import { IconChart, IconClose, IconSearch } from "../icons";
+import { IconClose, IconSearch } from "../icons";
 import type { AgentDefinition, SessionSummaryView } from "../types";
 
 interface StatsSidebarProps {
@@ -23,10 +23,6 @@ export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: St
       `${agent.name} ${agent.description}`.toLowerCase().includes(needle),
     );
   }, [primaryAgents, query]);
-  const totalSessions = primaryAgents.reduce(
-    (sum, agent) => sum + (sessionsByAgent[agent.name]?.length ?? 0),
-    0,
-  );
 
   return (
     <>
@@ -52,7 +48,7 @@ export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: St
       <div className="caption sb-sec stats-sidebar-heading">
         <span>{t("stats.agents")}</span>
         <span className="spacer" />
-        <span className="caption sb-count">{totalSessions}</span>
+        <span className="caption sb-count">{primaryAgents.length}</span>
       </div>
 
       {primaryAgents.length === 0 && <div className="session pending">{t("stats.noAgents")}</div>}
@@ -76,15 +72,21 @@ export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: St
                 className="stats-agent-avatar"
               />
               <span className="stats-agent-body">
-                <span className="truncate search-item-name">{agent.name}</span>
-                <span className="truncate caption search-item-meta">
+                <span className="stats-agent-top">
+                  <span className="truncate stats-agent-name">{agent.name}</span>
+                  <span className="stats-agent-count">
+                    {t(
+                      sessions === 1
+                        ? "common.sessionCountOne"
+                        : "common.sessionCount",
+                      { count: sessions },
+                    )}
+                  </span>
+                </span>
+                <span className="truncate stats-agent-desc">
                   {agent.description || t("stats.agentFallback")}
                 </span>
-                <span className="caption stats-agent-meta">
-                  <span>{t("stats.sessionCount", { count: sessions })}</span>
-                </span>
               </span>
-              {active && <IconChart />}
             </button>
           );
         })}

@@ -23,4 +23,6 @@ export const common = {
   unknownError: "Unknown error",
   hint: "Hint",
   saveAuto: "Changes saved automatically",
+  sessionCount: "{count} sessions",
+  sessionCountOne: "{count} session",
 };

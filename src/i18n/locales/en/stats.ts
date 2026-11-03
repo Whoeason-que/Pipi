@@ -9,7 +9,6 @@ export const stats = {
   noAgents: "No Agents yet",
   noMatchingAgents: "No matching Agents",
   agentFallback: "No description",
-  sessionCount: "{count} sessions",
   generatedAt: "Updated {time}",
   truncated: "(most recent 300 sessions only)",
   range: "Time range",

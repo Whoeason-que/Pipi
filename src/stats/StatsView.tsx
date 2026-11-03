@@ -124,8 +124,8 @@ export default function StatsView({
         )}
       </header>
 
-      <div className="overview-page stats-page">
-        <header className="overview-heading stats-heading">
+      <div className="page-scroll stats-page">
+        <header className="page-heading page-heading-spaced">
           {agent && (
             <AgentAvatar
               name={agent.name}
@@ -133,7 +133,7 @@ export default function StatsView({
               className="overview-avatar"
             />
           )}
-          <div className="overview-intro">
+          <div className="page-heading-intro">
             <h1>{t("stats.title")}</h1>
             <p>{agent ? `${agent.name} · ${t("stats.subtitle")}` : t("stats.selectAgent")}</p>
             <p className="caption stats-primary-only">{t("stats.primaryOnly")}</p>
@@ -173,7 +173,7 @@ export default function StatsView({
         </header>
 
         {!agent && (
-          <div className="overview-empty">
+          <div className="empty-card">
             <span className="icon-tile"><IconChart /></span>
             <h3>{t("stats.selectAgent")}</h3>
             <p>{t("stats.selectAgentHint")}</p>
@@ -195,7 +195,7 @@ export default function StatsView({
         )}
 
         {agent && !error && stats && !hasData && (
-          <div className="overview-empty compact">
+          <div className="empty-card compact">
             <span className="icon-tile"><IconChart /></span>
             <h3>{t("stats.empty")}</h3>
             <p>{t("stats.emptyHint")}</p>
@@ -226,7 +226,7 @@ export default function StatsView({
                 detail={t("stats.generationDetail", { duration: formatDuration(totals.generationMs) })} />
             </section>
 
-            <section className="overview-section">
+            <section className="page-section">
               <div className="section-heading">
                 <h2>{t("stats.trend")}</h2>
                 <span className="caption">{t("stats.trendHint")}</span>
@@ -257,7 +257,7 @@ export default function StatsView({
             </section>
 
             <div className="stats-two-col">
-              <section className="overview-section">
+              <section className="page-section">
                 <div className="section-heading">
                   <h2>{t("stats.models")}</h2>
                   <span className="caption">{t("stats.byCalls")}</span>
@@ -280,7 +280,7 @@ export default function StatsView({
                 </div>
               </section>
 
-              <section className="overview-section">
+              <section className="page-section">
                 <div className="section-heading">
                   <h2>{t("stats.tools")}</h2>
                   <span className="caption">{t("stats.byCalls")}</span>
@@ -303,7 +303,7 @@ export default function StatsView({
               </section>
             </div>
 
-            <section className="overview-section">
+            <section className="page-section">
               <div className="section-heading">
                 <h2>{t("stats.recentSessions")}</h2>
                 <span className="caption">{t("stats.sessionsHint")}</span>

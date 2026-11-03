@@ -18,7 +18,10 @@
 - `.truncate`：单行文本省略；功能样式负责可用宽度和伸缩约束。
 - `.caption`：辅助文字的颜色与字号；上下文中的字号差异由功能变体覆盖。
 - `.content-pane`：可伸缩、允许收缩的主内容列；功能样式负责滚动和内边距。
-- `.empty-state`：居中的空状态内容列；功能样式负责间距、留白及文案层级。
+- `.page-scroll`：页面级滚动主体（统一留白、居中与滚动条占位）；`.page-section` 提供分区之间的默认间距。
+- `.page-heading`：页面标题区；`.page-heading-intro`、`.page-heading-spaced`、`.page-heading-actions` 分别负责标题列、标题后间距与右侧操作组。
+- `.section-heading`：分区标题行（标题 + 计数/提示）；`.section-heading-ruled` 追加细分隔线，`.section-count` 是计数徽标。
+- `.empty-state`：居中的空状态内容列；`.empty-card` 是带边框/留白的空状态卡片（`.compact` 为横向紧凑变体），`.empty-icon` 是卡片内的图标块。
 - `.icon-tile`：方形图标容器；通过 `--tile-size`、`--tile-icon-size` 指定容器和图标尺寸，功能样式负责颜色、边框和圆角。
 
 共享类显式加在组件的 `className` 上，不通过跨功能选择器清单关联。关联紧密的小段样式合并维护，例如模型切换与输入区、Agent 文件编辑与配置、文件树与内容预览；不为每个子组件单独建立 CSS 文件。

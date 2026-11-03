@@ -127,6 +127,8 @@
   margin-top: 6px;
 }
 
+/* ============ 页面外壳 ============ */
+
 .workspaces-view {
   display: flex;
   flex-direction: row;
@@ -141,60 +143,67 @@
   color: var(--fg);
 }
 
-.workspaces-view-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--space-8) var(--page-gutter);
-}
-
 .workspaces-all-container,
 .workspace-detail-container {
-  max-width: var(--page-width);
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 24px;
-}
-
-.workspaces-hero-card {
-  display: flex;
   gap: 20px;
-  padding: 24px;
 }
 
-.workspaces-hero-icon,
-.workspaces-hero-icon-all {
-  --tile-icon-size: 24px;
-  --tile-size: 48px;
+.workspace-detail-container {
+  gap: 30px;
+}
+
+/* 单工作区：返回链接 + 目录标题 + 本地元信息。 */
+.workspaces-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: color var(--motion-fast);
+}
+
+.workspaces-back:hover {
+  color: var(--fg);
+}
+
+.workspaces-back svg {
+  width: 13px;
+  height: 13px;
+}
+
+.workspaces-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.workspaces-detail-copy {
+  min-width: 0;
+}
+
+.workspaces-hero-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workspaces-hero-icon {
+  --tile-size: 56px;
+  --tile-icon-size: 27px;
   border-radius: var(--r-lg);
   background: var(--accent-soft);
   color: var(--accent-text);
   flex-shrink: 0;
-}
-
-.workspaces-hero-content {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-}
-
-.workspaces-hero-title-row,
-.workspace-agent-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.workspaces-hero-content h2 {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: var(--text-title);
-  font-weight: 600;
-  margin: 0;
-  color: var(--fg);
 }
 
 .workspace-tag-custom {
@@ -207,68 +216,34 @@
 }
 
 .workspaces-hero-path {
+  margin-top: 5px;
   font-family: var(--font-mono, monospace);
   font-size: var(--text-xs);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 
-.workspaces-hero-desc {
-  font-size: var(--text-sm);
-  color: var(--muted);
-  line-height: 1.5;
-  margin: 0;
-}
-
-.workspaces-hero-stats {
-  display: flex;
-  gap: 10px;
-  margin-top: 4px;
-}
-
-.stat-pill {
-  font-size: var(--text-xs);
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: var(--stripe);
-  color: var(--muted);
-}
-
-.stat-pill strong {
-  color: var(--fg);
-}
-
-.workspaces-hero-actions {
+.workspaces-detail-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.workspaces-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.workspaces-section-header {
-  display: flex;
   align-items: center;
-  gap: 8px;
+  margin-top: 8px;
+  color: var(--faint);
+  font-size: var(--text-xs);
 }
 
-.workspaces-section-header h3,
-.workspace-card-name {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--fg);
-  margin: 0;
+.workspaces-detail-meta span + span::before {
+  content: "·";
+  margin: 0 9px;
+  color: var(--line-2);
 }
+
+/* ============ 工作区卡片 ============ */
 
 .workspaces-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 12px;
 }
 
 .workspace-card {
@@ -286,121 +261,223 @@
 .workspace-card-head {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 11px;
+  min-width: 0;
 }
 
 .workspace-card-icon {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-sm);
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 9px;
   background: var(--accent-soft);
   color: var(--accent-text);
-  flex-shrink: 0;
 }
 
-.workspace-card-titles,
-.workspace-agent-info {
+.workspace-card-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.workspace-card-titles {
   display: flex;
-  flex-direction: column;
-  min-width: 0;
   flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.workspace-card-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.15px;
+  color: var(--fg);
 }
 
 .workspace-card-path {
+  color: var(--faint);
   font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
 }
 
 .workspace-card-badge {
-  font-size: var(--text-xs);
+  flex-shrink: 0;
   padding: 2px 7px;
-  border-radius: var(--r);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-full);
   background: var(--stripe);
   color: var(--muted);
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
 .workspace-card-body {
-  min-height: 28px;
+  min-height: 30px;
 }
 
 .workspace-card-agents {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.workspace-card-agent-tag {
-  font-size: var(--text-xs);
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--stripe);
+.workspace-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 -6px;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
   color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+
+.workspace-agent-row:hover {
+  background: var(--stripe);
+}
+
+.workspace-agent-row-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+
+.workspace-agent-row-avatar svg {
+  width: 13px;
+  height: 13px;
+}
+
+.workspace-agent-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-agent-row-meta {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.workspace-card-more {
+  align-self: flex-start;
+  margin: 2px 0 0 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 
-.workspace-card-agent-tag:hover {
-  background: var(--hover-2);
-  color: var(--accent);
+.workspace-card-more:hover {
+  color: var(--fg);
 }
 
-.workspace-card-agent-more {
-  padding: 2px 6px;
+.workspace-card-empty-agents {
+  color: var(--faint);
+  font-size: var(--text-xs);
 }
 
 .workspace-card-actions {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
+  gap: 8px;
   margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* ============ 单工作区：Agent 列表 ============ */
+
+.workspaces-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workspaces-section > .empty-card {
+  margin-top: 0;
 }
 
 .workspaces-agents-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
 }
 
 .workspace-agent-card {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.workspace-agent-header {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  padding: 14px;
+  min-width: 0;
+}
+
+.workspace-agent-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .workspace-agent-name {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--fg);
   margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.15px;
+  color: var(--fg);
+}
+
+.workspace-agent-sessions {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
 .workspace-agent-desc {
-  font-size: var(--text-xs);
-  color: var(--muted);
   margin: 0;
-  line-height: 1.4;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.7;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .workspace-agent-actions {
   display: flex;
-  gap: 6px;
   flex-wrap: wrap;
+  gap: 6px;
   margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
 }
 
-.workspace-empty-card {
-  padding: 32px;
-  border: 1px dashed var(--line);
-  border-radius: var(--r-sm);
-  gap: 12px;
-  color: var(--muted);
-}
+/* ============ 快速切换 ============ */
 
 .other-workspaces-pills {
   display: flex;
@@ -436,26 +513,36 @@
   color: var(--muted);
 }
 
-@media (max-width: 860px) {
-  .workspaces-view-scroll {
-    padding: 24px;
+/* ============ 响应式 ============ */
+
+@media (max-width: 900px) {
+  /* 单工作区操作较多，整组落到标题下方。 */
+  .workspaces-detail-heading .page-heading-actions {
+    width: 100%;
+    margin: 0;
+  }
+}
+
+@media (max-width: 620px) {
+  /* 全部工作区只有一个主操作，窄屏再落回标题下方。 */
+  .workspaces-all-heading .page-heading-actions {
+    width: 100%;
+    margin: 0;
   }
 }
 
 @media (max-width: 520px) {
-  .workspaces-view-scroll {
-    padding: 20px 16px;
+  .workspaces-detail-title {
+    gap: 12px;
   }
 
-  .workspaces-hero-card {
-    flex-direction: column;
-    gap: 14px;
-    padding: 20px;
+  .workspaces-hero-icon {
+    --tile-size: 46px;
+    --tile-icon-size: 22px;
   }
 
-  .workspaces-hero-title-row,
-.workspaces-hero-stats {
-    flex-wrap: wrap;
+  .workspace-card {
+    padding: 15px;
   }
 
   .workspaces-toolbar-title {

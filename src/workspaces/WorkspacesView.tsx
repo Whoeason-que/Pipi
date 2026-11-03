@@ -4,9 +4,9 @@ import { useRightRail } from "../app/right-rail";
 import AgentAvatar from "../components/AgentAvatar";
 import {
   IconAgent,
+  IconBack,
   IconFolder,
   IconGit,
-  IconHome,
   IconPanelRight,
   IconPlus,
 } from "../icons";
@@ -67,6 +67,14 @@ export function WorkspacesView({
     (acc, a) => acc + (sessionsByAgent[a.name]?.length ?? 0),
     0,
   );
+  const agentCountLabel = (count: number) =>
+    t(count === 1 ? "workspaces.agentCountOne" : "workspaces.agentCount", {
+      count,
+    });
+  const sessionCountLabel = (count: number) =>
+    t(count === 1 ? "common.sessionCountOne" : "common.sessionCount", {
+      count,
+    });
 
   return (
     <div className="workspaces-view" style={{ "--right-rail-width": `${rail.width}px` } as CSSProperties}>
@@ -90,58 +98,49 @@ export function WorkspacesView({
         >
           <IconPanelRight />
         </button>
-        <button
-          type="button"
-          className="btn small"
-          onClick={onOpenCreateModal}
-        >
-          <IconPlus />
-          <span>{t("workspaces.newWorkspace")}</span>
-        </button>
       </header>
 
-      <div className="workspaces-view-scroll">
+      <div className="page-scroll">
         {isAll ? (
           // ================= 全部工作区视图 =================
           <div className="workspaces-all-container">
-            <div className="surface workspaces-hero-card">
-              <div className="icon-tile workspaces-hero-icon-all">
-                <IconHome />
+            <header className="page-heading workspaces-all-heading">
+              <div className="page-heading-intro">
+                <h1>
+                  {t("workspaces.allWorkspaces")}
+                  <span className="section-count">{workspaces.length}</span>
+                </h1>
+                <p>{t("workspaces.allDescription")}</p>
               </div>
-              <div className="workspaces-hero-content">
-                <h2>{t("workspaces.allWorkspaces")}</h2>
-                <p className="workspaces-hero-desc">
-                  {t("workspaces.allDescription", {
-                    workspaces: workspaces.length,
-                    agents: primaryAgents.length,
-                  })}
-                </p>
-                <div className="workspaces-hero-actions">
-                  <button
-                    type="button"
-                    className="btn primary"
-                    onClick={onOpenCreateModal}
-                  >
-                    <IconPlus />
-                    <span>{t("workspaces.newWorkspace")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    onClick={() => onNavigateSection("agents")}
-                  >
-                    <IconAgent />
-                    <span>{t("workspaces.viewAllAgents")}</span>
-                  </button>
-                </div>
+              <div className="page-heading-actions">
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={onOpenCreateModal}
+                >
+                  <IconPlus />
+                  <span>{t("workspaces.newWorkspace")}</span>
+                </button>
               </div>
-            </div>
+            </header>
 
-            <div className="workspaces-section">
-              <div className="workspaces-section-header">
-                <h3>{t("workspaces.allListTitle", { count: workspaces.length })}</h3>
+            {workspaces.length === 0 ? (
+              <div className="empty-card">
+                <span className="empty-icon">
+                  <IconFolder />
+                </span>
+                <h3>{t("workspaces.emptyWorkspaces")}</h3>
+                <p>{t("workspaces.emptyWorkspacesHint")}</p>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={onOpenCreateModal}
+                >
+                  <IconPlus />
+                  <span>{t("workspaces.newWorkspace")}</span>
+                </button>
               </div>
-
+            ) : (
               <div className="workspaces-grid">
                 {workspaces.map((w) => {
                   const wAgents = primaryAgents.filter(
@@ -151,21 +150,27 @@ export function WorkspacesView({
                   );
                   const name = w.name || getWorkspaceBasename(w.path);
                   return (
-                    <div key={w.path} className="surface workspace-card">
+                    <article key={w.path} className="surface workspace-card">
                       <div className="workspace-card-head">
                         <div className="workspace-card-icon">
                           <IconFolder />
                         </div>
                         <div className="workspace-card-titles">
-                          <h4 className="truncate workspace-card-name" title={name}>
+                          <h2
+                            className="truncate workspace-card-name"
+                            title={name}
+                          >
                             {name}
-                          </h4>
-                          <span className="truncate caption workspace-card-path" title={w.path}>
+                          </h2>
+                          <span
+                            className="truncate caption workspace-card-path"
+                            title={w.path}
+                          >
                             {w.path}
                           </span>
                         </div>
                         <span className="workspace-card-badge">
-                          {t("workspaces.agentCount", { count: wAgents.length })}
+                          {agentCountLabel(wAgents.length)}
                         </span>
                       </div>
 
@@ -173,23 +178,40 @@ export function WorkspacesView({
                         {wAgents.length > 0 ? (
                           <div className="workspace-card-agents">
                             {wAgents.slice(0, 4).map((a) => (
-                              <span
+                              <button
+                                type="button"
                                 key={a.name}
-                                className="workspace-card-agent-tag"
+                                className="workspace-agent-row"
                                 onClick={() => onSelectAgent(a.name)}
                                 title={t("workspaces.viewAgent", { name: a.name })}
                               >
-                                {a.name}
-                              </span>
+                                <AgentAvatar
+                                  name={a.name}
+                                  subagent={a.subagent}
+                                  className="workspace-agent-row-avatar"
+                                />
+                                <span className="workspace-agent-row-name">
+                                  {a.name}
+                                </span>
+                                <span className="workspace-agent-row-meta">
+                                  {sessionCountLabel(
+                                    sessionsByAgent[a.name]?.length ?? 0,
+                                  )}
+                                </span>
+                              </button>
                             ))}
                             {wAgents.length > 4 && (
-                              <span className="caption workspace-card-agent-more">
+                              <button
+                                type="button"
+                                className="workspace-card-more"
+                                onClick={() => onSelectWorkspace(w.path)}
+                              >
                                 +{wAgents.length - 4}
-                              </span>
+                              </button>
                             )}
                           </div>
                         ) : (
-                          <span className="caption workspace-card-empty-agents">
+                          <span className="workspace-card-empty-agents">
                             {t("workspaces.noAgentsLinked")}
                           </span>
                         )}
@@ -201,7 +223,7 @@ export function WorkspacesView({
                           className="btn small primary"
                           onClick={() => onSelectWorkspace(w.path)}
                         >
-                          <span>{t("workspaces.switchToWorkspace")}</span>
+                          <span>{t("workspaces.openWorkspace")}</span>
                         </button>
                         <button
                           type="button"
@@ -213,86 +235,96 @@ export function WorkspacesView({
                           <span>{t("nav.newAgent")}</span>
                         </button>
                       </div>
-                    </div>
+                    </article>
                   );
                 })}
               </div>
-            </div>
+            )}
           </div>
         ) : (
           // ================= 单个工作区视图 =================
           <div className="workspace-detail-container">
-            <div className="surface workspaces-hero-card">
-              <div className="icon-tile workspaces-hero-icon">
-                <IconFolder />
-              </div>
-              <div className="workspaces-hero-content">
-                <div className="workspaces-hero-title-row">
-                  <h2>{displayName}</h2>
-                  {currentWorkspace?.custom && (
-                    <span className="workspace-tag-custom">{t("workspaces.customWorkspace")}</span>
-                  )}
-                </div>
-                <div className="workspaces-hero-path" title={activeWorkspace}>
-                  {activeWorkspace}
-                </div>
-                <div className="workspaces-hero-stats">
-                  <span className="stat-pill">
-                    {t("workspaces.linkedAgents", { count: workspaceAgents.length })}
-                  </span>
-                  <span className="stat-pill">
-                    {t("workspaces.activeSessions", { count: totalSessionsCount })}
-                  </span>
-                </div>
-                <div className="workspaces-hero-actions">
-                  <button
-                    type="button"
-                    className="btn primary"
-                    onClick={() => onCreateAgent(activeWorkspace)}
-                  >
-                    <IconPlus />
-                    <span>{t("workspaces.newAgentInWorkspace")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    onClick={() => onNavigateSection("agents")}
-                  >
-                    <IconAgent />
-                    <span>{t("workspaces.viewLinkedAgents")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    onClick={() => onNavigateSection("files")}
-                  >
+            <header className="page-heading workspaces-detail-heading">
+              <div className="page-heading-intro">
+                <button
+                  type="button"
+                  className="workspaces-back"
+                  onClick={() => onSelectWorkspace("all")}
+                >
+                  <IconBack />
+                  <span>{t("workspaces.backToAll")}</span>
+                </button>
+                <div className="workspaces-detail-title">
+                  <span className="icon-tile workspaces-hero-icon">
                     <IconFolder />
-                    <span>{t("workspaces.browseFiles")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    onClick={() => onNavigateSection("git")}
-                  >
-                    <IconGit />
-                    <span>{t("workspaces.viewGit")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    onClick={() => onSelectWorkspace("all")}
-                  >
-                    <IconHome />
-                    <span>{t("workspaces.backToAll")}</span>
-                  </button>
+                  </span>
+                  <div className="workspaces-detail-copy">
+                    <div className="workspaces-hero-title-row">
+                      <h1>{displayName}</h1>
+                      {currentWorkspace?.custom && (
+                        <span className="workspace-tag-custom">
+                          {t("workspaces.customWorkspace")}
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      className="workspaces-hero-path"
+                      title={activeWorkspace}
+                    >
+                      {activeWorkspace}
+                    </div>
+                    <div className="workspaces-detail-meta">
+                      <span>{agentCountLabel(workspaceAgents.length)}</span>
+                      <span>{sessionCountLabel(totalSessionsCount)}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+              <div className="page-heading-actions">
+                <button
+                  type="button"
+                  className="btn primary"
+                  title={t("workspaces.newAgentInWorkspace")}
+                  onClick={() => onCreateAgent(activeWorkspace)}
+                >
+                  <IconPlus />
+                  <span>{t("nav.newAgent")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => onNavigateSection("agents")}
+                >
+                  <IconAgent />
+                  <span>{t("workspaces.agentsShort")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => onNavigateSection("files")}
+                >
+                  <IconFolder />
+                  <span>{t("workspaces.filesShort")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => onNavigateSection("git")}
+                >
+                  <IconGit />
+                  <span>{t("workspaces.gitShort")}</span>
+                </button>
+              </div>
+            </header>
 
             {/* 工作区关联 Agent */}
             <div className="workspaces-section">
-              <div className="workspaces-section-header">
-                <h3>{t("workspaces.agentsInWorkspace", { count: workspaceAgents.length })}</h3>
+              <div className="section-heading section-heading-ruled">
+                <h2>
+                  {t("workspaces.agentsInWorkspace", {
+                    count: workspaceAgents.length,
+                  })}
+                </h2>
                 <span className="spacer" />
                 <button
                   type="button"
@@ -305,7 +337,7 @@ export function WorkspacesView({
               </div>
 
               {workspaceAgents.length === 0 ? (
-                <div className="empty-state workspace-empty-card">
+                <div className="empty-card">
                   <p>{t("workspaces.emptyAgents")}</p>
                   <button
                     type="button"
@@ -319,15 +351,30 @@ export function WorkspacesView({
               ) : (
                 <div className="workspaces-agents-grid">
                   {workspaceAgents.map((agent) => (
-                    <div key={agent.name} className="surface workspace-agent-card">
+                    <article
+                      key={agent.name}
+                      className="surface workspace-agent-card"
+                    >
                       <div className="workspace-agent-header">
-                        <AgentAvatar name={agent.name} subagent={agent.subagent} />
+                        <AgentAvatar
+                          name={agent.name}
+                          subagent={agent.subagent}
+                        />
                         <div className="workspace-agent-info">
-                          <h4 className="truncate workspace-agent-name">{agent.name}</h4>
+                          <h3 className="truncate workspace-agent-name">
+                            {agent.name}
+                          </h3>
                           <span className="truncate workspace-agent-model">
-                            {agent.model ?? t("workspace.defaultModel")}
+                            {agent.provider?.id ||
+                              agent.model ||
+                              t("workspace.noModel")}
                           </span>
                         </div>
+                        <span className="workspace-agent-sessions">
+                          {sessionCountLabel(
+                            sessionsByAgent[agent.name]?.length ?? 0,
+                          )}
+                        </span>
                       </div>
                       <p className="workspace-agent-desc">
                         {agent.description || t("workspaces.noDescription")}
@@ -355,7 +402,7 @@ export function WorkspacesView({
                           {t("workspaces.configure")}
                         </button>
                       </div>
-                    </div>
+                    </article>
                   ))}
                 </div>
               )}
@@ -364,8 +411,8 @@ export function WorkspacesView({
             {/* 快速切换到其他工作区 */}
             {workspaces.length > 1 && (
               <div className="workspaces-section other-workspaces">
-                <div className="workspaces-section-header">
-                  <h3>{t("workspaces.quickSwitch")}</h3>
+                <div className="section-heading section-heading-ruled">
+                  <h2>{t("workspaces.quickSwitch")}</h2>
                 </div>
                 <div className="other-workspaces-pills">
                   {workspaces

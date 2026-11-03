@@ -98,7 +98,7 @@ export function WorkspacesSidebar({
                   </span>
                 )}
               </div>
-              <span className="truncate workspaces-nav-sub">{t("workspaces.showAllAgents", { count: totalAgentsCount })}</span>
+              <span className="truncate workspaces-nav-sub">{t(totalAgentsCount === 1 ? "workspaces.showAllAgentsOne" : "workspaces.showAllAgents", { count: totalAgentsCount })}</span>
             </div>
           </div>
         )}

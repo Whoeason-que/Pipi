@@ -11,8 +11,6 @@
 
 .stats-page { padding-top: 28px; }
 
-.stats-heading { align-items: flex-start; }
-
 .stats-controls {
   display: flex;
   flex-direction: column;
@@ -310,23 +308,27 @@
   overscroll-behavior: contain;
 }
 
-.stats-agent-item {
-  display: flex;
-  align-items: flex-start;
+/* .search-item 在 search.css 中纵向堆叠，且该文件晚于 stats.css 加载；
+   用复合选择器固定横排，避免被通用规则覆盖回竖排。 */
+.search-item.stats-agent-item {
+  flex-direction: row;
+  align-items: center;
   gap: 9px;
-  padding: 8px 9px;
+  padding: 7px 9px;
   border: 1px solid transparent;
   border-radius: var(--r);
   background: transparent;
   text-align: left;
 }
 
-.stats-agent-item:hover { background: var(--hover); }
+.search-item.stats-agent-item:hover { background: var(--hover); }
 
-.stats-agent-item.active {
+.search-item.stats-agent-item.active {
   background: var(--accent-soft);
   border-color: var(--accent-border);
 }
+
+.search-item.stats-agent-item.active .stats-agent-name { color: var(--accent-text); }
 
 .stats-agent-avatar {
   width: 30px;
@@ -342,26 +344,40 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
-.stats-agent-meta {
+.stats-agent-top {
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: var(--faint);
+  gap: 8px;
+  min-width: 0;
 }
 
-.stats-agent-item > svg {
-  width: 14px;
-  height: 14px;
+.stats-agent-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  font-size: 13.5px;
+  font-weight: 550;
+}
+
+.stats-agent-count {
   flex-shrink: 0;
-  color: var(--accent-text);
+  color: var(--faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stats-agent-desc {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  line-height: 1.4;
 }
 
 @media (max-width: 900px) {
   .stats-two-col { grid-template-columns: minmax(0, 1fr); }
-  .stats-heading { flex-wrap: wrap; }
   .stats-controls { width: 100%; align-items: stretch; }
   .stats-agent-select { width: 100%; }
 }

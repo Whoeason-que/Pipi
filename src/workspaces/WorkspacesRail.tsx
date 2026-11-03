@@ -45,8 +45,8 @@ export function WorkspacesRail({
     id="workspaces-rail"
     label={displayName}
     subtitle={isAll
-      ? t("workspaces.railSubtitleAll", { workspaces: workspaces.length, agents: scopedAgents.length })
-      : t("workspaces.railSubtitleWorkspace", { agents: scopedAgents.length })}
+      ? t("workspaces.railSubtitleAll")
+      : t("workspaces.railSubtitleWorkspace")}
     icon={isAll ? <IconHome /> : <IconFolder />}
     actions={<button type="button" className="icon-btn" title={t("workspaces.newWorkspace")} aria-label={t("workspaces.newWorkspace")} onClick={onOpenCreateModal}>
       <IconPlus />
@@ -109,8 +109,8 @@ function Scope({ workspaceName, path, isAll, workspaces, agents, sessions, onOpe
           <IconAgent /> {t("nav.newAgent")}
         </button>
         {!isAll && <>
-          <button type="button" className="btn small ghost" onClick={() => onNavigateSection("files")}><IconFolder /> File</button>
-          <button type="button" className="btn small ghost" onClick={() => onNavigateSection("git")}><IconGit /> Git</button>
+          <button type="button" className="btn small ghost" onClick={() => onNavigateSection("files")}><IconFolder /> {t("workspaces.filesShort")}</button>
+          <button type="button" className="btn small ghost" onClick={() => onNavigateSection("git")}><IconGit /> {t("workspaces.gitShort")}</button>
         </>}
         {isAll && <button type="button" className="btn small ghost" onClick={() => onNavigateSection("agents")}><IconAgent /> {t("workspaces.allAgents")}</button>}
       </div>
@@ -125,20 +125,22 @@ function WorkspaceList({ workspaces, activeWorkspace, onSelectWorkspace }: {
   onSelectWorkspace: (workspace: string) => void;
 }) {
   const { t } = useI18n();
+  const agentCountLabel = (count: number) =>
+    t(count === 1 ? "workspaces.agentCountOne" : "workspaces.agentCount", { count });
   return <section className="right-rail-section">
     <h3>{t("workspaces.allListTitleDot", { count: workspaces.length })}</h3>
     <div className="right-rail-list">
       <button type="button" className={`right-rail-item${activeWorkspace === "all" ? " active" : ""}`} onClick={() => onSelectWorkspace("all")}>
         <IconHome />
         <span className="truncate right-rail-item-main">{t("workspaces.allWorkspaces")}</span>
-        <small>{t("workspaces.agentCount", { count: workspaces.reduce((total, item) => total + item.agentCount, 0) })}</small>
+        <small>{agentCountLabel(workspaces.reduce((total, item) => total + item.agentCount, 0))}</small>
       </button>
       {workspaces.map((workspace) => <button type="button" key={workspace.path}
         className={`right-rail-item${workspace.path === activeWorkspace ? " active" : ""}`}
         title={workspace.path} onClick={() => onSelectWorkspace(workspace.path)}>
         <IconFolder />
         <span className="truncate right-rail-item-main">{workspace.name || getWorkspaceBasename(workspace.path)}</span>
-        <small>{t("workspaces.agentCount", { count: workspace.agentCount })}</small>
+        <small>{agentCountLabel(workspace.agentCount)}</small>
       </button>)}
     </div>
   </section>;

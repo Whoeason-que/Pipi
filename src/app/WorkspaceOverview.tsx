@@ -27,11 +27,27 @@ interface WorkspaceOverviewProps {
 
 type Activity = { agent: AgentDefinition; session: SessionSummaryView };
 
+function relativeTime(
+  timestamp: number,
+  now: number,
+  format: Intl.RelativeTimeFormat,
+): string {
+  const diff = timestamp - now;
+  const distance = Math.abs(diff);
+  if (distance < 60_000) return format.format(0, "second");
+  if (distance < 3_600_000) return format.format(Math.trunc(diff / 60_000), "minute");
+  if (distance < 86_400_000) return format.format(Math.trunc(diff / 3_600_000), "hour");
+  if (distance < 7 * 86_400_000) return format.format(Math.trunc(diff / 86_400_000), "day");
+  return "";
+}
+
 function SessionActivity({
   items,
+  running,
   onSession,
 }: {
   items: Activity[];
+  running: Set<string>;
   onSession: WorkspaceOverviewProps["onSession"];
 }) {
   const { locale, t } = useI18n();
@@ -41,38 +57,57 @@ function SessionActivity({
     hour: "2-digit",
     minute: "2-digit",
   });
+  const relative = new Intl.RelativeTimeFormat(
+    locale === "zh" ? "zh-CN" : "en",
+    { numeric: "auto" },
+  );
+  const now = Date.now();
   return (
-    <div className="surface activity-list">
+    <div className="activity-list">
       {items.map(({ agent, session }) => {
+        const isRunning = running.has(sessionKey(agent.name, session.id));
+        const lastActive = session.lastActive;
+        const absolute = lastActive ? date.format(lastActive) : "";
+        const timeLabel = lastActive
+          ? relativeTime(lastActive, now, relative) || absolute
+          : t("workspace.noActivity");
         return (
           <button
             type="button"
             key={sessionKey(agent.name, session.id)}
-            className="activity-row"
+            className={`activity-row${isRunning ? " is-running" : ""}`}
             onClick={() => onSession(agent.name, session.id)}
           >
-            <span className="icon-tile activity-icon">
-              <IconMessage />
-            </span>
             <span className="activity-name">
-              <b>{session.title || t("workspace.untitled")}</b>
+              <b>
+                <span className="activity-title">
+                  {session.title || t("workspace.untitled")}
+                </span>
+                {isRunning && (
+                  <em className="activity-badge">
+                    {t("workspace.runningBadge")}
+                  </em>
+                )}
+              </b>
               <small>
                 <span>{agent.name}</span>
                 <span>
-                  {t("workspace.messages", { count: session.messageCount })}
+                  {t(
+                    session.messageCount === 1
+                      ? "workspace.messagesOne"
+                      : "workspace.messages",
+                    { count: session.messageCount },
+                  )}
                 </span>
               </small>
             </span>
             <time
               dateTime={
-                session.lastActive
-                  ? new Date(session.lastActive).toISOString()
-                  : undefined
+                lastActive ? new Date(lastActive).toISOString() : undefined
               }
+              title={absolute || undefined}
             >
-              {session.lastActive
-                ? date.format(session.lastActive)
-                : t("workspace.noActivity")}
+              {timeLabel}
             </time>
             <span className="activity-arrow">
               <IconArrowUpRight />
@@ -104,17 +139,18 @@ export default function WorkspaceOverview({
       (sessions[item.name] ?? []).map((session) => ({ agent: item, session })),
     )
     .sort((a, b) => b.session.lastActive - a.session.lastActive);
-  const runningCount = [...running].filter((key) =>
-    visible.some((item) => key.startsWith(sessionKeyPrefix(item.name))),
-  ).length;
-  const currentRunning = recent.filter((item) =>
-    running.has(sessionKey(item.agent.name, item.session.id)),
-  );
+  const isRunning = (item: Activity) =>
+    running.has(sessionKey(item.agent.name, item.session.id));
+  // 正在运行的会话置顶，剩下的按最近活动排序。
+  const activity = [
+    ...recent.filter(isRunning),
+    ...recent.filter((item) => !isRunning(item)),
+  ].slice(0, 8);
 
   return (
-    <div className="overview-page">
+    <div className="page-scroll">
       <header
-        className={`overview-heading${agent ? " agent-overview-heading" : ""}`}
+        className={`page-heading page-heading-spaced${agent ? " agent-overview-heading" : " overview-workspace-heading"}`}
       >
         {agent && (
           <AgentAvatar
@@ -123,7 +159,7 @@ export default function WorkspaceOverview({
             className="overview-avatar"
           />
         )}
-        <div className="overview-intro">
+        <div className="page-heading-intro">
           <h1>
             {agent?.name ??
               t(
@@ -144,7 +180,9 @@ export default function WorkspaceOverview({
                     : "workspace.description",
               )}
           </p>
-          <div className="overview-actions">
+        </div>
+        {(agent || !subagents) && (
+          <div className="page-heading-actions">
             {agent ? (
               <>
                 <button
@@ -175,45 +213,20 @@ export default function WorkspaceOverview({
                 </button>
               </>
             ) : (
-              !subagents && (
-                <button
-                  type="button"
-                  className="btn primary"
-                  onClick={onCreate}
-                >
-                  <IconPlus />
-                  {t("nav.newAgent")}
-                </button>
-              )
+              <button type="button" className="btn primary" onClick={onCreate}>
+                <IconPlus />
+                {t("nav.newAgent")}
+              </button>
             )}
           </div>
-        </div>
+        )}
       </header>
 
-      <div className="overview-summary">
-        <span className={runningCount ? "summary-running" : ""}>
-          {runningCount
-            ? t("workspace.running", { count: runningCount })
-            : t("workspace.ready")}
-        </span>
-        {!agent && (
-          <span>
-            <b>{agents.length}</b>
-            {t(subagents ? "nav.subagents" : "nav.agents")}
-          </span>
-        )}
-        <span>
-          <b>{recent.length}</b>
-          {t("workspace.sessions")}
-        </span>
-        <span className="summary-local">
-          <IconFolder />
-          {t("workspace.localFiles")}
-        </span>
-      </div>
-
       {agent && (
-        <section className="surface agent-facts" aria-label={t("workspace.agentInfo")}>
+        <section
+          className="surface agent-facts"
+          aria-label={t("workspace.agentInfo")}
+        >
           <div>
             <span>{t("workspace.directory")}</span>
             <strong title={agent.workspace ?? undefined}>
@@ -229,7 +242,12 @@ export default function WorkspaceOverview({
           <div>
             <span>{t("workspace.permissions")}</span>
             <strong>
-              {t("workspace.tools", { count: agent.permissions.tools.length })}{" "}
+              {t(
+                agent.permissions.tools.length === 1
+                  ? "workspace.toolsOne"
+                  : "workspace.tools",
+                { count: agent.permissions.tools.length },
+              )}{" "}
               / {t(`workspace.sandbox.${agent.permissions.sandbox}`)}
             </strong>
           </div>
@@ -237,8 +255,8 @@ export default function WorkspaceOverview({
       )}
 
       {!agent && (
-        <section className="overview-section">
-          <div className="section-heading">
+        <section className="page-section">
+          <div className="section-heading section-heading-ruled">
             <h2>
               {t(subagents ? "nav.subagents" : "workspace.yourAgents")}
               <span className="section-count">{agents.length}</span>
@@ -251,6 +269,11 @@ export default function WorkspaceOverview({
           </div>
           <div className="agent-cards">
             {agents.map((item) => {
+              const itemRunning =
+                [...running].filter((key) =>
+                  key.startsWith(sessionKeyPrefix(item.name)),
+                ).length > 0;
+              const sessionCount = (sessions[item.name] ?? []).length;
               return (
                 <button
                   type="button"
@@ -262,31 +285,51 @@ export default function WorkspaceOverview({
                     <AgentAvatar name={item.name} subagent={item.subagent} />
                     <div className="agent-card-identity">
                       <b>{item.name}</b>
-                      <span>{item.subagent ? "Subagent" : "Agent"}</span>
+                      <span className="agent-card-sub">
+                        <span>{item.subagent ? "Subagent" : "Agent"}</span>
+                        <span>
+                          {t(
+                            sessionCount === 1
+                              ? "common.sessionCountOne"
+                              : "common.sessionCount",
+                            { count: sessionCount },
+                          )}
+                        </span>
+                        {itemRunning && (
+                          <span className="agent-card-live">
+                            <i />
+                            {t("workspace.runningBadge")}
+                          </span>
+                        )}
+                      </span>
                     </div>
                     <span className="activity-arrow">
                       <IconArrowUpRight />
                     </span>
                   </div>
-                  <div className="agent-card-copy">
-                    <p>{item.description || t("workspace.agentPlaceholder")}</p>
-                  </div>
-                  <div className="agent-card-model">
-                    <span>{t("workspace.defaultModel")}</span>
-                    <strong title={item.provider?.id || item.model || undefined}>
-                      {item.provider?.id || item.model || t("workspace.noModel")}
-                    </strong>
-                  </div>
-                  <div className="caption agent-card-footer">
-                    <span className="agent-card-directory" title={item.workspace || t("workspace.defaultDirectory")}>
+                  <p className="agent-card-copy">
+                    {item.description || t("workspace.agentPlaceholder")}
+                  </p>
+                  <div className="agent-card-footer">
+                    <span
+                      className="agent-card-directory"
+                      title={item.workspace || t("workspace.defaultDirectory")}
+                    >
                       <IconFolder />
-                      <span>{item.workspace || t("workspace.defaultDirectory")}</span>
+                      <span>
+                        {item.workspace || t("workspace.defaultDirectory")}
+                      </span>
                     </span>
-                    <span>
-                      <IconMessage />
-                      {t("workspace.sessionCount", {
-                        count: (sessions[item.name] ?? []).length,
-                      })}
+                    <span
+                      className="agent-card-model"
+                      title={item.provider?.id || item.model || undefined}
+                    >
+                      <span>{t("workspace.defaultModel")}</span>
+                      <strong>
+                        {item.provider?.id ||
+                          item.model ||
+                          t("workspace.noModel")}
+                      </strong>
                     </span>
                   </div>
                 </button>
@@ -294,8 +337,8 @@ export default function WorkspaceOverview({
             })}
           </div>
           {!agents.length && (
-            <div className="overview-empty">
-              <span className="empty-agent-icon">
+            <div className="empty-card">
+              <span className="empty-icon">
                 <IconPlus />
               </span>
               <h3>
@@ -313,11 +356,7 @@ export default function WorkspaceOverview({
                 )}
               </p>
               {!subagents && (
-                <button
-                  type="button"
-                  className="btn primary"
-                  onClick={onCreate}
-                >
+                <button type="button" className="btn primary" onClick={onCreate}>
                   {t("nav.newAgent")}
                 </button>
               )}
@@ -326,20 +365,8 @@ export default function WorkspaceOverview({
         </section>
       )}
 
-      {currentRunning.length > 0 && (
-        <section className="overview-section">
-          <div className="section-heading">
-            <h2>{t("workspace.inProgress")}</h2>
-            <span>{t("workspace.backgroundHint")}</span>
-          </div>
-          <SessionActivity
-            items={currentRunning}
-            onSession={onSession}
-          />
-        </section>
-      )}
-      <section className="overview-section">
-        <div className="section-heading">
+      <section className="page-section">
+        <div className="section-heading section-heading-ruled">
           <h2>{t("workspace.recent")}</h2>
           <span>
             {t(
@@ -353,11 +380,12 @@ export default function WorkspaceOverview({
         </div>
         {recent.length ? (
           <SessionActivity
-            items={recent.slice(0, 8)}
+            items={activity}
+            running={running}
             onSession={onSession}
           />
         ) : (
-          <div className="overview-empty compact">
+          <div className="empty-card compact">
             <IconMessage />
             <p>
               {t(agent ? "workspace.emptyAgent" : "workspace.emptyWorkspace")}
