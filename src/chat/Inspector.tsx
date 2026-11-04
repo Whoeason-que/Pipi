@@ -14,6 +14,7 @@ import {
 } from "./inspector-tabs";
 import { SessionFilesPanel } from "../files/SessionFilesPanel";
 import { NotebookPanel } from "./NotebookPanel";
+import SubagentPanel from "./SubagentPanel";
 import { useNotebook } from "./notebook";
 import { useI18n } from "../i18n";
 // ============ 右侧检查器 ============
@@ -81,6 +82,7 @@ export default function Inspector({
     chipDetail,
     chipDetailMode,
     onUnpinChip,
+    runtime,
   } = context;
   const [internalTab, setInternalTab] = useState<InspectorTab>("stats");
   const tab = activeTabProp ?? internalTab;
@@ -88,9 +90,10 @@ export default function Inspector({
     setInternalTab(next);
     onTabChange?.(next);
   };
-  // 临时测试会话没有真实 notebook（id 属于进程内的测试账本），不占一个空 tab。
+  // 临时测试会话没有真实 notebook（id 属于进程内的测试账本），不占一个空 tab；
+  // Subagent 预览属于正式会话的运行视图，也不放进调试工作台。
   const tabs = embedded
-    ? INSPECTOR_TABS.filter((item) => item.id !== "notebook")
+    ? INSPECTOR_TABS.filter((item) => item.id !== "notebook" && item.id !== "subagents")
     : INSPECTOR_TABS;
   const notebook = useNotebook(agent.name, embedded ? null : sessionId, entries);
   // 正在压缩：压缩条目在收尾前是 transient（见 chat-runtime 的 compaction_start）
@@ -567,6 +570,22 @@ export default function Inspector({
               </span>
             </div>
           </div>
+        </div>
+
+        <div
+          className={`ipanel${tab === "subagents" ? " active" : ""}`}
+          id="ipanel-subagents"
+          role="tabpanel"
+          aria-labelledby="itab-subagents"
+        >
+          <SubagentPanel
+            agent={agent}
+            sessionId={sessionId}
+            entries={entries}
+            parentRunning={running}
+            runtime={runtime}
+            active={tab === "subagents"}
+          />
         </div>
 
         <div

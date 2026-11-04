@@ -19,6 +19,8 @@ export class SessionRuntime {
   private sessions = new Map<string, SessionController>();
   private drafts = new Set<SessionController>();
   private replay = new Map<string, { runId: number; frames: SessionFrame[] }>();
+  /** 未注册 controller 的子会话也能从事件流判断是否还在跑（agent_end 清除）。 */
+  private live = new Set<string>();
   private listeners = new Set<(frame: RuntimeFrame) => void>();
   private rekeyListeners = new Set<(controller: SessionController, previous: string | null, next: string, temporary: boolean) => void>();
   private unlisten: Array<() => void> = [];
@@ -32,6 +34,7 @@ export class SessionRuntime {
     this.composerDrafts.forget(agent, session);
     this.sessions.delete(composeSessionKey(agent, session));
     this.replay.delete(composeSessionKey(agent, session));
+    this.live.delete(composeSessionKey(agent, session));
   }
 
   forgetAgent(agent: string): void {
@@ -40,6 +43,7 @@ export class SessionRuntime {
     for (const map of [this.sessions, this.replay]) {
       for (const sessionKey of map.keys()) if (sessionKey.startsWith(prefix)) map.delete(sessionKey);
     }
+    for (const sessionKey of this.live) if (sessionKey.startsWith(prefix)) this.live.delete(sessionKey);
     for (const draft of this.drafts) if (draft.agentName === agent) this.drafts.delete(draft);
   }
 
@@ -66,7 +70,9 @@ export class SessionRuntime {
     this.unlisten.forEach(unlisten => unlisten());
     this.unlisten = [];
     this.connection = null;
-    // 断开的是宿主事件订阅，后台运行仍归 Rust RuntimeState 所有。
+    // 断开的是宿主事件订阅，后台运行仍归 Rust RuntimeState 所有；
+    // 连接期间收到的运行态标记可能已经过期，重连后按新事件重建。
+    this.live.clear();
   }
 
   async resynchronize(): Promise<void> {
@@ -80,6 +86,11 @@ export class SessionRuntime {
   subscribe(listener: (frame: RuntimeFrame) => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
+  }
+
+  /** 没有注册 controller 的会话（例如 inline 子运行）也能判断是否还在跑。 */
+  isRunning(agent: string, session: string): boolean {
+    return this.live.has(composeSessionKey(agent, session));
   }
 
   subscribeRekeys(listener: (controller: SessionController, previous: string | null, next: string, temporary: boolean) => void): () => void {
@@ -133,6 +144,16 @@ export class SessionRuntime {
       }
       if (controller) controller.receive(frame);
       else this.remember(sessionKey, identity.runId, frame);
+    }
+    if (frame.type === "agent-event") {
+      const key = composeSessionKey(frame.payload.agentName, frame.payload.sessionId);
+      if (frame.payload.event.type === "agent_end") this.live.delete(key);
+      else this.live.add(key);
+    } else if (frame.type === "session-switched") {
+      const from = composeSessionKey(frame.payload.agentName, frame.payload.sessionId);
+      if (this.live.delete(from)) {
+        this.live.add(composeSessionKey(frame.payload.agentName, frame.payload.toSessionId));
+      }
     }
     this.listeners.forEach(listener => listener(frame));
   }

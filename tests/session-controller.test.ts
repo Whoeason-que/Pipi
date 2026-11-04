@@ -773,3 +773,20 @@ test("compaction failure settles the current session and ignores other sessions"
   assert.equal(chat.entries.at(-1)?.transient, false);
   runtime.disconnect();
 });
+
+test("runtime tracks live child sessions without registering a controller", async () => {
+  const { host, runtime } = await fixture();
+  assert.equal(runtime.isRunning(agent.name, "child"), false);
+  host.event({ type: "agent_start" }, "child", 1);
+  assert.equal(runtime.isRunning(agent.name, "child"), true);
+  host.event({ type: "tool_execution_start", toolCallId: "t1", toolName: "read" }, "child", 1);
+  assert.equal(runtime.isRunning(agent.name, "child"), true);
+  host.emit("session-switched", {
+    agentName: agent.name, sessionId: "child", runId: 1, toSessionId: "child-fork",
+  });
+  assert.equal(runtime.isRunning(agent.name, "child"), false);
+  assert.equal(runtime.isRunning(agent.name, "child-fork"), true);
+  host.event({ type: "agent_end", messages: [] }, "child-fork", 1);
+  assert.equal(runtime.isRunning(agent.name, "child-fork"), false);
+  runtime.disconnect();
+});

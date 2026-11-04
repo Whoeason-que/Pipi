@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 
-export type InspectorTab = "notebook" | "detail" | "stats" | "state" | "files" | "search";
+export type InspectorTab = "notebook" | "detail" | "stats" | "state" | "subagents" | "files" | "search";
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "notebook", label: "Notebook" },
   { id: "detail", label: "Details" },
   { id: "stats", label: "Stats" },
   { id: "state", label: "State" },
+  { id: "subagents", label: "Subagents" },
   { id: "files", label: "Session files" },
   { id: "search", label: "Find" },
 ];
@@ -38,6 +39,14 @@ export function InspectorTabIcon({
     detail: <path d="m4 5 6 6-6 6M12 19h8" />,
     stats: <path d="M18 20V10M12 20V4M6 20v-6" />,
     state: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
+    subagents: (
+      <>
+        <rect x="9" y="3" width="6" height="5" rx="1.6" />
+        <rect x="3" y="16" width="6" height="5" rx="1.6" />
+        <rect x="15" y="16" width="6" height="5" rx="1.6" />
+        <path d="M12 8v4M6 16v-2h12v2" />
+      </>
+    ),
     files: (
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8ZM14 2v6h6M8 13h8M8 17h8" />
     ),

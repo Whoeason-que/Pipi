@@ -438,3 +438,208 @@
 .notebook-body {
   min-width: 0;
 }
+
+/* ---- Subagent 运行预览 ---- */
+
+.subagent-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.subagent-count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  background: var(--hover);
+  color: var(--faint);
+  font: 10px/16px var(--font-mono);
+  text-align: center;
+}
+
+.subagent-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
+}
+
+.subagent-run {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.subagent-run:hover { background: var(--hover); color: var(--fg); }
+
+.subagent-run.active { background: var(--accent-soft); color: var(--fg); }
+
+.subagent-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--line-2);
+}
+
+.subagent-dot.running {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.subagent-run-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subagent-run-title {
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 550;
+}
+
+.subagent-run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  color: var(--faint);
+  font-size: 10.5px;
+}
+
+.subagent-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+
+.subagent-preview-head strong {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.subagent-preview-head .subagent-dot { margin-top: 0; }
+
+.subagent-status {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.subagent-status.running { color: var(--ok); }
+
+.subagent-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin-bottom: 10px;
+  color: var(--faint);
+  font-size: 10.5px;
+}
+
+.subagent-preview-body {
+  display: flex;
+  max-height: 360px;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.subagent-entry {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subagent-entry-role {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.subagent-entry.user .subagent-entry-role { color: var(--accent-text); }
+
+.subagent-entry.tool .subagent-entry-role { color: var(--warn); }
+
+.subagent-entry-status { font-weight: 500; }
+
+.subagent-entry-status.running { color: var(--ok); }
+
+.subagent-entry-status.failed { color: var(--danger); }
+
+.subagent-entry-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.subagent-entry.assistant .subagent-entry-text { color: var(--fg); }
+
+.subagent-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 2px;
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+
+.subagent-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 18px 10px 8px;
+  text-align: center;
+}
+
+.subagent-empty-icon {
+  --tile-size: 38px;
+  --tile-icon-size: 19px;
+  margin-bottom: 2px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--stripe);
+  color: var(--faint);
+}
+
+.subagent-empty strong {
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.subagent-empty p {
+  margin: 0;
+  max-width: 34ch;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}

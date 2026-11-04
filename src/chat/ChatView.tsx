@@ -400,6 +400,7 @@ export default function ChatView({
     chipDetail: activeChip,
     chipDetailMode: previewChip ? "preview" : "pinned",
     onUnpinChip: () => setPinnedChip(null),
+    runtime: sessions,
   };
 
   return (
