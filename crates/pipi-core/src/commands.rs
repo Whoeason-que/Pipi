@@ -739,6 +739,8 @@ pub fn send_prompt(
 pub struct CompactNowArgs {
     pub agent_name: String,
     pub session_id: String,
+    /// `summary`（默认）或 `edit`（Agent 主导的上下文编辑）。
+    pub mode: Option<String>,
 }
 
 /// 手动压缩当前会话（跳过阈值预检，走与自动压缩相同的分叉/归档路径）。
@@ -747,7 +749,12 @@ pub fn compact_now(
     emitter: EventEmitter,
     args: CompactNowArgs,
 ) -> Result<(), String> {
-    runtime.compact_now(&args.agent_name, &args.session_id, emitter)
+    let mode = match args.mode.as_deref() {
+        None | Some("") | Some("summary") => pipi_context::compaction::CompactMode::Summary,
+        Some("edit") => pipi_context::compaction::CompactMode::Edit,
+        Some(other) => return Err(format!("Unknown compact mode: {other}")),
+    };
+    runtime.compact_now(&args.agent_name, &args.session_id, mode, emitter)
 }
 
 #[derive(Debug, Deserialize)]

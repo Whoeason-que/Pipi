@@ -375,7 +375,12 @@ fn shutdown_saves_partial_sessions_and_retries_failed_commits() {
     );
     assert!(
         state
-            .compact_now("closing-a", &sessions[0].1, sink)
+            .compact_now(
+                "closing-a",
+                &sessions[0].1,
+                pipi_context::compaction::CompactMode::Summary,
+                sink,
+            )
             .unwrap_err()
             .contains("shutting down")
     );

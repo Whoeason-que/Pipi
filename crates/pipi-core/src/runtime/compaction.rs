@@ -6,6 +6,7 @@ impl RuntimeState {
         &self,
         agent_name: &str,
         session_id: &str,
+        mode: pipi_context::compaction::CompactMode,
         event_sink: EventEmitter,
     ) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
@@ -40,6 +41,7 @@ impl RuntimeState {
                 fork_before_compact: settings.compaction.fork_before_compact,
                 archive_original: settings.compaction.archive_original,
             },
+            mode,
         };
         let hooks = make_session_hooks(
             event_sink,
