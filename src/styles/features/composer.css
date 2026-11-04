@@ -370,24 +370,228 @@
     conic-gradient(var(--accent) var(--dial-progress), var(--line) 0) border-box;
 }
 
-.composer-queue { margin-bottom: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); font-size: var(--text-xs); }
+/* 待发队列：贴在输入框上沿的磨砂托盘，层级感参考 zcode；
+   底色与输入框同款半透明 + 背景模糊，让会话内容从托盘后透出。 */
+.composer-queue {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  margin: 0 auto -12px;
+  padding: 10px 10px 20px;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  background: transparent;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--card-shadow), var(--inner-glow);
+}
 
-.composer-queue-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+/* 只让底色半透明，队列文字与按钮保持清晰。 */
+.composer-queue::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--chat-surface);
+  opacity: 0.72;
+  pointer-events: none;
+}
 
-.composer-queue-header > span { color: var(--muted); flex: 1; }
+.composer-queue-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 4px 8px;
+}
 
-.composer-queue ol { margin: 4px 0; padding: 0; list-style: none; max-height: 160px; overflow: auto; }
+.composer-queue-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--fg);
+}
 
-.composer-queue li { display: flex; align-items: center; gap: 8px; padding-block: 6px; border-top: 1px solid var(--line); }
+.composer-queue-title svg {
+  flex-shrink: 0;
+  color: var(--faint);
+}
 
-.composer-queue-message { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.composer-queue-title strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
 
-.composer-queue-message small,
-.composer-queue-note { color: var(--muted); }
+.composer-queue-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
 
-.composer-queue-note { margin: 6px 0 0; }
+.composer-queue-status::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
 
-.composer-queue-error { overflow-wrap: anywhere; margin: 6px 0; }
+.composer-queue.is-paused {
+  border-color: var(--warn-border);
+}
+
+.composer-queue.is-paused .composer-queue-title svg {
+  color: var(--warn);
+}
+
+.composer-queue.is-paused .composer-queue-status {
+  color: var(--warn);
+}
+
+.composer-queue.is-paused .composer-queue-status::before {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+
+.composer-queue-toggle {
+  flex-shrink: 0;
+  height: 26px;
+  min-height: 0;
+  padding-inline: 8px;
+  font-size: var(--text-xs);
+}
+
+.composer-queue-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 4px 6px;
+  color: var(--danger);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.composer-queue-error svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.composer-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 延迟发送与当前队列分组显示；到时后消息自动并入当前队列。 */
+.composer-queue-group + .composer-queue-group {
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.composer-queue-group-label {
+  margin: 0 0 3px;
+  padding: 0 8px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.composer-queue ol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.composer-queue li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--r);
+  transition: background var(--motion-fast);
+}
+
+.composer-queue li:hover {
+  background: var(--stripe);
+}
+
+.composer-queue-index {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--stripe);
+  color: var(--faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-queue-message {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.composer-queue-text {
+  display: block;
+  color: var(--fg);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.composer-queue-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--faint);
+  font-size: 10.5px;
+}
+
+.composer-queue-meta > span + span::before {
+  content: "·";
+  margin-right: 8px;
+  color: var(--line-2);
+}
+
+.composer-queue-cancel {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  opacity: 0;
+  transition: opacity var(--motion-fast), color var(--motion-fast);
+}
+
+.composer-queue li:hover .composer-queue-cancel,
+.composer-queue li:focus-within .composer-queue-cancel {
+  opacity: 1;
+}
+
+.composer-queue-cancel:hover:not(:disabled) {
+  color: var(--danger);
+}
 
 @media (max-width: 860px) {
 
@@ -470,4 +674,24 @@
   .composer-bar .delay-picker { grid-column: 2; grid-row: 2; }
   .composer-bar .send-action { grid-column: 3 / -1; grid-row: 2; }
   .model-effort-copy { flex-direction: row; align-items: baseline; gap: 6px; }
+}
+
+@media (max-width: 520px) {
+  .composer-queue {
+    padding: 9px 8px 18px;
+  }
+
+  .composer-queue-status {
+    display: none;
+  }
+
+  .composer-queue-cancel {
+    opacity: 1;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .composer-queue-cancel {
+    opacity: 1;
+  }
 }
