@@ -92,7 +92,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             }
             onClick={() => props.onSelectAgent(agent.name)}
           >
-            <span>{agent.name}</span>
+            <span className="fade-end">{agent.name}</span>
           </button>
           <span className="agent-row-actions">
             <button
@@ -158,7 +158,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
                     onClick={() => props.onOpenSession(agent.name, session.id)}
                     aria-current={active ? "page" : undefined}
                   >
-                    <span className="truncate session-title">
+                    <span className="truncate session-title fade-end">
                       {session.title || t("workspace.untitled")}
                     </span>
                   </button>
@@ -199,7 +199,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             {props.archivedSessionsExpanded[agent.name] &&
               (props.archivedSessions[agent.name] ?? []).map((session) => (
                 <div className="session archived-session" key={session.id}>
-                  <span className="truncate session-title" title={session.title}>
+                  <span className="truncate session-title fade-end" title={session.title}>
                     {session.title}
                   </span>
                   <ActionMenu
@@ -256,7 +256,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
           {props.archivedOpen &&
             props.archivedAgents.map((agent) => (
               <div className="agent-row archived-agent" key={agent.name}>
-                <span className="truncate session-title">{agent.name}</span>
+                <span className="truncate session-title fade-end">{agent.name}</span>
                 <ActionMenu
                   label={t("app.archivedAgentMenu", { name: agent.name })}
                   actions={[

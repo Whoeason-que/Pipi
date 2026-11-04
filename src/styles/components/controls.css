@@ -10,6 +10,22 @@
   white-space: nowrap;
 }
 
+/* 行尾渐隐替代省略号；使用方需保证元素占满可用宽度（flex:1 / width:100%），
+   否则短文本的末尾也会落进遮罩。 */
+.fade-end {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 64px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 64px),
+    transparent
+  );
+}
+
 .content-pane {
   flex: 1;
   min-width: 0;

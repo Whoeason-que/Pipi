@@ -157,9 +157,10 @@
 .session-link { color: var(--muted); }
 
 .agent-name > span:last-child {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
 }
 
@@ -176,6 +177,7 @@
 .session:hover > .more-trigger,
 .session:focus-within > .more-trigger {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* Agent / 会话行内的操作图标统一到 14px（1+ / ⋯）。 */
@@ -190,7 +192,8 @@
 }
 
 .session {
-  gap: 6px;
+  position: relative;
+  gap: 0;
   margin: 1px 0;
   padding: 1px 0 1px 6px;
   border: 0;
@@ -240,7 +243,30 @@
   min-height: 0;
 }
 
-.session > .more-trigger { opacity: 0; }
+/* 会话操作按钮悬浮在行尾，标题占满整行并在右缘渐隐。 */
+.session > .more-trigger {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 悬停出现操作按钮时，把会话标题的渐隐区拉宽到按钮下方。 */
+.session:hover .session-title.fade-end,
+.session:focus-within .session-title.fade-end {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 72px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 72px),
+    transparent
+  );
+}
 
 .session.pending {
   font-size: var(--text-sm);
@@ -313,9 +339,23 @@
 }
 
 /* 触屏没有 hover：侧栏里的归档/删除动作必须始终可见。 */
-@media (max-width: 860px), (hover: none) and (pointer: coarse) {
+@media (hover: none) and (pointer: coarse) {
   .agent-row-actions,
   .session > .more-trigger {
     opacity: 1;
+    pointer-events: auto;
+  }
+
+  .session-title.fade-end {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 calc(100% - 72px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      #000 calc(100% - 72px),
+      transparent
+    );
   }
 }
