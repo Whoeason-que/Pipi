@@ -6,6 +6,15 @@ import { invoke } from "../platform";
 import { IconGitBranch, IconRefresh } from "../icons";
 import { formatClock } from "./ToolDetails";
 
+/** 同一天只显示时分秒；跨天补上「月/日」，避免旧提交只剩一个时间。 */
+function formatCommitTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const time = formatClock(timestamp);
+  return date.toDateString() === new Date().toDateString()
+    ? time
+    : `${date.getMonth() + 1}/${date.getDate()} ${time.slice(0, 5)}`;
+}
+
 interface Props {
   agent: AgentDefinition;
   sessionId: string | null;
@@ -161,7 +170,7 @@ export default function SessionHistoryPanel({ agent, sessionId, running, active 
                         {commit.turn != null && (
                           <span>{t("inspector.historyTurn", { turn: commit.turn })}</span>
                         )}
-                        <span>{formatClock(commit.timestamp)}</span>
+                        <span>{formatCommitTime(commit.timestamp)}</span>
                         <span className="history-hash">{commit.id.slice(0, 7)}</span>
                         {commit.isTip && (
                           <span className="history-tip">{t("inspector.historyTip")}</span>
