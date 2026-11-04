@@ -300,6 +300,7 @@ const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }
   open_workbench_session: {},
   session_info: { sessionId: "required" },
   session_messages: { sessionId: "required" },
+  session_history: { sessionId: "required" },
   session_stats: { sessionId: "required" },
   agent_stats: {},
   stop_run: { sessionId: "required" },
