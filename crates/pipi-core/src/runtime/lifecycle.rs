@@ -173,6 +173,16 @@ impl RuntimeState {
         Self::session_repo_for(agent_name)?.list_archived()
     }
 
+    /// 会话提交历史（一轮一个 commit；右栏 git tree 只读）。
+    pub fn session_history(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+    ) -> Result<Vec<pipi_protocol::session::SessionCommit>, String> {
+        validate_session_id(session_id)?;
+        Self::session_repo_for(agent_name)?.history(session_id)
+    }
+
     /// 导入/归档/删除共用的占用检查与槽位脱离；调用方必须已持有 sessions 锁，
     /// 且在本函数返回后继续持有到载体操作完成（避免检查与 IO 之间被抢跑）。
     fn detach_agent_sessions_locked(

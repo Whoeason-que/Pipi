@@ -21,7 +21,7 @@ use pipi_protocol::forum::{
     ThreadFilter, ThreadStatus, ThreadSummary,
 };
 use pipi_protocol::permissions::PermissionsConfig;
-use pipi_protocol::session::{SessionImportReport, SessionSummary};
+use pipi_protocol::session::{SessionCommit, SessionImportReport, SessionSummary};
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
 use pipi_provider::catalog::ModelCatalog;
 use pipi_venv::agents::{self, AgentDefinition, AgentEditableFiles};
@@ -80,6 +80,7 @@ pub const COMMANDS: &[&str] = &[
     "set_prompt_queue_paused",
     "set_session_model",
     "session_messages",
+    "session_history",
     "session_stats",
     "agent_stats",
     "fork_session",
@@ -854,6 +855,21 @@ pub async fn session_messages(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionHistoryArgs {
+    pub agent_name: String,
+    pub session_id: String,
+}
+
+/// 会话提交历史（只读，右栏 git tree）。
+pub fn session_history(
+    runtime: &RuntimeState,
+    args: SessionHistoryArgs,
+) -> Result<Vec<SessionCommit>, String> {
+    runtime.session_history(&args.agent_name, &args.session_id)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionStatsArgs {
     pub agent_name: String,
     pub session_id: String,
@@ -1312,6 +1328,7 @@ pub async fn dispatch(
         "set_prompt_queue_paused" => to_value(set_prompt_queue_paused(runtime, parse(args)?)?),
         "set_session_model" => to_value(set_session_model(runtime, parse(args)?)?),
         "session_messages" => to_value(session_messages(runtime, parse(args)?).await?),
+        "session_history" => to_value(session_history(runtime, parse(args)?)?),
         "session_stats" => to_value(session_stats(runtime, parse(args)?)?),
         "agent_stats" => to_value(agent_stats(parse(args)?)?),
         "fork_session" => to_value(fork_session(runtime, parse(args)?)?),
@@ -1367,8 +1384,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            69,
-            "宿主命令数应为 69（前端 CommandMap 同步）"
+            70,
+            "宿主命令数应为 70（前端 CommandMap 同步）"
         );
     }
 
