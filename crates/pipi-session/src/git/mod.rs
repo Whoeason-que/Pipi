@@ -31,9 +31,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use pipi_protocol::session::{
-    SessionEntry, SessionLog, SessionRepo, SessionSummary, validate_session_id,
+    SessionCommit, SessionCommitEntry, SessionEntry, SessionLog, SessionRepo, SessionSummary,
+    validate_session_id,
 };
 use pipi_protocol::{new_id, now_millis};
+
+/// 树里展示的最大提交数（长会话只取最近这么多轮，避免一次 git log 太重）。
+const HISTORY_MAX_COMMITS: usize = 200;
 
 /// [`SessionRepo`] 的 git 实现：一个 Agent 的 `sessions.git` 影子仓库。
 pub struct GitSessionRepo {
@@ -158,6 +162,85 @@ impl SessionRepo for GitSessionRepo {
     fn entries_archived(&self, session_id: &str) -> Result<Vec<SessionEntry>, String> {
         validate_session_id(session_id)?;
         self.read_session(&refs::archive_ref(session_id))
+    }
+
+    fn history(&self, session_id: &str) -> Result<Vec<SessionCommit>, String> {
+        validate_session_id(session_id)?;
+        let ref_name = refs::session_ref(session_id);
+        if !self.exec.ref_exists(&ref_name)? {
+            return Ok(Vec::new());
+        }
+        let tip = self.exec.resolve_ref(&ref_name)?.unwrap_or_default();
+        // 一次 git log 同时拿提交元数据与新增路径：`%x1e` 分隔提交，`%x1f`
+        // 分隔字段，`--raw` 的 `:...` 行带出本轮新增的 entry 文件。
+        let max = format!("--max-count={HISTORY_MAX_COMMITS}");
+        let output = self.exec.run(&[
+            "log",
+            max.as_str(),
+            "--format=%x1e%H%x1f%P%x1f%ct%x1f%B",
+            "--raw",
+            "--no-renames",
+            "--diff-filter=A",
+            "--root",
+            &ref_name,
+        ])?;
+        let text = String::from_utf8_lossy(&output);
+        let mut commits = Vec::new();
+        for record in text.split('\u{1e}') {
+            if record.trim().is_empty() {
+                continue;
+            }
+            let mut parts = record.splitn(4, '\u{1f}');
+            let id = parts.next().unwrap_or_default().trim().to_string();
+            if id.is_empty() {
+                continue;
+            }
+            let parents = parts.next().unwrap_or_default().trim();
+            let timestamp = parts
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .parse::<u64>()
+                .unwrap_or(0);
+            let rest = parts.next().unwrap_or_default();
+            let parent_id = parents.split_whitespace().next().map(str::to_string);
+            let mut body_lines: Vec<&str> = Vec::new();
+            let mut entries = Vec::new();
+            let mut in_raw = false;
+            for line in rest.lines() {
+                if line.starts_with(':') && line.contains('\t') {
+                    in_raw = true;
+                    let path = line.rsplit('\t').next().unwrap_or_default().trim();
+                    if let Some((seq, kind)) = layout::parse_entry_path(path)
+                        && let Some(id8) = layout::entry_id_prefix(path)
+                    {
+                        entries.push(SessionCommitEntry { id: id8, seq, kind });
+                    }
+                } else if !in_raw {
+                    body_lines.push(line);
+                }
+            }
+            entries.sort_by_key(|entry| entry.seq);
+            let summary = body_lines
+                .first()
+                .map_or("", |line| line.trim())
+                .to_string();
+            let turn = body_lines.iter().find_map(|line| {
+                line.trim()
+                    .strip_prefix("Turn:")
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+            });
+            commits.push(SessionCommit {
+                is_tip: id == tip,
+                id,
+                parent_id,
+                timestamp: timestamp.saturating_mul(1_000),
+                summary,
+                turn,
+                entries,
+            });
+        }
+        Ok(commits)
     }
 
     fn fork(

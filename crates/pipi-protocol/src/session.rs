@@ -148,6 +148,42 @@ pub struct SessionSummary {
     pub parent_session_id: Option<String>,
 }
 
+/// 一条会话提交（一轮一个 commit）的历史视图。只读，供右栏 git tree 展示。
+///
+/// 只暴露展示需要的形状：提交 hash / 父提交 / 时间 / 轮号 / 本次新增条目。
+/// 条目正文留在 git 里，树里不重复搬运；`entries[].id` 是文件名里的 8 位短 id。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCommit {
+    /// 提交 hash（完整）。
+    pub id: String,
+    /// 父提交 hash；根提交为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    /// 提交时间（unix 毫秒）。
+    pub timestamp: u64,
+    /// commit message 首行（轮首摘要）。
+    pub summary: String,
+    /// `Turn: n` trailer；没有时省略。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<u64>,
+    /// 本次提交新增的条目，按 seq 升序。
+    pub entries: Vec<SessionCommitEntry>,
+    /// 是否当前分支 tip。
+    pub is_tip: bool,
+}
+
+/// 提交里的一个条目（kind + 短 id；不读正文）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCommitEntry {
+    /// 条目 id 的前 8 位（树里只做展示；完整 id 在 entry 文件里）。
+    pub id: String,
+    pub seq: u64,
+    /// entry kind token（与文件名 / serde tag 同名）。
+    pub kind: String,
+}
+
 /// 显式导入（旧 JSONL 会话 → git 分支）的结果：宿主命令回报给用户。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -266,6 +302,12 @@ pub trait SessionRepo: Send + Sync {
     fn entries_archived(&self, session_id: &str) -> Result<Vec<SessionEntry>, String> {
         let _ = session_id;
         Err("This backend does not support reading archived sessions".into())
+    }
+    /// 会话提交历史（一轮一个 commit）。默认不支持：没有 git 历史的载体
+    /// 直接报错，调用方据此降级而不是猜。
+    fn history(&self, session_id: &str) -> Result<Vec<SessionCommit>, String> {
+        let _ = session_id;
+        Err("This backend does not support session history".into())
     }
     /// 从源会话分叉出新会话（`up_to_entry_id` 为空则到当前 tip）。
     fn fork(

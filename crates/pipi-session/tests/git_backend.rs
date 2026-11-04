@@ -497,3 +497,58 @@ fn subagent_run_marker_is_listed_with_its_parent_session() {
     ));
     std::fs::remove_dir_all(dir).ok();
 }
+
+/// 右栏 git tree 的只读历史：一轮一个提交，带轮号、新增条目与 tip 标记。
+#[test]
+fn history_lists_turn_commits_and_entry_kinds() {
+    let dir = pipi_test_support::temp_dir("pipi-git-history");
+    let repo = GitSessionRepo::new(dir.join("sessions.git"));
+    let mut sink = repo.create().expect("创建会话");
+    let id = sink.session_id().to_string();
+
+    sink.append_message(&Message::user_text("第一轮：读 README"))
+        .unwrap();
+    sink.append_message(&Message::assistant_text("好的", "mock"))
+        .unwrap();
+    sink.commit_point().expect("提交第一轮");
+
+    sink.append_message(&Message::user_text("第二轮：压缩"))
+        .unwrap();
+    sink.append_compaction(&CompactionRecord {
+        summary: "前一轮摘要",
+        strategy: "llm-summarize",
+        keep_from_entry: "",
+        source_tip: "",
+        usage: None,
+    })
+    .unwrap();
+    sink.commit_point().expect("提交第二轮");
+    drop(sink);
+
+    let history = repo.history(&id).expect("读取历史");
+    assert_eq!(history.len(), 2, "两轮两个提交");
+    // git log 默认新→旧
+    assert_eq!(history[0].summary, "user: 第二轮：压缩");
+    assert_eq!(history[0].turn, Some(2));
+    assert!(history[0].is_tip);
+    assert!(!history[1].is_tip);
+    assert_eq!(
+        history[0].parent_id.as_deref(),
+        Some(history[1].id.as_str())
+    );
+    assert!(history[0].timestamp > 0);
+    let kinds: Vec<&str> = history[0]
+        .entries
+        .iter()
+        .map(|entry| entry.kind.as_str())
+        .collect();
+    assert_eq!(kinds, vec!["message", "compaction"]);
+    assert!(
+        history[0].entries.iter().all(|entry| entry.id.len() == 8),
+        "树里展示 8 位短 id"
+    );
+
+    // 不存在的会话返回空历史，不报错（右栏可以安全地显示空树）。
+    assert!(repo.history("0-missing").unwrap().is_empty());
+    std::fs::remove_dir_all(dir).ok();
+}
