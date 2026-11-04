@@ -109,6 +109,9 @@ git log --format='%s  [%(trailers:key=Turn,valueonly)]' # 每行带轮号
   - message：一行摘要，`user: …` / `assistant: …` / `toolResult/<name>: …` / `compaction: …` /
     `model_change` / `env: …`（截断 72 字符，供 `git log --oneline` 阅读）；
     body 里带 `Turn: <n>` trailer（轮号），用于轮级浏览（见 §2.3 实测）。
+- 右栏「历史」页通过 `SessionRepo::history` 只读读取最近 200 个提交的元数据与
+  新增 entry 的 kind/短 id（不读正文）；一次 `git log --raw` 拿齐，避免逐提交
+  spawn git。它是 git 树的展示，不参与会话写入或压缩决策。
 - **粒度**（易混；用户 2026-10-12 追问，**待拍板**）：一个对话 = 一个 session id = 一条
   `session/<id>` 分支。「一个用户输入一个 commit」= 一轮一个 commit，但 commit 创建即不可变，
   而用户输入在轮首、该轮产物（assistant/toolResult）在轮末才齐，所以只有三种可实现形态：
