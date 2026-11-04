@@ -208,9 +208,11 @@ impl SessionRepo for GitSessionRepo {
             let mut entries = Vec::new();
             let mut in_raw = false;
             for line in rest.lines() {
-                if line.starts_with(':') && line.contains('\t') {
+                // 只把「raw 行 + entry 路径」当成文件列表；提交正文里偶然出现的
+                // `:`/tab 不会提前截断 Turn trailer 的解析。
+                let path = line.rsplit('\t').next().unwrap_or_default().trim();
+                if line.starts_with(':') && path.starts_with("e/") {
                     in_raw = true;
-                    let path = line.rsplit('\t').next().unwrap_or_default().trim();
                     if let Some((seq, kind)) = layout::parse_entry_path(path)
                         && let Some(id8) = layout::entry_id_prefix(path)
                     {
