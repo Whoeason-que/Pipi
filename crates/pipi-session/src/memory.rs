@@ -6,7 +6,9 @@
 //! 即消失。这样 runtime 的事件、统计与压缩不需要两套状态机，同时保证临时测试
 //! 不会出现在会话目录和会话列表里。
 
-use pipi_protocol::session::{CompactionRecord, EntryKind, EnvDeclared, SessionLog};
+use pipi_protocol::session::{
+    CompactionRecord, ContextEditRecord, EntryKind, EnvDeclared, SessionLog,
+};
 use pipi_protocol::{BackgroundTaskResult, Message, Model, new_id, now_millis};
 
 use super::LedgerState;
@@ -108,6 +110,11 @@ impl SessionLog for MemoryLog {
     }
 
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
+        self.last_append_ledger = Some(self.ledger.clone());
+        Ok(self.append(record.to_entry_kind(), now_millis()))
+    }
+
+    fn append_context_edit(&mut self, record: &ContextEditRecord<'_>) -> std::io::Result<String> {
         self.last_append_ledger = Some(self.ledger.clone());
         Ok(self.append(record.to_entry_kind(), now_millis()))
     }

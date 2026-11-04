@@ -17,8 +17,9 @@ use serde::{Deserialize, Serialize};
 use crate::{Message, Model, Usage};
 
 /// 条目类型。pi 还有 branch_summary / custom；Pipi 增量新增 compaction
-/// （摘要式上下文压缩的落点：其之前的消息被摘要替换，回放时丢弃）
-/// 与 env（环境契约记账）。
+/// （摘要式上下文压缩的落点：其之前的消息被摘要替换，回放时丢弃）、
+/// context_edit（Agent 编辑式压缩：清理/删除清单，回放时应用）与 env
+/// （环境契约记账）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EntryKind {
@@ -45,6 +46,32 @@ pub enum EntryKind {
         summary: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         keep_from_entry: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        source_tip: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        strategy: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<Usage>,
+    },
+    /// Agent 主导的上下文编辑（Pipi 新增）：模型选出的清理/删除计划。
+    ///
+    /// 与 [`EntryKind::Compaction`] 一样属于**替换式**：回放时应用同一份计划，
+    /// 原始条目仍保留在 append-only 日志里。区别是不注入摘要，只做三类操作：
+    /// - `cleared`：把指定 toolResult 的内容换成占位符（配对不变）；
+    /// - `thinking_removed`：剥掉指定 assistant 消息里的 Thinking 块；
+    /// - `removed`：整条丢弃指定消息（策略保证是整轮，不会孤立 toolResult）。
+    ///
+    /// `source_tip` / `strategy` / `usage` 与 Compaction 同义；`note` 是给 UI
+    /// 与 git commit 摘要看的一句说明，不注入模型上下文。
+    ContextEdit {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cleared: Vec<ClearedToolResult>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        thinking_removed: Vec<String>,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        note: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         source_tip: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -118,6 +145,48 @@ impl CompactionRecord<'_> {
         EntryKind::Compaction {
             summary: self.summary.to_string(),
             keep_from_entry: self.keep_from_entry.to_string(),
+            source_tip: self.source_tip.to_string(),
+            strategy: self.strategy.to_string(),
+            usage: self.usage,
+        }
+    }
+}
+
+/// 一条被清理的工具结果：条目 id + 回放时用的占位文本。
+///
+/// 占位文本随条目落盘，回放不需要认识 `pipi-context` 的清理规则；同一份
+/// 文本也保证「自动清理」与「Agent 编辑」在模型眼里长得一样。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearedToolResult {
+    pub entry_id: String,
+    pub text: String,
+}
+
+/// 一次 Agent 上下文编辑要落盘的内容。策略产出，runtime 交给 writer。
+pub struct ContextEditRecord<'a> {
+    pub cleared: &'a [ClearedToolResult],
+    /// 整条删除的条目 id（策略保证按整轮展开，不孤立 toolResult）。
+    pub removed: &'a [String],
+    /// 剥掉 Thinking 块的 assistant 条目 id。
+    pub thinking_removed: &'a [String],
+    /// 给 UI / git 摘要看的说明；不注入模型上下文。
+    pub note: &'a str,
+    pub strategy: &'a str,
+    /// 编辑前的活跃条目 id（审计用）。
+    pub source_tip: &'a str,
+    /// 产出编辑计划那次调用的用量（计入会话账本）。
+    pub usage: Option<Usage>,
+}
+
+impl ContextEditRecord<'_> {
+    /// 落成条目 payload（各载体的 `append_context_edit` 共用）。
+    pub fn to_entry_kind(&self) -> EntryKind {
+        EntryKind::ContextEdit {
+            cleared: self.cleared.to_vec(),
+            removed: self.removed.to_vec(),
+            thinking_removed: self.thinking_removed.to_vec(),
+            note: self.note.to_string(),
             source_tip: self.source_tip.to_string(),
             strategy: self.strategy.to_string(),
             usage: self.usage,
@@ -216,6 +285,8 @@ pub trait SessionLog: Send {
         parent_session: &str,
     ) -> std::io::Result<String>;
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String>;
+    /// 追加一条 Agent 上下文编辑（替换式，回放时应用同一份清理/删除计划）。
+    fn append_context_edit(&mut self, record: &ContextEditRecord<'_>) -> std::io::Result<String>;
     fn append_model_change(&mut self, model: &Model) -> std::io::Result<String>;
     /// 追加环境契约记账条目（每会话至多一条，重复调用幂等跳过）。
     fn append_env(&mut self, declared: Vec<EnvDeclared>) -> std::io::Result<Option<String>>;
@@ -434,10 +505,64 @@ pub fn replay(entries: &[&SessionEntry]) -> (Vec<Message>, Vec<String>) {
                 ids.push(entry.id.clone());
                 ids.append(&mut kept_ids);
             }
+            EntryKind::ContextEdit {
+                cleared,
+                removed,
+                thinking_removed,
+                ..
+            } => apply_context_edit(&mut messages, &mut ids, cleared, removed, thinking_removed),
             _ => {}
         }
     }
     (messages, ids)
+}
+
+/// 应用一条 Agent 上下文编辑（与 `pipi-session` 的 `track_message_ids` 共用
+/// 同一条规则：只有 `removed` 会改变 id 序列）。
+///
+/// 这是回放侧的防御性实现：`removed` 里的 id 找不到就跳过；`cleared` 目标
+/// 不是 toolResult 就跳过；剥 thinking 后若消息会变空则保留原样（策略在写侧
+/// 已把这种消息放进 `removed`，这里不能擅自改 id 序列）。
+fn apply_context_edit(
+    messages: &mut Vec<Message>,
+    ids: &mut Vec<String>,
+    cleared: &[ClearedToolResult],
+    removed: &[String],
+    thinking_removed: &[String],
+) {
+    for entry_id in removed {
+        if let Some(index) = ids.iter().position(|id| id == entry_id) {
+            ids.remove(index);
+            messages.remove(index);
+        }
+    }
+    for item in cleared {
+        let Some(index) = ids.iter().position(|id| id == &item.entry_id) else {
+            continue;
+        };
+        let Some(Message::ToolResult { content, .. }) = messages.get_mut(index) else {
+            continue;
+        };
+        *content = vec![crate::ToolResultContent::Text {
+            text: item.text.clone(),
+        }];
+    }
+    for entry_id in thinking_removed {
+        let Some(index) = ids.iter().position(|id| id == entry_id) else {
+            continue;
+        };
+        let Some(Message::Assistant { content, .. }) = messages.get_mut(index) else {
+            continue;
+        };
+        let without: Vec<crate::ContentBlock> = content
+            .iter()
+            .filter(|block| !matches!(block, crate::ContentBlock::Thinking { .. }))
+            .cloned()
+            .collect();
+        if !without.is_empty() {
+            *content = without;
+        }
+    }
 }
 
 /// 从活跃路径条目重建可执行的消息历史（见 [`replay`]）。
@@ -577,6 +702,130 @@ mod tests {
         assert_eq!(texts, vec!["turn 3", "turn 4", "turn 5"]);
         // 摘要消息占用压缩条目自身的 id 槽位
         assert_eq!(ids, vec!["c1", "m3", "m4", "m5"]);
+    }
+
+    fn assistant_entry(
+        id: &str,
+        parent: &str,
+        seq: u64,
+        content: Vec<crate::ContentBlock>,
+    ) -> SessionEntry {
+        SessionEntry {
+            id: id.into(),
+            parent_id: Some(parent.into()),
+            seq,
+            timestamp: seq,
+            kind: EntryKind::Message {
+                message: Message::Assistant {
+                    content,
+                    api: String::new(),
+                    provider: String::new(),
+                    model: "m".into(),
+                    usage: Default::default(),
+                    stop_reason: crate::StopReason::ToolUse,
+                    error_message: None,
+                    error_kind: None,
+                    timestamp: 0,
+                    duration_ms: None,
+                },
+            },
+        }
+    }
+
+    /// 上下文编辑的回放：清内容、剥 thinking、整条删除，并且 id 序列与消息
+    /// 一一对应（之后的 compaction keep_from 还能命中）。
+    #[test]
+    fn replay_applies_context_edit_and_keeps_id_mapping() {
+        let edit = SessionEntry {
+            id: "e1".into(),
+            parent_id: Some("m4".into()),
+            seq: 4,
+            timestamp: 4,
+            kind: EntryKind::ContextEdit {
+                cleared: vec![ClearedToolResult {
+                    entry_id: "m3".into(),
+                    text: "[cleared]".into(),
+                }],
+                removed: vec!["m4".into()],
+                thinking_removed: vec!["m2".into()],
+                note: "removed a dead end".into(),
+                source_tip: "m4".into(),
+                strategy: "agent-edit".into(),
+                usage: None,
+            },
+        };
+        let line = serde_json::to_string(&edit).unwrap();
+        assert!(line.contains("\"type\":\"context_edit\""), "{line}");
+        let edit: SessionEntry = serde_json::from_str(&line).unwrap();
+
+        let entries = vec![
+            message_entry("m1", None, 0, "task"),
+            assistant_entry(
+                "m2",
+                "m1",
+                1,
+                vec![
+                    crate::ContentBlock::Thinking {
+                        thinking: "reasoning".into(),
+                        thinking_signature: Some("sig".into()),
+                    },
+                    crate::ContentBlock::ToolCall {
+                        id: "t1".into(),
+                        name: "bash".into(),
+                        arguments: serde_json::json!({ "command": "ls" }),
+                    },
+                ],
+            ),
+            SessionEntry {
+                id: "m3".into(),
+                parent_id: Some("m2".into()),
+                seq: 2,
+                timestamp: 2,
+                kind: EntryKind::Message {
+                    message: Message::ToolResult {
+                        tool_call_id: "t1".into(),
+                        tool_name: "bash".into(),
+                        content: vec![crate::ToolResultContent::Text {
+                            text: "a very long output".into(),
+                        }],
+                        is_error: false,
+                        details: None,
+                        timestamp: 0,
+                    },
+                },
+            },
+            message_entry("m4", Some("m3"), 3, "dead end"),
+            edit,
+            message_entry("m5", Some("e1"), 5, "next"),
+            compaction_entry("c1", "m5", 6, "m2"),
+        ];
+        let (messages, ids) = replay(&active_path(&entries));
+        // 摘要 + 编辑后保留的 m2/m3 + m5；m4 被删。
+        assert_eq!(ids, vec!["c1", "m2", "m3", "m5"]);
+        assert_eq!(summary_text(&messages[0]), Some("摘要"));
+        let Message::Assistant { content, .. } = &messages[1] else {
+            panic!("expected assistant");
+        };
+        assert!(
+            content
+                .iter()
+                .all(|block| !matches!(block, crate::ContentBlock::Thinking { .. }))
+        );
+        assert!(
+            content
+                .iter()
+                .any(|block| matches!(block, crate::ContentBlock::ToolCall { .. }))
+        );
+        let Message::ToolResult { content, .. } = &messages[2] else {
+            panic!("expected tool result");
+        };
+        assert_eq!(
+            content,
+            &vec![crate::ToolResultContent::Text {
+                text: "[cleared]".into()
+            }]
+        );
+        assert_eq!(messages.len(), ids.len());
     }
 
     /// 定位不到 keep_from_entry（条目被分叉截断等）时退回「只留摘要」，

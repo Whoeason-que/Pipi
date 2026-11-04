@@ -134,6 +134,10 @@ fn track_message_ids(ids: &mut Vec<String>, entry: &SessionEntry) {
             ids.push(entry.id.clone());
             ids.extend(kept);
         }
+        // 上下文编辑只有整条删除会改变 id 序列；清理内容/剥 thinking 不改变条目身份。
+        EntryKind::ContextEdit { removed, .. } => {
+            ids.retain(|id| !removed.contains(id));
+        }
         _ => {}
     }
 }
@@ -149,7 +153,7 @@ pub use memory::MemoryLog;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pipi_protocol::session::{CompactionRecord, replay};
+    use pipi_protocol::session::{CompactionRecord, ContextEditRecord, replay};
 
     /// 账本推进（`message_ids`）必须与回放结果一致 —— 下一次压缩的
     /// `keep_from_entry` 换算就靠这份一致性；git 写侧与内存账本共用它。
@@ -195,6 +199,26 @@ mod tests {
         let (messages, ids) = replay(&active_path(&entries));
         // 摘要 + 保留的 turn 3/4 + 压缩后的 turn 5
         assert_eq!(messages.len(), 4);
+        assert_eq!(ledger.message_ids, ids);
+
+        // 上下文编辑删除一条保留消息：写侧映射必须同步缩短，否则下一次压缩
+        // 的 keep_from 会整体错位。
+        let removed = kept.clone();
+        let record = ContextEditRecord {
+            cleared: &[],
+            removed: std::slice::from_ref(&removed),
+            thinking_removed: &[],
+            note: "remove turn 3",
+            strategy: "agent-edit",
+            source_tip: &source_tip,
+            usage: None,
+        };
+        append(&mut ledger, &mut entries, record.to_entry_kind());
+        user(&mut ledger, &mut entries, "turn 6");
+
+        let (messages, ids) = replay(&active_path(&entries));
+        assert_eq!(messages.len(), 4);
+        assert!(!ids.contains(&removed));
         assert_eq!(ledger.message_ids, ids);
     }
 }
