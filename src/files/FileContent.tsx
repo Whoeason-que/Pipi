@@ -24,9 +24,11 @@ interface Props {
   lines: [number, number] | null;
   onLines: (lines: [number, number] | null) => void;
   onOpen: (path: string) => void;
+  /** 工作区主区暂时不显示查找/行数/复制工具栏，只保留正文。 */
+  minimal?: boolean;
 }
 
-export const FileContent = memo(function FileContent({ file, lines, onLines, onOpen }: Props) {
+export const FileContent = memo(function FileContent({ file, lines, onLines, onOpen, minimal = false }: Props) {
   const { t } = useI18n();
   const url = useMediaUrl(file);
   const [rendered, setRendered] = useState(file.kind === "markdown");
@@ -57,7 +59,7 @@ export const FileContent = memo(function FileContent({ file, lines, onLines, onO
   if (textLines.length > 10_000) return <p className="file-notice">{t("files.tooManyLines")}</p>;
 
   return <>
-    <div className="file-content-toolbar">
+    {!minimal && <div className="file-content-toolbar">
       {file.kind === "markdown" && <button type="button" className="btn small" onClick={() => setRendered(!rendered)}>{rendered ? t("files.viewSource") : t("files.renderPreview")}</button>}
       {!rendered && <>
         <input className="text-input" aria-label={t("files.findInFile")} placeholder={t("files.findPlaceholder")} value={query} onChange={e => { setQuery(e.target.value); setMatchIndex(0); }}
@@ -69,14 +71,14 @@ export const FileContent = memo(function FileContent({ file, lines, onLines, onO
         <span>{t("files.lineCount", { count: textLines.length.toLocaleString() })}</span>
       </div>
       <button type="button" className="btn small ghost" onClick={() => void clipboard.copy(content)}>{copyLabel}</button>
-    </div>
+    </div>}
     {file.truncated && <p className="file-notice">{t("files.truncatedPreview")}</p>}
     {rendered ? <div className="md file-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}
       components={{
         img: ({ alt, src }) => { const path = linkedPath(file.path, src ?? ""); return path ? <button type="button" className="btn small" onClick={() => onOpen(path)}>{t("files.openImage", { name: alt || path })}</button> : <span>{t("files.externalImage", { name: alt || t("files.externalImageNotLoaded") })}</span>; },
         a: ({ href, children }) => { const path = linkedPath(file.path, href ?? ""); return path ? <button type="button" className="file-link" onClick={() => onOpen(path)}>{children}</button> : /^https?:\/\//i.test(href ?? "") ? <a href={href} target="_blank" rel="noreferrer noopener">{children}</a> : <span>{children}</span>; },
       }}>{content}</ReactMarkdown></div> : <>
-      <p className="caption file-selection-hint">{t("files.selectionHint")}</p>
+      {!minimal && <p className="caption file-selection-hint">{t("files.selectionHint")}</p>}
       <div className="file-source" ref={source}>
         <div className="file-line-numbers" aria-label={t("files.selectCodeLines")}>
           {textLines.map((_, index) => {

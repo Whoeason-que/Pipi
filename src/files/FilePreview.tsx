@@ -17,7 +17,6 @@ interface Props {
   source: PreviewSource | null;
   loading?: boolean;
   error?: string;
-  tabs?: ReactNode;
   onOpenFile?: (path: string) => void;
   onReference?: (text: string) => void;
   referenceOptions?: ReactNode;
@@ -27,12 +26,17 @@ interface Props {
   onScroll?: (top: number) => void;
   emptyTitle?: string;
   emptyHint?: ReactNode;
+  emptyIcon?: ReactNode;
+  emptyExtra?: ReactNode;
+  emptyTone?: "ok";
+  /** 只保留正文：隐藏文件标题条、diff 基线说明、文件工具栏与引用区（工作区主区当前使用）。 */
+  minimal?: boolean;
 }
 
 /** File、Git 和会话操作记录共用渲染；不拥有文件读取、工作区或会话身份。 */
-export function FilePreview({ path, source, loading = false, error = "", tabs, onOpenFile, onReference,
+export function FilePreview({ path, source, loading = false, error = "", onOpenFile, onReference,
   referenceOptions, referenceLabel, referenceDisabled = false, scroll = 0, onScroll,
-  emptyTitle, emptyHint }: Props) {
+  emptyTitle, emptyHint, emptyIcon, emptyExtra, emptyTone, minimal = false }: Props) {
   const { t } = useI18n();
   const resolvedReferenceLabel = referenceLabel ?? t("files.addToComposer");
   const resolvedEmptyTitle = emptyTitle ?? t("files.selectFileTitle");
@@ -51,12 +55,10 @@ export function FilePreview({ path, source, loading = false, error = "", tabs, o
     try { onReference(formatReference(makeReference(file, lines, comment))); setFeedback(t("files.referenceAdded")); setComment(""); }
     catch (error) { setFeedback(String(error)); }
   };
-  const closeTabs = <div className="file-preview-tabs-wrap">{tabs}</div>;
 
   return <section className="file-preview" aria-label={t("files.filePreview")} aria-busy={loading}>
-    {closeTabs}
     {path ? <>
-      <div className="file-preview-title">
+      {!minimal && <div className="file-preview-title">
         <FileGlyph path={path} />
         <div className="file-preview-identity">
           <span title={path}>{path.split("/").pop()}</span>
@@ -72,26 +74,26 @@ export function FilePreview({ path, source, loading = false, error = "", tabs, o
         <button type="button" className="icon-btn file-copy-path" title={clipboard.state === "idle" ? t("files.copyFilePath") : clipboard.state === "copied" ? t("common.copied") : t("chat.copyFailed")}
           aria-label={t("files.copyFilePath")} onClick={() => void clipboard.copy(path)}><IconCopy /></button>
         {source && source.type !== "file" && onOpenFile && <button type="button" className="btn small ghost" onClick={() => onOpenFile(path)}>{t("files.openInFile")}</button>}
-      </div>
+      </div>}
       <div className="file-preview-scroll" ref={scroller} onScroll={event => { if (!loading && source) onScroll?.(event.currentTarget.scrollTop); }}>
         {error && source && <p className="file-error" role="status">{t("files.refreshFailed", { error })}</p>}
         {loading ? <div className="file-state" role="status"><span className="file-state-spinner" />{t("files.openingFile")}</div>
           : error && !source ? <p className="file-error" role="alert">{error}</p>
-          : source?.type === "file" ? <FileContent key={identity} file={source.file} lines={lines} onLines={setLines} onOpen={onOpenFile ?? (() => {})} />
+          : source?.type === "file" ? <FileContent key={identity} file={source.file} lines={lines} onLines={setLines} onOpen={onOpenFile ?? (() => {})} minimal={minimal} />
           : source?.type === "git" ? <>
-            <div className="caption file-base-note">
+            {!minimal && <div className="caption file-base-note">
               <span>{t("files.diffBase")}</span>
               <code>{source.diff.base}</code>
               {source.diff.truncated && <span className="tag warn">{t("files.truncated")}</span>}
-            </div>
-            <DiffView key={source.diff.path} patch={source.diff.patch} />
+            </div>}
+            <DiffView key={source.diff.path} patch={source.diff.patch} hideFileHeaders hideHunkHeaders={minimal} />
           </>
           : source?.type === "tool" ? <>
             <p className="file-notice">{source.error ? t("files.toolOperationNoticeFailed", { name: source.name }) : t("files.toolOperationNotice", { name: source.name })}</p>
             <DiffView patch={source.patch} emptyText={t("files.noToolDiff")} />
           </> : null}
       </div>
-      {file && onReference && <div className="file-reference">
+      {!minimal && file && onReference && <div className="file-reference">
         <div className="file-reference-head">
           <span>{lines ? <><b>L{Math.min(...lines)}–{Math.max(...lines)}</b> {t("files.selected")}</> : t("files.referenceCurrentFile")}</span>
           {lines && <button type="button" className="btn small ghost" onClick={() => setLines(null)}>{t("files.clearSelection")}</button>}
@@ -104,9 +106,10 @@ export function FilePreview({ path, source, loading = false, error = "", tabs, o
         </div>
       </div>}
     </> : <div className="empty-state file-preview-empty">
-      <span className="icon-tile file-empty-icon"><IconFile /></span>
+      <span className={`icon-tile file-empty-icon${emptyTone === "ok" ? " clean" : ""}`}>{emptyIcon ?? <IconFile />}</span>
       <strong>{resolvedEmptyTitle}</strong>
       <p>{resolvedEmptyHint}</p>
+      {emptyExtra}
     </div>}
   </section>;
 }

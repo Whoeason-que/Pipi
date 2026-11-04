@@ -23,7 +23,7 @@
 
 .file-workbench .file-operation { margin: 2px 4px 5px; font-size: var(--text-xs); }
 
-.file-open-path { display: flex; gap: 5px; margin-top: 8px; }
+.file-open-path { display: flex; gap: 5px; margin-top: 0; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 
 .file-open-path input,
 .file-content-toolbar input { flex: 1; width: 0; }
@@ -44,7 +44,7 @@
 
 .workspace-files-sidebar { flex: 1; min-height: 0; padding: 0 10px 10px; overflow: hidden; }
 
-.workspace-files-sidebar .file-workbench-header { padding: 10px 0; }
+.workspace-files-sidebar .file-workbench-header { padding: 10px 2px; border-bottom: 1px solid var(--line-soft); }
 
 /* 侧栏搜索置顶，与其它分区同款；容器本身已有内边距，这里不再叠加横向内边距。 */
 .workspace-files-sidebar .sb-filter { padding: 12px 0 6px; }
@@ -84,9 +84,11 @@
 .file-workbench .file-line-numbers button.selected,
 .diff-wrap-toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
 
-.workspace-files-sidebar .file-row { padding-block: 2px; border-radius: var(--r-sm); transition: background var(--motion-fast), color var(--motion-fast); }
+.workspace-files-sidebar .file-row { min-height: 30px; padding: 3px 8px; gap: 8px; border-radius: var(--r-sm); transition: background var(--motion-fast), color var(--motion-fast); }
 
 .workspace-files-sidebar .file-row > .file-row-name { flex: 1; min-width: 0; }
+
+.workspace-files-sidebar .file-row small { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 .file-row-icon { display: inline-grid; place-items: center; width: 21px; color: var(--warn); }
 
@@ -122,13 +124,17 @@
 
 .workspace-main { padding: 0 var(--space-5) var(--space-5); }
 
-.workspace-page-body { flex: 1; min-width: 0; min-height: 0; display: flex; }
+/* 工作区主区不再套一层卡片：标签栏贴顶，预览与页面同一平面。 */
+.workspace-main > .file-preview { flex: 1; min-height: 0; border: 0; border-radius: 0; background: transparent; }
 
-.workspace-files-toolbar { display: flex; align-items: center; gap: var(--space-3); min-height: var(--toolbar-height); flex-shrink: 0; }
+.workspace-files-toolbar { display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 0 2px; border-bottom: 1px solid var(--line-soft); flex-shrink: 0; }
 
-.workspace-mode-switch { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--r-full); background: var(--hover); }
+/* 操作按钮组靠右；窄屏换行时也让右栏开关贴住右缘。 */
+.workspace-files-toolbar > .btn { margin-left: auto; }
 
-.workspace-mode-switch button { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px; border: 0; border-radius: var(--r-full); background: transparent; color: var(--faint); font-size: var(--text-sm); font-weight: 500; cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast); }
+.workspace-mode-switch { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line-soft); border-radius: var(--r-full); background: var(--hover); }
+
+.workspace-mode-switch button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 11px; border: 0; border-radius: var(--r-full); background: transparent; color: var(--faint); font-size: var(--text-sm); font-weight: 500; cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast); }
 
 .workspace-mode-switch button svg,
 .file-copy-path svg { width: 13px; height: 13px; }
@@ -136,12 +142,6 @@
 .workspace-mode-switch button small { min-width: 16px; padding: 0 4px; border-radius: var(--r-full); background: var(--hover-2); color: inherit; font: var(--text-xs) var(--font-mono); }
 
 .workspace-mode-switch button.active { background: var(--card); color: var(--fg); box-shadow: var(--card-shadow); }
-
-.workspace-crumb { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; flex: 1; }
-
-.workspace-crumb strong { flex-shrink: 0; font-size: var(--text-md); white-space: nowrap; }
-
-.workspace-crumb code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--text-xs) var(--font-mono); color: var(--faint); }
 
 .workspace-change-summary { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: var(--r-full); background: var(--warn-soft); color: var(--warn); font-size: var(--text-xs); white-space: nowrap; }
 
@@ -152,9 +152,10 @@
 
   .workspace-files-toolbar { flex-wrap: wrap; gap: 6px; min-height: var(--toolbar-height); padding: 8px 0; }
 
-  .workspace-crumb { flex-basis: 100%; order: 3; }
+  .workspace-files-toolbar .workspace-mode-switch { order: 1; }
 
-  .workspace-files-toolbar .workspace-mode-switch { order: 2; }
+  .workspace-files-toolbar > .icon-btn:not(.navigation-toggle),
+  .workspace-files-toolbar > .btn { order: 2; }
 
   .workspace-change-summary { display: none; }
 }
@@ -189,14 +190,11 @@
 
 /* ---- 预览 ---- */
 
-.file-preview { display: flex; flex-direction: column; flex: 1; min-height: 280px; min-width: 0; border: 1px solid var(--line-soft); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
+.file-preview { display: flex; flex-direction: column; flex: 1; min-height: 280px; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
 
-.file-preview-tabs-wrap { flex-shrink: 0; min-width: 0; }
+.file-preview-tabs { display: flex; gap: 2px; flex-shrink: 0; overflow-x: auto; padding: 4px 0 0; border-bottom: 1px solid var(--line-soft); background: transparent; }
 
-.file-preview-tabs-wrap:empty,
-.file-preview-tabs:empty { display: none; }
-
-.file-preview-tabs { display: flex; gap: 2px; flex-shrink: 0; overflow-x: auto; padding: 5px 8px 0; border-bottom: 1px solid var(--line-soft); background: var(--stripe); }
+.workspace-tabs { min-width: 0; }
 
 .file-preview-tabs > div { display: flex; flex-shrink: 0; max-width: 240px; border-radius: var(--r-sm) var(--r-sm) 0 0; }
 
@@ -210,15 +208,17 @@
 
 .file-tab-diff { flex-shrink: 0; color: var(--warn); font-family: var(--font-mono); font-size: var(--text-xs); }
 
-.file-preview-title { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-lg); padding: 10px var(--space-3); border-bottom: 1px solid var(--line-soft); flex-shrink: 0; background: var(--panel); }
+.file-preview-title { display: flex; align-items: center; gap: var(--space-2); min-height: 42px; padding: 7px var(--space-3); border-bottom: 1px solid var(--line-soft); flex-shrink: 0; background: var(--panel); }
 
-.file-preview-identity { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.file-preview-title > .file-glyph { width: 22px; height: 22px; }
 
-.file-preview-identity > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: 600; color: var(--fg); }
+.file-preview-identity { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
 
-.file-preview-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--text-xs) var(--font-mono); color: var(--faint); }
+.file-preview-identity > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--fg); }
 
-.file-preview-chip { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 2px var(--space-2); border-radius: var(--r-full); background: var(--hover); color: var(--faint); font: var(--text-xs) var(--font-mono); white-space: nowrap; }
+.file-preview-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10.5px var(--font-mono); color: var(--faint); }
+
+.file-preview-chip { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 1px var(--space-2); border-radius: var(--r-full); background: var(--hover); color: var(--faint); font: 10.5px var(--font-mono); white-space: nowrap; }
 
 .file-preview-chip svg { width: 12px; height: 12px; }
 
@@ -230,13 +230,46 @@
 
 .file-preview-scroll { flex: 1; min-height: 200px; max-height: 55vh; overflow: auto; overscroll-behavior: contain; }
 
-.file-preview-empty { margin: auto; padding: 48px 20px; gap: 10px; color: var(--muted); font-size: var(--text-sm); line-height: 1.7; }
+.file-preview-empty { margin: auto; max-width: 560px; padding: 52px 24px; gap: 12px; color: var(--muted); font-size: var(--text-sm); line-height: 1.7; }
 
-.file-preview-empty strong { color: var(--fg); font-size: var(--text-md); font-weight: 600; }
+.file-preview-empty strong { color: var(--fg); font-size: 16.5px; font-weight: 600; }
 
-.file-preview-empty p { margin: 0; max-width: 42ch; color: var(--faint); }
+.file-preview-empty p { margin: 0; max-width: 46ch; color: var(--faint); }
 
-.file-empty-icon { --tile-icon-size: 20px; --tile-size: 44px; margin-bottom: 4px; border: 1px solid var(--line-soft); border-radius: var(--r-lg); background: var(--stripe); color: var(--faint); }
+.file-empty-icon { --tile-icon-size: 24px; --tile-size: 56px; margin-bottom: 4px; border: 1px solid var(--line-soft); border-radius: var(--r-lg); background: var(--stripe); color: var(--faint); box-shadow: var(--inner-glow); }
+
+.file-empty-icon.clean { border-color: var(--ok-border); background: var(--ok-soft); color: var(--ok); }
+
+/* Git 空态摘要：三个工作树计数，和侧栏统计保持同一口径。 */
+.workspace-git-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; max-width: 420px; margin-top: 14px; }
+
+.workspace-git-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 10px; border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--stripe); }
+
+.workspace-git-stat strong { font: 600 20px/1.15 var(--font-mono); color: var(--fg); }
+
+.workspace-git-stat span { color: var(--faint); font-size: var(--text-xs); }
+
+.workspace-git-stat.staged strong,
+.workspace-git-stat.untracked strong { color: var(--ok); }
+
+.workspace-git-stat.unstaged strong { color: var(--warn); }
+
+/* Files 空态入口：工作区顶层目录与文件，点目录展开、点文件直接预览。 */
+.workspace-quick-open { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; margin-top: 12px; }
+
+.workspace-quick-open-label { color: var(--faint); font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+
+.workspace-quick-open-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 460px; }
+
+.workspace-quick-open-list button { display: inline-flex; align-items: center; gap: 6px; max-width: 190px; padding: 4px 10px; border: 1px solid var(--line-soft); border-radius: var(--r-full); background: var(--stripe); color: var(--muted); font-size: var(--text-xs); cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast); }
+
+.workspace-quick-open-list button:hover { background: var(--hover); border-color: var(--line); color: var(--fg); }
+
+.workspace-quick-open-list button.active { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent-text); }
+
+.workspace-quick-open-list button svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+.workspace-quick-open-list .file-glyph { width: 16px; height: 16px; }
 
 .workspace-state { border: 1px dashed var(--line-2); border-radius: var(--r-lg); background: var(--stripe); }
 
@@ -268,18 +301,23 @@
 
 .diff-view { min-width: 0; width: 100%; background: var(--panel); }
 
-.diff-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-height: 40px; padding: 5px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font: var(--text-xs) var(--font-mono); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+.diff-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 44px; padding: 6px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font: var(--text-xs) var(--font-mono); background: var(--bg); position: sticky; top: 0; z-index: 2; }
 
-.diff-stat.added,
+.diff-stat { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; padding: 2px 8px; border-radius: var(--r-full); font-weight: 600; }
+
+.diff-stat.added { background: var(--ok-soft); color: var(--ok); }
+
+.diff-stat.removed { background: var(--danger-soft); color: var(--danger); }
+
+.diff-stat.muted { min-width: 0; padding: 0; background: transparent; color: var(--faint); font-family: var(--font-sans); font-weight: 500; }
+
 .diff-row.add .diff-sign { color: var(--ok); }
-
-.diff-stat.muted { color: var(--faint); font-family: var(--font-sans); }
 
 .diff-hunk-nav { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 
 .diff-hunk-pos { color: var(--faint); padding: 0 4px; white-space: nowrap; }
 
-.diff-wrap-toggle { min-height: var(--control-sm); padding: 4px 10px; border: 0; border-radius: var(--r-full); background: transparent; color: var(--muted); font-size: var(--text-xs); cursor: pointer; }
+.diff-wrap-toggle { min-height: var(--control-sm); padding: 4px 10px; border: 1px solid var(--line-soft); border-radius: var(--r-full); background: var(--panel); color: var(--muted); font-size: var(--text-xs); cursor: pointer; }
 
 .diff-lines { overflow-x: auto; }
 
@@ -290,7 +328,7 @@
 .diff-row.meta,
 .diff-row.hunk { grid-template-columns: minmax(0, 1fr); padding: 2px 10px; }
 
-.diff-row.meta { color: var(--faint); background: var(--stripe); font-size: var(--text-xs); }
+.diff-row.meta { color: var(--faint); background: var(--bg); font-size: 10.5px; }
 
 .diff-row.hunk { color: var(--accent-text); background: var(--accent-soft); border-block: 1px solid var(--accent-border); scroll-margin-block: 50px; }
 
@@ -344,7 +382,6 @@
 
 .workspace-files-page .file-reference button.btn { white-space: normal; overflow-wrap: anywhere; }
 
-.workspace-page-body > .file-preview,
 .session-files-panel { min-height: 0; }
 
 .workspace-files-page .file-preview-scroll { min-height: 0; max-height: none; }

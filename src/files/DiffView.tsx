@@ -16,12 +16,26 @@ const SIGN: Record<DiffRow["kind"], string> = {
 export const DiffView = memo(function DiffView({
   patch,
   emptyText,
+  hideFileHeaders = false,
+  hideHunkHeaders = false,
 }: {
   patch: string;
   emptyText?: string;
+  /** 工作区 Git 预览已用标题栏展示路径，省略 diff --git/index/---/+++ 前缀行。 */
+  hideFileHeaders?: boolean;
+  /** 工作区主区只保留代码差异，省略 @@ hunk 行与跳转导航。 */
+  hideHunkHeaders?: boolean;
 }) {
   const { t } = useI18n();
   const parsed = useMemo(() => parsePatch(patch), [patch]);
+  const rows = useMemo(
+    () => parsed.rows.filter((row) => {
+      if (row.kind === "hunk" && hideHunkHeaders) return false;
+      if (hideFileHeaders && row.kind === "meta" && /^(diff --git |index |--- |\+\+\+ )/.test(row.text)) return false;
+      return true;
+    }),
+    [parsed.rows, hideFileHeaders, hideHunkHeaders],
+  );
   const [activeHunk, setActiveHunk] = useState(0);
   const [wrap, setWrap] = useState(false);
   const hunkRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -43,7 +57,7 @@ export const DiffView = memo(function DiffView({
     element?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  if (!parsed.rows.length) return <p className="file-notice">{emptyText ?? t("files.noTextDiff")}</p>;
+  if (!rows.length) return <p className="file-notice">{emptyText ?? t("files.noTextDiff")}</p>;
 
   let hunkCounter = 0;
 
@@ -55,7 +69,7 @@ export const DiffView = memo(function DiffView({
         <span className="diff-stat muted">{t("files.hunkCount", { count: parsed.hunks })}</span>
         <div className="diff-hunk-nav" role="group" aria-label={t("files.diffTools")}>
           <button type="button" className="diff-wrap-toggle" aria-pressed={wrap} onClick={() => setWrap(value => !value)} title={t("files.toggleWrap")}>{t("files.wordWrap")}</button>
-          {hunkIndices.length > 1 && <>
+          {!hideHunkHeaders && hunkIndices.length > 1 && <>
             <span className="diff-hunk-pos">
               {currentHunk + 1} / {hunkIndices.length}
             </span>
@@ -84,7 +98,7 @@ export const DiffView = memo(function DiffView({
       </div>
       <div className="diff-lines">
         <div className="diff-table" role="table" aria-label={t("files.textDiff")}>
-          {parsed.rows.map((row, index) => {
+          {rows.map((row, index) => {
             if (row.kind === "hunk") {
               const hIdx = hunkCounter++;
               return (

@@ -243,13 +243,13 @@ export function WorkspaceSidebar({
 
           {mode === "git" && changes.value?.isRepo && (
             <div className="workspace-git-summary scm-stat-bar">
-              <span>
+              <span className="scm-stat staged">
                 <b className="stat-staged">{summary.staged}</b> {t("files.staged")}
               </span>
-              <span>
-                <b className="stat-unstaged">{summary.unstaged}</b> {t("files.changes")}
+              <span className="scm-stat unstaged">
+                <b className="stat-unstaged">{summary.unstaged}</b> {t("files.unstaged")}
               </span>
-              <span>
+              <span className="scm-stat untracked">
                 <b className="stat-untracked">{summary.untracked}</b> {t("files.untracked")}
               </span>
             </div>

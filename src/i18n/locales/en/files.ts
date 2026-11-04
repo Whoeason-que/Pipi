@@ -19,6 +19,7 @@ export const files = {
 
   // workspace view header and references
   workspaceView: "Workspace view",
+  quickOpen: "Jump to",
   changeCount: "{count} changes",
   toggleFileInfo: "Toggle file info panel",
   defaultWorkspace: "Default workspace",
