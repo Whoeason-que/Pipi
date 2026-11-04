@@ -16,9 +16,11 @@
 //! 拿到不该有的写权限。每条路径的档位是具象类型、顺序写死在入口里：加一档 =
 //! 写一个策略 + 在入口里加一行调用。
 
+mod edit;
 mod llm;
 mod tool_output;
 
+use edit::LlmEdit;
 use llm::LlmSummarize;
 use tool_output::ToolOutputPrune;
 
@@ -47,6 +49,30 @@ pub const TOOL_OUTPUT_KEEP: usize = 6;
 
 /// 小于这个字符数的工具输出不值得清理 —— 占位符本身也要花 token。
 pub const TOOL_OUTPUT_MIN_CHARS: usize = 400;
+
+/// Agent 主导的编辑式压缩：只在完整历史能塞进一次模型调用时使用（默认 100k）。
+/// 超过这个量的历史继续走摘要，避免一次编辑调用比摘要还贵。
+pub const AGENT_EDIT_MAX_INPUT_TOKENS: u64 = 100_000;
+
+/// 编辑调用的输出上限（返回的是一份索引清单，正常远小于这个数）。
+pub const AGENT_EDIT_MAX_OUTPUT_TOKENS: u32 = 4_096;
+
+/// 替换式压缩的触发方式：摘要（现有）或 Agent 编辑（新增）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CompactMode {
+    #[default]
+    Summary,
+    Edit,
+}
+
+impl CompactMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CompactMode::Summary => "summary",
+            CompactMode::Edit => "edit",
+        }
+    }
+}
 
 /// 压缩预算。默认值集中在这里，从模型的上下文窗口推导；调参只改这一处。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -201,47 +227,97 @@ pub struct StrategyEnv<'a> {
     pub retry: crate::retry::RetryPolicy,
 }
 
+/// 一次 Agent 编辑的审计信息（策略产出，runtime 换算成条目 id 落盘）。
+#[derive(Debug, Clone, Default)]
+pub struct EditOps {
+    /// 被清成占位符的工具结果（原历史下标 + 占位文本）。
+    pub cleared: Vec<ClearedOp>,
+    /// 整条删除的原历史下标。
+    pub removed: Vec<usize>,
+    /// 剥掉 Thinking 块的 assistant 原历史下标。
+    pub thinking_removed: Vec<usize>,
+    /// 给 UI / git 摘要看的说明。
+    pub note: String,
+}
+
+/// 一条工具结果清理操作。
+#[derive(Debug, Clone)]
+pub struct ClearedOp {
+    pub index: usize,
+    pub text: String,
+}
+
 /// 策略产出的「改写计划」。
 ///
 /// 策略不直接改历史：不变量统一校验、UI 可观测、落盘可回放都依赖这一层。
 #[derive(Debug, Clone, Default)]
 pub struct Plan {
-    /// 就地改写（消息下标 → 新消息）。投影式用它，长度不变。
+    /// 就地改写（消息下标 → 新消息）。投影式与编辑式用它。
     pub rewrites: Vec<(usize, Message)>,
-    /// 丢弃此下标之前的消息（替换式用它）。`None` = 不丢。
+    /// 整条删除的消息下标（编辑式用它；不得与保留/注入混用）。
+    pub removals: Vec<usize>,
+    /// 丢弃此下标之前的消息（摘要用）。`None` = 不丢。
     pub keep_from: Option<usize>,
     /// 注入历史头部的消息（摘要消息）。
     pub injections: Vec<Message>,
-    /// 生成摘要那次调用的用量（计入会话账本）。
+    /// 生成摘要/编辑计划那次调用的用量（计入会话账本）。
     pub usage: Option<Usage>,
+    /// Agent 编辑的审计信息；摘要/投影保持 `None`。
+    pub edit: Option<EditOps>,
 }
 
 impl Plan {
     pub fn is_noop(&self) -> bool {
-        self.rewrites.is_empty() && self.keep_from.is_none() && self.injections.is_empty()
+        self.rewrites.is_empty()
+            && self.removals.is_empty()
+            && self.keep_from.is_none()
+            && self.injections.is_empty()
     }
 
-    /// 应用计划。**调用前必须过 [`validate`]**（就地改写不可与保留/注入混用，
-    /// 否则下标语义会错位）。
+    /// 应用计划。**调用前必须过 [`validate`]**（就地改写/删除不可与保留/注入
+    /// 混用，否则下标语义会错位）。
     pub fn apply(&self, messages: &[Message]) -> Vec<Message> {
+        // 编辑式路径：rewrites/removals 都按**原始下标**解释；先标记删除、
+        // 再改写、最后展平，避免删除导致后续下标漂移。
+        if !self.removals.is_empty() || !self.rewrites.is_empty() {
+            let mut slots: Vec<Option<Message>> = messages.iter().cloned().map(Some).collect();
+            for index in &self.removals {
+                if let Some(slot) = slots.get_mut(*index) {
+                    *slot = None;
+                }
+            }
+            for (index, replacement) in &self.rewrites {
+                if let Some(slot) = slots.get_mut(*index) {
+                    *slot = Some(replacement.clone());
+                }
+            }
+            return slots.into_iter().flatten().collect();
+        }
         let start = self.keep_from.unwrap_or(0).min(messages.len());
         let mut out: Vec<Message> = self.injections.clone();
         out.extend(messages[start..].iter().cloned());
-        for (index, replacement) in &self.rewrites {
-            if let Some(slot) = out.get_mut(*index) {
-                *slot = replacement.clone();
-            }
-        }
         out
     }
 }
 
 /// 计划校验：压缩的硬不变量只在这一处检查，任何策略都绕不过（fail-closed）。
 pub fn validate(messages: &[Message], plan: &Plan) -> Result<(), String> {
-    if !plan.rewrites.is_empty() && (plan.keep_from.is_some() || !plan.injections.is_empty()) {
-        return Err("计划同时使用就地改写与保留/注入：下标语义会错位".into());
+    if (!plan.rewrites.is_empty() || !plan.removals.is_empty())
+        && (plan.keep_from.is_some() || !plan.injections.is_empty())
+    {
+        return Err("计划同时使用就地改写/删除与保留/注入：下标语义会错位".into());
+    }
+    let mut removed = std::collections::HashSet::new();
+    for index in &plan.removals {
+        if *index >= messages.len() {
+            return Err(format!("删除下标越界：{index}"));
+        }
+        removed.insert(*index);
     }
     for (index, replacement) in &plan.rewrites {
+        if removed.contains(index) {
+            return Err(format!("同一条消息不能既删除又改写：{index}"));
+        }
         let Some(original) = messages.get(*index) else {
             return Err(format!("就地改写下标越界：{index}"));
         };
@@ -385,8 +461,10 @@ pub struct Compacted {
     /// 保留区间在**输入历史**里的起点下标 —— runtime 换算成条目 id 落盘
     /// （`keep_from_entry`），回放时才留得住这段原文。
     pub keep_from: Option<usize>,
-    /// 摘要调用的用量（计入会话账本）。
+    /// 摘要/编辑调用的用量（计入会话账本）。
     pub usage: Option<Usage>,
+    /// Agent 编辑的审计信息；摘要保持 `None`。
+    pub edit: Option<EditOps>,
 }
 
 /// 跑一次替换式压缩：返回可落盘的结果。
@@ -399,25 +477,35 @@ pub async fn compact(
     messages: &[Message],
     budget: Budget,
     env: &StrategyEnv<'_>,
+    mode: CompactMode,
 ) -> Result<Compacted, String> {
     if messages.is_empty() {
         return Err("空上下文无需压缩".into());
     }
     let prep = Preparation::new(messages, budget);
-    // 替换式目前只有摘要一档：产出空计划算「没得压」。
-    let plan = LlmSummarize.run(&prep, env).await?;
+    let (plan, strategy) = match mode {
+        CompactMode::Summary => (LlmSummarize.run(&prep, env).await?, LlmSummarize::NAME),
+        CompactMode::Edit => (LlmEdit.run(&prep, env).await?, LlmEdit::NAME),
+    };
     if plan.is_noop() {
         return Err("没有可用的压缩策略".into());
     }
     validate(messages, &plan)?;
     let out = plan.apply(messages);
     validate_result(messages, &out)?;
+    let replaced = match mode {
+        CompactMode::Summary => plan.keep_from.unwrap_or(messages.len()),
+        CompactMode::Edit => plan.edit.as_ref().map_or(0, |ops| {
+            ops.removed.len() + ops.cleared.len() + ops.thinking_removed.len()
+        }),
+    };
     Ok(Compacted {
-        replaced: plan.keep_from.unwrap_or(messages.len()),
+        replaced,
         messages: out,
-        strategy: LlmSummarize::NAME,
+        strategy,
         keep_from: plan.keep_from,
         usage: plan.usage,
+        edit: plan.edit,
     })
 }
 

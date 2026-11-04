@@ -202,7 +202,7 @@ pub(super) async fn summarize(
     let mut failures: u32 = 0;
     let mut condensed = false;
     loop {
-        match summarize_once(env, &context, &options).await {
+        match summarize_once(env, &context, &options, "摘要").await {
             Ok(value) => return Ok(value),
             Err(SummarizeFailure::Fatal(message)) => return Err(message),
             Err(SummarizeFailure::Truncated { text, usage }) => {
@@ -228,7 +228,46 @@ pub(super) async fn summarize(
                         }
                     }
                     crate::retry::RetryDecision::GiveUp(reason) => {
-                        return Err(summarize_give_up(&message, failures, reason));
+                        return Err(summarize_give_up(&message, failures, reason, "摘要"));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 一次性纯文本调用（摘要/编辑共用）：发请求、按 [`crate::retry`] 重发，
+/// 返回文本与用量。输出撞长度上限时不重试 —— 调用方拿到的 JSON/摘要都不可用。
+pub(super) async fn call_plain(
+    env: &StrategyEnv<'_>,
+    context: &Context,
+    options: &StreamOptions,
+    label: &str,
+) -> Result<(String, Option<Usage>), String> {
+    let mut failures: u32 = 0;
+    loop {
+        match summarize_once(env, context, options, label).await {
+            Ok(value) => return Ok(value),
+            Err(SummarizeFailure::Fatal(message)) => return Err(message),
+            Err(SummarizeFailure::Truncated { usage, .. }) => {
+                return Err(format!(
+                    "{label}调用达到长度上限（实际输出 {} 个 token），未保存可能截断的结果",
+                    usage.map_or(0, |usage| usage.output)
+                ));
+            }
+            Err(SummarizeFailure::Retryable { message, hint }) => {
+                failures += 1;
+                match crate::retry::retry_decision(&env.retry, failures, hint) {
+                    crate::retry::RetryDecision::Retry { delay } => {
+                        tokio::select! {
+                            _ = env.abort.wait_aborted() => {
+                                return Err(format!("{label}调用已中止"));
+                            }
+                            _ = tokio::time::sleep(delay) => {}
+                        }
+                    }
+                    crate::retry::RetryDecision::GiveUp(reason) => {
+                        return Err(summarize_give_up(&message, failures, reason, label));
                     }
                 }
             }
@@ -256,14 +295,14 @@ fn truncated_summary_error(summary_max: u32, usage: Option<&Usage>) -> String {
     )
 }
 
-/// 单次摘要尝试的失败：终态、可重试（带等待提示）或输出被截断。
-enum SummarizeFailure {
+/// 单次纯文本尝试的失败：终态、可重试（带等待提示）或输出被截断。
+pub(super) enum SummarizeFailure {
     Fatal(String),
     Retryable {
         message: String,
         hint: Option<pipi_protocol::RetryHint>,
     },
-    /// 摘要生成撞到输出上限：文本可能是半截的，调用方可以把它压短重试一次。
+    /// 输出撞到上限：调用方可以决定压短重试（摘要）或直接失败（编辑）。
     Truncated {
         text: String,
         usage: Option<Usage>,
@@ -271,16 +310,21 @@ enum SummarizeFailure {
 }
 
 /// 放弃重试后的文案。
-fn summarize_give_up(cause: &str, failures: u32, reason: crate::retry::GiveUpReason) -> String {
+fn summarize_give_up(
+    cause: &str,
+    failures: u32,
+    reason: crate::retry::GiveUpReason,
+    label: &str,
+) -> String {
     match reason {
         crate::retry::GiveUpReason::PolicyExhausted => {
-            format!("摘要调用失败（已重试 {failures} 次）：{cause}")
+            format!("{label}调用失败（已重试 {failures} 次）：{cause}")
         }
         crate::retry::GiveUpReason::TimeoutBudget => {
-            format!("摘要调用连续超时（{failures} 次）：{cause}")
+            format!("{label}调用连续超时（{failures} 次）：{cause}")
         }
         crate::retry::GiveUpReason::ServerDelayTooLong(after_ms) => format!(
-            "摘要调用失败：服务端要求 {} 秒后再试，超过重试上限：{cause}",
+            "{label}调用失败：服务端要求 {} 秒后再试，超过重试上限：{cause}",
             after_ms / 1_000
         ),
     }
@@ -291,6 +335,7 @@ async fn summarize_once(
     env: &StrategyEnv<'_>,
     context: &Context,
     options: &StreamOptions,
+    label: &str,
 ) -> Result<(String, Option<Usage>), SummarizeFailure> {
     let abort: AbortSignal = env.abort.clone();
     let mut rx = env
@@ -329,18 +374,18 @@ async fn summarize_once(
                         message,
                         hint: Some(hint),
                     },
-                    None => SummarizeFailure::Fatal(format!("摘要调用失败：{message}")),
+                    None => SummarizeFailure::Fatal(format!("{label}调用失败：{message}")),
                 });
                 break;
             }
             _ => {}
         }
         if abort.is_aborted() {
-            return Err(SummarizeFailure::Fatal("摘要调用已中止".into()));
+            return Err(SummarizeFailure::Fatal(format!("{label}调用已中止")));
         }
     }
     if abort.is_aborted() {
-        return Err(SummarizeFailure::Fatal("摘要调用已中止".into()));
+        return Err(SummarizeFailure::Fatal(format!("{label}调用已中止")));
     }
     if let Some(failure) = failure {
         return Err(failure);
@@ -359,7 +404,7 @@ async fn summarize_once(
     }
     if summary_text.trim().is_empty() {
         return Err(SummarizeFailure::Fatal(format!(
-            "摘要调用失败：模型未返回摘要内容（结束原因：{:?}，输出 {} 个 token）",
+            "{label}调用失败：模型未返回{label}内容（结束原因：{:?}，输出 {} 个 token）",
             stop_reason.unwrap_or_default(),
             usage.as_ref().map_or(0, |u| u.output),
         )));

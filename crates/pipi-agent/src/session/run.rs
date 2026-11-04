@@ -376,6 +376,7 @@ async fn drive_run(
             retry: request.retry,
             budget,
             policy,
+            mode: CompactMode::Summary,
         };
         if let Err(error) =
             compaction::run_compaction(&session, &mut id, run_id, &compact, &hooks, false).await

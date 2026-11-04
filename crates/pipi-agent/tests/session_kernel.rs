@@ -142,6 +142,12 @@ impl SessionLog for MemoryLog {
             usage: r.usage,
         })
     }
+    fn append_context_edit(&mut self, r: &ContextEditRecord<'_>) -> std::io::Result<String> {
+        let entries = self.data.entries.lock().unwrap();
+        self.last_append = Some((self.tip.clone(), self.ids.clone(), entries.len()));
+        drop(entries);
+        self.append(r.to_entry_kind())
+    }
     fn commit_point(&mut self) -> std::io::Result<()> {
         if self.data.fail_commit.load(Ordering::SeqCst) {
             return Err(std::io::Error::other("injected commit failure"));
@@ -773,6 +779,7 @@ fn compact_request(provider: Arc<dyn Provider>, fork: bool) -> CompactionRequest
             fork_before_compact: fork,
             archive_original: true,
         },
+        mode: pipi_context::compaction::CompactMode::Summary,
     }
 }
 
