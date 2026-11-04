@@ -59,7 +59,10 @@ export interface CommandMap {
   new_session: { args: { agentName: string }; result: void };
   create_session: { args: { agentName: string }; result: SessionInfoView };
   send_prompt: { args: { agentName: string; sessionId?: string | null; prompt: string; model?: ModelConfig | null; images?: UserImage[] | null }; result: SessionInfoView };
-  compact_now: { args: { agentName: string; sessionId: string }; result: void };
+  compact_now: {
+    args: { agentName: string; sessionId: string; mode?: string | null };
+    result: void;
+  };
   steer: { args: { agentName: string; sessionId: string; message: string; images?: UserImage[] | null }; result: void };
   queue_prompt: { args: { agentName: string; sessionId: string; messageId: string; message: string; sendAt?: number | null; images?: UserImage[] | null }; result: PromptQueueEnvelope };
   cancel_queued_prompt: { args: { agentName: string; sessionId: string; messageId: string }; result: PromptQueueEnvelope };

@@ -498,9 +498,13 @@ export class SessionController {
     this.receive({ type: "prompt-queue", payload });
   }
 
-  async compact(): Promise<void> {
+  async compact(mode: "summary" | "edit" = "summary"): Promise<void> {
     if (this.uncertainSend) throw new Error("Please confirm or stop the pending run first");
-    await this.transport.invoke("compact_now", { agentName: this.agent.name, sessionId: this.requireSessionId() });
+    await this.transport.invoke("compact_now", {
+      agentName: this.agent.name,
+      sessionId: this.requireSessionId(),
+      mode,
+    });
   }
   async fork(): Promise<void> {
     if (this.value.load !== "ready" || this.value.chat.running) return;

@@ -24,8 +24,10 @@ export interface InspectorProps {
   rootRef?: RefObject<HTMLElement | null>;
   /** 会话投影快照（见 `inspector-context`）：正式会话与设置工作台的测试页共用。 */
   context: ChatInspectorContext;
-  /** 手动压缩当前会话（「状态」tab 的「立即压缩」按钮）。 */
+  /** 手动摘要压缩当前会话（「状态」tab 的 Summarize 按钮）。 */
   onCompact: () => void;
+  /** Agent 主导的编辑式压缩；嵌入式工作台不传。 */
+  onAgentCompact?: () => void;
   onOpenFile?: (path: string) => void;
   embedded?: boolean;
   allowCompact?: boolean;
@@ -48,6 +50,7 @@ export interface InspectorProps {
 export default function Inspector({
   context,
   onCompact,
+  onAgentCompact,
   onOpenFile,
   embedded = false,
   allowCompact = true,
@@ -102,6 +105,10 @@ export default function Inspector({
   );
   const canCompact =
     allowCompact && Boolean(sessionId) && !running && !compacting;
+  // Agent 编辑把完整历史塞进一次请求；超过 100k 的会话改用摘要更划算，
+  // 后端也会再挡一次（这里只是提前禁用并给提示）。
+  const agentCompactTooLarge = (stats?.contextUsed ?? 0) > 100_000;
+  const canAgentCompact = canCompact && !agentCompactTooLarge;
   // 选中标签时自动切到「调用详情」，取消选中后回到之前的 tab
   const tabRef = useRef(tab);
   tabRef.current = tab;
@@ -525,15 +532,32 @@ export default function Inspector({
                   <span className="dim">—</span>
                 )}
                 {allowCompact && (
-                  <button
-                    type="button"
-                    className="compact-now"
-                    onClick={onCompact}
-                    disabled={!canCompact}
-                    title={t("inspector.compactHint")}
-                  >
-                    {compacting ? t("inspector.compacting") : t("inspector.compactNow")}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="compact-now"
+                      onClick={onCompact}
+                      disabled={!canCompact}
+                      title={t("inspector.compactHint")}
+                    >
+                      {compacting ? t("inspector.compacting") : t("inspector.compactNow")}
+                    </button>
+                    {onAgentCompact && (
+                      <button
+                        type="button"
+                        className="compact-now agent-compact"
+                        onClick={onAgentCompact}
+                        disabled={!canAgentCompact}
+                        title={
+                          agentCompactTooLarge
+                            ? t("inspector.agentCompactTooLarge")
+                            : t("inspector.agentCompactHint")
+                        }
+                      >
+                        {compacting ? t("inspector.compacting") : t("inspector.agentCompact")}
+                      </button>
+                    )}
+                  </>
                 )}
               </span>
             </div>
