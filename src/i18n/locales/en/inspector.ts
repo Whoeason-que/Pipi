@@ -93,9 +93,14 @@ export const inspector = {
   newSession: "(new session)",
   context: "Context",
   compactHint:
-    "Compact the current session now (skips the threshold; uses the same fork/archive settings as automatic compaction)",
+    "Summarize the current session now (skips the threshold; uses the same fork/archive settings as automatic compaction)",
   compacting: "Compacting…",
-  compactNow: "Compact now",
+  compactNow: "Summarize",
+  agentCompact: "Compact",
+  agentCompactHint:
+    "Let the model clear obsolete tool output and thinking (best for contexts up to ~100k tokens)",
+  agentCompactTooLarge:
+    "Agent compact is limited to ~100k tokens of context; use Summarize for larger sessions",
   sessionStorage: "Session storage",
   memoryNoPersist: "Memory (not persisted)",
 

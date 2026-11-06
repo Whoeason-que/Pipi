@@ -509,6 +509,28 @@ test("compaction events produce a single system entry with collapsible summary",
   assert.equal(state.running, false);
 });
 
+test("agent edit compaction renders an edit entry with its note", () => {
+  let state = chatReducer(INITIAL_CHAT_STATE, {
+    type: "submit_user",
+    key: "user-local",
+    text: "开始干活",
+  });
+  state = event(state, { type: "compaction_start" });
+  state = event(state, {
+    type: "compaction_end",
+    summary: "cleared build log",
+    replaced: 4,
+    strategy: "agent-edit",
+    tokensBefore: 1000,
+    tokensAfter: 600,
+  });
+  assert.equal(
+    state.entries.at(-1)?.text,
+    "✂ Edited context: 4 item(s) cleared or removed: 1.0k → 600 tok (about 60% retained)",
+  );
+  assert.equal(state.entries.at(-1)?.summary, "cleared build log");
+});
+
 test("rehydration with a retry notice acknowledges persisted messages once and keeps live entry keys", () => {
   let state = chatReducer(INITIAL_CHAT_STATE, { type: "hydrate", messages: [{ role: "user", content: "history" }], stats: null, running: false });
   state = chatReducer(state, { type: "submit_user", key: "new-user", text: "new" });

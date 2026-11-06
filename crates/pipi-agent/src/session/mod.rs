@@ -9,12 +9,12 @@ use crate::agent_loop::{
     run_agent_loop,
 };
 use crate::stats::{SessionStats, SessionStatsTracker};
-use pipi_context::compaction::Budget;
+use pipi_context::compaction::{Budget, CompactMode};
 use pipi_context::retry::RetryPolicy;
 use pipi_protocol::provider::Provider;
 use pipi_protocol::session::{
-    CompactionRecord, EntryKind, EnvDeclared, SessionEntry, SessionLog, SessionRepo,
-    active_model_from_entries, active_path, rebuild_messages,
+    ClearedToolResult, CompactionRecord, ContextEditRecord, EntryKind, EnvDeclared, SessionEntry,
+    SessionLog, SessionRepo, active_model_from_entries, active_path, rebuild_messages,
 };
 use pipi_protocol::tools::{ToolContext, ToolRegistry};
 use pipi_protocol::{AbortSignal, Message, Model, StopReason, StreamOptions};

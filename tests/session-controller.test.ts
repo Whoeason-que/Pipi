@@ -270,6 +270,22 @@ test("compaction rekeys the same controller and stop targets the new session", a
   runtime.disconnect();
 });
 
+test("compact forwards the selected mode and defaults to summary", async () => {
+  const { host, controller, runtime } = await fixture();
+  await controller.hydrate();
+  await controller.compact("edit");
+  assert.deepEqual(
+    host.calls.filter(call => call.command === "compact_now").at(-1)?.args,
+    { agentName: agent.name, sessionId: "s", mode: "edit" },
+  );
+  await controller.compact();
+  assert.equal(
+    host.calls.filter(call => call.command === "compact_now").at(-1)?.args?.mode,
+    "summary",
+  );
+  runtime.disconnect();
+});
+
 test("late hydration results cannot replace a newer snapshot", async () => {
   const { host, controller, runtime } = await fixture();
   const first = deferred<MessageView[]>();

@@ -30,6 +30,9 @@ const SUMMARY_OUTPUT: u64 = 700;
 /// token，窗口 60k 的 75% 触发线是 45k）—— 压缩触发以真实用量为锚，报低了就不会压。
 const CHAT_INPUT: u64 = 46_000;
 const CHAT_OUTPUT: u64 = 8;
+/// Agent 编辑调用上报的用量（与摘要/对话都拉开，便于断言条目与账本）。
+const EDIT_INPUT: u64 = 30_000;
+const EDIT_OUTPUT: u64 = 300;
 
 fn read_request(stream: &mut std::net::TcpStream) -> String {
     let mut buffer = Vec::new();
@@ -127,6 +130,38 @@ fn spawn_endpoint() -> (std::net::SocketAddr, Arc<AtomicUsize>, Arc<AtomicUsize>
         }
     });
     (addr, chats, summaries)
+}
+
+/// 编辑式压缩的 mock 端点：识别编辑器 system prompt，返回一份固定的编辑清单。
+/// 其它请求回普通对话（本测试不应出现）。
+fn spawn_edit_endpoint() -> (std::net::SocketAddr, Arc<AtomicUsize>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let edits = Arc::new(AtomicUsize::new(0));
+    let counter = edits.clone();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let body = read_request(&mut stream);
+            let (payload, usage) = if body.contains("You are a context editor") {
+                counter.fetch_add(1, Ordering::SeqCst);
+                (
+                    r#"{"clear_tool_results":[8],"drop_turns":[4],"note":"cleared build log and removed a dead-end turn"}"#
+                        .to_string(),
+                    (EDIT_INPUT, EDIT_OUTPUT),
+                )
+            } else {
+                ("收到。".to_string(), (CHAT_INPUT, CHAT_OUTPUT))
+            };
+            let frames = sse_frame(&payload, usage);
+            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n");
+            for frame in frames.split('\n') {
+                let _ = stream.write_all(format!("{frame}\n\n").as_bytes());
+            }
+            let _ = stream.write_all(b"data: [DONE]\n\n");
+            let _ = stream.flush();
+        }
+    });
+    (addr, edits)
 }
 
 fn temp_home() -> std::path::PathBuf {
@@ -721,7 +756,12 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
         .unwrap();
     let (sink, seen) = collect_events();
     state
-        .compact_now("compaction-e2e", &old_id, sink)
+        .compact_now(
+            "compaction-e2e",
+            &old_id,
+            pipi_context::compaction::CompactMode::Summary,
+            sink,
+        )
         .expect("手动压缩应当被接受");
 
     wait_for(&seen, |events| {
@@ -837,7 +877,12 @@ fn manual_compaction_refused_while_running() {
     );
 
     let error = state
-        .compact_now("compaction-e2e", &session_id, sink)
+        .compact_now(
+            "compaction-e2e",
+            &session_id,
+            pipi_context::compaction::CompactMode::Summary,
+            sink,
+        )
         .expect_err("运行中必须拒绝手动压缩");
     assert!(
         error.contains("running") || error.contains("正在运行"),
@@ -890,7 +935,12 @@ fn manual_compaction_reports_when_nothing_to_compress() {
         .expect("打开会话");
     let (sink, seen) = collect_events();
     state
-        .compact_now("compaction-e2e", &session_id, sink)
+        .compact_now(
+            "compaction-e2e",
+            &session_id,
+            pipi_context::compaction::CompactMode::Summary,
+            sink,
+        )
         .expect("调用本身应被接受");
 
     wait_for(&seen, |events| {
@@ -1064,6 +1114,231 @@ fn compaction_persists_kept_range_and_usage_then_replay_keeps_it() {
         Some(CHAT_INPUT),
         "上下文占用应是最近一次对话请求的 prompt，而不是摘要请求的"
     );
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// Agent 编辑式压缩：清一条旧工具输出 + 删一整轮，落 `context_edit` 条目，
+/// 重开后回放结果一致，编辑调用的用量进累计账本。
+#[test]
+fn agent_edit_persists_clear_and_removal_then_replays() {
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = temp_home();
+    let (addr, edits) = spawn_edit_endpoint();
+    let base_url = format!("http://{addr}/v1");
+    fixture(
+        "edit-e2e",
+        &base_url,
+        60_000,
+        pipi_core::settings::CompactionSettings {
+            fork_before_compact: false,
+            archive_original: false,
+        },
+    );
+    let def = agents::load_agent("edit-e2e").expect("加载 Agent");
+    let sessions_dir = def.sessions_dir().expect("会话目录");
+    let session_id = seed_history(&sessions_dir);
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("构建注入运行时");
+    let state = RuntimeState::new(runtime.handle().clone());
+    state
+        .open_session("edit-e2e", &session_id)
+        .expect("打开会话");
+    let (sink, seen) = collect_events();
+
+    state
+        .compact_now(
+            "edit-e2e",
+            &session_id,
+            pipi_context::compaction::CompactMode::Edit,
+            sink,
+        )
+        .expect("手动编辑压缩应被接受");
+
+    wait_for(&seen, |events| {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                RuntimeEvent::AgentEvent(envelope)
+                    if matches!(
+                        &envelope.event,
+                        pipi_agent::agent_loop::AgentEvent::CompactionEnd { strategy, .. }
+                            if strategy == "agent-edit"
+                    )
+            )
+        })
+    });
+    assert_eq!(edits.load(Ordering::SeqCst), 1, "应当发生一次编辑调用");
+
+    // 1) 落盘的 context_edit 条目：清理 1 条、删除 1 轮（3 条）、note、用量
+    let entries = session_repo(&sessions_dir)
+        .entries(&session_id)
+        .expect("读回会话");
+    let (cleared, removed, note, usage) = entries
+        .iter()
+        .find_map(|entry| match &entry.kind {
+            EntryKind::ContextEdit {
+                cleared,
+                removed,
+                note,
+                usage,
+                strategy,
+                ..
+            } => {
+                assert_eq!(strategy, "agent-edit");
+                Some((cleared.clone(), removed.clone(), note.clone(), *usage))
+            }
+            _ => None,
+        })
+        .expect("应当写入 context_edit 条目");
+    assert_eq!(cleared.len(), 1, "应当清理一条工具输出");
+    assert_eq!(removed.len(), 3, "应当删除完整的一轮");
+    assert!(note.contains("cleared build log"), "note 应落盘：{note}");
+    assert_eq!(usage.expect("编辑调用的用量必须落盘").input, EDIT_INPUT);
+
+    // 2) live 历史：删掉一轮（3 条），原下标 8 的工具输出变成下标 5 的占位符
+    let messages = runtime
+        .block_on(state.session_messages("edit-e2e", &session_id))
+        .expect("读取消息");
+    assert_eq!(messages.len(), 40 * 3 - 3);
+    let Message::ToolResult { content, .. } = &messages[5] else {
+        panic!("下标 5 应当是工具结果");
+    };
+    let pipi_protocol::ToolResultContent::Text { text } = &content[0] else {
+        panic!("工具结果应当是文本");
+    };
+    assert!(
+        text.starts_with("[Tool output cleared"),
+        "旧工具输出应变成占位符：{text}"
+    );
+    assert!(
+        !messages.iter().any(|message| matches!(
+            message,
+            Message::User { content, .. } if content.text().contains("第 1 轮")
+        )),
+        "被删除的一轮不应留在历史里"
+    );
+
+    // 3) 重开：回放应用同一份 context_edit，结果与 live 一致
+    state.new_session("edit-e2e").expect("释放会话槽");
+    state
+        .open_session("edit-e2e", &session_id)
+        .expect("重开会话");
+    let reopened = runtime
+        .block_on(state.session_messages("edit-e2e", &session_id))
+        .expect("重开后读取消息");
+    assert_eq!(reopened.len(), messages.len());
+    let Message::ToolResult { content, .. } = &reopened[5] else {
+        panic!("重开后下标 5 应当是工具结果");
+    };
+    let pipi_protocol::ToolResultContent::Text { text } = &content[0] else {
+        panic!("重开后工具结果应当是文本");
+    };
+    assert!(text.starts_with("[Tool output cleared"));
+
+    // 4) 编辑调用用量进累计账本
+    let stats = state
+        .session_stats("edit-e2e", &session_id)
+        .expect("读取统计");
+    assert!(
+        stats.input >= EDIT_INPUT,
+        "编辑调用的输入必须计入累计：{}",
+        stats.input
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// 编辑式压缩的分叉路径：新会话共享源条目的 id，`context_edit` 的引用
+/// 在新分支上仍然有效；原会话按设置归档。
+#[test]
+fn agent_edit_forks_and_keeps_the_edit_on_the_new_branch() {
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home = temp_home();
+    let (addr, edits) = spawn_edit_endpoint();
+    let base_url = format!("http://{addr}/v1");
+    fixture(
+        "edit-fork",
+        &base_url,
+        60_000,
+        pipi_core::settings::CompactionSettings {
+            fork_before_compact: true,
+            archive_original: true,
+        },
+    );
+    let def = agents::load_agent("edit-fork").expect("加载 Agent");
+    let sessions_dir = def.sessions_dir().expect("会话目录");
+    let session_id = seed_history(&sessions_dir);
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("构建注入运行时");
+    let state = RuntimeState::new(runtime.handle().clone());
+    state
+        .open_session("edit-fork", &session_id)
+        .expect("打开会话");
+    let (sink, seen) = collect_events();
+    state
+        .compact_now(
+            "edit-fork",
+            &session_id,
+            pipi_context::compaction::CompactMode::Edit,
+            sink,
+        )
+        .expect("手动编辑压缩应被接受");
+    wait_for(&seen, |events| {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                RuntimeEvent::AgentEvent(envelope)
+                    if matches!(
+                        &envelope.event,
+                        pipi_agent::agent_loop::AgentEvent::CompactionEnd { strategy, .. }
+                            if strategy == "agent-edit"
+                    )
+            )
+        })
+    });
+    assert_eq!(edits.load(Ordering::SeqCst), 1, "应当发生一次编辑调用");
+
+    let new_id = open_session_id(&state, "edit-fork");
+    assert_ne!(new_id, session_id, "应当分叉到新会话");
+    let entries = session_repo(&sessions_dir)
+        .entries(&new_id)
+        .expect("读回新会话");
+    assert!(
+        entries
+            .iter()
+            .any(|entry| matches!(entry.kind, EntryKind::ContextEdit { .. })),
+        "新分支应当带 context_edit 条目"
+    );
+    let marker = format!("context-edit-fork:{session_id}");
+    assert!(
+        entries.iter().any(|entry| matches!(
+            &entry.kind,
+            EntryKind::Custom { custom_type } if custom_type == &marker
+        )),
+        "应当写入分叉溯源标记"
+    );
+    let messages = rebuild_messages(&active_path(&entries));
+    assert_eq!(messages.len(), 40 * 3 - 3);
+    let Message::ToolResult { content, .. } = &messages[5] else {
+        panic!("新分支下标 5 应当是工具结果");
+    };
+    let pipi_protocol::ToolResultContent::Text { text } = &content[0] else {
+        panic!("工具结果应当是文本");
+    };
+    assert!(text.starts_with("[Tool output cleared"));
 
     let _ = std::fs::remove_dir_all(&home);
 }

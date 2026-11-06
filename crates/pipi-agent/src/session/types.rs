@@ -115,6 +115,8 @@ pub struct CompactionRequest {
     pub retry: RetryPolicy,
     pub budget: Budget,
     pub policy: CompactionPolicy,
+    /// 替换式策略：摘要或 Agent 编辑。自动路径暂时固定 Summary。
+    pub mode: CompactMode,
 }
 
 #[derive(Debug)]

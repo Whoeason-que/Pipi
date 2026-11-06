@@ -236,7 +236,7 @@ src/                 React + TypeScript 前端
 - 上下文压缩（`pipi-context/src/compaction/`）分两类，加档位前先判断属于哪类：**投影式**
   （`project` 路径：纯函数、确定性、可从原始历史重算 → **不落盘**，只在
   `transform_context` 里应用；写进历史会造成 live 与重开不一致）与**替换式**
-  （`compact` 路径：信息已丢失 → 必须落盘成 compaction 条目并在回放时重建）。
+  （`compact` 路径：信息已丢失 → 必须落盘成 `compaction` / `context_edit` 条目并在回放时重建）。
   档位是具象类型、顺序写死在各自的入口里（不引入 trait 对象）；
   策略只能返回 `Plan`，不得直接改 `messages`；切点不得孤立 toolResult、就地改写
   不得改角色、压缩后破损度不得增加 —— 这些不变量统一由 `validate` /
@@ -256,6 +256,20 @@ src/                 React + TypeScript 前端
   Session 会让停止按钮与 steering 断链），并且**事件身份必须跟着切换**：
   `session-switched` 用旧 id（前端此刻身份还是旧的）、后续事件用新 id；
   归档只在旧 writer 关闭之后做 —— 否则 Linux 上打开的 fd 会继续往被移动的文件追加。
+- 替换式有两档（`CompactMode::{Summary, Edit}`，手动 `compact_now` 带 `mode`）：
+  **摘要**（`LlmSummarize`，注入摘要 + `keep_from_entry`）与 **Agent 编辑**
+  （`LlmEdit`，一次性把完整历史编号发给模型，模型只返回
+  `clear_tool_results` / `drop_thinking` / `drop_turns` 的 JSON 清单）。编辑档
+  不生成摘要，落 `context_edit` 条目：`cleared`（条目 id + 占位文本，回放不依赖
+  `pipi-context`）、`removed`（整轮展开的条目 id）、`thinking_removed`（剥
+  Thinking 块的 assistant 条目 id）。保护首条 user、摘要消息、最近
+  `keep_budget_for(tokens)` 的尾部与最后一条 assistant；`drop_turns` 必须整轮
+  删除，删/改不得重叠。`replay` 与 `track_message_ids` 必须同步（只有 `removed`
+  改变 id 序列）。编辑档与摘要共用 `Budget` / `CompactionPolicy` / `run_compaction`
+  / 分叉归档路径；手动按钮先在 UI 用，自动触发留待后续。完整历史要能塞进一次
+  请求：估算输入 ≤ 100k 且 `输入 + 8k ≤ model.context_window`，超过提示改用
+  Summarize。改这一档必须跑 `pipi-core/tests/compaction_runtime.rs` 的
+  `agent_edit_*` 与 `pipi-protocol` / `pipi-session` 的回放/映射测试。
 - 并发模型是**按会话**的：`RuntimeState` 的会话槽是
   `Mutex<HashMap<SessionKey, HostSession>>`，`SessionKey = (Agent 名, 会话 id)` ——
   同一个 Agent 可以同时开多条会话、每条各跑一轮，数量不限（**没有并发上限，别引入

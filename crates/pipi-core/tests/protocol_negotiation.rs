@@ -426,7 +426,12 @@ fn runtime_negotiation_switches_once_and_remembers() {
 
     // 摘要不参与协商，但 auto 模式沿用本轮已经学到的协议。
     state
-        .compact_now("negotiation-agent", &session_id, recording_sink())
+        .compact_now(
+            "negotiation-agent",
+            &session_id,
+            pipi_context::compaction::CompactMode::Summary,
+            recording_sink(),
+        )
         .unwrap();
     assert!(wait_until(10_000, || state
         .session_infos()
@@ -525,6 +530,7 @@ fn switching_to_manual_ignores_a_previously_learned_protocol() {
         .compact_now(
             "mode-switch-agent",
             &id,
+            pipi_context::compaction::CompactMode::Summary,
             Arc::new(move |event| {
                 if matches!(event, RuntimeEvent::SessionError(_)) {
                     captured.fetch_add(1, Ordering::SeqCst);

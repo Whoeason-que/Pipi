@@ -162,9 +162,13 @@ pub struct SessionStatsRow {
 pub fn agent_stats(agent_name: &str, range_days: Option<u32>) -> Result<AgentStats, String> {
     let def = agents::load_agent(agent_name)?;
     if def.subagent {
-        return Err("Statistics are only available for primary Agents (subagents are excluded)".into());
+        return Err(
+            "Statistics are only available for primary Agents (subagents are excluded)".into(),
+        );
     }
-    let sessions_dir = def.sessions_dir().ok_or("Cannot resolve session directory")?;
+    let sessions_dir = def
+        .sessions_dir()
+        .ok_or("Cannot resolve session directory")?;
     let repo_path = sessions_dir
         .parent()
         .ok_or("Cannot resolve agent directory")?
@@ -353,7 +357,7 @@ impl Aggregator {
                         touched = true;
                     }
                 },
-                EntryKind::Compaction { usage, .. } => {
+                EntryKind::Compaction { usage, .. } | EntryKind::ContextEdit { usage, .. } => {
                     row.compactions += 1;
                     self.stats.totals.compactions += 1;
                     if let Some(usage) = usage {

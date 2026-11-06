@@ -979,12 +979,16 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                   ? ` (about ${Math.round(event.tokensAfter / event.tokensBefore * 100)}% retained)`
                   : "")
               : "";
+          const edited = event.strategy === "agent-edit";
           const nextEntry: ChatEntry = {
             key: pendingKey ?? action.key,
             role: "assistant",
             kind: "compaction",
-            text:
-              event.replaced > 0
+            text: edited
+              ? event.replaced > 0
+                ? `✂ Edited context: ${event.replaced} item(s) cleared or removed${saved}`
+                : `✂ Edited context${saved}`
+              : event.replaced > 0
                 ? `♻ Compacted context: ${event.replaced} older messages merged into the summary${saved}`
                 : `♻ Compacted context${saved}`,
             summary: event.summary,

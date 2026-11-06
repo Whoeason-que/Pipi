@@ -23,7 +23,8 @@
 不做：
 
 - 不写用户项目的 `.git`（影子仓库，见 §3）。
-- 不改 `SessionEntry` / `EntryKind` 的 JSON 结构、不改 IPC/DTO、不改 session id 形态。
+- 不改既有 entry 的 JSON 形状（新增 entry kind 只增不改，旧 reader 跳过未知类型）、
+  不改 IPC/DTO、不改 session id 形态。
 - 不做隐式迁移：旧 `sessions/*.jsonl` 只经显式导入命令迁进 git（§记录），
   运行时不再直接读它们。
 - 不把 workspace 文件快照进 git（opencode 那套；与本设计无关）。
@@ -108,7 +109,7 @@ git log --format='%s  [%(trailers:key=Turn,valueonly)]' # 每行带轮号
   - tree：新增 `e/<3 位分片>/<seq:05>-<kind>-<id8>.json`，文件内容 = 今天那一行 JSON 原文。
     路径里的零填充 seq 让「按文件名排序 = 对话顺序」，读回不必依赖 DAG 拓扑。
   - message：一行摘要，`user: …` / `assistant: …` / `toolResult/<name>: …` / `compaction: …` /
-    `model_change` / `env: …`（截断 72 字符，供 `git log --oneline` 阅读）；
+    `context_edit: …` / `model_change` / `env: …`（截断 72 字符，供 `git log --oneline` 阅读）；
     body 里带 `Turn: <n>` trailer（轮号），用于轮级浏览（见 §2.3 实测）。
 - 左栏每个 Agent 下展示会话仓库 `sessions.git` 与它的分支树：通过
   `SessionRepo::list` 拿到活跃分支（含 `forkParentId`），父分支在本仓库时嵌套，

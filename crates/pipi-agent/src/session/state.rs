@@ -176,6 +176,9 @@ impl AgentSession {
                 EntryKind::Message { message } => stats.record(message),
                 EntryKind::Compaction {
                     usage: Some(usage), ..
+                }
+                | EntryKind::ContextEdit {
+                    usage: Some(usage), ..
                 } => stats.record_ledger(usage),
                 _ => {}
             }

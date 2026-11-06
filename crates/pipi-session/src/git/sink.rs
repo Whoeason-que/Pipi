@@ -7,7 +7,9 @@
 
 use std::sync::Arc;
 
-use pipi_protocol::session::{CompactionRecord, EntryKind, EnvDeclared, SessionEntry, SessionLog};
+use pipi_protocol::session::{
+    CompactionRecord, ContextEditRecord, EntryKind, EnvDeclared, SessionEntry, SessionLog,
+};
 use pipi_protocol::{BackgroundTaskResult, Message, Model, new_id, now_millis};
 
 use super::exec::GitExec;
@@ -187,6 +189,12 @@ impl SessionLog for GitSink {
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
         // 只有压缩条目需要回滚；快照放在这里，普通消息/工具结果的热路径
         // 不承担整份账本克隆。
+        self.last_append_ledger = Some(self.ledger.clone());
+        Ok(self.append_entry(record.to_entry_kind(), now_millis()))
+    }
+
+    fn append_context_edit(&mut self, record: &ContextEditRecord<'_>) -> std::io::Result<String> {
+        // 与 append_compaction 同一套提交失败回滚语义。
         self.last_append_ledger = Some(self.ledger.clone());
         Ok(self.append_entry(record.to_entry_kind(), now_millis()))
     }

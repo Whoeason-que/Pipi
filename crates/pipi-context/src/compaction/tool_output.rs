@@ -98,6 +98,47 @@ fn is_cleared(block: &ToolResultContent) -> bool {
     }
 }
 
+/// 给 Agent 编辑用：把一条工具结果换成占位符，并返回占位文本。
+///
+/// 与自动清理共用同一份格式；已经清理过的返回 `None`（幂等）。这里不套
+/// `TOOL_OUTPUT_MIN_CHARS` —— 删不删是模型的决定，不是启发式。
+pub(super) fn cleared_replacement(original: &Message) -> Option<(Message, String)> {
+    let Message::ToolResult {
+        tool_name,
+        content,
+        is_error,
+        ..
+    } = original
+    else {
+        return None;
+    };
+    if content.iter().any(is_cleared) {
+        return None;
+    }
+    let chars: usize = content
+        .iter()
+        .map(|block| match block {
+            ToolResultContent::Text { text } => text.chars().count(),
+            ToolResultContent::Image { .. } => 0,
+        })
+        .sum();
+    let images = content
+        .iter()
+        .filter(|block| matches!(block, ToolResultContent::Image { .. }))
+        .count();
+    let replacement = cleared_message(original, tool_name, chars, images, *is_error);
+    let text = {
+        let Message::ToolResult { content, .. } = &replacement else {
+            return None;
+        };
+        let ToolResultContent::Text { text } = &content[0] else {
+            return None;
+        };
+        text.clone()
+    };
+    Some((replacement, text))
+}
+
 /// 原地替换内容但保留 id / 名字 / 是否失败 —— 配对与「哪些调用失败过」
 /// 这些结构信息一律不动，模型仍然看得到「这里有一次工具调用、结果被清理了」。
 fn cleared_message(

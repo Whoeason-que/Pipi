@@ -48,6 +48,7 @@ pub fn kind_token(kind: &EntryKind) -> &'static str {
         EntryKind::Message { .. } => "message",
         EntryKind::Custom { .. } => "custom",
         EntryKind::Compaction { .. } => "compaction",
+        EntryKind::ContextEdit { .. } => "context_edit",
         EntryKind::ModelChange { .. } => "model_change",
         EntryKind::Env { .. } => "env",
         EntryKind::BackgroundResult { .. } => "background_result",
@@ -108,6 +109,25 @@ pub fn summary_line(entry: &SessionEntry) -> String {
         },
         EntryKind::Custom { custom_type } => format!("custom: {custom_type}"),
         EntryKind::Compaction { strategy, .. } => format!("compaction: {strategy}"),
+        EntryKind::ContextEdit {
+            cleared,
+            removed,
+            thinking_removed,
+            note,
+            ..
+        } => {
+            let summary = if note.trim().is_empty() {
+                format!(
+                    "removed {} message(s), cleared {} tool output(s), dropped {} thinking block(s)",
+                    removed.len(),
+                    cleared.len(),
+                    thinking_removed.len()
+                )
+            } else {
+                note.clone()
+            };
+            format!("context_edit: {summary}")
+        }
         EntryKind::ModelChange { provider } => {
             format!("model_change: {}", provider.display_name())
         }
@@ -264,6 +284,20 @@ mod tests {
             },
         );
         assert_eq!(summary_line(&env), "env: 1 项声明");
+
+        let edit = entry(
+            4,
+            EntryKind::ContextEdit {
+                cleared: vec![],
+                removed: vec![],
+                thinking_removed: vec![],
+                note: "cleared build logs".into(),
+                source_tip: String::new(),
+                strategy: "agent-edit".into(),
+                usage: None,
+            },
+        );
+        assert_eq!(summary_line(&edit), "context_edit: cleared build logs");
     }
 
     #[test]

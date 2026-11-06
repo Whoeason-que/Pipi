@@ -438,13 +438,14 @@ server`）。前端 `ipc.ts` 声明命令参数、返回值和事件类型，`np
 | 类别 | 例子 | 持久化 | 应用位置 |
 | --- | --- | --- | --- |
 | 投影式（`project` 路径，纯函数、确定性） | 旧工具输出清理、边界硬裁 | **不落盘**（回放时重算） | `transform_context`（组装请求时） |
-| 替换式（`compact` 路径，信息已丢失） | LLM 摘要 | 必须落盘为 `compaction` 条目 | turn 边界（单会话内核触发） |
+| 替换式（`compact` 路径，信息已丢失） | LLM 摘要 / Agent 编辑 | 必须落盘为 `compaction` / `context_edit` 条目 | turn 边界（自动）或手动按钮 |
 
 - 「何时压」由 `pipi-agent::session` 决定，策略只回答「我能不能压」。触发口径只有一处
   （`Budget::trigger_tokens` = **窗口 × 百分比**，默认 75%，按 Agent 在
   `agent.json` 的 `compactThresholdPercent` 调；窗口未知时为 0 → 不压缩）；
-  **手动压缩**（右栏「状态」→ 上下文行的「立即压缩」）跳过阈值 —— 用户点了就压，
-  其余路径完全相同（同一个 `run_compaction`，因此同样分叉/归档/换会话）；
+  **手动压缩**（右栏「状态」→ 上下文行的 **Summarize** / **Compact**）跳过阈值 ——
+  用户点了就压，其余路径完全相同（同一个 `run_compaction`，因此同样分叉/归档/换会话）；
+  Summarize 走摘要，Compact 走 Agent 编辑（见下）；
 - 「压到多少」独立于触发线：可选的 Agent 级 `compactTargetPercent` 以本次压缩前
   的估算 token 为基数，既决定摘要输出上限（`min(压缩前估算 token × 百分比, 20k)`），
   也决定保留多少近期原文；未设置时摘要沿用固定预算（13,107）与固定 2 万 token
@@ -454,18 +455,30 @@ server`）。前端 `ipc.ts` 声明命令参数、返回值和事件类型，`np
 - 投影式流水线按成本从低到高跑：**先清旧工具输出**（不花 LLM 调用、不动对话
   结构，对齐 Claude Code 的「先清旧工具输出再摘要」与 Anthropic context editing
   的 `clear_tool_uses_*`），仍超预算才硬裁；因为不落盘，改这一档不动会话格式；
-- 替换式目前只有摘要一档，落盘字段对齐 pi：`keep_from_entry`（= 上游
-  `firstKeptEntryId`，回放时保住这段原文）、`strategy`、`usage`（摘要调用的用量
-  计入会话账本，但不改写「当前上下文占用」口径，见 `stats::record_ledger`）；
-  重开时从活跃路径的原始消息和压缩用量重建累计统计，被摘要替换的请求仍计费；
+- 替换式有两档：
+  - **摘要**（`llm-summarize`）：落盘字段对齐 pi —— `keep_from_entry`（= 上游
+    `firstKeptEntryId`，回放时保住这段原文）、`strategy`、`usage`（摘要调用的用量
+    计入会话账本，但不改写「当前上下文占用」口径，见 `stats::record_ledger`）；
+  - **Agent 编辑**（`agent-edit`）：一次独立的纯文本调用把**完整历史**编号后发给
+    模型，模型只返回 `clear_tool_results` / `drop_thinking` / `drop_turns` 的 JSON
+    清单，运行时校验后落 `context_edit` 条目（`cleared` 存条目 id + 占位文本，
+    `removed` 是整轮展开的条目 id，`thinking_removed` 是剥 Thinking 的 assistant
+    条目 id）。它不生成摘要、保留历史结构；保护首条 user、摘要消息、最近
+    `keep_budget_for(tokens)` 的尾部与最后一条 assistant，删除按整轮展开、清理只换
+    toolResult 内容，配对不变量仍由 `validate` / `validate_result` 把关。完整历史
+    必须塞进一次请求（估算输入 ≤ 100k 且 `输入 + 8k ≤ 模型窗口`），超过提示改用
+    Summarize；它和摘要共用 `Budget` / fork/archive 配置，手动按钮先上，自动触发
+    留待后续；
+  - 重开时从活跃路径的原始消息和压缩用量重建累计统计，被摘要/编辑替换的请求仍计费；
 - 硬不变量集中在 `compaction::validate` / `validate_result`：切点不得孤立
   toolResult、就地改写不得改角色、压缩后破损度不得增加（历史里本来就有的中段
   悬挂不算在压缩头上）；
 - 参数集中在 `Budget::from_window`，加一档投影式压缩 = 一个具象策略 + `project`
   里一行调用。
 
-**压缩不原地改写会话**（可关）：摘要成功后先**分叉**出新会话（活跃路径完整拷贝 +
-压缩条目 + 溯源标记 `compaction-fork:<原 id>`），把 writer 换过去，再把原会话移入
+**压缩不原地改写会话**（可关）：摘要/编辑成功后先**分叉**出新会话（活跃路径完整拷贝 +
+`compaction` / `context_edit` 条目 + 溯源标记 `compaction-fork:<原 id>` /
+`context-edit-fork:<原 id>`），把 writer 换过去，再把原会话移入
 归档 —— 于是原会话始终是一份**完整记录**，新会话是压缩后的继续。归档链是嵌套的：
 第二次压缩归档的是第一次的压缩产物，完整历史永远在最外层的归档里。
 

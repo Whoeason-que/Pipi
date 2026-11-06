@@ -396,6 +396,11 @@ export default function ChatView({
       .compact()
       .catch((error) => onError(formatRuntimeError(error)));
   };
+  const agentCompactNow = () => {
+    void controller
+      .compact("edit")
+      .catch((error) => onError(formatRuntimeError(error)));
+  };
   const forkSession = () => {
     void controller.fork().catch((error) => onError(formatRuntimeError(error)));
   };
@@ -609,6 +614,7 @@ export default function ChatView({
           <Inspector
             context={inspectorContext}
             onCompact={compactNow}
+            onAgentCompact={agentCompactNow}
             onOpenFile={onOpenFile}
             hidden={!inspectorOpen}
             rootRef={inspectorRef}
