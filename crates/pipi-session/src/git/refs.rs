@@ -4,6 +4,10 @@
 //! `refs/heads/archive/<id>`（ref 迁移，零复制）；删除 = 删 ref +
 //! `gc --prune=now`（否则独有对象在盘上仍可被 `git fsck` 找回）。
 
+use std::collections::HashMap;
+
+use pipi_protocol::session::validate_session_id;
+
 use super::exec::GitExec;
 
 /// 活跃区分支前缀。
@@ -57,6 +61,59 @@ pub fn delete_branch(exec: &GitExec, ref_name: &str) -> Result<(), String> {
     exec.run(&["update-ref", "-d", ref_name])?;
     // 与其它线共享的保留段不会被清掉（仍被引用），这是共享存储的必然结果。
     exec.gc_prune_now()
+}
+
+/// 分叉来源元数据 ref 前缀：`refs/pipi/forks/<new-session-id>/<source-session-id>`。
+///
+/// 值指向新分支 tip 提交（对象本来就可从分支到达，不额外保活）。它不参与
+/// `refs/heads/session|archive` 列表，也不改 entry / commit 格式 —— 只是给
+/// 右栏分支树回答「这条分支从哪来」。删除会话时先删它再 `gc`，否则 ref 会
+/// 把分支对象继续保活。
+pub const FORK_PREFIX: &str = "refs/pipi/forks";
+
+/// 记录一条分支的分叉来源。失败不影响分叉本身（调用方只 warn）。
+pub fn write_fork_marker(
+    exec: &GitExec,
+    session_id: &str,
+    source_id: &str,
+    tip: &str,
+) -> Result<(), String> {
+    validate_session_id(session_id)?;
+    validate_session_id(source_id)?;
+    let name = format!("{FORK_PREFIX}/{session_id}/{source_id}");
+    exec.run(&["update-ref", &name, tip]).map(|_| ())
+}
+
+/// 读出全部分叉来源：`new session id -> source session id`。
+pub fn fork_parents(exec: &GitExec) -> Result<HashMap<String, String>, String> {
+    let output = exec.run(&["for-each-ref", "--format=%(refname)", FORK_PREFIX])?;
+    let mut parents = HashMap::new();
+    for line in String::from_utf8_lossy(&output).lines() {
+        let Some(rest) = line.trim().strip_prefix(FORK_PREFIX) else {
+            continue;
+        };
+        let Some((session_id, source_id)) = rest.trim_start_matches('/').split_once('/') else {
+            continue;
+        };
+        if validate_session_id(session_id).is_ok() && validate_session_id(source_id).is_ok() {
+            parents.insert(session_id.to_string(), source_id.to_string());
+        }
+    }
+    Ok(parents)
+}
+
+/// 删除某条会话的分叉来源 ref（删除会话时先调用，再 [`delete_branch`]）。
+pub fn delete_fork_markers(exec: &GitExec, session_id: &str) -> Result<(), String> {
+    validate_session_id(session_id)?;
+    let pattern = format!("{FORK_PREFIX}/{session_id}");
+    let output = exec.run(&["for-each-ref", "--format=%(refname)", &pattern])?;
+    for line in String::from_utf8_lossy(&output).lines() {
+        let name = line.trim();
+        if !name.is_empty() {
+            exec.run(&["update-ref", "-d", name])?;
+        }
+    }
+    Ok(())
 }
 
 /// 枚举某个前缀下的分支 id（不读内容，只要名字）。
@@ -124,6 +181,32 @@ mod tests {
 
         delete_branch(&exec, &session_ref("s1")).unwrap();
         assert!(!exec.ref_exists(&session_ref("s1")).unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn fork_markers_round_trip_and_are_scoped_to_the_session() {
+        let dir = pipi_test_support::temp_dir("pipi-git-forks");
+        let exec = GitExec::new(dir.join("sessions.git"));
+        exec.run(&["rev-parse", "refs/heads/main"]).unwrap();
+        let tip = exec.resolve_ref("refs/heads/main").unwrap().unwrap();
+
+        write_fork_marker(&exec, "new-1", "old-1", &tip).unwrap();
+        assert_eq!(
+            fork_parents(&exec)
+                .unwrap()
+                .get("new-1")
+                .map(String::as_str),
+            Some("old-1")
+        );
+        // 非法 id 不会写进 ref 命名空间
+        assert!(write_fork_marker(&exec, "bad/id", "old-1", &tip).is_err());
+        // 删除只影响目标会话的 marker
+        write_fork_marker(&exec, "new-2", "new-1", &tip).unwrap();
+        delete_fork_markers(&exec, "new-1").unwrap();
+        let parents = fork_parents(&exec).unwrap();
+        assert!(!parents.contains_key("new-1"));
+        assert_eq!(parents.get("new-2").map(String::as_str), Some("new-1"));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -31,9 +31,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use pipi_protocol::session::{
-    SessionEntry, SessionLog, SessionRepo, SessionSummary, validate_session_id,
+    SessionCommit, SessionCommitEntry, SessionEntry, SessionLog, SessionRepo, SessionSummary,
+    validate_session_id,
 };
 use pipi_protocol::{new_id, now_millis};
+
+/// 树里展示的最大提交数（长会话只取最近这么多轮，避免一次 git log 太重）。
+const HISTORY_MAX_COMMITS: usize = 200;
 
 /// [`SessionRepo`] 的 git 实现：一个 Agent 的 `sessions.git` 影子仓库。
 pub struct GitSessionRepo {
@@ -160,6 +164,87 @@ impl SessionRepo for GitSessionRepo {
         self.read_session(&refs::archive_ref(session_id))
     }
 
+    fn history(&self, session_id: &str) -> Result<Vec<SessionCommit>, String> {
+        validate_session_id(session_id)?;
+        let ref_name = refs::session_ref(session_id);
+        if !self.exec.ref_exists(&ref_name)? {
+            return Ok(Vec::new());
+        }
+        let tip = self.exec.resolve_ref(&ref_name)?.unwrap_or_default();
+        // 一次 git log 同时拿提交元数据与新增路径：`%x1e` 分隔提交，`%x1f`
+        // 分隔字段，`--raw` 的 `:...` 行带出本轮新增的 entry 文件。
+        let max = format!("--max-count={HISTORY_MAX_COMMITS}");
+        let output = self.exec.run(&[
+            "log",
+            max.as_str(),
+            "--format=%x1e%H%x1f%P%x1f%ct%x1f%B",
+            "--raw",
+            "--no-renames",
+            "--diff-filter=A",
+            "--root",
+            &ref_name,
+        ])?;
+        let text = String::from_utf8_lossy(&output);
+        let mut commits = Vec::new();
+        for record in text.split('\u{1e}') {
+            if record.trim().is_empty() {
+                continue;
+            }
+            let mut parts = record.splitn(4, '\u{1f}');
+            let id = parts.next().unwrap_or_default().trim().to_string();
+            if id.is_empty() {
+                continue;
+            }
+            let parents = parts.next().unwrap_or_default().trim();
+            let timestamp = parts
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .parse::<u64>()
+                .unwrap_or(0);
+            let rest = parts.next().unwrap_or_default();
+            let parent_id = parents.split_whitespace().next().map(str::to_string);
+            let mut body_lines: Vec<&str> = Vec::new();
+            let mut entries = Vec::new();
+            let mut in_raw = false;
+            for line in rest.lines() {
+                // 只把「raw 行 + entry 路径」当成文件列表；提交正文里偶然出现的
+                // `:`/tab 不会提前截断 Turn trailer 的解析。
+                let path = line.rsplit('\t').next().unwrap_or_default().trim();
+                if line.starts_with(':') && path.starts_with("e/") {
+                    in_raw = true;
+                    if let Some((seq, kind)) = layout::parse_entry_path(path)
+                        && let Some(id8) = layout::entry_id_prefix(path)
+                    {
+                        entries.push(SessionCommitEntry { id: id8, seq, kind });
+                    }
+                } else if !in_raw {
+                    body_lines.push(line);
+                }
+            }
+            entries.sort_by_key(|entry| entry.seq);
+            let summary = body_lines
+                .first()
+                .map_or("", |line| line.trim())
+                .to_string();
+            let turn = body_lines.iter().find_map(|line| {
+                line.trim()
+                    .strip_prefix("Turn:")
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+            });
+            commits.push(SessionCommit {
+                is_tip: id == tip,
+                id,
+                parent_id,
+                timestamp: timestamp.saturating_mul(1_000),
+                summary,
+                turn,
+                entries,
+            });
+        }
+        Ok(commits)
+    }
+
     fn fork(
         &self,
         session_id: &str,
@@ -183,6 +268,13 @@ impl SessionRepo for GitSessionRepo {
                     .ok_or_else(|| "会话不存在".to_string())?;
                 let new_ref = refs::session_ref(&new_session_id);
                 refs::branch_at(&self.exec, &new_ref, &commit)?;
+                // 来源元数据与分支分开记录：整条线分叉不产生新提交，tip 上
+                // 只有源会话的提交消息，靠 ref 命名空间才能回答「从哪来」。
+                if let Err(error) =
+                    refs::write_fork_marker(&self.exec, &new_session_id, session_id, &commit)
+                {
+                    eprintln!("pipi: failed to record fork lineage for {new_session_id}: {error}");
+                }
                 let turn = reader::count_turns(&self.exec, &new_ref)?;
                 Ok(Box::new(GitSink::from_entries(
                     self.exec.clone(),
@@ -212,9 +304,26 @@ impl SessionRepo for GitSessionRepo {
                     .filter(|entry| entry.seq <= target.seq)
                     .cloned()
                     .collect::<Vec<_>>();
-                let mut sink = GitSink::from_entries(self.exec.clone(), new_session_id, &[], 0);
+                let mut sink =
+                    GitSink::from_entries(self.exec.clone(), new_session_id.clone(), &[], 0);
                 sink.set_root_parent(parent);
                 write_batched(&mut sink, &prefix)?;
+                let new_ref = refs::session_ref(&new_session_id);
+                match self.exec.resolve_ref(&new_ref) {
+                    Ok(Some(tip)) => {
+                        if let Err(error) =
+                            refs::write_fork_marker(&self.exec, &new_session_id, session_id, &tip)
+                        {
+                            eprintln!(
+                                "pipi: failed to record fork lineage for {new_session_id}: {error}"
+                            );
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        eprintln!("pipi: failed to read fork tip for {new_session_id}: {error}")
+                    }
+                }
                 Ok(Box::new(sink))
             }
         }
@@ -236,6 +345,11 @@ impl SessionRepo for GitSessionRepo {
         if !self.exec.ref_exists(&ref_name)? {
             return Err("Session does not exist".into());
         }
+        // 先删来源元数据 ref，再删分支：否则 marker 会把分支对象继续保活，
+        // 紧随其后的 gc --prune=now 清不掉。
+        if let Err(error) = refs::delete_fork_markers(&self.exec, session_id) {
+            eprintln!("pipi: failed to remove fork lineage refs for {session_id}: {error}");
+        }
         refs::delete_branch(&self.exec, &ref_name)
     }
 
@@ -244,6 +358,9 @@ impl SessionRepo for GitSessionRepo {
         let ref_name = refs::archive_ref(session_id);
         if !self.exec.ref_exists(&ref_name)? {
             return Err("Session does not exist in archive".into());
+        }
+        if let Err(error) = refs::delete_fork_markers(&self.exec, session_id) {
+            eprintln!("pipi: failed to remove fork lineage refs for {session_id}: {error}");
         }
         refs::delete_branch(&self.exec, &ref_name)
     }

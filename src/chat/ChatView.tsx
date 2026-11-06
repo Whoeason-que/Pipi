@@ -19,7 +19,7 @@ import {
 } from "../chat-runtime";
 import ChatTimeline from "./ChatTimeline";
 import Inspector from "./Inspector";
-import type { InspectorTab } from "./inspector-tabs";
+import { INSPECTOR_TABS, type InspectorTab } from "./inspector-tabs";
 import { useI18n } from "../i18n";
 import { IconClose } from "../icons";
 import type { ChatInspectorContext } from "./inspector-context";
@@ -28,6 +28,7 @@ import AgentAvatar from "../components/AgentAvatar";
 import ChatToolbar from "./ChatToolbar";
 import ChatComposer from "./ChatComposer";
 import { useResizableWidth } from "../resizable";
+import { readStored, writeStored } from "../storage";
 import type { SessionRuntime } from "../session-runtime";
 import type { SessionController } from "../session-controller";
 import type {
@@ -124,12 +125,41 @@ export default function ChatView({
   const [previewChip, setPreviewChip] = useState<string | null>(null);
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [activeInspectorTab, setActiveInspectorTab] =
-    useState<InspectorTab>("stats");
-  const previousTabRef = useRef<InspectorTab>("stats");
-
-  const [inspectorOpen, setInspectorOpen] = useState(
-    () => isTest && (typeof window === "undefined" || window.innerWidth > 1100),
+    useState<InspectorTab>(() => {
+      if (isTest) return "stats";
+      const stored = readStored("pipi-inspector-tab", "stats");
+      return INSPECTOR_TABS.some((item) => item.id === stored)
+        ? (stored as InspectorTab)
+        : "stats";
+    });
+  // 「调用详情」是临时的：没有 pinned chip 时不能作为恢复目标。
+  const previousTabRef = useRef<InspectorTab>(
+    activeInspectorTab === "detail" ? "stats" : activeInspectorTab,
   );
+
+  const [inspectorOpen, setInspectorOpen] = useState(() => {
+    if (isTest) {
+      return typeof window === "undefined" || window.innerWidth > 1100;
+    }
+    // 窄屏用抽屉，不自动弹出；宽屏沿用用户上次的选择。
+    if (typeof window !== "undefined" && window.innerWidth <= 1100) return false;
+    return readStored("pipi-inspector-open", "0") === "1";
+  });
+
+  // 切换会话会重挂 ChatView（App 的 chatKey）；右栏开关与 tab 必须跨重挂保留，
+  // 否则从仓库树里点一个分支，右栏就关掉了。
+  useEffect(() => {
+    if (isTest) return;
+    // 窄屏是抽屉：不覆盖宽屏下的开关偏好。
+    if (typeof window !== "undefined" && window.innerWidth <= 1100) return;
+    writeStored("pipi-inspector-open", inspectorOpen ? "1" : "0");
+  }, [inspectorOpen, isTest]);
+  useEffect(() => {
+    // 详情页由 pinned chip 驱动，跨会话没有意义，不持久化。
+    if (!isTest && activeInspectorTab !== "detail") {
+      writeStored("pipi-inspector-tab", activeInspectorTab);
+    }
+  }, [activeInspectorTab, isTest]);
   // 检查器宽度可拖拽调节（窄屏抽屉模式由 styles/components/panels.css 接管）。
   const inspectorResize = useResizableWidth({
     storageKey: isTest ? "agent-settings-width" : "inspector-width",
@@ -196,9 +226,18 @@ export default function ChatView({
     }
   }, [activeChipId]);
   const followTailRef = useRef(true);
+  // 首次贴底前忽略顶部 scroll 事件：它可能来自挂载/测量的程序化滚动，
+  // 不能把「跟随底部」误判成用户主动阅读历史。
+  const pinnedOnceRef = useRef(false);
   const composingRef = useRef(false);
   const lastErrorRef = useRef(0);
   const lastChangeRef = useRef(snapshot.change?.revision ?? 0);
+
+  useEffect(() => {
+    pinnedOnceRef.current = false;
+    followTailRef.current = true;
+    setAtTail(true);
+  }, [sessionId]);
 
   // 输入区覆盖在消息上方；按实际高度预留滚动空间，包含多行草稿与安全提示。
   useLayoutEffect(() => {
@@ -293,15 +332,13 @@ export default function ChatView({
     return () => window.removeEventListener("keydown", keydown);
   }, [layout]);
 
+  // 搜索命中由 ChatTimeline 按块索引滚动（虚拟列表里目标可能还没挂载）；
+  // 这里只负责离开「跟随底部」状态，避免滚动目标与流式贴底互相拉扯。
   useEffect(() => {
     if (!inspectorOpen || activeInspectorTab !== "search" || !activeFindKey)
       return;
     followTailRef.current = false;
     setAtTail(false);
-    const target = listRef.current?.querySelector(
-      `[data-entry-key="${CSS.escape(activeFindKey)}"]`,
-    );
-    target?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [inspectorOpen, activeInspectorTab, activeFindKey]);
 
   useEffect(() => {
@@ -313,28 +350,22 @@ export default function ChatView({
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [inspectorOpen, narrow]);
 
-  // 只有用户仍停留在底部时才跟随流式输出，阅读历史时不抢滚动位置。
-  useEffect(() => {
-    if (!followTailRef.current) return;
-    const list = listRef.current;
-    if (!list) return;
-    const frame = requestAnimationFrame(() => {
-      list.scrollTo({ top: list.scrollHeight, behavior: "auto" });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [entries]);
-
+  // 流式贴底由 ChatTimeline 在虚拟行测量完成后处理（见其 pinnedToBottom effect）。
   useEffect(() => {
     onRunningChange();
   }, [onRunningChange, running]);
 
   const handleScroll = () => {
     const list = listRef.current;
-    if (list) {
-      followTailRef.current =
-        list.scrollHeight - list.scrollTop - list.clientHeight <= 48;
-      setAtTail(followTailRef.current);
-    }
+    if (!list) return;
+    // 空会话（欢迎页/水合前）的 scrollHeight == clientHeight，不能据此把
+    // 「首次贴底」标记成已完成；等条目到达后再让 ChatTimeline 贴底。
+    if (entries.length === 0) return;
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= 48;
+    if (!pinnedOnceRef.current && !atBottom) return;
+    if (atBottom) pinnedOnceRef.current = true;
+    followTailRef.current = atBottom;
+    setAtTail(atBottom);
   };
   const scrollToLatest = () => {
     followTailRef.current = true;
@@ -468,6 +499,8 @@ export default function ChatView({
               agent={agent}
               connecting={connecting}
               blocks={blocks}
+              scrollRef={listRef}
+              pinnedToBottom={atTail}
               activeChipId={activeChipId}
               pinnedChip={pinnedChip}
               findHits={
@@ -588,8 +621,14 @@ export default function ChatView({
             searchHits={searchHits}
             pinnedFindKey={pinnedFindKey}
             previewFindKey={previewFindKey}
-            onPreviewFind={setPreviewFindKey}
+            onPreviewFind={(key) => {
+              followTailRef.current = false;
+              setAtTail(false);
+              setPreviewFindKey(key);
+            }}
             onPinFind={(key) => {
+              followTailRef.current = false;
+              setAtTail(false);
               setPinnedFindKey(key);
               setPreviewFindKey(null);
             }}

@@ -216,6 +216,33 @@ fn run_conformance(repo: &dyn SessionRepo, label: &str) {
     assert_eq!(prefix_entries.len(), 2, "{}", at("只带 m1+m2"));
     assert_eq!(prefix_entries[1].id, m2, "{}", at("末条是 m2"));
 
+    // 7b. 分叉来源：两种分叉都记录到源会话，源会话本身没有来源
+    let fork_summaries = repo.list();
+    let summary_of = |session_id: &str| {
+        fork_summaries
+            .iter()
+            .find(|summary| summary.id == session_id)
+            .unwrap_or_else(|| panic!("{}", at("分叉后列表里有这条会话")))
+    };
+    assert_eq!(
+        summary_of(&forked_id).fork_parent_id.as_deref(),
+        Some(id.as_str()),
+        "{}",
+        at("整线分叉记录来源")
+    );
+    assert_eq!(
+        summary_of(&prefix_id).fork_parent_id.as_deref(),
+        Some(id.as_str()),
+        "{}",
+        at("entry 级分叉记录来源")
+    );
+    assert_eq!(
+        summary_of(&id).fork_parent_id,
+        None,
+        "{}",
+        at("源会话没有分叉来源")
+    );
+
     // 8. 归档 / 恢复 / 删除（活跃区与归档区各一套）
     repo.archive(&forked_id).unwrap();
     assert!(

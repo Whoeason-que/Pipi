@@ -10,7 +10,7 @@ import { IconCopy, IconFile, IconGit, IconFolder } from "../icons";
 import type { WorkspaceChanges, WorkspaceDiff, WorkspaceFile } from "./types";
 import { FileGlyph } from "./FileGlyph";
 import { formatSize } from "./FilePreview";
-import { gitStatusMeta, parsePatch, summarizeChanges } from "./diff";
+import { gitStatusMeta, normalizePatch, parsePatch, summarizeChanges } from "./diff";
 
 export function WorkspaceRail({
   controller,
@@ -35,7 +35,7 @@ export function WorkspaceRail({
 }) {
   const clipboard = useCopyFeedback();
   const { t } = useI18n();
-  const parsed = useMemo(() => source?.type === "git" ? parsePatch(source.diff.patch) : null, [source]);
+  const parsed = useMemo(() => source?.type === "git" ? parsePatch(normalizePatch(source.diff.patch)) : null, [source]);
   const status = selectedPath ? changes?.files.find((file) => file.path === selectedPath) : undefined;
   const summary = summarizeChanges(changes?.files ?? []);
   const title = mode === "files" ? t("files.fileInfo") : t("files.gitChanges");

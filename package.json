@@ -13,13 +13,16 @@
     "tauri:build": "cargo build --release -p pipi-sandbox && node scripts/prepare-sidecar.mjs release && tauri build --config crates/pipi/tauri.conf.json"
   },
   "dependencies": {
+    "@pierre/diffs": "^1.6.4",
+    "@tanstack/react-virtual": "^3.14.26",
     "@tauri-apps/api": "^2",
+    "radix-ui": "^1.8.1",
     "react": "^19",
     "react-dom": "^19",
     "react-markdown": "^10.1.0",
     "react-select": "^5.10.2",
-    "rehype-highlight": "^7.0.2",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "shiki": "^4.6.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

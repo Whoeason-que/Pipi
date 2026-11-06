@@ -13,12 +13,12 @@ use pipi_core::commands::{
     CreateSessionArgs, DeleteAgentArgs, DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs,
     ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs,
     OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs, QueuePromptArgs, RestoreAgentArgs,
-    RestoreSessionArgs, SendPromptArgs, SessionInfoArgs, SessionMessagesArgs, SessionStatsArgs,
-    SetPromptQueuePausedArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
+    RestoreSessionArgs, SendPromptArgs, SessionHistoryArgs, SessionInfoArgs, SessionMessagesArgs,
+    SessionStatsArgs, SetPromptQueuePausedArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
 };
 use pipi_core::events::{EventEmitter, PromptQueueEnvelope, RuntimeEvent};
 use pipi_core::runtime::{RuntimeState, SessionInfo, SessionSnapshot};
-use pipi_protocol::session::SessionSummary;
+use pipi_protocol::session::{SessionCommit, SessionSummary};
 use pipi_protocol::{BackgroundTaskSnapshot, Message};
 
 use crate::invoke_args::InvokeArgs;
@@ -181,6 +181,14 @@ pub async fn session_messages(
     args: InvokeArgs<SessionMessagesArgs>,
 ) -> Result<Vec<Message>, String> {
     pipi_core::commands::session_messages(&state, args.0).await
+}
+
+#[tauri::command]
+pub fn session_history(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<SessionHistoryArgs>,
+) -> Result<Vec<SessionCommit>, String> {
+    pipi_core::commands::session_history(&state, args.0)
 }
 
 #[tauri::command]

@@ -34,6 +34,14 @@ pub fn parse_entry_path(path: &str) -> Option<(u64, String)> {
     Some((seq, kind))
 }
 
+/// 从 entry 路径取文件名的 8 位 id 前缀（树里只做展示）。
+pub fn entry_id_prefix(path: &str) -> Option<String> {
+    let file = path.rsplit('/').next()?;
+    let stem = file.strip_suffix(".json")?;
+    let id8 = stem.rsplit('-').next()?;
+    (!id8.is_empty()).then(|| id8.to_string())
+}
+
 /// 该 entry 在 tree 里的 kind 记号（与 serde 的 tag 同名）。
 pub fn kind_token(kind: &EntryKind) -> &'static str {
     match kind {
@@ -192,6 +200,9 @@ mod tests {
         assert_eq!(parse_entry_path(&b), Some((1000, "custom".into())));
         assert_eq!(parse_entry_path("e/000/00000.json"), None);
         assert_eq!(parse_entry_path("other"), None);
+        assert_eq!(entry_id_prefix(&a).as_deref(), Some("00000000"));
+        assert_eq!(entry_id_prefix(&b).as_deref(), Some("00001000"));
+        assert_eq!(entry_id_prefix("other"), None);
     }
 
     #[test]

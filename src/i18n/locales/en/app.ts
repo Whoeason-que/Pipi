@@ -10,6 +10,8 @@ export const app = {
   deleteAgent: "Delete Agent permanently",
   restoreAgent: "Restore Agent",
   noSessions: "No sessions yet",
+  openSessionRepo: "Open the session repository of {name}",
+  repoBranchCount: "{count} branches",
   archived: "Archived",
   sessionMenu: "Actions for session {title}",
   archiveSession: "Archive session",

@@ -282,6 +282,28 @@ export interface SessionSummaryView {
   model?: string;
   /** 一次性子运行的父会话 id；顶层会话没有这个字段（不进侧栏列表）。 */
   parentSessionId?: string;
+  /** 分叉来源会话 id（压缩分叉 / 手动分叉）；顶层会话没有这个字段。 */
+  forkParentId?: string;
+}
+
+/** 右栏 git tree 里的一个提交条目（Rust SessionCommitEntry 的序列化）。 */
+export interface SessionCommitEntryView {
+  /** 条目 id 的 8 位前缀（只做展示）。 */
+  id: string;
+  seq: number;
+  /** message / compaction / context_edit / model_change / ... */
+  kind: string;
+}
+
+/** 右栏 git tree 的一条会话提交（一轮一个 commit）。 */
+export interface SessionCommitView {
+  id: string;
+  parentId?: string;
+  timestamp: number;
+  summary: string;
+  turn?: number;
+  entries: SessionCommitEntryView[];
+  isTip: boolean;
 }
 
 /** 旧 JSONL 会话导入 git 的结果（逐条校验、幂等；失败逐条回报）。 */

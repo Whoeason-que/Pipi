@@ -448,6 +448,7 @@ mod tests {
             last_active: 10_000,
             model: Some(model.into()),
             parent_session_id: None,
+            fork_parent_id: None,
         }
     }
 

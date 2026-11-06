@@ -72,7 +72,10 @@ pub fn count_turns(exec: &GitExec, ref_name: &str) -> Result<u64, String> {
 ///
 /// 每分支两次 git 调用：`ls-tree` 拿路径（条数、消息条数、要读的 blob），
 /// 一次 `cat-file --batch` 取标题/模型/最后活跃所需的少量 blob —— 不整读会话。
+/// 分叉来源是全局一次 `for-each-ref refs/pipi/forks`；读取失败降级为空，
+/// 不让元数据缺失拖垮整个列表。
 pub fn read_summaries(exec: &GitExec, prefix: &str) -> Result<Vec<SessionSummary>, String> {
+    let fork_parents = refs::fork_parents(exec).unwrap_or_default();
     let mut out = Vec::new();
     for id in refs::list_ids(exec, prefix)? {
         let ref_name = format!("refs/heads/{prefix}/{id}");
@@ -173,6 +176,7 @@ pub fn read_summaries(exec: &GitExec, prefix: &str) -> Result<Vec<SessionSummary
         });
 
         out.push(SessionSummary {
+            fork_parent_id: fork_parents.get(&id).cloned(),
             id,
             title,
             message_count,

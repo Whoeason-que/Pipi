@@ -1,0 +1,232 @@
+/* 右栏 git tree：一轮一个 commit，左侧一条竖线串起节点。 */
+.session-history {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-count {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  background: var(--hover);
+  color: var(--faint);
+  font: 10px/16px var(--font-mono);
+  text-align: center;
+}
+
+.history-refresh {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  color: var(--faint);
+  background: none;
+  cursor: pointer;
+}
+
+.history-refresh:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--line);
+  background: var(--hover);
+}
+
+.history-refresh:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.history-list {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+}
+
+.history-list::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--line);
+}
+
+.history-item {
+  position: relative;
+}
+
+.history-dot {
+  position: absolute;
+  left: -14px;
+  top: 11px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--card);
+  box-sizing: border-box;
+}
+
+.history-item.tip .history-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.history-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: var(--r);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-head:hover {
+  background: var(--stripe);
+}
+
+.history-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.history-title {
+  color: var(--fg);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.history-hash {
+  font-family: var(--font-mono);
+}
+
+.history-tip {
+  padding: 0 6px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-full);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.history-entry-count {
+  flex: none;
+  color: var(--faint);
+  font: 10px/16px var(--font-mono);
+}
+
+.history-entries {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0 0 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.history-kind {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-full);
+  background: var(--stripe);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.history-kind-compaction,
+.history-kind-context_edit {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.history-seq {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--font-mono);
+}
+
+.history-entry-id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--faint);
+  font-family: var(--font-mono);
+}
+
+.history-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 18px 10px 8px;
+  text-align: center;
+}
+
+.history-empty-icon {
+  --tile-size: 38px;
+  --tile-icon-size: 19px;
+  margin-bottom: 2px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--stripe);
+  color: var(--faint);
+}
+
+.history-empty strong {
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.history-empty p {
+  margin: 0;
+  max-width: 34ch;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}

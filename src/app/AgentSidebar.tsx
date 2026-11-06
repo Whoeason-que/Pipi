@@ -1,9 +1,13 @@
 import { useState } from "react";
-import { IconArchive, IconChevronRight, IconPlus } from "../icons";
+import { IconArchive, IconChevronRight, IconGitBranch, IconPlus } from "../icons";
 import ActionMenu from "../components/ActionMenu";
 import AgentAvatar from "../components/AgentAvatar";
 import type { AgentDefinition, SessionSummaryView } from "../types";
 import { useI18n } from "../i18n";
+import {
+  buildSessionTree,
+  type SessionTreeNode,
+} from "../chat/session-tree";
 import type { AgentSection } from "./navigation";
 import {
   sessionStatusLabel,
@@ -16,6 +20,7 @@ export interface AgentSidebarProps {
   archivedAgents: AgentDefinition[];
   selected: string | null;
   chatOpen: boolean;
+  /** 当前打开的会话 id（高亮左栏仓库树里的那条分支）。 */
   viewSessionId: string | null;
   archivedSessions: Record<string, SessionSummaryView[]>;
   archivedSessionsExpanded: Record<string, boolean>;
@@ -26,6 +31,9 @@ export interface AgentSidebarProps {
   onSelectAgent: (name: string) => void;
   onConfigure: (name: string) => void;
   onStartNewSession: (name: string) => void;
+  /** 打开该 Agent 的会话仓库（最近活跃的分支）。 */
+  onOpenRepo: (name: string) => void;
+  /** 切换左栏仓库树里的分支。 */
   onOpenSession: (name: string, id: string) => void;
   onArchiveAgent: (name: string) => void;
   onDeleteAgent: (name: string, archived: boolean) => void;
@@ -56,6 +64,82 @@ export default function AgentSidebar(props: AgentSidebarProps) {
   const renderAgent = (agent: AgentDefinition) => {
     const sessions = props.sessionsFor(agent);
     const expanded = !collapsedAgents.has(agent.name);
+    const statuses = sessions.map((session) =>
+      props.sessionStatus(agent.name, session.id),
+    );
+    // 仓库行只留一个状态点：运行 > 重试 > 出错 > 完成未读（与旧会话标题色同口径）。
+    const repoStatus: SessionRunStatus | undefined = statuses.includes("running")
+      ? "running"
+      : statuses.includes("retrying")
+        ? "retrying"
+        : statuses.includes("error")
+          ? "error"
+          : sessions.some((session) => props.sessionUnread(agent.name, session.id))
+            ? "completed"
+            : undefined;
+    const chatOnAgent = props.chatOpen && props.selected === agent.name;
+    const currentSessionId = chatOnAgent ? props.viewSessionId : null;
+    // 当前分支在树里时高亮分支本身；草稿/未落分支的会话才高亮仓库行。
+    const repoActive =
+      chatOnAgent &&
+      !sessions.some((session) => session.id === currentSessionId);
+    const tree = buildSessionTree(sessions);
+    const renderBranch = (node: SessionTreeNode, depth: number) => {
+      const session = node.session;
+      const status = props.sessionStatus(agent.name, session.id);
+      const unread = props.sessionUnread(agent.name, session.id);
+      const statusClass =
+        status && (status !== "completed" || unread)
+          ? ` status-${status}`
+          : "";
+      const current = session.id === currentSessionId;
+      const title = session.title || t("workspace.untitled");
+      return (
+        <div
+          key={session.id}
+          className="repo-branch"
+          style={{ paddingLeft: depth * 12 }}
+        >
+          <div
+            className={`session branch-row${statusClass}${current ? " active" : ""}`}
+          >
+            <button
+              type="button"
+              className="session-link"
+              title={
+                status
+                  ? `${title} · ${sessionStatusLabel(status, unread, t)}`
+                  : title
+              }
+              onClick={() => props.onOpenSession(agent.name, session.id)}
+              aria-current={current ? "page" : undefined}
+            >
+              {(depth > 0 || node.missingParentId) && (
+                <span className="branch-fork-mark" aria-hidden="true">
+                  ↳
+                </span>
+              )}
+              <span className="truncate session-title fade-end">{title}</span>
+            </button>
+            <ActionMenu
+              label={t("app.sessionMenu", { title })}
+              actions={[
+                {
+                  label: t("app.archiveSession"),
+                  run: () => props.onArchiveSession(agent.name, session.id),
+                },
+                {
+                  label: t("app.deleteSession"),
+                  danger: true,
+                  run: () => props.onDeleteSession(agent.name, session.id),
+                },
+              ]}
+            />
+          </div>
+          {node.children.map((child) => renderBranch(child, depth + 1))}
+        </div>
+      );
+    };
     return (
       <div className="agent" key={agent.name}>
         <div
@@ -130,56 +214,34 @@ export default function AgentSidebar(props: AgentSidebarProps) {
         </div>
         {expanded && (
           <div className="sessions" id={`agent-sessions-${agent.name}`}>
-            {sessions.map((session) => {
-              const status = props.sessionStatus(agent.name, session.id);
-              const unread = props.sessionUnread(agent.name, session.id);
-              // 完成态只有未读才染蓝；读过的会话回到常态色。
-              const statusClass =
-                status && (status !== "completed" || unread)
-                  ? ` status-${status}`
-                  : "";
-              const active =
-                props.chatOpen &&
-                props.selected === agent.name &&
-                props.viewSessionId === session.id;
-              return (
-                <div
-                  key={session.id}
-                  className={`session${statusClass}${active ? " active" : ""}`}
+            <div className={`session repo-row${repoActive ? " active" : ""}`}>
+              <button
+                type="button"
+                className="session-link"
+                title={t("app.openSessionRepo", { name: agent.name })}
+                onClick={() => props.onOpenRepo(agent.name)}
+                aria-current={repoActive ? "page" : undefined}
+              >
+                <span className="repo-icon" aria-hidden="true">
+                  <IconGitBranch />
+                </span>
+                <span className="truncate session-title fade-end">sessions.git</span>
+                <span
+                  className="repo-meta mono"
+                  title={t("app.repoBranchCount", { count: sessions.length })}
                 >
-                  <button
-                    type="button"
-                    className="session-link"
-                    title={
-                      status
-                        ? `${session.title} · ${sessionStatusLabel(status, unread, t)}`
-                        : session.title
-                    }
-                    onClick={() => props.onOpenSession(agent.name, session.id)}
-                    aria-current={active ? "page" : undefined}
-                  >
-                    <span className="truncate session-title fade-end">
-                      {session.title || t("workspace.untitled")}
-                    </span>
-                  </button>
-                  <ActionMenu
-                    label={t("app.sessionMenu", { title: session.title })}
-                    actions={[
-                      {
-                        label: t("app.archiveSession"),
-                        run: () => props.onArchiveSession(agent.name, session.id),
-                      },
-                      {
-                        label: t("app.deleteSession"),
-                        danger: true,
-                        run: () => props.onDeleteSession(agent.name, session.id),
-                      },
-                    ]}
+                  {sessions.length}
+                </span>
+                {repoStatus && (
+                  <span
+                    className={`repo-dot status-${repoStatus}`}
+                    title={sessionStatusLabel(repoStatus, repoStatus === "completed", t)}
+                    aria-label={sessionStatusLabel(repoStatus, repoStatus === "completed", t)}
                   />
-                </div>
-              );
-            })}
-            {!sessions.length && <div className="caption sidebar-note">{t("app.noSessions")}</div>}
+                )}
+              </button>
+            </div>
+            {tree.map((node) => renderBranch(node, 0))}
             <button
               type="button"
               className="caption archive-toggle"

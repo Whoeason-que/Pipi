@@ -36,6 +36,19 @@
   animation: pipi-pulse 1.5s ease-in-out infinite;
 }
 
+/* 虚拟时间线：外层撑出总高度，行绝对定位；真实高度由行内测量回写。 */
+.timeline-virtual {
+  position: relative;
+  width: 100%;
+}
+
+.timeline-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
 .row {
   display: flex;
   padding: 18px var(--space-6);

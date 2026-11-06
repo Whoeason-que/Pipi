@@ -150,6 +150,47 @@ fn compaction_style_fork_shares_the_tip_commit_and_stays_browsable() {
     // 两条线各自可读，内容一致（保留段对象被两条线共享）
     assert_eq!(repo.entries(&id).unwrap().len(), entries.len());
     assert_eq!(repo.entries(&forked_id).unwrap().len(), entries.len());
+
+    // 整线分叉没有新提交，来源靠元数据 ref 记录
+    let marker = format!("refs/pipi/forks/{forked_id}/{id}");
+    assert!(
+        exec.ref_exists(&marker).unwrap(),
+        "分叉来源 ref 必须指向源会话"
+    );
+    let summaries = repo.list();
+    let forked_summary = summaries
+        .iter()
+        .find(|summary| summary.id == forked_id)
+        .unwrap();
+    assert_eq!(forked_summary.fork_parent_id.as_deref(), Some(id.as_str()));
+    let source_summary = summaries.iter().find(|summary| summary.id == id).unwrap();
+    assert_eq!(source_summary.fork_parent_id, None);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// 删除分叉会话时先清来源 ref：否则 marker 会保活对象，`gc --prune=now` 失效。
+#[test]
+fn deleting_a_forked_session_removes_its_lineage_ref() {
+    let dir = pipi_test_support::temp_dir("pipi-git-fork-delete");
+    let (id, _file, entries) = make_jsonl_session(&dir);
+    let repo = GitSessionRepo::new(dir.join("sessions.git"));
+    repo.import(&id, &entries, false).unwrap();
+    let forked = repo.fork(&id, None).unwrap();
+    let forked_id = forked.session_id().to_string();
+    drop(forked);
+    let exec = GitExec::new(dir.join("sessions.git"));
+    let marker = format!("refs/pipi/forks/{forked_id}/{id}");
+    assert!(exec.ref_exists(&marker).unwrap());
+
+    repo.delete(&forked_id).unwrap();
+    assert!(
+        !exec.ref_exists(&marker).unwrap(),
+        "删除会话必须同时清掉来源 ref"
+    );
+    assert!(
+        repo.list().iter().all(|summary| summary.id != forked_id),
+        "删除后不再出现在列表里"
+    );
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -495,5 +536,60 @@ fn subagent_run_marker_is_listed_with_its_parent_session() {
         entries.first().map(|entry| &entry.kind),
         Some(EntryKind::SubagentRun { parent_agent, .. }) if parent_agent == "caller"
     ));
+    std::fs::remove_dir_all(dir).ok();
+}
+
+/// 右栏 git tree 的只读历史：一轮一个提交，带轮号、新增条目与 tip 标记。
+#[test]
+fn history_lists_turn_commits_and_entry_kinds() {
+    let dir = pipi_test_support::temp_dir("pipi-git-history");
+    let repo = GitSessionRepo::new(dir.join("sessions.git"));
+    let mut sink = repo.create().expect("创建会话");
+    let id = sink.session_id().to_string();
+
+    sink.append_message(&Message::user_text("第一轮：读 README"))
+        .unwrap();
+    sink.append_message(&Message::assistant_text("好的", "mock"))
+        .unwrap();
+    sink.commit_point().expect("提交第一轮");
+
+    sink.append_message(&Message::user_text("第二轮：压缩"))
+        .unwrap();
+    sink.append_compaction(&CompactionRecord {
+        summary: "前一轮摘要",
+        strategy: "llm-summarize",
+        keep_from_entry: "",
+        source_tip: "",
+        usage: None,
+    })
+    .unwrap();
+    sink.commit_point().expect("提交第二轮");
+    drop(sink);
+
+    let history = repo.history(&id).expect("读取历史");
+    assert_eq!(history.len(), 2, "两轮两个提交");
+    // git log 默认新→旧
+    assert_eq!(history[0].summary, "user: 第二轮：压缩");
+    assert_eq!(history[0].turn, Some(2));
+    assert!(history[0].is_tip);
+    assert!(!history[1].is_tip);
+    assert_eq!(
+        history[0].parent_id.as_deref(),
+        Some(history[1].id.as_str())
+    );
+    assert!(history[0].timestamp > 0);
+    let kinds: Vec<&str> = history[0]
+        .entries
+        .iter()
+        .map(|entry| entry.kind.as_str())
+        .collect();
+    assert_eq!(kinds, vec!["message", "compaction"]);
+    assert!(
+        history[0].entries.iter().all(|entry| entry.id.len() == 8),
+        "树里展示 8 位短 id"
+    );
+
+    // 不存在的会话返回空历史，不报错（右栏可以安全地显示空树）。
+    assert!(repo.history("0-missing").unwrap().is_empty());
     std::fs::remove_dir_all(dir).ok();
 }

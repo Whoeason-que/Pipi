@@ -86,7 +86,7 @@ export function FilePreview({ path, source, loading = false, error = "", onOpenF
               <code>{source.diff.base}</code>
               {source.diff.truncated && <span className="tag warn">{t("files.truncated")}</span>}
             </div>}
-            <DiffView key={source.diff.path} patch={source.diff.patch} hideFileHeaders hideHunkHeaders={minimal} />
+            <DiffView key={source.diff.path} patch={source.diff.patch} hideFileHeaders />
           </>
           : source?.type === "tool" ? <>
             <p className="file-notice">{source.error ? t("files.toolOperationNoticeFailed", { name: source.name }) : t("files.toolOperationNotice", { name: source.name })}</p>

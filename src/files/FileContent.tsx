@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
+import { HighlightedPre } from "../components/HighlightedCode";
 import { useCopyFeedback } from "../components/use-copy";
 import { useI18n } from "../i18n";
 import { codeFence, languageFor, linkedPath } from "./model";
@@ -73,8 +73,9 @@ export const FileContent = memo(function FileContent({ file, lines, onLines, onO
       <button type="button" className="btn small ghost" onClick={() => void clipboard.copy(content)}>{copyLabel}</button>
     </div>}
     {file.truncated && <p className="file-notice">{t("files.truncatedPreview")}</p>}
-    {rendered ? <div className="md file-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}
+    {rendered ? <div className="md file-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}
       components={{
+        pre: HighlightedPre,
         img: ({ alt, src }) => { const path = linkedPath(file.path, src ?? ""); return path ? <button type="button" className="btn small" onClick={() => onOpen(path)}>{t("files.openImage", { name: alt || path })}</button> : <span>{t("files.externalImage", { name: alt || t("files.externalImageNotLoaded") })}</span>; },
         a: ({ href, children }) => { const path = linkedPath(file.path, href ?? ""); return path ? <button type="button" className="file-link" onClick={() => onOpen(path)}>{children}</button> : /^https?:\/\//i.test(href ?? "") ? <a href={href} target="_blank" rel="noreferrer noopener">{children}</a> : <span>{children}</span>; },
       }}>{content}</ReactMarkdown></div> : <>
@@ -89,7 +90,7 @@ export const FileContent = memo(function FileContent({ file, lines, onLines, onO
               onClick={e => onLines(e.shiftKey && lines ? [lines[0], line] : [line, line])}>{line}</button>;
           })}
         </div>
-        <div className="file-source-code md"><ReactMarkdown rehypePlugins={[[rehypeHighlight, { detect: false }]]}>{codeFence(content, languageFor(file.path))}</ReactMarkdown></div>
+        <div className="file-source-code md"><ReactMarkdown components={{ pre: HighlightedPre }}>{codeFence(content, languageFor(file.path))}</ReactMarkdown></div>
       </div>
     </>}
   </>;

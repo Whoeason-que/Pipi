@@ -507,6 +507,16 @@ fn compaction_forks_to_new_session_and_archives_original() {
         )),
         "新会话应当带溯源标记"
     );
+    let new_summary = repo
+        .list()
+        .into_iter()
+        .find(|summary| summary.id == new_id)
+        .expect("新会话在活跃列表里");
+    assert_eq!(
+        new_summary.fork_parent_id.as_deref(),
+        Some(case.old_id.as_str()),
+        "新会话的列表摘要应当带分叉来源"
+    );
 
     // 原会话已归档，且归档副本是**完整记录**（没有压缩条目）
     assert!(
@@ -618,6 +628,16 @@ fn compaction_keeps_original_in_place_when_archive_is_off() {
     assert!(
         repo.exists(&new_id).expect("查询新会话"),
         "新会话仍然照常创建"
+    );
+    let new_summary = repo
+        .list()
+        .into_iter()
+        .find(|summary| summary.id == new_id)
+        .expect("新会话在活跃列表里");
+    assert_eq!(
+        new_summary.fork_parent_id.as_deref(),
+        Some(case.old_id.as_str()),
+        "关闭归档也必须记录分叉来源"
     );
     let events = case.events.lock().unwrap();
     let archived_flag = events.iter().find_map(|event| match event {

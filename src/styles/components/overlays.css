@@ -95,8 +95,13 @@
 /* 弹窗、确认框与操作菜单；快捷命令面板由对应功能拥有。 */
 /* 删除确认弹窗 */
 
-.confirm-modal {
-  width: min(420px, 100%);
+.modal.confirm-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 41;
+  width: min(420px, calc(100vw - 48px));
 }
 
 .confirm-message {
@@ -166,7 +171,6 @@
 }
 
 .action-menu {
-  position: fixed;
   z-index: 110;
   display: flex;
   flex-direction: column;
@@ -178,22 +182,23 @@
   border-radius: 12px;
 }
 
-.action-menu button {
+.action-menu-item {
   padding: 8px 10px;
   border: 0;
   border-radius: 6px;
+  outline: none;
   text-align: left;
   background: none;
   font-size: var(--text-sm);
   cursor: pointer;
+  user-select: none;
 }
 
-.action-menu button:hover,
-.action-menu button:focus-visible {
+.action-menu-item[data-highlighted] {
   background: var(--hover);
 }
 
-.action-menu .danger {
+.action-menu-item.danger {
   color: var(--danger);
 }
 
@@ -207,6 +212,15 @@
   .modal {
     max-height: calc(100dvh - 16px - var(--safe-bottom));
     border-radius: var(--r-lg);
+  }
+
+  .modal.confirm-modal {
+    top: auto;
+    right: 8px;
+    bottom: calc(8px + var(--safe-bottom));
+    left: 8px;
+    transform: none;
+    width: auto;
   }
 
   .modal-section {
