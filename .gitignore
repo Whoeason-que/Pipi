@@ -13,5 +13,8 @@ crates/pipi/binaries/
 # 上游源码参考（pi / codex / opencode / hermes 的浅克隆），只读不提交
 reference/
 
+# 本地 GUI 验收截图（before/after 对比），只读不入库
+gui-test-screenshots/
+
 # ZCode 会话计划草稿（本地协商用，不入库）
 .zcode/plans/
