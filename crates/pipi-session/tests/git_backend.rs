@@ -150,6 +150,47 @@ fn compaction_style_fork_shares_the_tip_commit_and_stays_browsable() {
     // 两条线各自可读，内容一致（保留段对象被两条线共享）
     assert_eq!(repo.entries(&id).unwrap().len(), entries.len());
     assert_eq!(repo.entries(&forked_id).unwrap().len(), entries.len());
+
+    // 整线分叉没有新提交，来源靠元数据 ref 记录
+    let marker = format!("refs/pipi/forks/{forked_id}/{id}");
+    assert!(
+        exec.ref_exists(&marker).unwrap(),
+        "分叉来源 ref 必须指向源会话"
+    );
+    let summaries = repo.list();
+    let forked_summary = summaries
+        .iter()
+        .find(|summary| summary.id == forked_id)
+        .unwrap();
+    assert_eq!(forked_summary.fork_parent_id.as_deref(), Some(id.as_str()));
+    let source_summary = summaries.iter().find(|summary| summary.id == id).unwrap();
+    assert_eq!(source_summary.fork_parent_id, None);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// 删除分叉会话时先清来源 ref：否则 marker 会保活对象，`gc --prune=now` 失效。
+#[test]
+fn deleting_a_forked_session_removes_its_lineage_ref() {
+    let dir = pipi_test_support::temp_dir("pipi-git-fork-delete");
+    let (id, _file, entries) = make_jsonl_session(&dir);
+    let repo = GitSessionRepo::new(dir.join("sessions.git"));
+    repo.import(&id, &entries, false).unwrap();
+    let forked = repo.fork(&id, None).unwrap();
+    let forked_id = forked.session_id().to_string();
+    drop(forked);
+    let exec = GitExec::new(dir.join("sessions.git"));
+    let marker = format!("refs/pipi/forks/{forked_id}/{id}");
+    assert!(exec.ref_exists(&marker).unwrap());
+
+    repo.delete(&forked_id).unwrap();
+    assert!(
+        !exec.ref_exists(&marker).unwrap(),
+        "删除会话必须同时清掉来源 ref"
+    );
+    assert!(
+        repo.list().iter().all(|summary| summary.id != forked_id),
+        "删除后不再出现在列表里"
+    );
     std::fs::remove_dir_all(&dir).ok();
 }
 

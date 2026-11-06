@@ -268,6 +268,13 @@ impl SessionRepo for GitSessionRepo {
                     .ok_or_else(|| "会话不存在".to_string())?;
                 let new_ref = refs::session_ref(&new_session_id);
                 refs::branch_at(&self.exec, &new_ref, &commit)?;
+                // 来源元数据与分支分开记录：整条线分叉不产生新提交，tip 上
+                // 只有源会话的提交消息，靠 ref 命名空间才能回答「从哪来」。
+                if let Err(error) =
+                    refs::write_fork_marker(&self.exec, &new_session_id, session_id, &commit)
+                {
+                    eprintln!("pipi: failed to record fork lineage for {new_session_id}: {error}");
+                }
                 let turn = reader::count_turns(&self.exec, &new_ref)?;
                 Ok(Box::new(GitSink::from_entries(
                     self.exec.clone(),
@@ -297,9 +304,26 @@ impl SessionRepo for GitSessionRepo {
                     .filter(|entry| entry.seq <= target.seq)
                     .cloned()
                     .collect::<Vec<_>>();
-                let mut sink = GitSink::from_entries(self.exec.clone(), new_session_id, &[], 0);
+                let mut sink =
+                    GitSink::from_entries(self.exec.clone(), new_session_id.clone(), &[], 0);
                 sink.set_root_parent(parent);
                 write_batched(&mut sink, &prefix)?;
+                let new_ref = refs::session_ref(&new_session_id);
+                match self.exec.resolve_ref(&new_ref) {
+                    Ok(Some(tip)) => {
+                        if let Err(error) =
+                            refs::write_fork_marker(&self.exec, &new_session_id, session_id, &tip)
+                        {
+                            eprintln!(
+                                "pipi: failed to record fork lineage for {new_session_id}: {error}"
+                            );
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        eprintln!("pipi: failed to read fork tip for {new_session_id}: {error}")
+                    }
+                }
                 Ok(Box::new(sink))
             }
         }
@@ -321,6 +345,11 @@ impl SessionRepo for GitSessionRepo {
         if !self.exec.ref_exists(&ref_name)? {
             return Err("Session does not exist".into());
         }
+        // 先删来源元数据 ref，再删分支：否则 marker 会把分支对象继续保活，
+        // 紧随其后的 gc --prune=now 清不掉。
+        if let Err(error) = refs::delete_fork_markers(&self.exec, session_id) {
+            eprintln!("pipi: failed to remove fork lineage refs for {session_id}: {error}");
+        }
         refs::delete_branch(&self.exec, &ref_name)
     }
 
@@ -329,6 +358,9 @@ impl SessionRepo for GitSessionRepo {
         let ref_name = refs::archive_ref(session_id);
         if !self.exec.ref_exists(&ref_name)? {
             return Err("Session does not exist in archive".into());
+        }
+        if let Err(error) = refs::delete_fork_markers(&self.exec, session_id) {
+            eprintln!("pipi: failed to remove fork lineage refs for {session_id}: {error}");
         }
         refs::delete_branch(&self.exec, &ref_name)
     }

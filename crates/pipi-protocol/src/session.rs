@@ -146,6 +146,13 @@ pub struct SessionSummary {
     /// 但按普通会话续跑会被拒绝（一次性语义，见 `run_agent_in_session`）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_session_id: Option<String>,
+    /// 分叉来源会话 id（压缩分叉 / 手动分叉；顶层会话为 `None`）。
+    ///
+    /// 由载体侧的 fork 元数据给出（git 载体是 `refs/pipi/forks/<new>/<source>`），
+    /// 右栏分支树据此把分叉嵌套在来源分支下；与 `parent_session_id`（一次性
+    /// 子运行）是两件事，不要混用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_parent_id: Option<String>,
 }
 
 /// 一条会话提交（一轮一个 commit）的历史视图。只读，供右栏 git tree 展示。
