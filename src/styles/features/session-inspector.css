@@ -313,18 +313,20 @@
   flex-shrink: 0;
 }
 
-/* 会话右栏：图标标签与关闭按钮同为一行，成为检查器的唯一头部。 */
+/* 会话右栏标签保留文字，避免把入口藏在图标提示中。 */
 
 .inspector-head-tabs {
   justify-content: flex-start;
+  align-items: flex-start;
   min-height: var(--toolbar-height);
-  height: var(--toolbar-height);
-  padding: 0 10px 0 12px;
+  height: auto;
+  padding: 10px;
   gap: 8px;
 }
 
 .inspector-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   flex: 1;
   min-width: 0;
   gap: 2px;
@@ -333,12 +335,12 @@
 .inspector-tab {
   position: relative;
   display: inline-flex;
-  flex: 1;
+  gap: 5px;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   min-width: 0;
   height: 32px;
-  padding: 0;
+  padding: 0 8px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -349,6 +351,8 @@
     background var(--motion-fast),
     box-shadow var(--motion-fast);
 }
+
+.inspector-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-xs); white-space: nowrap; }
 
 .inspector-tab:hover:not(.active) {
   color: var(--fg);
@@ -380,7 +384,7 @@
 .inspector-tab .tab-dot {
   position: absolute;
   top: 6px;
-  right: calc(50% - 14px);
+  right: 3px;
 }
 
 .inspector-close {

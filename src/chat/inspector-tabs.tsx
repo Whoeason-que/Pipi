@@ -3,13 +3,13 @@ import type { ReactNode } from "react";
 export type InspectorTab = "notebook" | "detail" | "stats" | "state" | "history" | "subagents" | "files" | "search";
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
-  { id: "notebook", label: "Notebook" },
-  { id: "detail", label: "Details" },
-  { id: "stats", label: "Stats" },
   { id: "state", label: "State" },
-  { id: "history", label: "History" },
+  { id: "detail", label: "Details" },
   { id: "subagents", label: "Subagents" },
+  { id: "stats", label: "Stats" },
+  { id: "notebook", label: "Notebook" },
   { id: "files", label: "Session files" },
+  { id: "history", label: "History" },
   { id: "search", label: "Find" },
 ];
 

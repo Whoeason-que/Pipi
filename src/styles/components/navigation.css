@@ -67,6 +67,12 @@
   box-shadow: var(--inner-glow);
 }
 
+/* 工作与辅助工具之间留出可辨认的分组间距。 */
+.rail-sections .icon-btn:nth-child(4),
+.rail-sections .icon-btn:nth-child(8) {
+  margin-top: 10px;
+}
+
 .rail-spacer,
 .screen-bar .spacer,
 .spacer {

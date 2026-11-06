@@ -299,6 +299,11 @@
 .delay-trigger { min-width: 36px; }
 .delay-trigger.active, .delay-trigger:hover { background: var(--stripe); color: var(--fg); }
 .send-action { display: flex; align-items: center; gap: 3px; margin-left: 2px; }
+.composer-mode-hint {
+  padding: 0 10px 6px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
 .traffic-button {
   display: inline-flex;
   align-items: center;
@@ -324,6 +329,15 @@
 .traffic-button:disabled { opacity: .3; cursor: not-allowed; }
 .traffic-stop { background: #e5686c; }
 .traffic-steer { background: #e0b04f; }
+.traffic-stop, .traffic-steer, .traffic-send {
+  width: auto;
+  min-width: 36px;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: var(--r-full);
+  font: 600 var(--text-xs) var(--font-sans);
+  white-space: nowrap;
+}
 .traffic-send { background: #4fb884; }
 .send-waiting { position: absolute; right: 0; bottom: calc(100% + 6px); color: var(--muted); background: var(--panel); padding: 3px 8px; border-radius: var(--r-full); font-size: var(--text-xs); white-space: nowrap; }
 .delay-panel {
@@ -668,7 +682,7 @@
   .composer-bar .send-action { grid-column: 4; grid-row: 1; }
 }
 
-@media (max-width: 360px) {
+@media (max-width: 520px) {
   .composer-bar .composer-attach { grid-column: 1; grid-row: 2; }
   .composer-bar .model-effort, .composer-bar .test-model { grid-column: 1 / -1; grid-row: 1; }
   .composer-bar .delay-picker { grid-column: 2; grid-row: 2; }

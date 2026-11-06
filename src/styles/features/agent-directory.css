@@ -5,6 +5,16 @@
   margin-top: 6px;
 }
 
+.overview-active {
+  padding: 16px 18px 4px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-lg);
+  background: var(--accent-soft);
+}
+
+.overview-active .activity-list::before { opacity: .45; }
+.overview-no-recent { margin: 16px 0 0; }
+
 /* ============ Agent 卡片 ============ */
 
 .agent-cards {
@@ -19,7 +29,7 @@
   flex-direction: column;
   gap: 10px;
   min-width: 0;
-  padding: 16px;
+  padding: 20px;
   text-align: left;
   cursor: pointer;
   transition:

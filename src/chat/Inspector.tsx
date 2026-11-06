@@ -251,6 +251,7 @@ export default function Inspector({
                     tab={item.id}
                     className="inspector-tab-icon"
                   />
+                  <span className="inspector-tab-label">{label}</span>
                   {item.id === "detail" && chipDetail && tab !== "detail" && (
                     <span className="tab-dot" />
                   )}

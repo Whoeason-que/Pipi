@@ -142,10 +142,8 @@ export default function WorkspaceOverview({
   const isRunning = (item: Activity) =>
     running.has(sessionKey(item.agent.name, item.session.id));
   // 正在运行的会话置顶，剩下的按最近活动排序。
-  const activity = [
-    ...recent.filter(isRunning),
-    ...recent.filter((item) => !isRunning(item)),
-  ].slice(0, 8);
+  const active = recent.filter(isRunning);
+  const activity = recent.filter((item) => !isRunning(item)).slice(0, 8);
 
   return (
     <div className="page-scroll">
@@ -221,6 +219,16 @@ export default function WorkspaceOverview({
           </div>
         )}
       </header>
+
+      {active.length > 0 && (
+        <section className="page-section overview-active">
+          <div className="section-heading section-heading-ruled">
+            <h2>{t("workspace.activeWork")} <span className="section-count">{active.length}</span></h2>
+            <span>{t("workspace.activeHint")}</span>
+          </div>
+          <SessionActivity items={active} running={running} onSession={onSession} />
+        </section>
+      )}
 
       {agent && (
         <section
@@ -378,20 +386,20 @@ export default function WorkspaceOverview({
             )}
           </span>
         </div>
-        {recent.length ? (
+        {activity.length ? (
           <SessionActivity
             items={activity}
             running={running}
             onSession={onSession}
           />
-        ) : (
+        ) : !active.length ? (
           <div className="empty-card compact">
             <IconMessage />
             <p>
               {t(agent ? "workspace.emptyAgent" : "workspace.emptyWorkspace")}
             </p>
           </div>
-        )}
+        ) : <p className="caption overview-no-recent">{t("workspace.noOtherActivity")}</p>}
       </section>
       <footer className="caption overview-footer">
         <span>

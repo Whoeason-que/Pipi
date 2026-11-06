@@ -127,10 +127,10 @@ export default function ChatView({
   const [activeInspectorTab, setActiveInspectorTab] =
     useState<InspectorTab>(() => {
       if (isTest) return "stats";
-      const stored = readStored("pipi-inspector-tab", "stats");
+      const stored = readStored("pipi-inspector-tab", "state");
       return INSPECTOR_TABS.some((item) => item.id === stored)
         ? (stored as InspectorTab)
-        : "stats";
+        : "state";
     });
   // 「调用详情」是临时的：没有 pinned chip 时不能作为恢复目标。
   const previousTabRef = useRef<InspectorTab>(

@@ -158,6 +158,11 @@ export default function ChatComposer({
         </div>
       )}
       <ComposerQueue queue={queue} onCancel={onCancelQueued} onPause={onPauseQueue} onError={onError} />
+      {(delayOpen || running || queue.messages.length > 0) && (
+        <div className="composer-mode-hint" role="status">
+          {t(delayOpen ? "chat.composerDelayHint" : running ? "chat.composerQueueHint" : "chat.composerPendingHint")}
+        </div>
+      )}
       <div className={`composer-box${running ? " is-running" : ""}`}>
         {!!files.length && <div className="composer-attachments">{files.map((file, index) => <span className="composer-attachment" key={`${file.name}-${index}`} title={file.name}><span className="truncate">{file.name}</span><button type="button" aria-label={t("chat.removeAttachment", { name: file.name })} onClick={() => draft.setFiles(files.filter((_, i) => i !== index))}>×</button></span>)}</div>}
         <textarea

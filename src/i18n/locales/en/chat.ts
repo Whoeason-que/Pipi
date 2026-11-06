@@ -68,6 +68,9 @@ export const chat = {
 
   sendLater: "Send later",
   queue: "Queue",
+  composerQueueHint: "Enter to queue · Alt+Enter to guide the current task",
+  composerPendingHint: "Enter to add this message to the queue",
+  composerDelayHint: "Enter to send after the selected delay",
   noModel: "No model",
   pendingMessages: "Pending messages",
   queueCount: "Queued · {count}",
@@ -104,6 +107,7 @@ export const chat = {
   reasoningEffort: "Reasoning effort",
   effortDefault: "Default",
   steer: "Guide the current task · Alt+Enter",
+  guideShort: "Guide",
   messageActions: "Message actions",
   waiting: "Waiting…",
 

@@ -225,7 +225,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
                 <span className="repo-icon" aria-hidden="true">
                   <IconGitBranch />
                 </span>
-                <span className="truncate session-title fade-end">sessions.git</span>
+                <span className="truncate session-title fade-end">{t("app.sessions")}</span>
                 <span
                   className="repo-meta mono"
                   title={t("app.repoBranchCount", { count: sessions.length })}
