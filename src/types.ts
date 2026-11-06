@@ -282,6 +282,8 @@ export interface SessionSummaryView {
   model?: string;
   /** 一次性子运行的父会话 id；顶层会话没有这个字段（不进侧栏列表）。 */
   parentSessionId?: string;
+  /** 分叉来源会话 id（压缩分叉 / 手动分叉）；顶层会话没有这个字段。 */
+  forkParentId?: string;
 }
 
 /** 右栏 git tree 里的一个提交条目（Rust SessionCommitEntry 的序列化）。 */

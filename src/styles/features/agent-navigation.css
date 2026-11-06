@@ -217,6 +217,43 @@
 
 .session.status-retrying .session-title { color: var(--warn); }
 
+/* 会话仓库行：左栏只列仓库，具体分支在右栏树里切。 */
+.repo-icon {
+  display: flex;
+  flex: none;
+  color: var(--faint);
+}
+
+.repo-meta {
+  flex: none;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.repo-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.repo-dot.status-running { background: var(--ok); }
+.repo-dot.status-retrying { background: var(--warn); }
+.repo-dot.status-error { background: var(--danger); }
+.repo-dot.status-completed { background: var(--status-unread-text); }
+
+/* 仓库下的分支树：分叉按层级缩进，箭头只做来源提示。 */
+.repo-branch {
+  margin: 1px 0;
+}
+
+.branch-fork-mark {
+  flex: none;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1;
+}
+
 .session.active .session-link,
 .archive-toggle:hover {
   color: var(--fg);
