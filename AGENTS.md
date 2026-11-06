@@ -190,10 +190,24 @@ src/                 React + TypeScript 前端
   reqwest 链进去。
 - 错误处理：Tauri command 返回 `Result<T, String>`，消息一律用可读的英文（English）。
 - 前端依赖走白名单，样式仍然手写；新增依赖需要充分理由。已批准的依赖：
-  - react-markdown + remark-gfm + rehype-highlight（agent 输出的 Markdown 渲染，
-    见 src/Markdown.tsx；不启用 rehype-raw，模型输出不可信）；
+  - react-markdown + remark-gfm + shiki（agent 输出的 Markdown 渲染，
+    见 src/Markdown.tsx；不启用 rehype-raw，模型输出不可信）——代码高亮走
+    src/highlight.ts 的按需语言加载与自有 `pipi-code` 主题，不支持/未加载的
+    围栏语言回退纯文本，不阻塞消息渲染；
   - react-select（模型/供应商选择器的搜索与键盘导航，见 src/Select.tsx）——统一以
-    `unstyled` + 自有 `.pipi-select__*` 样式使用，不让第三方样式体系渗进来。
+    `unstyled` + 自有 `.pipi-select__*` 样式使用，不让第三方样式体系渗进来；
+  - radix-ui（`DropdownMenu` / `Dialog` 等无头行为：定位、碰撞翻转、焦点陷阱、
+    背景 inert、滚动锁，见 src/components/ActionMenu.tsx 与 ConfirmModal.tsx）——
+    只借行为，外观仍由 `.action-menu` / `.modal` 自有 CSS 拥有；
+  - @tanstack/react-virtual（会话时间线的动态行虚拟化，见
+    src/chat/ChatTimeline.tsx）——搜索跳转与流式贴底由块索引/测量回调协作；
+    新的贴底或跳转逻辑走 ChatTimeline 的 `pinnedToBottom` / `scrollToIndex`，
+    不要在别处另写一套按 `scrollHeight` 的跟随；
+  - @pierre/diffs（统一 diff 的渲染：Shiki 语法高亮、逐词差异、行号，见
+    src/files/DiffView.tsx）——正文在 shadow DOM 内，背景/行色通过 `--diffs-*`
+    变量映射到工作台令牌；patch 只有局部上下文，固定 `hunkSeparators: "simple"`
+    并禁用 worker pool。`diff.ts` 的 `normalizePatch` 只给 hunk 内缺失前导空格的
+    空上下文行补一个空格，别把 hunk 外的空行/文件分隔改掉。
 - 模型目录（提供商与模型清单）**不再手写或生成**：运行时从 models.dev 拉取并缓存到
   `~/.pipi/cache/models.json`，实现见 `crates/pipi-provider/src/catalog/mod.rs`。上游给的是
   AI SDK 语义的 baseUrl，未经 `CURATION` 表核实不得直接当 Pipi 的 baseUrl 使用。
