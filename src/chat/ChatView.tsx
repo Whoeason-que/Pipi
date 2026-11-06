@@ -19,7 +19,7 @@ import {
 } from "../chat-runtime";
 import ChatTimeline from "./ChatTimeline";
 import Inspector from "./Inspector";
-import type { InspectorTab } from "./inspector-tabs";
+import { INSPECTOR_TABS, type InspectorTab } from "./inspector-tabs";
 import { useI18n } from "../i18n";
 import { IconClose } from "../icons";
 import type { ChatInspectorContext } from "./inspector-context";
@@ -28,6 +28,7 @@ import AgentAvatar from "../components/AgentAvatar";
 import ChatToolbar from "./ChatToolbar";
 import ChatComposer from "./ChatComposer";
 import { useResizableWidth } from "../resizable";
+import { readStored, writeStored } from "../storage";
 import type { SessionRuntime } from "../session-runtime";
 import type { SessionController } from "../session-controller";
 import type {
@@ -124,12 +125,41 @@ export default function ChatView({
   const [previewChip, setPreviewChip] = useState<string | null>(null);
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [activeInspectorTab, setActiveInspectorTab] =
-    useState<InspectorTab>("stats");
-  const previousTabRef = useRef<InspectorTab>("stats");
-
-  const [inspectorOpen, setInspectorOpen] = useState(
-    () => isTest && (typeof window === "undefined" || window.innerWidth > 1100),
+    useState<InspectorTab>(() => {
+      if (isTest) return "stats";
+      const stored = readStored("pipi-inspector-tab", "stats");
+      return INSPECTOR_TABS.some((item) => item.id === stored)
+        ? (stored as InspectorTab)
+        : "stats";
+    });
+  // 「调用详情」是临时的：没有 pinned chip 时不能作为恢复目标。
+  const previousTabRef = useRef<InspectorTab>(
+    activeInspectorTab === "detail" ? "stats" : activeInspectorTab,
   );
+
+  const [inspectorOpen, setInspectorOpen] = useState(() => {
+    if (isTest) {
+      return typeof window === "undefined" || window.innerWidth > 1100;
+    }
+    // 窄屏用抽屉，不自动弹出；宽屏沿用用户上次的选择。
+    if (typeof window !== "undefined" && window.innerWidth <= 1100) return false;
+    return readStored("pipi-inspector-open", "0") === "1";
+  });
+
+  // 切换会话会重挂 ChatView（App 的 chatKey）；右栏开关与 tab 必须跨重挂保留，
+  // 否则从仓库树里点一个分支，右栏就关掉了。
+  useEffect(() => {
+    if (isTest) return;
+    // 窄屏是抽屉：不覆盖宽屏下的开关偏好。
+    if (typeof window !== "undefined" && window.innerWidth <= 1100) return;
+    writeStored("pipi-inspector-open", inspectorOpen ? "1" : "0");
+  }, [inspectorOpen, isTest]);
+  useEffect(() => {
+    // 详情页由 pinned chip 驱动，跨会话没有意义，不持久化。
+    if (!isTest && activeInspectorTab !== "detail") {
+      writeStored("pipi-inspector-tab", activeInspectorTab);
+    }
+  }, [activeInspectorTab, isTest]);
   // 检查器宽度可拖拽调节（窄屏抽屉模式由 styles/components/panels.css 接管）。
   const inspectorResize = useResizableWidth({
     storageKey: isTest ? "agent-settings-width" : "inspector-width",
