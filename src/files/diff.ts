@@ -1,5 +1,6 @@
 // 统一 diff 的展示模型：Git 预览与会话工具差异共用。
-// 只解析展示所需的位置信息（旧/新行号、增删统计），不改写补丁内容。
+// 只解析展示所需的位置信息（旧/新行号、增删统计），不改写补丁内容；
+// 唯一的例外是 normalizePatch 给 hunk 内缺失前导空格的空上下文行补空格。
 
 import { getDefaultLocale, getTranslation, type Locale } from "../i18n/core.ts";
 
@@ -21,7 +22,66 @@ export interface ParsedDiff {
 }
 
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/;
+const HUNK_COUNTS = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 const FILE_HEADER = /^(diff --git |index |--- |\+\+\+ |new file mode |deleted file mode |old mode |new mode |similarity index |rename from |rename to |Binary files )/;
+
+/**
+ * 有些补丁生成器会丢掉 hunk 内空上下文行的前导空格；严格的解析器会因此报
+ * invalid rawLine。这里按 hunk 声明行数消费内容，只在尚未消费完时给空行补回
+ * 一个空格，不改变 hunk 外的空行与文件分隔。
+ */
+export function normalizePatch(patch: string): string {
+  if (!patch.includes("@@")) return patch;
+  const trailing = patch.endsWith("\n");
+  const lines = patch.split("\n");
+  if (trailing) lines.pop();
+  let oldRemaining = 0;
+  let newRemaining = 0;
+  let inHunk = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const text = lines[index];
+    if (text.startsWith("diff --git ")) {
+      inHunk = false;
+      continue;
+    }
+    if (text.startsWith("@@")) {
+      const hunk = HUNK_COUNTS.exec(text);
+      if (!hunk) {
+        inHunk = false;
+        continue;
+      }
+      oldRemaining = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      newRemaining = hunk[4] === undefined ? 1 : Number(hunk[4]);
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (oldRemaining <= 0 && newRemaining <= 0) {
+      inHunk = false;
+      continue;
+    }
+    if (text.startsWith("+")) {
+      newRemaining -= 1;
+      continue;
+    }
+    if (text.startsWith("-")) {
+      oldRemaining -= 1;
+      continue;
+    }
+    if (text.startsWith(" ")) {
+      oldRemaining -= 1;
+      newRemaining -= 1;
+      continue;
+    }
+    if (text.startsWith("\\")) continue;
+    if (text === "" && oldRemaining > 0 && newRemaining > 0) {
+      lines[index] = " ";
+      oldRemaining -= 1;
+      newRemaining -= 1;
+    }
+  }
+  return lines.join("\n") + (trailing ? "\n" : "");
+}
 
 /** 逐行解析 unified diff。未知的 `@@` 形式按无行号块处理，仍保留内容。 */
 export function parsePatch(patch: string): ParsedDiff {
