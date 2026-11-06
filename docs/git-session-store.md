@@ -99,6 +99,7 @@ git log --format='%s  [%(trailers:key=Turn,valueonly)]' # 每行带轮号
   refs/heads/session/<session-id>            # 一条会话线（压缩后是新分支）
   refs/heads/archive/<session-id>            # 归档（= 今天 sessions/.archive/ 的等价物）
   refs/heads/main                            # 自述 commit，兼作 HEAD 锚，让裸仓库 git log 可用
+  refs/pipi/forks/<new-id>/<source-id>       # 分叉来源元数据（值 = 新分支 tip；删除会话时一起清）
 ```
 
 - **session id 不变**：仍是 `{millis}-{uuid}`，即分支名后缀。列表的 startedAt 仍取
@@ -109,9 +110,13 @@ git log --format='%s  [%(trailers:key=Turn,valueonly)]' # 每行带轮号
   - message：一行摘要，`user: …` / `assistant: …` / `toolResult/<name>: …` / `compaction: …` /
     `model_change` / `env: …`（截断 72 字符，供 `git log --oneline` 阅读）；
     body 里带 `Turn: <n>` trailer（轮号），用于轮级浏览（见 §2.3 实测）。
-- 右栏「历史」页通过 `SessionRepo::history` 只读读取最近 200 个提交的元数据与
-  新增 entry 的 kind/短 id（不读正文）；一次 `git log --raw` 拿齐，避免逐提交
-  spawn git。它是 git 树的展示，不参与会话写入或压缩决策。
+- 左栏每个 Agent 下展示会话仓库 `sessions.git` 与它的分支树：通过
+  `SessionRepo::list` 拿到活跃分支（含 `forkParentId`），父分支在本仓库时嵌套，
+  父分支已归档/删除时作为根并标出来源；点分支切换会话，点仓库行打开最近活跃的分支。
+  分叉来源由 `refs/pipi/forks/<new>/<source>` 记录（整线分叉没有新提交，不能靠 tip
+  的提交消息推断）。右栏「历史」页只看当前分支：通过 `SessionRepo::history` 只读读取
+  最近 200 个提交的元数据与新增 entry 的 kind/短 id（不读正文），一次 `git log --raw`
+  拿齐，避免逐提交 spawn git。分支树只是展示/导航，不参与会话写入或压缩决策。
 - **粒度**（易混；用户 2026-10-12 追问，**待拍板**）：一个对话 = 一个 session id = 一条
   `session/<id>` 分支。「一个用户输入一个 commit」= 一轮一个 commit，但 commit 创建即不可变，
   而用户输入在轮首、该轮产物（assistant/toolResult）在轮末才齐，所以只有三种可实现形态：

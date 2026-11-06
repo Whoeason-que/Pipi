@@ -195,7 +195,7 @@ Landlock 不中介 `chmod`/`chown`/`utime`；授权范围内的破坏（删自�
 
 窗口最左边是一条常驻的图标栏，把几件事拆成各自的分区，而不是挤在同一栏里：
 
-- **Agent**（普通 Agent 与 Subagent 分组展示，会话缩进在各自 Agent 下，含新建入口与已归档区）；
+- **Agent**（普通 Agent 与 Subagent 分组展示；每个 Agent 下展示会话仓库 `sessions.git` 与它的分支树，点分支切换会话，含新建入口与已归档区）；
 - **File**（独立的 Agent 工作区文件树与多标签预览，不绑定会话）；
 - **Git**（独立的工作区改动列表与差异审查）；
 - **搜索**（跨 Agent 与会话的检索面板，点击结果直接跳转）；
@@ -242,7 +242,7 @@ Markdown、图片和浏览器支持的 PDF / 音视频。Git 按已暂存、未�
 发送模型请求。会话右上角的「会话文件」只展示本次 read/write/edit 涉及的文件与
 工具操作记录，历史差异在右栏查看，磁盘当前内容跳到独立 File 页面打开。右栏首个
 「笔记本」页渲染当前会话的 notebook（`- [ ]` 清单换算成完成度），有内容时图标上
-带一个小圆点；「历史」页只读展示会话分支的提交（一轮一个 commit，可展开看本轮
+带一个小圆点；「历史」页只读展示当前会话分支的提交（一轮一个 commit，可展开看本轮
 新增的 entry kind），提交正文仍在 git 里，不在界面重复搬运。
 
 文件读取只在工作目录内进行，不跟随符号链接，不执行 HTML / SVG，不自动加载
@@ -544,7 +544,7 @@ poll 才生效，且 4xx/5xx 本就不在其重试范围内）；上下文超限
   （`session_info` / `session_running` / `stop_run` / `steer` / `session_stats` /
   `session_messages` / `set_session_model` / `compact_now`；`send_prompt` 的
   `sessionId` 为空 = 新建一条）；`session_infos` 返回所有打开中的会话，前端由此
-  得到「哪些会话正在跑」的**集合**，侧栏把标记打在那条**会话行**上。
+  得到「哪些会话正在跑」的**集合**，左栏仓库行与分支节点据此显示运行/未读标记。
 - **Agent 级统计**：`agent_stats` 按主 Agent 扫描活跃会话的 git 条目，汇总 token、
   模型/工具分布与按天趋势；Subagent 由主 Agent 组合产生，不计入统计（后端 fail-closed）。
   成本按 models.dev 报价估算（每百万 token），没有可信价格时显示未知而不是按 0 计算。
