@@ -18,22 +18,15 @@ import { useSettings } from "./app/use-settings";
 import ChatView from "./chat/ChatView";
 import { WorkspaceSidebar } from "./files/WorkspaceSidebar";
 import { WorkspaceView } from "./files/WorkspaceView";
-import { useWorkspaceFiles } from "./files/use-workspace-files";
 import { ForumSidebar } from "./forum/ForumSidebar";
 import ForumView from "./forum/ForumView";
 import { ForumProvider } from "./forum/forum-state";
 import {
-  buildWorkspaceGroups,
-  buildWorkspaceList,
   getWorkspaceBasename,
-  loadActiveWorkspace,
-  loadCustomWorkspaces,
   normalizeWorkspacePath,
-  saveActiveWorkspace,
-  saveCustomWorkspaces,
-  type WorkspaceGroupInfo,
-  type WorkspaceInfo,
 } from "./app/workspaces";
+import { useWorkspaceFilter } from "./app/use-workspace-filter";
+import { useFilesBridge } from "./app/use-files-bridge";
 import WorkspaceFilterBar from "./app/WorkspaceFilterBar";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
@@ -124,50 +117,16 @@ export default function App() {
     }
   }), [navigationMemory, sessionRuntime]);
 
-  // 全局工作区过滤器（localStorage 持久化）与派生数据；概览分组、侧栏列表与
-  // Files/Git 侧栏共用这一份。自定义工作区只减不增：历史 localStorage 条目保留
-  // 为概览页的空组，新增入口已随 WorkspacesView 一起移除。
-  const [customWorkspaces, setCustomWorkspaces] = useState(() => loadCustomWorkspaces());
-  const [activeWorkspace, setActiveWorkspace] = useState(() => loadActiveWorkspace());
-  const workspaces: WorkspaceInfo[] = useMemo(
-    () => buildWorkspaceList(agents, customWorkspaces),
-    [agents, customWorkspaces],
-  );
-  const filteredAgents = useMemo(() => {
-    if (activeWorkspace === "all") return agents;
-    const target = normalizeWorkspacePath(activeWorkspace);
-    return agents.filter((agent) => agent.subagent || normalizeWorkspacePath(agent.workspace) === target);
-  }, [agents, activeWorkspace]);
-  const filteredArchivedAgents = useMemo(() => {
-    if (activeWorkspace === "all") return archivedAgents;
-    const target = normalizeWorkspacePath(activeWorkspace);
-    return archivedAgents.filter((agent) => agent.subagent || normalizeWorkspacePath(agent.workspace) === target);
-  }, [archivedAgents, activeWorkspace]);
-  const filteredSessionsByAgent = useMemo(() => {
-    if (activeWorkspace === "all") return sessionsByAgent;
-    const result: Record<string, SessionSummaryView[]> = {};
-    for (const agent of filteredAgents) {
-      if (sessionsByAgent[agent.name]) result[agent.name] = sessionsByAgent[agent.name];
-    }
-    return result;
-  }, [sessionsByAgent, filteredAgents, activeWorkspace]);
-  // 概览页分组与可见 Agent 同源：跟随当前过滤器，过滤到单个工作区时只剩一组。
-  const workspaceGroups: WorkspaceGroupInfo[] = useMemo(
-    () => buildWorkspaceGroups(filteredAgents, customWorkspaces),
-    [filteredAgents, customWorkspaces],
-  );
-  const selectWorkspacePath = useCallback((next: string) => {
-    setActiveWorkspace(next);
-    saveActiveWorkspace(next);
-  }, []);
-  const removeCustomWorkspaceEntry = useCallback((path: string) => {
-    const norm = normalizeWorkspacePath(path);
-    setCustomWorkspaces((previous) => {
-      const next = previous.filter((item) => normalizeWorkspacePath(item.path) !== norm);
-      saveCustomWorkspaces(next);
-      return next;
-    });
-  }, []);
+  const {
+    activeWorkspace,
+    workspaces,
+    workspaceGroups,
+    filteredAgents,
+    filteredArchivedAgents,
+    filteredSessionsByAgent,
+    select: selectWorkspacePath,
+    removeCustom: removeCustomWorkspaceEntry,
+  } = useWorkspaceFilter({ agents, archivedAgents, sessionsByAgent });
   const statsAgents = useMemo(
     () => filteredAgents.filter((agent) => !agent.subagent),
     [filteredAgents],
@@ -358,70 +317,15 @@ export default function App() {
     if (current && (view.kind === "agent" || view.kind === "chat" || view.kind === "workbench")) setNavSection(agentSection(current));
   }, [current?.name, current?.subagent, view.kind]);
 
-  // Files / Git 视图与全局状态之间的桥：目标工作区解析、工作区内 Agent 与会话、
-  // 文件预览打开与「引用到会话」。
-  const [previewWorkspacePaths, setPreviewWorkspacePaths] = useState<{ files: string | null; git: string | null }>({ files: null, git: null });
-  const currentWorkspaceTarget = useMemo(() => {
-    const mode = view.kind === "git" ? "git" : "files";
-    const previewWorkspacePath = previewWorkspacePaths[mode];
-    let wsPath: string | null = null;
-    if (activeWorkspace !== "all") {
-      wsPath = activeWorkspace;
-    } else if (previewWorkspacePath && workspaces.some((w) => w.path === previewWorkspacePath)) {
-      wsPath = previewWorkspacePath;
-    } else if (current?.workspace) {
-      wsPath = current.workspace;
-    } else {
-      wsPath = workspaces[0]?.path ?? null;
-    }
-
-    if (!wsPath) return null;
-    const norm = normalizeWorkspacePath(wsPath);
-    const info = workspaces.find((w) => normalizeWorkspacePath(w.path) === norm);
-    const name = info?.name || getWorkspaceBasename(wsPath);
-    return { name, workspace: wsPath };
-  }, [activeWorkspace, previewWorkspacePaths, current?.workspace, workspaces, view.kind]);
-  const workspaceAgents = useMemo(() => {
-    if (!currentWorkspaceTarget) return [];
-    const targetNorm = normalizeWorkspacePath(currentWorkspaceTarget.workspace);
-    return agents.filter(agent => !agent.subagent && normalizeWorkspacePath(agent.workspace) === targetNorm);
-  }, [currentWorkspaceTarget, agents]);
-  const workspaceSessions = useMemo(
-    () => workspaceAgents.flatMap(agent => sessionsByAgent[agent.name] ?? []),
-    [workspaceAgents, sessionsByAgent],
-  );
-  const workspace = useWorkspaceFiles(
-    currentWorkspaceTarget,
-    view.kind === "git" ? "git" : "files",
-    (view.kind === "files" || view.kind === "git") && !authStatus.checking && authStatus.authenticated,
-    current ? agentHasRunning(current.name) : false,
-  );
-  const openWorkspaceFile = useCallback((agentOrWs: string, path: string) => {
-    const agent = filteredAgents.find(item => item.name === agentOrWs) ?? agents.find(item => item.name === agentOrWs);
-    const workspacePath = normalizeWorkspacePath(agent?.workspace || agentOrWs || currentWorkspaceTarget?.workspace);
-    if (!workspacePath) return;
-    const info = workspaces.find(item => normalizeWorkspacePath(item.path) === workspacePath);
-    const target = { name: info?.name || getWorkspaceBasename(workspacePath), workspace: workspacePath };
-    // 即使浏览器存储不可用，也复用目标工作区的内存视图。
-    const store = workspace.getStore(target, "files");
-    store.open(path);
-    setPreviewWorkspacePaths(previous => ({ ...previous, files: workspacePath }));
-    navigate({ kind: "files", agentName: agent?.name ?? null });
-  }, [filteredAgents, agents, currentWorkspaceTarget?.workspace, workspaces, workspace, navigate]);
-  const referenceToSession = useCallback((text: string, sessionId: string | null) => {
-    const targetAgent = sessionId === null
-      ? workspaceAgents.find(agent => agent.name === current?.name) ?? workspaceAgents[0]
-      : workspaceAgents.find(agent => sessionsByAgent[agent.name]?.some(session => session.id === sessionId));
-    if (!targetAgent) {
-      throw new Error(t("app.noTargetAgent"));
-    }
-    const targetAgentName = targetAgent.name;
-    const draft = sessionRuntime.composerDrafts.get(targetAgentName, sessionId);
-    const previous = draft.getSnapshot().text;
-    draft.write(previous ? `${previous}\n\n${text}` : text);
-    if (sessionId === null) void navigation.startNewSession(targetAgentName);
-    else void navigation.openSession(targetAgentName, sessionId);
-  }, [workspaceAgents, current?.name, sessionsByAgent, sessionRuntime, navigation, t]);
+  const files = useFilesBridge({
+    agents, filteredAgents, sessionsByAgent, activeWorkspace, workspaces,
+    current: current ?? null,
+    viewKind: view.kind,
+    authenticated: !authStatus.checking && authStatus.authenticated,
+    agentRunning: current ? agentHasRunning(current.name) : false,
+    navigate, sessionRuntime, navigation,
+  });
+  const { previewWorkspacePaths, setPreviewWorkspacePaths, currentWorkspaceTarget } = files;
   const openSection = (section: NavSection, options?: { keepSidebar?: boolean }) => {
     if (section === "search") {
       if (viewRef.current.kind === "settings") navigate(previousView.current);
@@ -520,7 +424,7 @@ export default function App() {
         {view.kind === "settings" ? settings && <SettingsSidebar settings={settings} section={settingsSection}
           showLogout={!isTauriRuntime() && authStatus.authRequired}
           onSelect={section => { setSettingsSection(section); setSidebarOpen(false); }} />
-          : (navSection === "files" || navSection === "git") && (view.kind === "files" || view.kind === "git") ? <WorkspaceSidebar key={workspace.store?.key ?? "no-workspace"} state={workspace} workspaces={workspaces}
+          : (navSection === "files" || navSection === "git") && (view.kind === "files" || view.kind === "git") ? <WorkspaceSidebar key={files.workspace.store?.key ?? "no-workspace"} state={files.workspace} workspaces={workspaces}
             onSelectWorkspace={wsPath => { setPreviewWorkspacePaths(previous => ({ ...previous, [view.kind === "git" ? "git" : "files"]: wsPath })); if (mobile) setSidebarOpen(true); }} />
           : navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={filteredAgents}
           sessionsByAgent={filteredSessionsByAgent} isRunning={isConversationRunning} onSelectAgent={selectAgent} onOpenSession={openSession} />
@@ -576,13 +480,13 @@ export default function App() {
           : view.kind === "skills" ? <SkillsView library={skillLibrary} loadError={skillLoadError} selected={skillSelected}
             onSelect={setSkillSelected} onRefresh={loadSkillLibrary} onError={safeSetError} />
           : view.kind === "forum" ? null
-          : (view.kind === "files" || view.kind === "git") ? <WorkspaceView key={workspace.store?.key ?? "no-workspace"} state={workspace}
-            sessions={workspaceSessions} canReference={workspaceAgents.length > 0} defaultSession={workspaceSessions[0]?.id ?? null}
-            onOpenFile={path => { openWorkspaceFile(currentWorkspaceTarget?.workspace ?? "", path); }} onReference={referenceToSession}
+          : (view.kind === "files" || view.kind === "git") ? <WorkspaceView key={files.workspace.store?.key ?? "no-workspace"} state={files.workspace}
+            sessions={files.workspaceSessions} canReference={files.workspaceAgents.length > 0} defaultSession={files.workspaceSessions[0]?.id ?? null}
+            onOpenFile={path => { files.openWorkspaceFile(files.currentWorkspaceTarget?.workspace ?? "", path); }} onReference={files.referenceToSession}
             onModeChange={mode => openSection(mode, { keepSidebar: true })} />
           : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
             initialController={view.sessionId === null ? navigationMemory.controllerFor(current.name, null) : undefined} onControllerReady={bindChatController}
-            onOpenFile={path => openWorkspaceFile(current.name, path)}
+            onOpenFile={path => files.openWorkspaceFile(current.name, path)}
             title={sessionTitle || t("chat.newSessionTitle")} sessionId={view.sessionId} sessions={sessionRuntime}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} onBack={() => selectAgent(current.name)} onError={safeSetError}
             onRunningChange={handleRunningChange} onStopRequested={sessionId => markSessionInterrupted(current.name, sessionId)} onSessionReset={info => {
@@ -593,7 +497,7 @@ export default function App() {
               if (archivedSessionsExpanded[current.name]) void invoke("list_sessions", { agentName: current.name, archived: true })
                 .then(list => setArchivedSessions(previous => ({ ...previous, [current.name]: list }))).catch(() => {});
             }} />
-          : current && view.kind === "workbench" && settings ? <AgentWorkbench onOpenFile={path => openWorkspaceFile(current.name, path)} key={current.name} agent={current} providers={settings.providers}
+          : current && view.kind === "workbench" && settings ? <AgentWorkbench onOpenFile={path => files.openWorkspaceFile(current.name, path)} key={current.name} agent={current} providers={settings.providers}
             onSaved={async () => { await refresh(); }} onBack={() => selectAgent(current.name)} onError={safeSetError}
             blockedSessionIds={[...navigation.blockedSessionIdsRef.current]} sessions={sessionRuntime} onRunningChange={handleRunningChange} />
           : view.kind === "stats" ? <StatsView
