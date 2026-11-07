@@ -396,3 +396,81 @@
     );
   }
 }
+
+/* 侧栏顶部的工作区切换器（WorkspaceFilterBar）：对齐 .sidebar-quick 的高度
+   与留白节奏；选择器本体透明无边框，聚焦态由外层盒子承担。 */
+.workspace-filter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  height: 32px;
+  margin: 12px 10px 6px;
+  padding: 0 4px 0 9px;
+  background: var(--chat-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  color: var(--faint);
+  transition:
+    border-color var(--motion-fast),
+    background var(--motion-fast);
+}
+
+.workspace-filter:hover,
+.workspace-filter:focus-within {
+  border-color: var(--accent-border);
+  background: var(--panel-2);
+}
+
+.workspace-filter > svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.workspace-filter-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-md);
+}
+
+.workspace-filter-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 选择器在切换器盒子内退成纯文字：无底、无边框，高度由外层盒子决定。 */
+.workspace-filter-select .pipi-select__control {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--text-md);
+}
+
+.workspace-filter-select .pipi-select__control--is-focused {
+  border: 0;
+  box-shadow: none;
+}
+
+.workspace-filter-select .pipi-select__single-value {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.workspace-filter-select .pipi-select__indicator {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 860px) {
+  .workspace-filter {
+    height: 40px;
+  }
+}

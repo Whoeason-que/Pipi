@@ -105,3 +105,48 @@ export function buildWorkspaceList(
 
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/** 概览页的「工作区分组」：工作区已降级为 Agent 的组织维度，不再是顶级页面。 */
+export interface WorkspaceGroupInfo {
+  path: string;
+  name: string;
+  /** 来源是手动添加的自定义目录；仅在没有 Agent 关联时才展示移除入口。 */
+  custom: boolean;
+  agents: AgentDefinition[];
+}
+
+/**
+ * 把主 Agent 按工作区分组（Subagent 归属其 Agent，不参与分组）。
+ * 自定义目录若无 Agent 关联，保留为空组兜底（localStorage 迁移），排在有 Agent 的组之后。
+ */
+export function buildWorkspaceGroups(
+  agents: AgentDefinition[],
+  customWorkspaces: CustomWorkspace[],
+): WorkspaceGroupInfo[] {
+  const groups = new Map<string, WorkspaceGroupInfo>();
+  for (const custom of customWorkspaces) {
+    const norm = normalizeWorkspacePath(custom.path);
+    if (!norm) continue;
+    groups.set(norm, {
+      path: norm,
+      name: custom.name?.trim() || getWorkspaceBasename(norm),
+      custom: true,
+      agents: [],
+    });
+  }
+  for (const agent of agents) {
+    if (agent.subagent) continue;
+    const norm = normalizeWorkspacePath(agent.workspace);
+    if (!norm) continue;
+    const existing = groups.get(norm);
+    if (existing) existing.agents.push(agent);
+    else groups.set(norm, { path: norm, name: getWorkspaceBasename(norm), custom: false, agents: [agent] });
+  }
+  // 未设置工作区的 Agent 仍要在概览页可见：兜底组 path 为空串，展示名由界面翻译。
+  const ungrouped = agents.filter(agent => !agent.subagent && !normalizeWorkspacePath(agent.workspace));
+  if (ungrouped.length) groups.set("", { path: "", name: "", custom: false, agents: ungrouped });
+  return Array.from(groups.values()).sort((a, b) => {
+    if (a.agents.length === 0 !== (b.agents.length === 0)) return a.agents.length === 0 ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+}

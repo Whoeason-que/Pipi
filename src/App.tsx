@@ -16,18 +16,14 @@ import { useSessionList } from "./app/use-session-list";
 import { useSessionNavigation } from "./app/use-session-navigation";
 import { useSettings } from "./app/use-settings";
 import ChatView from "./chat/ChatView";
-import { useWorkspaceFiles } from "./files/use-workspace-files";
 import { WorkspaceSidebar } from "./files/WorkspaceSidebar";
 import { WorkspaceView } from "./files/WorkspaceView";
+import { useWorkspaceFiles } from "./files/use-workspace-files";
 import { ForumSidebar } from "./forum/ForumSidebar";
 import ForumView from "./forum/ForumView";
 import { ForumProvider } from "./forum/forum-state";
 import {
-  CreateWorkspaceModal,
-  WorkspacesSidebar,
-  WorkspacesView,
-} from "./workspaces";
-import {
+  buildWorkspaceGroups,
   buildWorkspaceList,
   getWorkspaceBasename,
   loadActiveWorkspace,
@@ -35,7 +31,10 @@ import {
   normalizeWorkspacePath,
   saveActiveWorkspace,
   saveCustomWorkspaces,
+  type WorkspaceGroupInfo,
+  type WorkspaceInfo,
 } from "./app/workspaces";
+import WorkspaceFilterBar from "./app/WorkspaceFilterBar";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
 import { useDialogFocus } from "./components/use-dialog-focus";
@@ -125,39 +124,50 @@ export default function App() {
     }
   }), [navigationMemory, sessionRuntime]);
 
+  // 全局工作区过滤器（localStorage 持久化）与派生数据；概览分组、侧栏列表与
+  // Files/Git 侧栏共用这一份。自定义工作区只减不增：历史 localStorage 条目保留
+  // 为概览页的空组，新增入口已随 WorkspacesView 一起移除。
   const [customWorkspaces, setCustomWorkspaces] = useState(() => loadCustomWorkspaces());
   const [activeWorkspace, setActiveWorkspace] = useState(() => loadActiveWorkspace());
-  const [previewWorkspacePaths, setPreviewWorkspacePaths] = useState<{ files: string | null; git: string | null }>({ files: null, git: null });
-  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
-
-  const workspaces = useMemo(
+  const workspaces: WorkspaceInfo[] = useMemo(
     () => buildWorkspaceList(agents, customWorkspaces),
     [agents, customWorkspaces],
   );
-
   const filteredAgents = useMemo(() => {
     if (activeWorkspace === "all") return agents;
     const target = normalizeWorkspacePath(activeWorkspace);
     return agents.filter((agent) => agent.subagent || normalizeWorkspacePath(agent.workspace) === target);
   }, [agents, activeWorkspace]);
-
   const filteredArchivedAgents = useMemo(() => {
     if (activeWorkspace === "all") return archivedAgents;
     const target = normalizeWorkspacePath(activeWorkspace);
     return archivedAgents.filter((agent) => agent.subagent || normalizeWorkspacePath(agent.workspace) === target);
   }, [archivedAgents, activeWorkspace]);
-
   const filteredSessionsByAgent = useMemo(() => {
     if (activeWorkspace === "all") return sessionsByAgent;
     const result: Record<string, SessionSummaryView[]> = {};
     for (const agent of filteredAgents) {
-      if (sessionsByAgent[agent.name]) {
-        result[agent.name] = sessionsByAgent[agent.name];
-      }
+      if (sessionsByAgent[agent.name]) result[agent.name] = sessionsByAgent[agent.name];
     }
     return result;
   }, [sessionsByAgent, filteredAgents, activeWorkspace]);
-
+  // 概览页分组与可见 Agent 同源：跟随当前过滤器，过滤到单个工作区时只剩一组。
+  const workspaceGroups: WorkspaceGroupInfo[] = useMemo(
+    () => buildWorkspaceGroups(filteredAgents, customWorkspaces),
+    [filteredAgents, customWorkspaces],
+  );
+  const selectWorkspacePath = useCallback((next: string) => {
+    setActiveWorkspace(next);
+    saveActiveWorkspace(next);
+  }, []);
+  const removeCustomWorkspaceEntry = useCallback((path: string) => {
+    const norm = normalizeWorkspacePath(path);
+    setCustomWorkspaces((previous) => {
+      const next = previous.filter((item) => normalizeWorkspacePath(item.path) !== norm);
+      saveCustomWorkspaces(next);
+      return next;
+    });
+  }, []);
   const statsAgents = useMemo(
     () => filteredAgents.filter((agent) => !agent.subagent),
     [filteredAgents],
@@ -174,7 +184,7 @@ export default function App() {
   const navigation = useSessionNavigation({ setError, activeSessionRef, onOpenChat,
     setSidebarOpen, setActiveSession, setChatKey });
   useNotificationNavigation(!authStatus.checking && authStatus.authenticated && agents.length > 0, async (agent, session) => {
-    setActiveWorkspace("all");
+    selectWorkspacePath("all");
     await navigation.openSession(agent, session);
   });
   const { runningSessions, handleRunningChange, isConversationRunning, agentHasRunning,
@@ -207,7 +217,6 @@ export default function App() {
     if (next.kind === "files" || next.kind === "git") setNavSection(next.kind);
     else if (next.kind === "skills") setNavSection("skills");
     else if (next.kind === "forum") setNavSection("forum");
-    else if (next.kind === "workspaces") setNavSection("workspaces");
     else if (next.kind === "home") setNavSection(next.section ?? "agents");
     else if (next.kind === "create") setNavSection("agents");
     else if (next.kind === "stats") setNavSection("stats");
@@ -216,8 +225,7 @@ export default function App() {
   };
 
   const handleSelectWorkspace = (nextWorkspace: string) => {
-    setActiveWorkspace(nextWorkspace);
-    saveActiveWorkspace(nextWorkspace);
+    selectWorkspacePath(nextWorkspace);
 
     const target = normalizeWorkspacePath(nextWorkspace);
     const nextFiltered = nextWorkspace === "all"
@@ -240,26 +248,9 @@ export default function App() {
     }
   };
 
-  const handleCreateWorkspace = (path: string, name?: string) => {
-    const norm = normalizeWorkspacePath(path);
-    setCustomWorkspaces((prev) => {
-      if (prev.some((w) => normalizeWorkspacePath(w.path) === norm)) return prev;
-      const next = [...prev, { path: norm, name }];
-      saveCustomWorkspaces(next);
-      return next;
-    });
-    handleSelectWorkspace(norm);
-    setCreateWorkspaceOpen(false);
-  };
-
   const handleRemoveCustomWorkspace = (path: string) => {
-    const norm = normalizeWorkspacePath(path);
-    setCustomWorkspaces((prev) => {
-      const next = prev.filter((w) => normalizeWorkspacePath(w.path) !== norm);
-      saveCustomWorkspaces(next);
-      return next;
-    });
-    if (activeWorkspace === norm) {
+    removeCustomWorkspaceEntry(path);
+    if (normalizeWorkspacePath(activeWorkspace) === normalizeWorkspacePath(path)) {
       handleSelectWorkspace("all");
     }
   };
@@ -359,7 +350,6 @@ export default function App() {
     else if (target.kind === "chat") openSession(target.agentName, target.sessionId);
     else if (target.action === "new-session") { if (selected) void navigation.startNewSession(selected); }
     else if (target.action === "files" || target.action === "git" || target.action === "stats") openSection(target.action);
-    else if (target.action === "workspaces") navigate({ kind: "workspaces" });
     else navigate({ kind: target.action });
   };
   const visibleAgents = agentsInSection(filteredAgents, collection);
@@ -368,6 +358,9 @@ export default function App() {
     if (current && (view.kind === "agent" || view.kind === "chat" || view.kind === "workbench")) setNavSection(agentSection(current));
   }, [current?.name, current?.subagent, view.kind]);
 
+  // Files / Git 视图与全局状态之间的桥：目标工作区解析、工作区内 Agent 与会话、
+  // 文件预览打开与「引用到会话」。
+  const [previewWorkspacePaths, setPreviewWorkspacePaths] = useState<{ files: string | null; git: string | null }>({ files: null, git: null });
   const currentWorkspaceTarget = useMemo(() => {
     const mode = view.kind === "git" ? "git" : "files";
     const previewWorkspacePath = previewWorkspacePaths[mode];
@@ -388,7 +381,6 @@ export default function App() {
     const name = info?.name || getWorkspaceBasename(wsPath);
     return { name, workspace: wsPath };
   }, [activeWorkspace, previewWorkspacePaths, current?.workspace, workspaces, view.kind]);
-
   const workspaceAgents = useMemo(() => {
     if (!currentWorkspaceTarget) return [];
     const targetNorm = normalizeWorkspacePath(currentWorkspaceTarget.workspace);
@@ -398,15 +390,13 @@ export default function App() {
     () => workspaceAgents.flatMap(agent => sessionsByAgent[agent.name] ?? []),
     [workspaceAgents, sessionsByAgent],
   );
-
-  const workspaceActive = (view.kind === "files" || view.kind === "git") && !authStatus.checking && authStatus.authenticated;
   const workspace = useWorkspaceFiles(
     currentWorkspaceTarget,
     view.kind === "git" ? "git" : "files",
-    workspaceActive,
+    (view.kind === "files" || view.kind === "git") && !authStatus.checking && authStatus.authenticated,
     current ? agentHasRunning(current.name) : false,
   );
-  const openWorkspaceFile = (agentOrWs: string, path: string) => {
+  const openWorkspaceFile = useCallback((agentOrWs: string, path: string) => {
     const agent = filteredAgents.find(item => item.name === agentOrWs) ?? agents.find(item => item.name === agentOrWs);
     const workspacePath = normalizeWorkspacePath(agent?.workspace || agentOrWs || currentWorkspaceTarget?.workspace);
     if (!workspacePath) return;
@@ -417,7 +407,21 @@ export default function App() {
     store.open(path);
     setPreviewWorkspacePaths(previous => ({ ...previous, files: workspacePath }));
     navigate({ kind: "files", agentName: agent?.name ?? null });
-  };
+  }, [filteredAgents, agents, currentWorkspaceTarget?.workspace, workspaces, workspace, navigate]);
+  const referenceToSession = useCallback((text: string, sessionId: string | null) => {
+    const targetAgent = sessionId === null
+      ? workspaceAgents.find(agent => agent.name === current?.name) ?? workspaceAgents[0]
+      : workspaceAgents.find(agent => sessionsByAgent[agent.name]?.some(session => session.id === sessionId));
+    if (!targetAgent) {
+      throw new Error(t("app.noTargetAgent"));
+    }
+    const targetAgentName = targetAgent.name;
+    const draft = sessionRuntime.composerDrafts.get(targetAgentName, sessionId);
+    const previous = draft.getSnapshot().text;
+    draft.write(previous ? `${previous}\n\n${text}` : text);
+    if (sessionId === null) void navigation.startNewSession(targetAgentName);
+    else void navigation.openSession(targetAgentName, sessionId);
+  }, [workspaceAgents, current?.name, sessionsByAgent, sessionRuntime, navigation, t]);
   const openSection = (section: NavSection, options?: { keepSidebar?: boolean }) => {
     if (section === "search") {
       if (viewRef.current.kind === "settings") navigate(previousView.current);
@@ -472,26 +476,24 @@ export default function App() {
       navigationMemory.bindController(active.agentName, active.sessionId, controller);
     }
   }, [navigationMemory]);
-  const referenceToSession = (text: string, sessionId: string | null) => {
-    const targetAgent = sessionId === null
-      ? workspaceAgents.find(agent => agent.name === current?.name) ?? workspaceAgents[0]
-      : workspaceAgents.find(agent => sessionsByAgent[agent.name]?.some(session => session.id === sessionId));
-    if (!targetAgent) {
-      throw new Error(t("app.noTargetAgent"));
-    }
-    const targetAgentName = targetAgent.name;
-    const draft = sessionRuntime.composerDrafts.get(targetAgentName, sessionId);
-    const previous = draft.getSnapshot().text;
-    draft.write(previous ? `${previous}\n\n${text}` : text);
-    if (sessionId === null) void navigation.startNewSession(targetAgentName);
-    else void navigation.openSession(targetAgentName, sessionId);
-  };
   const workspaceDisplayName = activeWorkspace === "all" ? null : (workspaces.find(w => w.path === activeWorkspace)?.name || getWorkspaceBasename(activeWorkspace));
   const baseTitle = view.kind === "home" ? t(collection === "subagents" ? "nav.subagents" : "nav.workspace") : view.kind === "settings" ? t("nav.settings") : view.kind === "create" ? t("nav.newAgent")
-    : view.kind === "skills" ? t("nav.skills") : view.kind === "stats" ? t("nav.stats") : view.kind === "forum" ? t("app.forum") : view.kind === "workspaces" ? t("nav.workspace") : current?.name ?? "Pipi";
+    : view.kind === "skills" ? t("nav.skills") : view.kind === "stats" ? t("nav.stats") : view.kind === "forum" ? t("app.forum") : current?.name ?? "Pipi";
   const title = workspaceDisplayName && view.kind === "home" ? `${baseTitle} · ${workspaceDisplayName}` : baseTitle;
   const sessionTitle = view.kind === "chat" ? (sessionsByAgent[view.agentName] ?? []).find(session => session.id === view.sessionId)?.title : undefined;
+  // 工作区已降级为概览页的分组维度：只有主 Agent 总览按组渲染，subagents 与单 Agent 视图保持平铺。
+  const overviewGroups = view.kind === "home" && collection === "agents" ? workspaceGroups : null;
+  const openWorkspaceSection = (section: "files" | "git", path: string) => {
+    setPreviewWorkspacePaths(previous => ({ ...previous, [section]: path }));
+    openSection(section);
+  };
   const overviewProps = { section: collection, agents: visibleAgents, sessions: filteredSessionsByAgent, running: runningSessions, onAgent: selectAgent, onSession: openSession,
+    groups: overviewGroups,
+    groupActions: {
+      onOpenFiles: (path: string) => openWorkspaceSection("files", path),
+      onOpenGit: (path: string) => openWorkspaceSection("git", path),
+      onRemoveCustom: handleRemoveCustomWorkspace,
+    },
     onNewSession: (name: string) => { void navigation.startNewSession(name); }, onConfigure: configureAgent, onCreate: startCreating };
 
   if (authStatus.checking) return <div className="login-container" />;
@@ -506,7 +508,7 @@ export default function App() {
     <div className="app-body">
       <AppNavigation navSection={navSection} settingsOpen={view.kind === "settings"} onToggleSettings={toggleSettings}
         onHome={() => navigate({ kind: "home", section: "agents" })}
-        activeWorkspace={activeWorkspace} activeWorkspaceName={workspaceDisplayName}
+        activeWorkspace={activeWorkspace}
         running={{ agents: agentsInSection(filteredAgents, "agents").some(agent => agentHasRunning(agent.name)),
           subagents: agentsInSection(filteredAgents, "subagents").some(agent => agentHasRunning(agent.name)) }}
         onOpenSection={openSection} />
@@ -518,18 +520,6 @@ export default function App() {
         {view.kind === "settings" ? settings && <SettingsSidebar settings={settings} section={settingsSection}
           showLogout={!isTauriRuntime() && authStatus.authRequired}
           onSelect={section => { setSettingsSection(section); setSidebarOpen(false); }} />
-          : navSection === "workspaces" || view.kind === "workspaces" ? <WorkspacesSidebar
-            workspaces={workspaces}
-            activeWorkspace={activeWorkspace}
-            totalAgentsCount={agents.filter((a) => !a.subagent).length}
-            onSelectWorkspace={handleSelectWorkspace}
-            onOpenCreateModal={() => setCreateWorkspaceOpen(true)}
-            onRemoveCustomWorkspace={handleRemoveCustomWorkspace}
-            onViewAgents={() => navigate({ kind: "home", section: "agents" })}
-            onCreateAgent={(ws) => {
-              if (ws) handleSelectWorkspace(ws);
-              startCreating();
-            }} />
           : (navSection === "files" || navSection === "git") && (view.kind === "files" || view.kind === "git") ? <WorkspaceSidebar key={workspace.store?.key ?? "no-workspace"} state={workspace} workspaces={workspaces}
             onSelectWorkspace={wsPath => { setPreviewWorkspacePaths(previous => ({ ...previous, [view.kind === "git" ? "git" : "files"]: wsPath })); if (mobile) setSidebarOpen(true); }} />
           : navSection === "search" ? <SearchPanel query={searchQuery} onQueryChange={setSearchQuery} agents={filteredAgents}
@@ -542,7 +532,11 @@ export default function App() {
             selected={view.kind === "stats" ? view.agentName : selected}
             sessionsByAgent={filteredSessionsByAgent}
             onSelect={name => navigate({ kind: "stats", agentName: name })} />
-          : <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
+          : <>
+            {(navSection === "agents" || navSection === "subagents") && view.kind === "home" && (
+              <WorkspaceFilterBar workspaces={workspaces} active={activeWorkspace} onSelect={handleSelectWorkspace} />
+            )}
+            <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
             viewSessionId={view.kind === "chat" ? view.sessionId : null}
             archivedSessions={archivedSessions} archivedSessionsExpanded={archivedSessionsExpanded} archivedOpen={archivedOpen}
             sessionsFor={sessionsFor} sessionStatus={sessionStatus} sessionUnread={sessionUnread}
@@ -553,7 +547,8 @@ export default function App() {
             onRestoreAgent={name => void archive.restoreAgent(name)} onArchiveSession={(name, id) => void archive.archiveSession(name, id)}
             onDeleteSession={(name, id) => void archive.deleteSession(name, id)} onToggleArchivedSessions={name => void archive.toggleArchivedSessions(name)}
             onRestoreSession={(name, id) => void archive.restoreSession(name, id)} onDeleteArchivedSession={(name, id) => void archive.deleteArchivedSession(name, id)}
-            onToggleArchivedOpen={() => setArchivedOpen(open => !open)} />}
+            onToggleArchivedOpen={() => setArchivedOpen(open => !open)} />
+          </>}
       </aside>
       <div className="resize-handle sidebar-resize" title={t("app.resizeSidebar")} aria-label={t("app.resizeSidebarLabel")} {...sidebarResize.handleProps} />
       {/* 窄屏抽屉统一模态：点右侧内容（遮罩）收起，和右侧检查器一致。 */}
@@ -575,25 +570,6 @@ export default function App() {
         )}
         {view.kind === "settings" && settings ? <SettingsView settings={settings} section={settingsSection} onChange={updateSettings} onClose={toggleSettings}
           showLogout={!isTauriRuntime() && authStatus.authRequired} />
-          : view.kind === "workspaces" ? <WorkspacesView
-            workspaces={workspaces}
-            activeWorkspace={activeWorkspace}
-            agents={agents}
-            sessionsByAgent={sessionsByAgent}
-            onSelectWorkspace={handleSelectWorkspace}
-            onOpenCreateModal={() => setCreateWorkspaceOpen(true)}
-            onSelectAgent={selectAgent}
-            onConfigureAgent={configureAgent}
-            onOpenChat={onOpenChat}
-            onCreateAgent={(ws) => {
-              if (ws) handleSelectWorkspace(ws);
-              startCreating();
-            }}
-            onNavigateSection={(sec) => {
-              if (sec === "files" || sec === "git") openSection(sec);
-              else navigate({ kind: "home", section: sec });
-            }}
-          />
           : view.kind === "create" ? <CreateAgentForm providers={settings?.providers ?? []} defaultProviderId={settings?.defaultProviderId ?? null}
             defaultWorkspace={activeWorkspace !== "all" ? activeWorkspace : ""}
             onCreated={async name => { await refresh(); selectAgent(name); }} onCancel={() => navigate({ kind: "home" })} onError={safeSetError} />
@@ -633,6 +609,5 @@ export default function App() {
     </div>
     {paletteOpen && <CommandPalette items={quickItems(filteredAgents, filteredSessionsByAgent, selected, t)} onChoose={chooseQuick} onClose={closePalette} />}
     {confirmState && <ConfirmModal title={confirmState.title} message={confirmState.message} onConfirm={confirmState.action} onCancel={() => setConfirmState(null)} />}
-    {createWorkspaceOpen && <CreateWorkspaceModal onCreated={handleCreateWorkspace} onCancel={() => setCreateWorkspaceOpen(false)} />}
   </div></ForumProvider></LayoutContext.Provider>;
 }

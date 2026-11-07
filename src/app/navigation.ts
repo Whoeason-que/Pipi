@@ -2,7 +2,7 @@ import { getTranslation } from "../i18n/core.ts";
 import type { AgentDefinition, SessionSummaryView } from "../types.ts";
 
 export type AgentSection = "agents" | "subagents";
-export type NavSection = AgentSection | "workspaces" | "search" | "skills" | "forum" | "files" | "git" | "stats";
+export type NavSection = AgentSection | "search" | "skills" | "forum" | "files" | "git" | "stats";
 
 export function agentSection(agent: Pick<AgentDefinition, "subagent"> | undefined): AgentSection {
   return agent?.subagent ? "subagents" : "agents";
@@ -14,7 +14,7 @@ export function agentsInSection(agents: AgentDefinition[], section: AgentSection
 
 export type AppView =
   | { kind: "home"; section?: AgentSection }
-  | { kind: "create" | "skills" | "settings" | "forum" | "workspaces" }
+  | { kind: "create" | "skills" | "settings" | "forum" }
   | { kind: "agent" | "workbench"; agentName: string }
   | { kind: "files" | "git"; agentName: string | null }
   | { kind: "stats"; agentName: string | null }
@@ -23,7 +23,7 @@ export type AppView =
 export type QuickTarget =
   | { kind: "agent"; agentName: string }
   | { kind: "chat"; agentName: string; sessionId: string }
-  | { kind: "action"; action: "home" | "create" | "skills" | "settings" | "new-session" | "files" | "git" | "workspaces" | "stats" };
+  | { kind: "action"; action: "home" | "create" | "skills" | "settings" | "new-session" | "files" | "git" | "stats" };
 export interface QuickItem { id: string; label: string; detail: string; target: QuickTarget }
 
 export type Translate = (path: string, params?: Record<string, string | number>) => string;
@@ -34,7 +34,6 @@ const ENGLISH: Translate = (path, params) => getTranslation("en", path, params);
 export function quickItems(agents: AgentDefinition[], sessions: Record<string, SessionSummaryView[]>, current: string | null, t: Translate = ENGLISH): QuickItem[] {
   const actions: QuickItem[] = [
     { id: "home", label: t("app.quickHome"), detail: t("app.quickHomeDetail"), target: { kind: "action", action: "home" } },
-    { id: "workspaces", label: t("app.quickWorkspaces"), detail: t("app.quickWorkspacesDetail"), target: { kind: "action", action: "workspaces" } },
     { id: "stats", label: t("stats.title"), detail: t("app.quickStatsDetail"), target: { kind: "action", action: "stats" } },
     { id: "create", label: t("nav.newAgent"), detail: t("app.quickCreateAgentDetail"), target: { kind: "action", action: "create" } },
     { id: "files", label: t("app.quickFiles"), detail: current || t("app.quickWorkspaceFallback"), target: { kind: "action", action: "files" } },

@@ -41,4 +41,13 @@ export const workspace = {
   emptyWorkspace: "No sessions yet. Choose an Agent to start working.",
   shortcutHint: "Search & quick actions",
   footer: "Local first. Everything is a file.",
+  groupAgentCount: "{count} Agents",
+  groupAgentCountOne: "{count} Agent",
+  groupSessionCount: "{count} sessions",
+  groupSessionCountOne: "{count} session",
+  groupOpenFiles: "Open files",
+  groupOpenGit: "Open git log",
+  groupRemoveCustom: "Remove this workspace entry",
+  groupNoAgents: "No Agents linked to this directory yet.",
+  groupUngrouped: "No workspace assigned",
 };

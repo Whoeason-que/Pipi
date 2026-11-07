@@ -16,14 +16,12 @@ import { skills } from "./locales/en/skills.ts";
 import { stats } from "./locales/en/stats.ts";
 import { themes } from "./locales/en/themes.ts";
 import { workspace } from "./locales/en/workspace.ts";
-import { workspaces } from "./locales/en/workspaces.ts";
 
 /** English is the authoritative dictionary: default locale and fallback for every other locale. */
 export const en = {
   common,
   nav,
   workspace,
-  workspaces,
   chat,
   stats,
   inspector,

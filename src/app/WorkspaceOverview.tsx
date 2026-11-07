@@ -1,16 +1,22 @@
+import { useState } from "react";
 import AgentAvatar from "../components/AgentAvatar";
+import ActionMenu from "../components/ActionMenu";
 import { useI18n } from "../i18n";
 import {
   IconArrowUpRight,
+  IconChevronRight,
   IconClock,
+  IconFile,
   IconFolder,
   IconGear,
+  IconGit,
   IconMessage,
   IconPlus,
 } from "../icons";
 import type { AgentDefinition, SessionSummaryView } from "../types";
 import { sessionKey, sessionKeyPrefix } from "../session-key.ts";
 import type { AgentSection } from "./navigation";
+import type { WorkspaceGroupInfo } from "./workspaces";
 
 interface WorkspaceOverviewProps {
   section: AgentSection;
@@ -18,6 +24,13 @@ interface WorkspaceOverviewProps {
   agent?: AgentDefinition;
   sessions: Record<string, SessionSummaryView[]>;
   running: Set<string>;
+  /** 主 Agent 按工作区分组；subagents 分区或单 Agent 视图传 null（维持平铺）。 */
+  groups: WorkspaceGroupInfo[] | null;
+  groupActions: {
+    onOpenFiles: (path: string) => void;
+    onOpenGit: (path: string) => void;
+    onRemoveCustom: (path: string) => void;
+  };
   onAgent: (name: string) => void;
   onSession: (name: string, id: string) => void;
   onNewSession: (name: string) => void;
@@ -26,6 +39,11 @@ interface WorkspaceOverviewProps {
 }
 
 type Activity = { agent: AgentDefinition; session: SessionSummaryView };
+
+/** 折叠体 id：path 转义成 id 安全字符，encodeURIComponent 保证不同 path 不撞车。 */
+function groupBodyId(path: string): string {
+  return `workspace-group-${encodeURIComponent(path).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
 
 function relativeTime(
   timestamp: number,
@@ -119,12 +137,242 @@ function SessionActivity({
   );
 }
 
+/** Agent 卡片：平铺网格与工作区分组体共用同一份标记。 */
+function AgentCard({
+  item,
+  sessions,
+  running,
+  onAgent,
+}: {
+  item: AgentDefinition;
+  sessions: Record<string, SessionSummaryView[]>;
+  running: Set<string>;
+  onAgent: WorkspaceOverviewProps["onAgent"];
+}) {
+  const { t } = useI18n();
+  const itemRunning =
+    [...running].filter((key) =>
+      key.startsWith(sessionKeyPrefix(item.name)),
+    ).length > 0;
+  const sessionCount = (sessions[item.name] ?? []).length;
+  return (
+    <button
+      type="button"
+      className="surface surface-interactive agent-card"
+      onClick={() => onAgent(item.name)}
+    >
+      <div className="agent-card-top">
+        <AgentAvatar name={item.name} subagent={item.subagent} />
+        <div className="agent-card-identity">
+          <b>{item.name}</b>
+          <span className="agent-card-sub">
+            <span>{item.subagent ? "Subagent" : "Agent"}</span>
+            <span>
+              {t(
+                sessionCount === 1
+                  ? "common.sessionCountOne"
+                  : "common.sessionCount",
+                { count: sessionCount },
+              )}
+            </span>
+            {itemRunning && (
+              <span className="agent-card-live">
+                <i />
+                {t("workspace.runningBadge")}
+              </span>
+            )}
+          </span>
+        </div>
+        <span className="activity-arrow">
+          <IconArrowUpRight />
+        </span>
+      </div>
+      <p className="agent-card-copy">
+        {item.description || t("workspace.agentPlaceholder")}
+      </p>
+      <div className="agent-card-footer">
+        <span
+          className="agent-card-directory"
+          title={item.workspace || t("workspace.defaultDirectory")}
+        >
+          <IconFolder />
+          <span>{item.workspace || t("workspace.defaultDirectory")}</span>
+        </span>
+        <span
+          className="agent-card-model"
+          title={item.provider?.id || item.model || undefined}
+        >
+          <span>{t("workspace.defaultModel")}</span>
+          <strong>
+            {item.provider?.id || item.model || t("workspace.noModel")}
+          </strong>
+        </span>
+      </div>
+    </button>
+  );
+}
+
+/** 零 Agent 的首创引导：平铺模式与分组模式的空仓兜底共用。 */
+function EmptyAgentsCard({
+  subagents,
+  onCreate,
+}: {
+  subagents: boolean;
+  onCreate: WorkspaceOverviewProps["onCreate"];
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="empty-card">
+      <span className="empty-icon">
+        <IconPlus />
+      </span>
+      <h3>
+        {t(
+          subagents ? "workspace.subagentsEmptyTitle" : "workspace.createFirst",
+        )}
+      </h3>
+      <p>
+        {t(subagents ? "workspace.subagentsEmpty" : "workspace.createHint")}
+      </p>
+      {!subagents && (
+        <button type="button" className="btn primary" onClick={onCreate}>
+          {t("nav.newAgent")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 工作区分组区块：组头（折叠 + 元信息 + 打开入口）+ 组体（Agent 卡片网格）。 */
+function AgentGroup({
+  group,
+  collapsed,
+  onToggle,
+  sessions,
+  running,
+  onAgent,
+  actions,
+}: {
+  group: WorkspaceGroupInfo;
+  collapsed: boolean;
+  onToggle: (path: string) => void;
+  sessions: Record<string, SessionSummaryView[]>;
+  running: Set<string>;
+  onAgent: WorkspaceOverviewProps["onAgent"];
+  actions: WorkspaceOverviewProps["groupActions"];
+}) {
+  const { t } = useI18n();
+  const bodyId = groupBodyId(group.path);
+  // 组内会话数合计：各组自算，与卡片上的单 Agent 口径（sessions[name].length）一致。
+  const sessionTotal = group.agents.reduce(
+    (sum, item) => sum + (sessions[item.name]?.length ?? 0),
+    0,
+  );
+  const removable = group.custom && group.agents.length === 0;
+  return (
+    <article className="surface workspace-group">
+      <div className="workspace-group-header">
+        <button
+          type="button"
+          className="workspace-group-toggle"
+          aria-expanded={!collapsed}
+          aria-controls={bodyId}
+          onClick={() => onToggle(group.path)}
+        >
+          <IconChevronRight expanded={!collapsed} />
+          <span className="workspace-group-icon">
+            <IconFolder />
+          </span>
+          <span
+            className="workspace-group-name"
+            title={group.path || undefined}
+          >
+            {/* 兜底组（path 为空）= 未设置工作区的 Agent，展示名走翻译。 */}
+            {group.path ? group.name : t("workspace.groupUngrouped")}
+          </span>
+          <span className="workspace-group-meta">
+            <span>
+              {t(
+                group.agents.length === 1
+                  ? "workspace.groupAgentCountOne"
+                  : "workspace.groupAgentCount",
+                { count: group.agents.length },
+              )}
+            </span>
+            <span>
+              {t(
+                sessionTotal === 1
+                  ? "workspace.groupSessionCountOne"
+                  : "workspace.groupSessionCount",
+                { count: sessionTotal },
+              )}
+            </span>
+          </span>
+        </button>
+        <div className="workspace-group-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={t("workspace.groupOpenFiles")}
+            title={t("workspace.groupOpenFiles")}
+            onClick={() => actions.onOpenFiles(group.path)}
+          >
+            <IconFile />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={t("workspace.groupOpenGit")}
+            title={t("workspace.groupOpenGit")}
+            onClick={() => actions.onOpenGit(group.path)}
+          >
+            <IconGit />
+          </button>
+          {removable && (
+            <ActionMenu
+              label={t("workspace.groupRemoveCustom")}
+              actions={[
+                {
+                  label: t("workspace.groupRemoveCustom"),
+                  run: () => actions.onRemoveCustom(group.path),
+                  danger: true,
+                },
+              ]}
+            />
+          )}
+        </div>
+      </div>
+      <div id={bodyId} className="workspace-group-body" hidden={collapsed}>
+        {group.agents.length ? (
+          <div className="agent-cards">
+            {group.agents.map((item) => (
+              <AgentCard
+                key={item.name}
+                item={item}
+                sessions={sessions}
+                running={running}
+                onAgent={onAgent}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="empty-card compact workspace-group-empty">
+            <p>{t("workspace.groupNoAgents")}</p>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export default function WorkspaceOverview({
   section,
   agents,
   agent,
   sessions,
   running,
+  groups,
+  groupActions,
   onAgent,
   onSession,
   onNewSession,
@@ -133,6 +381,18 @@ export default function WorkspaceOverview({
 }: WorkspaceOverviewProps) {
   const { t } = useI18n();
   const subagents = section === "subagents";
+  // 折叠状态存 group.path；默认全展开，path 不在集合里即展开。
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleGroup = (path: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
   const visible = agent ? [agent] : agents;
   const recent = visible
     .flatMap((item) =>
@@ -262,7 +522,8 @@ export default function WorkspaceOverview({
         </section>
       )}
 
-      {!agent && (
+      {/* 平铺模式：subagents 分区与单 Agent 视图（groups 传 null），渲染行为与既往一致。 */}
+      {!agent && groups === null && (
         <section className="page-section">
           <div className="section-heading section-heading-ruled">
             <h2>
@@ -276,102 +537,46 @@ export default function WorkspaceOverview({
             </span>
           </div>
           <div className="agent-cards">
-            {agents.map((item) => {
-              const itemRunning =
-                [...running].filter((key) =>
-                  key.startsWith(sessionKeyPrefix(item.name)),
-                ).length > 0;
-              const sessionCount = (sessions[item.name] ?? []).length;
-              return (
-                <button
-                  type="button"
-                  className="surface surface-interactive agent-card"
-                  key={item.name}
-                  onClick={() => onAgent(item.name)}
-                >
-                  <div className="agent-card-top">
-                    <AgentAvatar name={item.name} subagent={item.subagent} />
-                    <div className="agent-card-identity">
-                      <b>{item.name}</b>
-                      <span className="agent-card-sub">
-                        <span>{item.subagent ? "Subagent" : "Agent"}</span>
-                        <span>
-                          {t(
-                            sessionCount === 1
-                              ? "common.sessionCountOne"
-                              : "common.sessionCount",
-                            { count: sessionCount },
-                          )}
-                        </span>
-                        {itemRunning && (
-                          <span className="agent-card-live">
-                            <i />
-                            {t("workspace.runningBadge")}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <span className="activity-arrow">
-                      <IconArrowUpRight />
-                    </span>
-                  </div>
-                  <p className="agent-card-copy">
-                    {item.description || t("workspace.agentPlaceholder")}
-                  </p>
-                  <div className="agent-card-footer">
-                    <span
-                      className="agent-card-directory"
-                      title={item.workspace || t("workspace.defaultDirectory")}
-                    >
-                      <IconFolder />
-                      <span>
-                        {item.workspace || t("workspace.defaultDirectory")}
-                      </span>
-                    </span>
-                    <span
-                      className="agent-card-model"
-                      title={item.provider?.id || item.model || undefined}
-                    >
-                      <span>{t("workspace.defaultModel")}</span>
-                      <strong>
-                        {item.provider?.id ||
-                          item.model ||
-                          t("workspace.noModel")}
-                      </strong>
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
+            {agents.map((item) => (
+              <AgentCard
+                key={item.name}
+                item={item}
+                sessions={sessions}
+                running={running}
+                onAgent={onAgent}
+              />
+            ))}
           </div>
           {!agents.length && (
-            <div className="empty-card">
-              <span className="empty-icon">
-                <IconPlus />
-              </span>
-              <h3>
-                {t(
-                  subagents
-                    ? "workspace.subagentsEmptyTitle"
-                    : "workspace.createFirst",
-                )}
-              </h3>
-              <p>
-                {t(
-                  subagents
-                    ? "workspace.subagentsEmpty"
-                    : "workspace.createHint",
-                )}
-              </p>
-              {!subagents && (
-                <button type="button" className="btn primary" onClick={onCreate}>
-                  {t("nav.newAgent")}
-                </button>
-              )}
-            </div>
+            <EmptyAgentsCard subagents={subagents} onCreate={onCreate} />
           )}
         </section>
       )}
+
+      {/* 分组模式：多主 Agent 概览；组本身是一级结构，不再渲染「Your Agents」标题。 */}
+      {!agent && groups !== null &&
+        (groups.length ? (
+          <div className="workspace-groups">
+            {groups.map((group) => (
+              <AgentGroup
+                key={group.path}
+                group={group}
+                collapsed={collapsedGroups.has(group.path)}
+                onToggle={toggleGroup}
+                sessions={sessions}
+                running={running}
+                onAgent={onAgent}
+                actions={groupActions}
+              />
+            ))}
+          </div>
+        ) : (
+          !agents.length && (
+            <section className="page-section">
+              <EmptyAgentsCard subagents={false} onCreate={onCreate} />
+            </section>
+          )
+        ))}
 
       <section className="page-section">
         <div className="section-heading section-heading-ruled">

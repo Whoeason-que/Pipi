@@ -53,6 +53,8 @@ export const zh: DeepPartial<I18nSchema> = {
   },
   app: {
     sessions: "会话",
+    workspaceFilterLabel: "工作区范围",
+    workspaceFilterAll: "全部工作区",
   },
   workspace: {
     subagentsTitle: "独立协作的 Subagent",
@@ -97,6 +99,15 @@ export const zh: DeepPartial<I18nSchema> = {
     emptyWorkspace: "还没有会话。选择一个 Agent，开启新的工作。",
     shortcutHint: "搜索与快捷操作",
     footer: "本地优先，一切皆文件。",
+    groupAgentCount: "{count} 个 Agent",
+    groupAgentCountOne: "{count} 个 Agent",
+    groupSessionCount: "{count} 条会话",
+    groupSessionCountOne: "{count} 条会话",
+    groupOpenFiles: "打开文件",
+    groupOpenGit: "打开 Git 记录",
+    groupRemoveCustom: "移除此工作区条目",
+    groupNoAgents: "此目录还没有关联 Agent。",
+    groupUngrouped: "未设置工作区",
   },
   chat: {
     sendPending: "等待确认发送结果",

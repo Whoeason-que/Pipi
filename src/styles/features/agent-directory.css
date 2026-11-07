@@ -173,6 +173,103 @@
   color: var(--accent-text);
 }
 
+/* ============ 工作区分组（概览页 Agent 的组织维度） ============ */
+
+.workspace-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 30px;
+}
+
+/* 紧跟标题且上方没有活动分区时，与 .page-section 的首个贴身间距保持一致。 */
+.overview-workspace-heading + .workspace-groups {
+  margin-top: 6px;
+}
+
+.workspace-group {
+  padding: 12px 18px 18px;
+}
+
+.workspace-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 组头左半：折叠按钮（chevron + folder + 组名 + 元信息），右侧动作独立于按钮之外。 */
+.workspace-group-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  color: var(--fg);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-group-toggle .disclosure-chevron {
+  color: var(--faint);
+}
+
+.workspace-group-toggle:hover .workspace-group-name {
+  color: var(--accent-text);
+}
+
+.workspace-group-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--accent-text);
+}
+
+.workspace-group-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.workspace-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.15px;
+}
+
+.workspace-group-meta {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-group-meta > span + span::before {
+  content: "·";
+  margin-right: 8px;
+  color: var(--line-2);
+}
+
+.workspace-group-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 组体复用 .agent-cards 网格；空自定义组只留一句说明。 */
+.workspace-group-empty {
+  margin-top: 12px;
+}
+
 /* ============ Agent 元信息 ============ */
 
 .agent-facts {
@@ -394,6 +491,11 @@
 @media (max-width: 520px) {
   .agent-card {
     padding: 15px;
+  }
+
+  /* 窄屏组头只留组名，计数信息由组内卡片自带。 */
+  .workspace-group-meta {
+    display: none;
   }
 
   .agent-card-model > span {

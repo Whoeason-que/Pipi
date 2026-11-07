@@ -7,7 +7,6 @@ import {
   IconFolder,
   IconGit,
   IconGear,
-  IconHome,
   IconPanel,
   IconSearch,
   IconSkill,
@@ -25,7 +24,6 @@ export default function AppNavigation({
   onToggleSettings,
   running,
   activeWorkspace = "all",
-  activeWorkspaceName = null,
 }: {
   navSection: NavSection;
   settingsOpen: boolean;
@@ -34,7 +32,6 @@ export default function AppNavigation({
   onToggleSettings: () => void;
   running: Record<AgentSection, boolean>;
   activeWorkspace?: string;
-  activeWorkspaceName?: string | null;
 }) {
   const { t } = useI18n();
   const isWorkspaceFiltered = activeWorkspace !== "all";
@@ -53,15 +50,6 @@ export default function AppNavigation({
       <div className="rail-sections">
         {(
           [
-            [
-              "workspaces",
-              isWorkspaceFiltered
-                ? activeWorkspaceName
-                  ? t("app.workspaceWithName", { name: activeWorkspaceName })
-                  : t("app.workspaceFiltered")
-                : t("app.workspaceAll"),
-              IconHome,
-            ],
             ["agents", t("nav.agents"), IconAgent],
             ["subagents", t("nav.subagents"), IconSubagent],
             ["stats", t("nav.stats"), IconChart],
@@ -84,12 +72,12 @@ export default function AppNavigation({
             onClick={() => onOpenSection(section)}
           >
             <Icon />
-            {section === "workspaces" && isWorkspaceFiltered && (
-              <span
-                className="rail-filter-badge"
-                aria-label={t("app.workspaceFiltering")}
-              />
-            )}
+            {section === "agents" && isWorkspaceFiltered && (
+                <span
+                  className="rail-filter-badge"
+                  aria-label={t("app.workspaceFiltering")}
+                />
+              )}
             {(section === "agents" || section === "subagents") &&
               running[section] && (
                 <span

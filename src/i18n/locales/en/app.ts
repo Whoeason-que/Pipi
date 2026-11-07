@@ -31,10 +31,9 @@ export const app = {
   deleteSessionMessage: "Its record file will be deleted. This cannot be undone.",
 
   // 导航栏
-  workspaceAll: "Workspaces · All",
-  workspaceWithName: "Workspaces · {name}",
-  workspaceFiltered: "Workspaces · Filtered",
   workspaceFiltering: "Workspace filter active",
+  workspaceFilterLabel: "Workspace scope",
+  workspaceFilterAll: "All workspaces",
   filesNav: "Files",
   gitNav: "Git · Changes",
   forum: "Forum",
@@ -53,8 +52,6 @@ export const app = {
   kindAction: "Action",
   quickHome: "Go to Home",
   quickHomeDetail: "Browse all Agents",
-  quickWorkspaces: "Manage workspaces",
-  quickWorkspacesDetail: "Switch and manage workspaces",
   quickStatsDetail: "Usage, cost and tool trends across sessions",
   quickCreateAgentDetail: "Create a persistent assistant",
   quickFiles: "Open Files",
