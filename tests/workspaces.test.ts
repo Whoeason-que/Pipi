@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildWorkspaceGroups,
   buildWorkspaceList,
   getWorkspaceBasename,
   normalizeWorkspacePath,
@@ -87,4 +88,50 @@ test("buildWorkspaceList 仅统计主 Agent 工作区，忽略 subagent", () => 
   assert.equal(list.length, 1);
   assert.equal(list[0].path, "/home/user/projectA");
   assert.equal(list[0].agentCount, 1);
+});
+
+test("buildWorkspaceGroups 按工作区分组并合并归一化后的同路径", () => {
+  const agents = [
+    mockAgent("agent1", "/home/user/projectA"),
+    mockAgent("agent2", "/home/user/projectA/"),
+    mockAgent("agent3", "/home/user/projectB"),
+  ];
+
+  const groups = buildWorkspaceGroups(agents, []);
+
+  assert.equal(groups.length, 2);
+  const a = groups.find((g) => g.path === "/home/user/projectA");
+  assert.ok(a);
+  assert.deepEqual(a.agents.map((agent) => agent.name), ["agent1", "agent2"]);
+  assert.equal(a.custom, false);
+});
+
+test("buildWorkspaceGroups 忽略 subagent，无工作区 Agent 进兜底组", () => {
+  const main = mockAgent("main", "/home/user/projectA");
+  const sub = mockAgent("sub", "/home/user/projectA");
+  sub.subagent = true;
+  const floating = mockAgent("floating", null);
+
+  const groups = buildWorkspaceGroups([main, sub, floating], []);
+
+  assert.equal(groups.length, 2);
+  const ungrouped = groups.find((g) => g.path === "");
+  assert.ok(ungrouped);
+  assert.deepEqual(ungrouped.agents.map((agent) => agent.name), ["floating"]);
+});
+
+test("buildWorkspaceGroups 自定义目录保留为空组并排在有 Agent 的组之后", () => {
+  const agents = [mockAgent("agent1", "/home/user/projectA")];
+  const custom = [{ path: "/home/user/empty-dir/", name: "Empty" }];
+
+  const groups = buildWorkspaceGroups(agents, custom);
+
+  // 自定义组保留用户命名；空组沉底
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].path, "/home/user/projectA");
+  const empty = groups[1];
+  assert.equal(empty.path, "/home/user/empty-dir");
+  assert.equal(empty.name, "Empty");
+  assert.equal(empty.custom, true);
+  assert.equal(empty.agents.length, 0);
 });
