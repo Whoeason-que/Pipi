@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSessionTree, type SessionTreeNode } from "../src/chat/session-tree.ts";
+import { buildSessionGraph, buildSessionTree, type SessionTreeNode } from "../src/chat/session-tree.ts";
 import type { SessionSummaryView } from "../src/types.ts";
 
 function session(
@@ -70,4 +70,34 @@ test("duplicate ids and self-parenting do not duplicate nodes", () => {
     session("self", 1, "self"),
   ]);
   assert.deepEqual(ids(tree), ["a", "self"]);
+});
+
+test("graph joins sibling forks at their source and ends before the next root", () => {
+  const graph = buildSessionGraph(buildSessionTree([
+    session("fork-a", 4, "source"),
+    session("fork-b", 3, "source"),
+    session("source", 2),
+    session("other", 1),
+  ]));
+  assert.deepEqual(graph.map((row) => row.node.session.id), ["fork-a", "fork-b", "source", "other"]);
+  assert.deepEqual(graph[2].input.map((lane) => lane.targetId), ["source", "source"]);
+  assert.equal(graph[2].output.length, 0);
+  assert.equal(graph[3].input.length, 0);
+  assert.equal(graph[3].output.length, 0);
+});
+
+test("graph carries nested forks to their actual parent and breaks corrupt cycles", () => {
+  const graph = buildSessionGraph(buildSessionTree([
+    session("grandchild", 5, "child"),
+    session("child", 4, "root"),
+    session("sibling", 3, "root"),
+    session("root", 2),
+    session("a", 1, "b"),
+    session("b", 0, "a"),
+  ]));
+  assert.deepEqual(graph.map((row) => row.node.session.id), ["grandchild", "child", "sibling", "root", "b", "a"]);
+  assert.equal(graph[0].output[0].targetId, "child");
+  assert.equal(graph[1].output[0].targetId, "root");
+  assert.equal(graph[3].output.length, 0);
+  assert.equal(graph.at(-1)?.output.length, 0);
 });

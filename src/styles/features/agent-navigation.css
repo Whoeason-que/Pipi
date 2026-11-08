@@ -74,7 +74,8 @@
   background: var(--hover);
 }
 
-.agent-row.selected {
+.agent-row.selected,
+.agent-row.draft-active {
   color: var(--fg);
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent-border);
@@ -172,6 +173,15 @@
   transition: opacity 0.13s;
 }
 
+/* 头部右侧常显 meta：分支计数 + 聚合状态点；操作按钮 hover 才浮现，位置预留不动。 */
+.agent-row-meta {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 7px;
+  margin-right: 2px;
+}
+
 .agent-row:hover .agent-row-actions,
 .agent-row:focus-within .agent-row-actions,
 .session:hover > .more-trigger,
@@ -188,6 +198,7 @@
 }
 
 .sessions {
+  --rail-x: 12px;
   margin: 1px 0 6px;
 }
 
@@ -217,13 +228,7 @@
 
 .session.status-retrying .session-title { color: var(--warn); }
 
-/* 会话仓库行：左栏只列仓库，具体分支在右栏树里切。 */
-.repo-icon {
-  display: flex;
-  flex: none;
-  color: var(--faint);
-}
-
+/* 会话仓库行已并入 Agent 头部：计数与状态点见 .agent-row-meta。 */
 .repo-meta {
   flex: none;
   color: var(--faint);
@@ -242,16 +247,59 @@
 .repo-dot.status-error { background: var(--danger); }
 .repo-dot.status-completed { background: var(--status-unread-text); }
 
-/* 仓库下的分支树：分叉按层级缩进，箭头只做来源提示。 */
+/* SCM 历史图：22px 连续行、11px 泳道和贯穿整行的选中背景。 */
 .repo-branch {
-  margin: 1px 0;
+  min-width: 0;
 }
 
-.branch-fork-mark {
+.sidebar .repo-branch .session {
+  height: 22px;
+  min-height: 22px;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.repo-branch .session-link {
+  height: 100%;
+  gap: 4px;
+}
+
+.repo-branch .session-title {
+  font-size: 13px;
+}
+
+.branch-graph {
+  display: block;
   flex: none;
+  pointer-events: none;
+}
+
+.branch-graph-node {
+  stroke: var(--nav-bg);
+  stroke-width: 2px;
+}
+
+.branch-graph-current {
+  fill: var(--nav-bg);
+}
+
+.repo-branch .session:hover .branch-graph-node {
+  stroke: transparent;
+}
+
+.repo-branch .session > .more-trigger {
+  width: 22px;
+  height: 22px;
+}
+
+/* 行尾相对时间（1m/2h/3d）；右边距给 hover 浮现的 ⋯ 让位。 */
+.session-when {
+  flex: none;
+  margin-right: 24px;
   color: var(--faint);
-  font-size: 10px;
-  line-height: 1;
+  font-size: var(--text-xs);
 }
 
 .session.active .session-link,
@@ -308,6 +356,15 @@
 .session.pending {
   font-size: var(--text-sm);
   color: var(--faint);
+}
+
+/* 归档会话与「归档」开关跟分支文本对齐（分支文本 = rail + 8 + 行内 6px 内边距）。 */
+.archived-session {
+  padding-left: calc(var(--rail-x) + 14px);
+}
+
+.sessions .archive-toggle {
+  padding-left: calc(var(--rail-x) + 5px);
 }
 
 .archive-toggle {

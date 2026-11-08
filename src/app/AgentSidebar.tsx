@@ -1,18 +1,34 @@
 import { useState } from "react";
-import { IconArchive, IconChevronRight, IconGitBranch, IconPlus } from "../icons";
+import { IconArchive, IconChevronRight, IconPlus } from "../icons";
 import ActionMenu from "../components/ActionMenu";
 import AgentAvatar from "../components/AgentAvatar";
 import type { AgentDefinition, SessionSummaryView } from "../types";
 import { useI18n } from "../i18n";
 import {
+  buildSessionGraph,
   buildSessionTree,
-  type SessionTreeNode,
+  type SessionGraphRow,
 } from "../chat/session-tree";
+import SessionGraph from "./SessionGraph";
 import type { AgentSection } from "./navigation";
 import {
   sessionStatusLabel,
   type SessionRunStatus,
 } from "./session-status";
+
+/** 会话行尾的紧凑时长（1m/2h/3d/5w）；超过两个月不显示，绝对时间放 title。 */
+function compactAge(timestamp: number, now: number): string {
+  const minutes = Math.trunc((now - timestamp) / 60_000);
+  if (minutes < 1) return "1m";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.trunc(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.trunc(hours / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.trunc(days / 7);
+  if (weeks < 9) return `${weeks}w`;
+  return "";
+}
 
 export interface AgentSidebarProps {
   section: AgentSection;
@@ -31,8 +47,6 @@ export interface AgentSidebarProps {
   onSelectAgent: (name: string) => void;
   onConfigure: (name: string) => void;
   onStartNewSession: (name: string) => void;
-  /** 打开该 Agent 的会话仓库（最近活跃的分支）。 */
-  onOpenRepo: (name: string) => void;
   /** 切换左栏仓库树里的分支。 */
   onOpenSession: (name: string, id: string) => void;
   onArchiveAgent: (name: string) => void;
@@ -67,7 +81,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
     const statuses = sessions.map((session) =>
       props.sessionStatus(agent.name, session.id),
     );
-    // 仓库行只留一个状态点：运行 > 重试 > 出错 > 完成未读（与旧会话标题色同口径）。
+    // 头部聚合状态点：运行 > 重试 > 出错 > 完成未读（与旧会话标题色同口径）。
     const repoStatus: SessionRunStatus | undefined = statuses.includes("running")
       ? "running"
       : statuses.includes("retrying")
@@ -79,12 +93,14 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             : undefined;
     const chatOnAgent = props.chatOpen && props.selected === agent.name;
     const currentSessionId = chatOnAgent ? props.viewSessionId : null;
-    // 当前分支在树里时高亮分支本身；草稿/未落分支的会话才高亮仓库行。
+    // 当前分支在树里时高亮分支本身；草稿/未落分支的会话高亮 Agent 头部行。
     const repoActive =
       chatOnAgent &&
       !sessions.some((session) => session.id === currentSessionId);
-    const tree = buildSessionTree(sessions);
-    const renderBranch = (node: SessionTreeNode, depth: number) => {
+    const graph = buildSessionGraph(buildSessionTree(sessions));
+    const now = Date.now();
+    const renderBranch = (row: SessionGraphRow) => {
+      const { node } = row;
       const session = node.session;
       const status = props.sessionStatus(agent.name, session.id);
       const unread = props.sessionUnread(agent.name, session.id);
@@ -94,12 +110,9 @@ export default function AgentSidebar(props: AgentSidebarProps) {
           : "";
       const current = session.id === currentSessionId;
       const title = session.title || t("workspace.untitled");
+      const age = compactAge(session.lastActive, now);
       return (
-        <div
-          key={session.id}
-          className="repo-branch"
-          style={{ paddingLeft: depth * 12 }}
-        >
+        <div key={session.id} className="repo-branch">
           <div
             className={`session branch-row${statusClass}${current ? " active" : ""}`}
           >
@@ -114,12 +127,16 @@ export default function AgentSidebar(props: AgentSidebarProps) {
               onClick={() => props.onOpenSession(agent.name, session.id)}
               aria-current={current ? "page" : undefined}
             >
-              {(depth > 0 || node.missingParentId) && (
-                <span className="branch-fork-mark" aria-hidden="true">
-                  ↳
+              <SessionGraph row={row} current={current} />
+              <span className="truncate session-title fade-end">{title}</span>
+              {age && (
+                <span
+                  className="session-when mono"
+                  title={new Date(session.lastActive).toLocaleString()}
+                >
+                  {age}
                 </span>
               )}
-              <span className="truncate session-title fade-end">{title}</span>
             </button>
             <ActionMenu
               label={t("app.sessionMenu", { title })}
@@ -136,14 +153,13 @@ export default function AgentSidebar(props: AgentSidebarProps) {
               ]}
             />
           </div>
-          {node.children.map((child) => renderBranch(child, depth + 1))}
         </div>
       );
     };
     return (
       <div className="agent" key={agent.name}>
         <div
-          className={`agent-row${props.selected === agent.name && !props.chatOpen ? " selected" : ""}`}
+          className={`agent-row${props.selected === agent.name && !props.chatOpen ? " selected" : ""}${repoActive ? " draft-active" : ""}`}
         >
           <button
             type="button"
@@ -170,7 +186,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             className="agent-name"
             title={agent.name}
             aria-current={
-              props.selected === agent.name && !props.chatOpen
+              (props.selected === agent.name && !props.chatOpen) || repoActive
                 ? "page"
                 : undefined
             }
@@ -178,6 +194,23 @@ export default function AgentSidebar(props: AgentSidebarProps) {
           >
             <span className="fade-end">{agent.name}</span>
           </button>
+          <span className="agent-row-meta">
+            {sessions.length > 0 && (
+              <span
+                className="repo-meta mono"
+                title={t("app.repoBranchCount", { count: sessions.length })}
+              >
+                {sessions.length}
+              </span>
+            )}
+            {repoStatus && (
+              <span
+                className={`repo-dot status-${repoStatus}`}
+                title={sessionStatusLabel(repoStatus, repoStatus === "completed", t)}
+                aria-label={sessionStatusLabel(repoStatus, repoStatus === "completed", t)}
+              />
+            )}
+          </span>
           <span className="agent-row-actions">
             <button
               type="button"
@@ -214,34 +247,7 @@ export default function AgentSidebar(props: AgentSidebarProps) {
         </div>
         {expanded && (
           <div className="sessions" id={`agent-sessions-${agent.name}`}>
-            <div className={`session repo-row${repoActive ? " active" : ""}`}>
-              <button
-                type="button"
-                className="session-link"
-                title={t("app.openSessionRepo", { name: agent.name })}
-                onClick={() => props.onOpenRepo(agent.name)}
-                aria-current={repoActive ? "page" : undefined}
-              >
-                <span className="repo-icon" aria-hidden="true">
-                  <IconGitBranch />
-                </span>
-                <span className="truncate session-title fade-end">{t("app.sessions")}</span>
-                <span
-                  className="repo-meta mono"
-                  title={t("app.repoBranchCount", { count: sessions.length })}
-                >
-                  {sessions.length}
-                </span>
-                {repoStatus && (
-                  <span
-                    className={`repo-dot status-${repoStatus}`}
-                    title={sessionStatusLabel(repoStatus, repoStatus === "completed", t)}
-                    aria-label={sessionStatusLabel(repoStatus, repoStatus === "completed", t)}
-                  />
-                )}
-              </button>
-            </div>
-            {tree.map((node) => renderBranch(node, 0))}
+            {graph.map(renderBranch)}
             <button
               type="button"
               className="caption archive-toggle"

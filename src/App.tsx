@@ -231,12 +231,6 @@ export default function App() {
   const configureAgent = (agentName: string) => navigate({ kind: "workbench", agentName });
   const startCreating = () => navigate({ kind: "create" });
   const openSession = (agentName: string, sessionId: string) => { void navigation.openSession(agentName, sessionId); };
-  // 左栏的会话仓库行：默认打开最近活跃的分支（list_sessions 已按 last_active 降序）。
-  const openRepo = (agentName: string) => {
-    const latest = sessionsByAgent[agentName]?.[0];
-    if (latest) openSession(agentName, latest.id);
-    else selectAgent(agentName);
-  };
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeNavigation = useCallback(() => setSidebarOpen(false), []);
   useDialogFocus(sidebarRef, closeNavigation, mobile && sidebarOpen);
@@ -445,7 +439,7 @@ export default function App() {
             archivedSessions={archivedSessions} archivedSessionsExpanded={archivedSessionsExpanded} archivedOpen={archivedOpen}
             sessionsFor={sessionsFor} sessionStatus={sessionStatus} sessionUnread={sessionUnread}
             onSelectAgent={selectAgent} onConfigure={configureAgent}
-            onStartNewSession={name => void navigation.startNewSession(name)} onOpenRepo={openRepo}
+            onStartNewSession={name => void navigation.startNewSession(name)}
             onOpenSession={openSession}
             onArchiveAgent={name => void archive.archiveAgent(name)} onDeleteAgent={(name, archived) => void archive.deleteAgent(name, archived)}
             onRestoreAgent={name => void archive.restoreAgent(name)} onArchiveSession={(name, id) => void archive.archiveSession(name, id)}

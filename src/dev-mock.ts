@@ -70,6 +70,8 @@ const runningDemoSessionId = "1790000000000-running-demo";
 const subagentDemoSessionId = "1790000000200-subagent-demo";
 const demoParentSessions = new Map<string, string>([[subagentDemoSessionId, runningDemoSessionId]]);
 const initialDemoSessionId = "1730000000000-abc123";
+const forkDemoSessionId = "1730000001000-fork-demo";
+const secondForkDemoSessionId = "1730000002000-fork-demo";
 const legacyDemoSessionId = "1729990000000-def456";
 const peerDemoSessionId = "1729980000000-ghi789";
 
@@ -140,6 +142,16 @@ const demoStates = new Map<string, DemoAgentState>([
         { role: "assistant", content: [{ type: "text", text: "正在读取 src/ 下的文件，先确认入口与共享组件。" }], timestamp: Date.now() - 15000 },
       ]],
       [initialDemoSessionId, "帮我看看这个项目的结构", initialDemoMessages],
+      [forkDemoSessionId, "从项目结构继续分析前端", [
+        ...initialDemoMessages,
+        { role: "user", content: "继续分析前端组件。", timestamp: Date.now() - 120000 },
+        { role: "assistant", content: [{ type: "text", text: "我会从 src/ 的入口和会话组件开始。" }], timestamp: Date.now() - 110000 },
+      ]],
+      [secondForkDemoSessionId, "从项目结构继续分析 Rust", [
+        ...initialDemoMessages,
+        { role: "user", content: "继续分析 Rust 核心。", timestamp: Date.now() - 100000 },
+        { role: "assistant", content: [{ type: "text", text: "我会从 crates/ 的分层开始。" }], timestamp: Date.now() - 90000 },
+      ]],
       [
         legacyDemoSessionId,
         "把 README 翻译成英文",
@@ -775,6 +787,9 @@ function listDemoSessions(agentName: string): Array<Record<string, unknown>> {
       startedAt: Number(id.split("-")[0]) || 0,
       lastActive: Number(id.split("-")[0]) || 0,
       ...(demoParentSessions.has(id) ? { parentSessionId: demoParentSessions.get(id) } : {}),
+      ...([forkDemoSessionId, secondForkDemoSessionId].includes(id)
+        ? { forkParentId: initialDemoSessionId }
+        : {}),
     }));
 }
 

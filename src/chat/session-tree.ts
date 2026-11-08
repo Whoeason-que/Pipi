@@ -66,3 +66,50 @@ export function buildSessionTree(
   }
   return tree;
 }
+
+export interface SessionGraphLane {
+  key: number;
+  targetId: string;
+  color: string;
+}
+
+export interface SessionGraphRow {
+  node: SessionTreeNode;
+  input: SessionGraphLane[];
+  output: SessionGraphLane[];
+  circleIndex: number;
+  color: string;
+  hasParent: boolean;
+}
+
+/** Children precede their source, like commits in the SCM history graph. */
+export function buildSessionGraph(tree: SessionTreeNode[]): SessionGraphRow[] {
+  const ordered: Array<{ node: SessionTreeNode; parentId?: string }> = [];
+  const visit = (node: SessionTreeNode, parentId?: string) => {
+    for (const child of node.children) visit(child, node.session.id);
+    ordered.push({ node, parentId });
+  };
+  for (const root of tree) visit(root);
+
+  const palette = ["#3794FF", "#FFB000", "#DC267F", "#994F00", "#40B0A6", "#B66DFF"];
+  let nextLane = 0;
+  let lanes: SessionGraphLane[] = [];
+  return ordered.map(({ node, parentId }) => {
+    const input = lanes;
+    const matching = input.filter((lane) => lane.targetId === node.session.id);
+    const circleIndex = matching.length
+      ? input.findIndex((lane) => lane.targetId === node.session.id)
+      : input.length;
+    const color = matching[0]?.color ?? palette[nextLane % palette.length];
+    const output = input.filter((lane) => lane.targetId !== node.session.id);
+    if (parentId) {
+      const lane = matching[0] ?? { key: nextLane++, targetId: parentId, color };
+      output.splice(circleIndex, 0, { ...lane, targetId: parentId });
+    } else if (!matching.length) {
+      // Reserve a color for independent roots too.
+      nextLane++;
+    }
+    lanes = output;
+    return { node, input, output, circleIndex, color, hasParent: !!parentId };
+  });
+}

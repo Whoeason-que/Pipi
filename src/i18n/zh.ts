@@ -52,7 +52,6 @@ export const zh: DeepPartial<I18nSchema> = {
     closeSettings: "关闭设置",
   },
   app: {
-    sessions: "会话",
     workspaceFilterLabel: "工作区范围",
     workspaceFilterAll: "全部工作区",
   },
