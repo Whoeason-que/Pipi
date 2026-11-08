@@ -42,9 +42,9 @@
 
 /* ---- 工作区页面 ---- */
 
-.workspace-files-sidebar { flex: 1; min-height: 0; padding: 0 10px 10px; overflow: hidden; }
+.workspace-files-sidebar { flex: 1; min-height: 0; gap: 0; padding: 0 10px 10px; overflow: hidden; }
 
-.workspace-files-sidebar .file-workbench-header { padding: 10px 2px; border-bottom: 1px solid var(--line-soft); }
+.workspace-files-sidebar .file-workbench-header { min-height: 40px; padding: 4px 2px; border-bottom: 1px solid var(--line-soft); }
 
 /* 侧栏搜索置顶，与其它分区同款；容器本身已有内边距，这里不再叠加横向内边距。 */
 .workspace-files-sidebar .sb-filter { padding: 12px 0 6px; }

@@ -36,7 +36,9 @@ export interface ArchiveActionState {
   archiveAgent: (name: string) => Promise<void>;
   restoreAgent: (name: string) => Promise<void>;
   deleteAgent: (name: string, archived: boolean) => Promise<void>;
-  deleteSession: (agentName: string, sessionId: string) => Promise<void>;
+  archiveSession: (agentName: string, sessionId: string) => Promise<void>;
+  restoreSession: (agentName: string, sessionId: string) => Promise<void>;
+  deleteSession: (agentName: string, sessionId: string, archived: boolean) => Promise<void>;
 }
 
 /**
@@ -139,14 +141,33 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
     });
   };
 
-  const deleteSession = async (agentName: string, sessionId: string) => {
+  const archiveSession = async (agentName: string, sessionId: string) => {
+    try {
+      await invoke("archive_session", { agentName, sessionId });
+      finishSessionMutation(agentName, sessionId);
+      await refreshSessions([agentName]);
+    } catch (errorValue) {
+      safeSetError(formatRuntimeError(errorValue));
+    }
+  };
+
+  const restoreSession = async (agentName: string, sessionId: string) => {
+    try {
+      await invoke("restore_session", { agentName, sessionId });
+      await refreshSessions([agentName]);
+    } catch (errorValue) {
+      safeSetError(formatRuntimeError(errorValue));
+    }
+  };
+
+  const deleteSession = async (agentName: string, sessionId: string, archived: boolean) => {
     setConfirmState({
-      title: t("app.deleteSessionTitle"),
+      title: t(archived ? "app.deleteArchivedSessionTitle" : "app.deleteSessionTitle"),
       message: t("app.deleteSessionMessage"),
       action: async () => {
         try {
-          await invoke("delete_session", { agentName, sessionId });
-          finishSessionMutation(agentName, sessionId);
+          await invoke("delete_session", { agentName, sessionId, archived });
+          if (!archived) finishSessionMutation(agentName, sessionId);
           await refreshSessions([agentName]);
         } catch (errorValue) {
           safeSetError(formatRuntimeError(errorValue));
@@ -159,6 +180,8 @@ export function useArchiveActions(options: ArchiveActionOptions): ArchiveActionS
     archiveAgent,
     restoreAgent,
     deleteAgent,
+    archiveSession,
+    restoreSession,
     deleteSession,
   };
 }

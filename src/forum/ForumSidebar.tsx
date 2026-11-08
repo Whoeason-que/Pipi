@@ -54,7 +54,7 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
         label={t("forum.searchLabel")}
       />
 
-      <div className="caption sb-sec forum-sidebar-heading">
+      <div className="caption sb-sec">
         <span>{t("forum.title")}</span>
         <span className="spacer" />
         <span className="caption sb-count">{threads.length}</span>
@@ -127,7 +127,7 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
         <div className="session pending">{t("forum.noMatches")}</div>
       )}
 
-      <nav className="forum-sidebar-list" aria-label={t("forum.threadListLabel")}>
+      <nav className="sidebar-list forum-sidebar-list" aria-label={t("forum.threadListLabel")}>
         {filteredThreads.map((summary) => {
           const isSelected = selectedId === summary.thread.id && !composing;
           const isPinned = summary.thread.pinned;
@@ -136,7 +136,7 @@ export function ForumSidebar({ onSelect }: ForumSidebarProps) {
             <button
               key={summary.thread.id}
               type="button"
-              className={`search-item forum-sidebar-item${isSelected ? " active" : ""}`}
+              className={`search-item sidebar-item forum-sidebar-item${isSelected ? " active" : ""}`}
               aria-current={isSelected ? "true" : undefined}
               onClick={() => handleSelect(summary.thread.id)}
             >

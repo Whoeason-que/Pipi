@@ -77,6 +77,7 @@ export interface CommandMap {
   restore_agent: { args: { name: string }; result: void };
   delete_agent: { args: { name: string; archived?: boolean | null }; result: void };
   import_sessions: { args: { agentName: string }; result: SessionImportReportView };
+  archive_session: { args: { agentName: string; sessionId: string }; result: void };
   restore_session: { args: { agentName: string; sessionId: string }; result: void };
   delete_session: { args: { agentName: string; sessionId: string; archived?: boolean | null }; result: void };
   skill_library: { args: {  }; result: SkillLibrary };

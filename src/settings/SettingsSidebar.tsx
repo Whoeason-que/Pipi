@@ -64,12 +64,12 @@ export default function SettingsSidebar({
 
   return (
     <nav
-      className="settings-nav"
+      className="sidebar-list settings-nav"
       role="tablist"
       aria-label={t("settings.title")}
       aria-orientation="vertical"
     >
-      <span className="caption settings-nav-title">{t("settings.title")}</span>
+      <span className="caption sb-sec settings-nav-title">{t("settings.title")}</span>
       {sections.map((id) => (
         <button
           key={id}
@@ -78,7 +78,7 @@ export default function SettingsSidebar({
           id={`settings-tab-${id}`}
           aria-controls="settings-content"
           aria-selected={section === id}
-          className={`settings-nav-item${section === id ? " active" : ""}`}
+          className={`sidebar-item settings-nav-item${section === id ? " active" : ""}`}
           onClick={() => onSelect(id)}
         >
           <span className="settings-nav-icon">

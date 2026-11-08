@@ -14,20 +14,9 @@
   background: var(--ok);
 }
 
-.settings-nav {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: 0 var(--space-3) var(--space-5);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
 .settings-nav-title {
-  padding: 0 12px 9px;
-  font-weight: 500;
+  flex-shrink: 0;
+  padding-left: 2px;
 }
 
 .settings-nav-item {
@@ -35,9 +24,7 @@
   align-items: center;
   min-width: 0;
   gap: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid transparent;
-  border-radius: var(--r);
+  padding: 7px 9px;
   color: var(--muted);
   background: transparent;
   cursor: pointer;
@@ -53,11 +40,7 @@
   background: var(--hover);
 }
 
-.settings-nav-item.active {
-  color: var(--accent-text);
-  border-color: transparent;
-  background: var(--accent-soft);
-}
+.settings-nav-item.active { color: var(--accent-text); }
 
 .settings-nav-icon {
   display: flex;

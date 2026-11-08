@@ -295,19 +295,6 @@
   overflow-wrap: anywhere;
 }
 
-.stats-sidebar-heading { padding: 0 12px; }
-
-.stats-agent-list {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0 8px 10px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
 /* .search-item 在 search.css 中纵向堆叠，且该文件晚于 stats.css 加载；
    用复合选择器固定横排，避免被通用规则覆盖回竖排。 */
 .search-item.stats-agent-item {
@@ -315,17 +302,6 @@
   align-items: center;
   gap: 9px;
   padding: 7px 9px;
-  border: 1px solid transparent;
-  border-radius: var(--r);
-  background: transparent;
-  text-align: left;
-}
-
-.search-item.stats-agent-item:hover { background: var(--hover); }
-
-.search-item.stats-agent-item.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
 }
 
 .search-item.stats-agent-item.active .stats-agent-name { color: var(--accent-text); }

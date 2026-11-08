@@ -16,6 +16,7 @@ import { useSessionList } from "./app/use-session-list";
 import { useSessionNavigation } from "./app/use-session-navigation";
 import { useSettings } from "./app/use-settings";
 import ChatView from "./chat/ChatView";
+import { visibleSessions } from "./chat/session-tree";
 import { WorkspaceSidebar } from "./files/WorkspaceSidebar";
 import { WorkspaceView } from "./files/WorkspaceView";
 import { ForumSidebar } from "./forum/ForumSidebar";
@@ -63,6 +64,7 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState({ authRequired: false, authenticated: true, checking: !isTauriRuntime() });
   const [navSection, setNavSection] = useState<NavSection>("agents");
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [showArchivedSessions, setShowArchivedSessions] = useState(false);
   const [chatKey, setChatKey] = useState(0);
   const [activeSession, setActiveSession] = useState<SessionInfoView | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -103,9 +105,18 @@ export default function App() {
     if (message?.includes("正在运行或有托管后台任务") || message?.includes("background tasks")) message = t("app.backgroundTaskError");
     setError(message);
   }, [t]);
-  const { agents, archivedAgents, sessionsByAgent, refresh, refreshSessions, refreshArchived,
+  const { agents, archivedAgents, sessionsByAgent, archivedSessionsByAgent, refresh, refreshSessions, refreshArchived,
     removeAgentSessions, sessionsFor } = useSessionList(safeSetError);
   agentsRef.current = agents;
+
+  const visibleActiveSessions = useMemo(() => Object.fromEntries(
+    Object.entries(sessionsByAgent).map(([name, active]) => {
+      const archived = archivedSessionsByAgent[name] ?? [];
+      const archivedIds = new Set(archived.map((session) => session.id));
+      const visible = visibleSessions([...active, ...archived], archivedIds, showArchivedSessions);
+      return [name, visible.filter((session) => !archivedIds.has(session.id))];
+    }),
+  ), [sessionsByAgent, archivedSessionsByAgent, showArchivedSessions]);
 
   useEffect(() => sessionRuntime.subscribeRekeys((controller, previous, next, temporary) => {
     if (temporary || !navigationMemory.rekey(controller.agentName, previous, next, controller)) return;
@@ -124,7 +135,7 @@ export default function App() {
     filteredSessionsByAgent,
     select: selectWorkspacePath,
     removeCustom: removeCustomWorkspaceEntry,
-  } = useWorkspaceFilter({ agents, archivedAgents, sessionsByAgent });
+  } = useWorkspaceFilter({ agents, archivedAgents, sessionsByAgent: visibleActiveSessions });
   const statsAgents = useMemo(
     () => filteredAgents.filter((agent) => !agent.subagent),
     [filteredAgents],
@@ -309,7 +320,7 @@ export default function App() {
   }, [current?.name, current?.subagent, view.kind]);
 
   const files = useFilesBridge({
-    agents, filteredAgents, sessionsByAgent, activeWorkspace, workspaces,
+    agents, filteredAgents, sessionsByAgent: visibleActiveSessions, activeWorkspace, workspaces,
     current: current ?? null,
     viewKind: view.kind,
     authenticated: !authStatus.checking && authStatus.authenticated,
@@ -434,13 +445,18 @@ export default function App() {
             <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
             viewSessionId={view.kind === "chat" ? view.sessionId : null}
             archivedOpen={archivedOpen}
+            archivedSessionsByAgent={archivedSessionsByAgent}
+            showArchived={showArchivedSessions}
+            onToggleArchivedSessions={() => setShowArchivedSessions((previous) => !previous)}
             sessionsFor={sessionsFor} sessionStatus={sessionStatus} sessionUnread={sessionUnread}
             onSelectAgent={selectAgent} onConfigure={configureAgent}
             onStartNewSession={name => void navigation.startNewSession(name)}
             onOpenSession={openSession}
             onArchiveAgent={name => void archive.archiveAgent(name)} onDeleteAgent={(name, archived) => void archive.deleteAgent(name, archived)}
             onRestoreAgent={name => void archive.restoreAgent(name)}
-            onDeleteSession={(name, id) => void archive.deleteSession(name, id)}
+            onArchiveSession={(name, id) => void archive.archiveSession(name, id)}
+            onRestoreSession={(name, id) => void archive.restoreSession(name, id)}
+            onDeleteSession={(name, id, archived) => void archive.deleteSession(name, id, archived)}
             onToggleArchivedOpen={() => setArchivedOpen(open => !open)} />
           </>}
       </aside>

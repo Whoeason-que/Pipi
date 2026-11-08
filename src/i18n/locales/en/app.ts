@@ -18,6 +18,9 @@ export const app = {
   archivedSessionMenu: "Actions for archived session {title}",
   archivedAgentMenu: "Actions for archived Agent {name}",
   restoreSession: "Restore session",
+  restoreSessionToOpen: "Restore this archived session to open it",
+  showArchivedSessions: "Show archived sessions",
+  hideArchivedSessions: "Hide archived sessions",
 
   // 归档与删除确认
   agentKind: "Agent",

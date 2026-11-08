@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconChevronRight, IconPlus } from "../icons";
+import { IconChevronRight, IconEye, IconPlus } from "../icons";
 import ActionMenu from "../components/ActionMenu";
 import AgentAvatar from "../components/AgentAvatar";
 import type { AgentDefinition, SessionSummaryView } from "../types";
@@ -7,6 +7,7 @@ import { useI18n } from "../i18n";
 import {
   buildSessionGraph,
   buildSessionTree,
+  visibleSessions,
   type SessionGraphRow,
 } from "../chat/session-tree";
 import SessionGraph from "./SessionGraph";
@@ -40,6 +41,9 @@ export interface AgentSidebarProps {
   viewSessionId: string | null;
   archivedOpen: boolean;
   sessionsFor: (agent: AgentDefinition) => SessionSummaryView[];
+  archivedSessionsByAgent: Record<string, SessionSummaryView[]>;
+  showArchived: boolean;
+  onToggleArchivedSessions: () => void;
   sessionStatus: (agentName: string, sessionId: string | null) => SessionRunStatus | undefined;
   sessionUnread: (agentName: string, sessionId: string | null) => boolean;
   onSelectAgent: (name: string) => void;
@@ -50,7 +54,9 @@ export interface AgentSidebarProps {
   onArchiveAgent: (name: string) => void;
   onDeleteAgent: (name: string, archived: boolean) => void;
   onRestoreAgent: (name: string) => void;
-  onDeleteSession: (name: string, id: string) => void;
+  onArchiveSession: (name: string, id: string) => void;
+  onRestoreSession: (name: string, id: string) => void;
+  onDeleteSession: (name: string, id: string, archived: boolean) => void;
   onToggleArchivedOpen: () => void;
 }
 
@@ -70,7 +76,14 @@ export default function AgentSidebar(props: AgentSidebarProps) {
   const subagents = props.section === "subagents";
   const group = t(subagents ? "nav.subagents" : "nav.agents");
   const renderAgent = (agent: AgentDefinition) => {
-    const sessions = props.sessionsFor(agent);
+    const activeSessions = props.sessionsFor(agent);
+    const archivedSessions = props.archivedSessionsByAgent[agent.name] ?? [];
+    const archivedIds = new Set(archivedSessions.map((session) => session.id));
+    const sessions = visibleSessions(
+      [...activeSessions, ...archivedSessions].sort((a, b) => b.lastActive - a.lastActive),
+      archivedIds,
+      props.showArchived,
+    );
     const expanded = !collapsedAgents.has(agent.name);
     const statuses = sessions.map((session) =>
       props.sessionStatus(agent.name, session.id),
@@ -90,12 +103,13 @@ export default function AgentSidebar(props: AgentSidebarProps) {
     // 当前分支在树里时高亮分支本身；草稿/未落分支的会话高亮 Agent 头部行。
     const repoActive =
       chatOnAgent &&
-      !sessions.some((session) => session.id === currentSessionId);
+      !activeSessions.some((session) => session.id === currentSessionId);
     const graph = buildSessionGraph(buildSessionTree(sessions));
     const now = Date.now();
     const renderBranch = (row: SessionGraphRow) => {
       const { node } = row;
       const session = node.session;
+      const archived = archivedIds.has(session.id);
       const status = props.sessionStatus(agent.name, session.id);
       const unread = props.sessionUnread(agent.name, session.id);
       const statusClass =
@@ -108,13 +122,14 @@ export default function AgentSidebar(props: AgentSidebarProps) {
       return (
         <div key={session.id} className="repo-branch">
           <div
-            className={`session branch-row${statusClass}${current ? " active" : ""}`}
+            className={`session branch-row${statusClass}${current ? " active" : ""}${archived ? " archived-session" : ""}`}
           >
             <button
               type="button"
               className="session-link"
+              disabled={archived}
               title={
-                status
+                archived ? t("app.restoreSessionToOpen") : status
                   ? `${title} · ${sessionStatusLabel(status, unread, t)}`
                   : title
               }
@@ -133,12 +148,15 @@ export default function AgentSidebar(props: AgentSidebarProps) {
               )}
             </button>
             <ActionMenu
-              label={t("app.sessionMenu", { title })}
+              label={t(archived ? "app.archivedSessionMenu" : "app.sessionMenu", { title })}
               actions={[
+                archived
+                  ? { label: t("app.restoreSession"), run: () => props.onRestoreSession(agent.name, session.id) }
+                  : { label: t("app.archiveSession"), run: () => props.onArchiveSession(agent.name, session.id) },
                 {
                   label: t("app.deleteSession"),
                   danger: true,
-                  run: () => props.onDeleteSession(agent.name, session.id),
+                  run: () => props.onDeleteSession(agent.name, session.id, archived),
                 },
               ]}
             />
@@ -245,6 +263,21 @@ export default function AgentSidebar(props: AgentSidebarProps) {
   };
   return (
     <nav className="agents agent-sidebar" aria-label={t("app.groupAndSessions", { group })}>
+      <div className="caption sb-sec agent-sidebar-heading">
+        <span>{group}</span>
+        <span className="spacer" />
+        <span className="caption sb-count">{props.agents.length}</span>
+        <button
+          type="button"
+          className={`icon-btn${props.showArchived ? " active" : ""}`}
+          title={t(props.showArchived ? "app.hideArchivedSessions" : "app.showArchivedSessions")}
+          aria-label={t(props.showArchived ? "app.hideArchivedSessions" : "app.showArchivedSessions")}
+          aria-pressed={props.showArchived}
+          onClick={props.onToggleArchivedSessions}
+        >
+          <IconEye />
+        </button>
+      </div>
       <section className="agent-sidebar-group">
         {props.agents.map(renderAgent)}
         {!props.agents.length && (

@@ -46,7 +46,7 @@ export function SkillsSidebar({
         label={t("skills.searchInstalled")}
       />
 
-      <div className="caption sb-sec skills-heading">
+      <div className="caption sb-sec">
         <span>{t("nav.skills")}</span>
         <span className="spacer" />
         <span className="caption sb-count">{skills.length}</span>
@@ -67,7 +67,7 @@ export function SkillsSidebar({
         <div className="session pending">{t("skills.storeEmptySidebar")}</div>
       )}
 
-      <nav className="skills-list" aria-label={t("skills.installed")}>
+      <nav className="sidebar-list skills-list" aria-label={t("skills.installed")}>
         {filtered.map((skill) => {
           const current = skill.versions.find((version) => version.contentHash === skill.currentHash);
           const missing = !current || !current.present;
@@ -75,7 +75,7 @@ export function SkillsSidebar({
             <button
               key={skill.name}
               type="button"
-              className={`search-item skills-item${selected === skill.name ? " active" : ""}`}
+              className={`search-item sidebar-item skills-item${selected === skill.name ? " active" : ""}`}
               title={skill.description || skill.name}
               aria-current={selected === skill.name ? "true" : undefined}
               onClick={() => onSelect(selected === skill.name ? null : skill.name)}

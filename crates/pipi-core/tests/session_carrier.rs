@@ -185,7 +185,23 @@ fn archive_restore_and_delete_work_on_git_backed_sessions() {
     sink.commit_point().unwrap();
     drop(sink);
 
-    repo.archive(&id).unwrap();
+    let fork = repo.fork(&id, None).unwrap();
+    let fork_id = fork.session_id().to_string();
+    drop(fork);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let state = pipi_core::runtime::RuntimeState::new(runtime.handle().clone());
+    pipi_core::commands::archive_session(
+        &state,
+        pipi_core::commands::ArchiveSessionArgs {
+            agent_name: "carrier-lifecycle".into(),
+            session_id: id.clone(),
+        },
+    )
+    .unwrap();
     assert!(!repo.exists(&id).unwrap());
     assert!(
         repo.list_archived()
@@ -193,7 +209,24 @@ fn archive_restore_and_delete_work_on_git_backed_sessions() {
             .iter()
             .any(|summary| summary.id == id)
     );
-    repo.restore(&id).unwrap();
+    assert_eq!(
+        repo.list()
+            .iter()
+            .find(|summary| summary.id == fork_id)
+            .unwrap()
+            .fork_parent_id
+            .as_deref(),
+        Some(id.as_str()),
+        "归档来源后，活跃分叉仍保留来源标记"
+    );
+    pipi_core::commands::restore_session(
+        &state,
+        pipi_core::commands::RestoreSessionArgs {
+            agent_name: "carrier-lifecycle".into(),
+            session_id: id.clone(),
+        },
+    )
+    .unwrap();
     assert!(repo.exists(&id).unwrap());
     assert_eq!(repo.entries(&id).unwrap().len(), 1);
 

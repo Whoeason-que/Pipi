@@ -190,6 +190,32 @@
   line-height: 17px;
 }
 
+/* 各分区共用列表间距与选中态；树形列表保留自己的层级布局。 */
+.sidebar-list {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sidebar .sidebar-item {
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  background: transparent;
+  text-align: left;
+}
+
+.sidebar .sidebar-item:hover { background: var(--hover); }
+
+.sidebar .sidebar-item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
 .sidebar-note {
   padding: 8px 10px;
   line-height: 1.8;

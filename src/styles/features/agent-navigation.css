@@ -45,6 +45,10 @@
   padding: 0 8px 20px;
 }
 
+.agent-sidebar-heading { padding-left: 2px; padding-right: 2px; }
+
+.session.archived-session .session-link { opacity: .48; cursor: default; }
+
 .agent-sidebar-group + .agent-sidebar-group {
   margin-top: 22px;
 }

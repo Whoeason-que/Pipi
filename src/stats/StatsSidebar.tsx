@@ -1,8 +1,8 @@
 // Agent 统计侧栏：只负责选 Agent 与过滤，不在侧栏里逐个拉统计。
 import { useMemo, useState } from "react";
 import AgentAvatar from "../components/AgentAvatar";
+import { SidebarSearch } from "../components/SidebarSearch";
 import { useI18n } from "../i18n";
-import { IconClose, IconSearch } from "../icons";
 import type { AgentDefinition, SessionSummaryView } from "../types";
 
 interface StatsSidebarProps {
@@ -26,26 +26,9 @@ export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: St
 
   return (
     <>
-      <div className="sb-filter">
-        <div className="search">
-          <IconSearch />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t("stats.searchAgents")}
-            aria-label={t("stats.searchAgents")}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {query && (
-            <button type="button" className="search-clear" title={t("common.search")} onClick={() => setQuery("")}>
-              <IconClose />
-            </button>
-          )}
-        </div>
-      </div>
+      <SidebarSearch value={query} onChange={setQuery} placeholder={t("stats.searchAgents")} label={t("stats.searchAgents")} />
 
-      <div className="caption sb-sec stats-sidebar-heading">
+      <div className="caption sb-sec">
         <span>{t("stats.agents")}</span>
         <span className="spacer" />
         <span className="caption sb-count">{primaryAgents.length}</span>
@@ -53,7 +36,7 @@ export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: St
 
       {primaryAgents.length === 0 && <div className="session pending">{t("stats.noAgents")}</div>}
 
-      <nav className="stats-agent-list" aria-label={t("stats.agents")}>
+      <nav className="sidebar-list stats-agent-list" aria-label={t("stats.agents")}>
         {filtered.map((agent) => {
           const sessions = sessionsByAgent[agent.name]?.length ?? 0;
           const active = selected === agent.name;
@@ -61,7 +44,7 @@ export function StatsSidebar({ agents, selected, sessionsByAgent, onSelect }: St
             <button
               key={agent.name}
               type="button"
-              className={`search-item stats-agent-item${active ? " active" : ""}`}
+              className={`search-item sidebar-item stats-agent-item${active ? " active" : ""}`}
               title={agent.description || agent.name}
               aria-current={active ? "true" : undefined}
               onClick={() => onSelect(agent.name)}

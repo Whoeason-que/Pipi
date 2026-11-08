@@ -8,6 +8,7 @@ export interface SessionListState {
   agents: AgentDefinition[];
   archivedAgents: AgentDefinition[];
   sessionsByAgent: Record<string, SessionSummaryView[]>;
+  archivedSessionsByAgent: Record<string, SessionSummaryView[]>;
   refresh: () => Promise<void>;
   refreshSessions: (names: string[]) => Promise<void>;
   refreshArchived: () => Promise<void>;
@@ -32,6 +33,7 @@ export function useSessionList(
   const [sessionsByAgent, setSessionsByAgent] = useState<
     Record<string, SessionSummaryView[]>
   >({});
+  const [archivedSessionsByAgent, setArchivedSessionsByAgent] = useState<Record<string, SessionSummaryView[]>>({});
   // 供 refreshSessions 读取最新 Agent 名单；refresh 同步写入，不等重渲染。
   const agentsRef = useRef<AgentDefinition[]>([]);
   const sessionListRequestRef = useRef(new Map<string, number>());
@@ -43,17 +45,21 @@ export function useSessionList(
       const requestId = (sessionListRequestRef.current.get(name) ?? 0) + 1;
       sessionListRequestRef.current.set(name, requestId);
       try {
-        const sessions = await invoke("list_sessions", { agentName: name });
+        const [sessions, archived] = await Promise.all([
+          invoke("list_sessions", { agentName: name }),
+          invoke("list_sessions", { agentName: name, archived: true }),
+        ]);
         // 一次性子运行（run_agent inline）是父会话的实现细节，不进侧栏的
         // 顶层会话列表；它们仍可按 sessionId 续跑 / 由 read_agent 读取。
         return {
           name,
           requestId,
           sessions: sessions.filter((session) => !session.parentSessionId),
+          archived: archived.filter((session) => !session.parentSessionId),
           failed: false,
         };
       } catch {
-        return { name, requestId, sessions: null, failed: true };
+        return { name, requestId, sessions: null, archived: null, failed: true };
       }
     }));
     setSessionsByAgent((previous) => {
@@ -65,6 +71,16 @@ export function useSessionList(
           && result.requestId === sessionListRequestRef.current.get(result.name)
           && result.sessions
         ) next[result.name] = result.sessions;
+      }
+      return next;
+    });
+    setArchivedSessionsByAgent((previous) => {
+      const known = new Set(agentsRef.current.map((agent) => agent.name));
+      const next = Object.fromEntries(Object.entries(previous).filter(([name]) => known.has(name)));
+      for (const result of results) {
+        if (known.has(result.name) && result.requestId === sessionListRequestRef.current.get(result.name) && result.archived) {
+          next[result.name] = result.archived;
+        }
       }
       return next;
     });
@@ -109,12 +125,18 @@ export function useSessionList(
       delete next[agentName];
       return next;
     });
+    setArchivedSessionsByAgent((previous) => {
+      const next = { ...previous };
+      delete next[agentName];
+      return next;
+    });
   }, []);
 
   // agents 变化后拉取各 Agent 的会话列表；空列表也要清理旧数据。
   useEffect(() => {
     if (agents.length === 0) {
       setSessionsByAgent({});
+      setArchivedSessionsByAgent({});
       return;
     }
     void refreshSessions(agents.map((agent) => agent.name));
@@ -127,6 +149,7 @@ export function useSessionList(
     agents,
     archivedAgents,
     sessionsByAgent,
+    archivedSessionsByAgent,
     refresh,
     refreshSessions,
     refreshArchived,

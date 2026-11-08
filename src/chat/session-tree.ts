@@ -1,5 +1,25 @@
 import type { SessionSummaryView } from "../types";
 
+/** Hide archived sessions and every descendant, including through multiple forks. */
+export function visibleSessions(
+  sessions: SessionSummaryView[],
+  archivedIds: ReadonlySet<string>,
+  showArchived: boolean,
+): SessionSummaryView[] {
+  if (showArchived) return sessions;
+  const byId = new Map(sessions.map((session) => [session.id, session]));
+  return sessions.filter((session) => {
+    const seen = new Set<string>();
+    let id: string | undefined = session.id;
+    while (id && !seen.has(id)) {
+      if (archivedIds.has(id)) return false;
+      seen.add(id);
+      id = byId.get(id)?.forkParentId;
+    }
+    return true;
+  });
+}
+
 /** 左栏会话仓库树的一个分支节点。 */
 export interface SessionTreeNode {
   session: SessionSummaryView;

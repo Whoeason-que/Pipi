@@ -1228,6 +1228,21 @@ export function installDevMock(): void {
           }
           return Promise.resolve(null);
         }
+        case "archive_session": {
+          const agentName = String(args.agentName ?? demoAgent.name);
+          const sid = String(args.sessionId ?? "");
+          const state = stateFor(agentName);
+          const current = conversationOf(agentName, sid);
+          if (current?.running) {
+            return Promise.reject(new Error(`Session "${sid}" is still running. Stop it before archiving`));
+          }
+          const history = state.histories.get(sid);
+          if (history === undefined) return Promise.reject(new Error("Session does not exist"));
+          state.archivedSessions.set(sid, history);
+          state.histories.delete(sid);
+          demoConversations.delete(sessionKey(agentName, sid));
+          return Promise.resolve(null);
+        }
         case "restore_session": {
           const state = stateFor(String(args.agentName ?? demoAgent.name));
           const sid = String(args.sessionId ?? "");

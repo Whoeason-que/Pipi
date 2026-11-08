@@ -1,33 +1,9 @@
 /* 技能安装、版本、使用关系与 Agent 启用状态。 */
-.skills-heading { padding-right: 6px; }
-
-.skills-list {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 0 8px 10px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.skills-item {
-  display: flex;
+.search-item.skills-item {
+  flex-direction: row;
   align-items: flex-start;
   gap: 9px;
-  padding: 9px;
-  border: 1px solid transparent;
-  border-radius: var(--r);
-  background: transparent;
-  text-align: left;
-}
-
-.skills-item:hover { background: var(--hover); }
-
-.skills-item.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
+  padding: 7px 9px;
 }
 
 .skills-item-icon {

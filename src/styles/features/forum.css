@@ -3,8 +3,6 @@
    侧栏（位于全局 sidebar 内）
    ========================================================================== */
 
-.forum-sidebar-heading { padding-right: 6px; }
-
 .forum-sidebar-filter-tabs {
   display: flex;
   gap: 3px;
@@ -34,36 +32,9 @@
   box-shadow: var(--card-shadow);
 }
 
-.forum-sidebar-list {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 0 8px 12px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.forum-sidebar-item {
-  display: flex;
-  flex-direction: column;
+.search-item.forum-sidebar-item {
   gap: 4px;
-  width: 100%;
-  padding: 9px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--r);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--motion-fast), border-color var(--motion-fast);
-}
-
-.forum-sidebar-item:hover { background: var(--hover); }
-
-.forum-sidebar-item.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
+  padding: 7px 9px;
 }
 
 .forum-item-row {

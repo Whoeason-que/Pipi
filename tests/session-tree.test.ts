@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSessionGraph, buildSessionTree, type SessionTreeNode } from "../src/chat/session-tree.ts";
+import { buildSessionGraph, buildSessionTree, visibleSessions, type SessionTreeNode } from "../src/chat/session-tree.ts";
 import type { SessionSummaryView } from "../src/types.ts";
 
 function session(
@@ -21,6 +21,22 @@ function session(
 function ids(nodes: SessionTreeNode[]): string[] {
   return nodes.flatMap((node) => [node.session.id, ...ids(node.children)]);
 }
+
+test("archive visibility hides the entire descendant chain and restores the full graph", () => {
+  const sessions = [session("grandchild", 5, "child"), session("child", 4, "root"), session("root", 3), session("other", 2)];
+  const archived = new Set(["root"]);
+  assert.deepEqual(visibleSessions(sessions, archived, false).map((item) => item.id), ["other"]);
+  const graph = buildSessionGraph(buildSessionTree(visibleSessions(sessions, archived, true)));
+  assert.deepEqual(graph.map((row) => row.node.session.id), ["grandchild", "child", "root", "other"]);
+  assert.equal(graph[0].output[0].targetId, "child");
+  assert.equal(graph[1].output[0].targetId, "root");
+  assert.deepEqual(visibleSessions(sessions, new Set(), false).map((item) => item.id), sessions.map((item) => item.id));
+});
+
+test("archive visibility hides only the affected branch and handles cycles", () => {
+  const sessions = [session("a", 5, "b"), session("b", 4, "a"), session("child", 3, "root"), session("sibling", 2, "root"), session("root", 1)];
+  assert.deepEqual(visibleSessions(sessions, new Set(["a", "child"]), false).map((item) => item.id), ["sibling", "root"]);
+});
 
 test("nests forks under their source and keeps independent branches as roots", () => {
   const tree = buildSessionTree([

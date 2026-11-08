@@ -88,6 +88,7 @@ pub const COMMANDS: &[&str] = &[
     "restore_agent",
     "delete_agent",
     "import_sessions",
+    "archive_session",
     "restore_session",
     "delete_session",
     "skill_library",
@@ -991,6 +992,17 @@ pub async fn import_sessions(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ArchiveSessionArgs {
+    pub agent_name: String,
+    pub session_id: String,
+}
+
+pub fn archive_session(runtime: &RuntimeState, args: ArchiveSessionArgs) -> Result<(), String> {
+    runtime.archive_session(&args.agent_name, &args.session_id)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RestoreSessionArgs {
     pub agent_name: String,
     pub session_id: String,
@@ -1331,6 +1343,7 @@ pub async fn dispatch(
         "restore_agent" => to_value(restore_agent(runtime, parse(args)?)?),
         "delete_agent" => to_value(delete_agent(runtime, parse(args)?)?),
         "import_sessions" => to_value(import_sessions(runtime, parse(args)?).await?),
+        "archive_session" => to_value(archive_session(runtime, parse(args)?)?),
         "restore_session" => to_value(restore_session(runtime, parse(args)?)?),
         "delete_session" => to_value(delete_session(runtime, parse(args)?)?),
         "skill_library" => to_value(skill_library()?),
@@ -1378,8 +1391,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            69,
-            "宿主命令数应为 69（前端 CommandMap 同步）"
+            70,
+            "宿主命令数应为 70（前端 CommandMap 同步）"
         );
     }
 
