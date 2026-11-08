@@ -47,7 +47,7 @@ import { StatsSidebar } from "./stats/StatsSidebar";
 import StatsView from "./stats/StatsView";
 import { SkillsView } from "./skills/SkillsView";
 import { applyTheme } from "./theme";
-import type { AgentDefinition, SessionInfoView, SessionSummaryView, SkillLibrary } from "./types";
+import type { AgentDefinition, SessionInfoView, SkillLibrary } from "./types";
 
 export default function App() {
   const { t } = useI18n();
@@ -63,8 +63,6 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState({ authRequired: false, authenticated: true, checking: !isTauriRuntime() });
   const [navSection, setNavSection] = useState<NavSection>("agents");
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const [archivedSessions, setArchivedSessions] = useState<Record<string, SessionSummaryView[]>>({});
-  const [archivedSessionsExpanded, setArchivedSessionsExpanded] = useState<Record<string, boolean>>({});
   const [chatKey, setChatKey] = useState(0);
   const [activeSession, setActiveSession] = useState<SessionInfoView | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -225,8 +223,7 @@ export default function App() {
       navigationMemory.forgetAgent(agentName);
       const saved = previousView.current;
       if ("agentName" in saved && saved.agentName === agentName) previousView.current = { kind: "home" };
-    }, archivedSessionsExpanded,
-    setArchivedSessions, setArchivedSessionsExpanded, invalidateNavigation: navigation.invalidateNavigation });
+    }, invalidateNavigation: navigation.invalidateNavigation });
   const selectAgent = (agentName: string) => navigate({ kind: "agent", agentName });
   const configureAgent = (agentName: string) => navigate({ kind: "workbench", agentName });
   const startCreating = () => navigate({ kind: "create" });
@@ -436,15 +433,14 @@ export default function App() {
             )}
             <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
             viewSessionId={view.kind === "chat" ? view.sessionId : null}
-            archivedSessions={archivedSessions} archivedSessionsExpanded={archivedSessionsExpanded} archivedOpen={archivedOpen}
+            archivedOpen={archivedOpen}
             sessionsFor={sessionsFor} sessionStatus={sessionStatus} sessionUnread={sessionUnread}
             onSelectAgent={selectAgent} onConfigure={configureAgent}
             onStartNewSession={name => void navigation.startNewSession(name)}
             onOpenSession={openSession}
             onArchiveAgent={name => void archive.archiveAgent(name)} onDeleteAgent={(name, archived) => void archive.deleteAgent(name, archived)}
-            onRestoreAgent={name => void archive.restoreAgent(name)} onArchiveSession={(name, id) => void archive.archiveSession(name, id)}
-            onDeleteSession={(name, id) => void archive.deleteSession(name, id)} onToggleArchivedSessions={name => void archive.toggleArchivedSessions(name)}
-            onRestoreSession={(name, id) => void archive.restoreSession(name, id)} onDeleteArchivedSession={(name, id) => void archive.deleteArchivedSession(name, id)}
+            onRestoreAgent={name => void archive.restoreAgent(name)}
+            onDeleteSession={(name, id) => void archive.deleteSession(name, id)}
             onToggleArchivedOpen={() => setArchivedOpen(open => !open)} />
           </>}
       </aside>
@@ -488,8 +484,6 @@ export default function App() {
               const active = viewRef.current;
               if (info && active.kind === "chat" && active.agentName === current.name) commitView({ ...active, sessionId: info.sessionId });
               void refreshSessions([current.name]);
-              if (archivedSessionsExpanded[current.name]) void invoke("list_sessions", { agentName: current.name, archived: true })
-                .then(list => setArchivedSessions(previous => ({ ...previous, [current.name]: list }))).catch(() => {});
             }} />
           : current && view.kind === "workbench" && settings ? <AgentWorkbench onOpenFile={path => files.openWorkspaceFile(current.name, path)} key={current.name} agent={current} providers={settings.providers}
             onSaved={async () => { await refresh(); }} onBack={() => selectAgent(current.name)} onError={safeSetError}

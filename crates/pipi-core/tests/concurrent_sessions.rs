@@ -152,6 +152,8 @@ fn temp_home() -> std::path::PathBuf {
 
 /// 播种一个指向指定端点的 Agent（各自一个模型，互不影响）。
 fn fixture_agent(name: &str, base_url: &str) {
+    let workspace = std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
     let model_id = format!("{name}-model");
     let model = Model {
         id: model_id.clone(),
@@ -162,8 +164,15 @@ fn fixture_agent(name: &str, base_url: &str) {
         context_window: 0,
         reasoning_effort: None,
     };
-    agents::create_agent(name, "并发回归", None, None, Some(&model_id), Some(model))
-        .expect("播种测试 Agent");
+    agents::create_agent(
+        name,
+        "并发回归",
+        workspace.to_str(),
+        None,
+        Some(&model_id),
+        Some(model),
+    )
+    .expect("播种测试 Agent");
 }
 
 fn write_settings(base_urls: &[String]) {

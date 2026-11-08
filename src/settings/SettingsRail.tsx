@@ -88,7 +88,7 @@ function StorageInfo({ settings, defaultProvider, t }: {
       <div className="right-rail-kv"><span>{t("settings.theme")}</span><span className="mono">{settings.theme}</span></div>
       <div className="right-rail-kv"><span>{t("settings.providers")}</span><span>{t("settings.providerCount", { count: settings.providers.length })}</span></div>
       <div className="right-rail-kv"><span>{t("settings.defaultProvider")}</span><span className="mono">{defaultProvider ?? t("settings.notSet")}</span></div>
-      <div className="right-rail-kv"><span>{t("settings.compaction")}</span><span>{settings.compaction.forkBeforeCompact ? t("settings.forkNewSession") : t("settings.inPlaceReplace")}{settings.compaction.archiveOriginal ? ` · ${t("settings.originalArchived")}` : ""}</span></div>
+      <div className="right-rail-kv"><span>{t("settings.compaction")}</span><span>{settings.compaction.forkBeforeCompact ? t("settings.forkNewSession") : t("settings.inPlaceReplace")}</span></div>
       <div className="right-rail-kv"><span>{t("settings.retry")}</span><span>{t("settings.retrySummary", { attempts: settings.retry.maxAttempts, base: settings.retry.baseDelayMs, max: settings.retry.maxDelayMs })}</span></div>
     </section>
   </>;

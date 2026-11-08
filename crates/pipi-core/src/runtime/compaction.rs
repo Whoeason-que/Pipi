@@ -39,7 +39,7 @@ impl RuntimeState {
             budget,
             policy: CompactionPolicy {
                 fork_before_compact: settings.compaction.fork_before_compact,
-                archive_original: settings.compaction.archive_original,
+                archive_original: false,
             },
             mode,
         };

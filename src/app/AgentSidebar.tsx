@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconArchive, IconChevronRight, IconPlus } from "../icons";
+import { IconChevronRight, IconPlus } from "../icons";
 import ActionMenu from "../components/ActionMenu";
 import AgentAvatar from "../components/AgentAvatar";
 import type { AgentDefinition, SessionSummaryView } from "../types";
@@ -38,8 +38,6 @@ export interface AgentSidebarProps {
   chatOpen: boolean;
   /** 当前打开的会话 id（高亮左栏仓库树里的那条分支）。 */
   viewSessionId: string | null;
-  archivedSessions: Record<string, SessionSummaryView[]>;
-  archivedSessionsExpanded: Record<string, boolean>;
   archivedOpen: boolean;
   sessionsFor: (agent: AgentDefinition) => SessionSummaryView[];
   sessionStatus: (agentName: string, sessionId: string | null) => SessionRunStatus | undefined;
@@ -52,11 +50,7 @@ export interface AgentSidebarProps {
   onArchiveAgent: (name: string) => void;
   onDeleteAgent: (name: string, archived: boolean) => void;
   onRestoreAgent: (name: string) => void;
-  onArchiveSession: (name: string, id: string) => void;
   onDeleteSession: (name: string, id: string) => void;
-  onToggleArchivedSessions: (name: string) => void;
-  onRestoreSession: (name: string, id: string) => void;
-  onDeleteArchivedSession: (name: string, id: string) => void;
   onToggleArchivedOpen: () => void;
 }
 
@@ -141,10 +135,6 @@ export default function AgentSidebar(props: AgentSidebarProps) {
             <ActionMenu
               label={t("app.sessionMenu", { title })}
               actions={[
-                {
-                  label: t("app.archiveSession"),
-                  run: () => props.onArchiveSession(agent.name, session.id),
-                },
                 {
                   label: t("app.deleteSession"),
                   danger: true,
@@ -248,46 +238,6 @@ export default function AgentSidebar(props: AgentSidebarProps) {
         {expanded && (
           <div className="sessions" id={`agent-sessions-${agent.name}`}>
             {graph.map(renderBranch)}
-            <button
-              type="button"
-              className="caption archive-toggle"
-              aria-expanded={Boolean(
-                props.archivedSessionsExpanded[agent.name],
-              )}
-              onClick={() => props.onToggleArchivedSessions(agent.name)}
-            >
-              <span className="archive-toggle-marker" aria-hidden="true">
-                <IconArchive />
-                <span className="archive-toggle-chevron">
-                  <IconChevronRight />
-                </span>
-              </span>
-              <span className="archive-toggle-label">{t("app.archived")}</span>
-            </button>
-            {props.archivedSessionsExpanded[agent.name] &&
-              (props.archivedSessions[agent.name] ?? []).map((session) => (
-                <div className="session archived-session" key={session.id}>
-                  <span className="truncate session-title fade-end" title={session.title}>
-                    {session.title}
-                  </span>
-                  <ActionMenu
-                    label={t("app.archivedSessionMenu", { title: session.title })}
-                    actions={[
-                      {
-                        label: t("app.restoreSession"),
-                        run: () =>
-                          props.onRestoreSession(agent.name, session.id),
-                      },
-                      {
-                        label: t("app.deleteSession"),
-                        danger: true,
-                        run: () =>
-                          props.onDeleteArchivedSession(agent.name, session.id),
-                      },
-                    ]}
-                  />
-                </div>
-              ))}
           </div>
         )}
       </div>

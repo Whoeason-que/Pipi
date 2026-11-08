@@ -240,6 +240,8 @@ fn isolated_home(prefix: &str) -> PathBuf {
 
 /// 播种一个绑定到指定端点的 Agent（声明协议故意写 openai：目录/协商要能纠正它）。
 fn fixture_agent(name: &str, base_url: &str) {
+    let workspace = std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
     let model = Model {
         id: MODEL_ID.into(),
         name: "Mock Gateway".into(),
@@ -252,7 +254,7 @@ fn fixture_agent(name: &str, base_url: &str) {
     agents::create_agent(
         name,
         "协议协商回归",
-        None,
+        workspace.to_str(),
         None,
         Some(MODEL_ID),
         Some(model),

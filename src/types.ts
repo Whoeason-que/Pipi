@@ -137,7 +137,7 @@ export interface ProviderConfig {
 export interface CompactionSettings {
   /** 压缩前分叉出新会话（原会话保留为完整记录）。 */
   forkBeforeCompact: boolean;
-  /** 分叉后把原会话移入归档。 */
+  /** 兼容旧设置；宿主不再自动归档原会话。 */
   archiveOriginal: boolean;
 }
 

@@ -350,7 +350,7 @@ impl RuntimeState {
             budget: (model.context_window > 0).then_some(budget),
             compaction: Some(CompactionPolicy {
                 fork_before_compact: compaction_settings.fork_before_compact,
-                archive_original: compaction_settings.archive_original,
+                archive_original: false,
             }),
             timeout: None,
         };

@@ -118,8 +118,7 @@ impl ProviderConfig {
 
 /// 上下文压缩的行为开关。
 ///
-/// 默认「分叉 + 归档」：压缩不再原地改写当前会话，而是把压缩结果写进一个
-/// 分叉出的新会话，原会话作为**完整记录**保留（可选移入归档）。
+/// 默认分叉：压缩结果写进新会话，原会话作为完整记录保留在活跃列表。
 /// 关掉 `fork_before_compact` 即回到原地压缩。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,8 +126,8 @@ pub struct CompactionSettings {
     /// 压缩前分叉出新会话（原会话保留为完整记录）。
     #[serde(default = "default_true")]
     pub fork_before_compact: bool,
-    /// 分叉后把原会话移入归档（`sessions/.archive/`）。
-    #[serde(default = "default_true")]
+    /// 兼容旧设置；宿主不再归档原会话，忽略此值。
+    #[serde(default)]
     pub archive_original: bool,
 }
 
@@ -140,7 +139,7 @@ impl Default for CompactionSettings {
     fn default() -> Self {
         CompactionSettings {
             fork_before_compact: true,
-            archive_original: true,
+            archive_original: false,
         }
     }
 }
@@ -310,10 +309,10 @@ mod tests {
         assert_eq!(back.theme, Theme::Light);
         assert!(back.providers.is_empty());
         assert_eq!(back.default_provider_id, None);
-        // 压缩段缺失 → 默认「分叉 + 归档」都开
+        // 压缩段缺失 → 默认分叉，不再自动归档
         assert_eq!(back.compaction, CompactionSettings::default());
         assert!(back.compaction.fork_before_compact);
-        assert!(back.compaction.archive_original);
+        assert!(!back.compaction.archive_original);
     }
 
     #[test]

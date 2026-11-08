@@ -40,10 +40,12 @@ fn send_prompt_runs_without_an_ambient_reactor() {
         context_window: 8192,
         reasoning_effort: None,
     };
+    let workspace = home.join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
     agents::create_agent(
         "spawn-regression",
         "运行时注入回归",
-        None,
+        workspace.to_str(),
         None,
         Some("regression-model"),
         Some(model),

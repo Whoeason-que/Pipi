@@ -134,6 +134,8 @@ impl Drop for Environment {
     }
 }
 fn fixture(base: &str) {
+    let workspace = std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
     let model = Model {
         id: "fixture".into(),
         name: "Fixture".into(),
@@ -146,7 +148,7 @@ fn fixture(base: &str) {
     agents::create_agent(
         "queued",
         "queue test",
-        None,
+        workspace.to_str(),
         None,
         Some("fixture"),
         Some(model),

@@ -255,27 +255,6 @@ export default function SettingsView({
                     <span>{t("settings.forkBeforeCompactDesc")}</span>
                   </span>
                 </label>
-                <label className="ios-toggle settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={draft.compaction.archiveOriginal}
-                    disabled={!draft.compaction.forkBeforeCompact}
-                    onChange={() =>
-                      commit((previous) => ({
-                        ...previous,
-                        compaction: {
-                          ...previous.compaction,
-                          archiveOriginal: !previous.compaction.archiveOriginal,
-                        },
-                      }))
-                    }
-                  />
-                  <span className="slider" />
-                  <span className="toggle-label">
-                    <strong>{t("settings.archiveOriginal")}</strong>
-                    <span>{t("settings.archiveOriginalDesc")}</span>
-                  </span>
-                </label>
                 <div className="settings-info-note">
                   <IconLayers />
                   <span>

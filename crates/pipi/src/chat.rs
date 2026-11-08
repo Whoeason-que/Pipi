@@ -9,12 +9,12 @@ use tauri::{AppHandle, Emitter, State};
 
 use pipi_agent::stats::SessionStats;
 use pipi_core::commands::{
-    AgentStatsArgs, ArchiveAgentArgs, ArchiveSessionArgs, CancelQueuedPromptArgs, CompactNowArgs,
-    CreateSessionArgs, DeleteAgentArgs, DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs,
-    ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs,
-    OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs, QueuePromptArgs, RestoreAgentArgs,
-    RestoreSessionArgs, SendPromptArgs, SessionHistoryArgs, SessionInfoArgs, SessionMessagesArgs,
-    SessionStatsArgs, SetPromptQueuePausedArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
+    AgentStatsArgs, ArchiveAgentArgs, CancelQueuedPromptArgs, CompactNowArgs, CreateSessionArgs,
+    DeleteAgentArgs, DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs, ListSessionsArgs,
+    ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs, OpenWorkbenchSessionArgs,
+    QueryBackgroundTasksArgs, QueuePromptArgs, RestoreAgentArgs, RestoreSessionArgs,
+    SendPromptArgs, SessionHistoryArgs, SessionInfoArgs, SessionMessagesArgs, SessionStatsArgs,
+    SetPromptQueuePausedArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
 };
 use pipi_core::events::{EventEmitter, PromptQueueEnvelope, RuntimeEvent};
 use pipi_core::runtime::{RuntimeState, SessionInfo, SessionSnapshot};
@@ -251,14 +251,6 @@ pub async fn import_sessions(
     args: InvokeArgs<ImportSessionsArgs>,
 ) -> Result<pipi_protocol::session::SessionImportReport, String> {
     pipi_core::commands::import_sessions(&state, args.0).await
-}
-
-#[tauri::command]
-pub fn archive_session(
-    state: State<Arc<RuntimeState>>,
-    args: InvokeArgs<ArchiveSessionArgs>,
-) -> Result<(), String> {
-    pipi_core::commands::archive_session(&state, args.0)
 }
 
 #[tauri::command]

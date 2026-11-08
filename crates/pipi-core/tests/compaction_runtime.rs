@@ -182,6 +182,10 @@ fn fixture(
     context_window: u64,
     compaction: pipi_core::settings::CompactionSettings,
 ) {
+    // Keep the project workspace outside the Agent directory so its agent.toml
+    // is not rediscovered as a project-layer contract.
+    let workspace = std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
     let model = Model {
         id: "compaction-model".into(),
         name: "Compaction Model".into(),
@@ -194,7 +198,7 @@ fn fixture(
     agents::create_agent(
         agent,
         "压缩端到端",
-        None,
+        Some(workspace.to_str().unwrap()),
         None,
         Some("compaction-model"),
         Some(model),
@@ -504,7 +508,7 @@ fn saved_target_applies_to_already_open_session() {
 }
 
 #[test]
-fn compaction_forks_to_new_session_and_archives_original() {
+fn compaction_forks_and_keeps_original_even_with_legacy_archive_setting() {
     let _guard = pipi_test_support::HOME_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -553,34 +557,23 @@ fn compaction_forks_to_new_session_and_archives_original() {
         "新会话的列表摘要应当带分叉来源"
     );
 
-    // 原会话已归档，且归档副本是**完整记录**（没有压缩条目）
+    // 旧设置请求归档也不能把原会话从活跃列表移走。
+    assert!(repo.exists(&case.old_id).expect("查询原会话"));
     assert!(
-        !repo.exists(&case.old_id).expect("查询原会话"),
-        "原会话应当已离开活跃区"
-    );
-    assert!(
-        repo.list_archived()
+        !repo
+            .list_archived()
             .expect("读归档列表")
             .iter()
-            .any(|summary| summary.id == case.old_id),
-        "归档区应当有原会话"
+            .any(|summary| summary.id == case.old_id)
     );
-    // 归档区只出摘要，读内容走「先恢复再读」的产品流程，读完放回去
-    repo.restore(&case.old_id).expect("恢复归档会话");
-    let archived_entries = repo.entries(&case.old_id).expect("读回归档会话");
+    let archived_entries = repo.entries(&case.old_id).expect("读回原会话");
     assert!(
         !archived_entries
             .iter()
-            .any(|entry| matches!(entry.kind, EntryKind::Compaction { .. })),
-        "归档的原会话应当是压缩前的完整记录"
+            .any(|entry| matches!(entry.kind, EntryKind::Compaction { .. }))
     );
     let archived_messages = rebuild_messages(&active_path(&archived_entries));
-    assert!(
-        archived_messages.len() >= 121,
-        "归档记录应当保留全部 40 轮 + 本轮新消息，实际 {}",
-        archived_messages.len()
-    );
-    repo.archive(&case.old_id).expect("读取后放回归档区");
+    assert!(archived_messages.len() >= 121);
 
     // 当前会话是压缩后的视图：摘要在前，长度明显变短
     let messages = case
@@ -626,12 +619,11 @@ fn compaction_forks_to_new_session_and_archives_original() {
             .is_none(),
         "换会话后旧 id 不应还留在 map 里"
     );
-    // 旧会话已经不打开，可以归档/删除（占用检查按会话判定）
+    // 原会话可以重新打开，历史保持可访问。
     assert!(
         case.state
             .open_session("compaction-e2e", &case.old_id)
-            .is_err(),
-        "旧会话已归档，重新打开应当失败"
+            .is_ok()
     );
 }
 
@@ -815,9 +807,13 @@ fn manual_compaction_ignores_threshold_and_switches_session() {
         .unwrap();
     let repo = session_repo(&sessions_dir);
     assert!(repo.exists(&new_id).expect("查询新会话"));
-    assert!(!repo.exists(&old_id).expect("查询原会话"), "原会话应已归档");
     assert!(
-        repo.list_archived()
+        repo.exists(&old_id).expect("查询原会话"),
+        "原会话应留在活跃列表"
+    );
+    assert!(
+        !repo
+            .list_archived()
             .expect("读归档列表")
             .iter()
             .any(|summary| summary.id == old_id)
@@ -1313,6 +1309,10 @@ fn agent_edit_forks_and_keeps_the_edit_on_the_new_branch() {
 
     let new_id = open_session_id(&state, "edit-fork");
     assert_ne!(new_id, session_id, "应当分叉到新会话");
+    assert!(
+        session_repo(&sessions_dir).exists(&session_id).unwrap(),
+        "旧归档设置开启时，编辑压缩也必须保留原会话"
+    );
     let entries = session_repo(&sessions_dir)
         .entries(&new_id)
         .expect("读回新会话");

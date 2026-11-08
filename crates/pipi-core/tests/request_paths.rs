@@ -33,6 +33,8 @@ fn temp_home() -> PathBuf {
 
 /// 播种一个绑定到 `(api, base_url)` 的 Agent + 对应供应商设置。
 fn fixture(agent: &str, api: Api, base_url: &str) {
+    let workspace = std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
     let model = Model {
         id: "regression-model".into(),
         name: "Regression Model".into(),
@@ -45,7 +47,7 @@ fn fixture(agent: &str, api: Api, base_url: &str) {
     agents::create_agent(
         agent,
         "协议路径回归",
-        None,
+        workspace.to_str(),
         None,
         Some("regression-model"),
         Some(model),

@@ -101,3 +101,21 @@ test("graph carries nested forks to their actual parent and breaks corrupt cycle
   assert.equal(graph[3].output.length, 0);
   assert.equal(graph.at(-1)?.output.length, 0);
 });
+
+test("graph keeps known forks together when their source is outside the list", () => {
+  const archived = [
+    session("nested", 3, "fork"),
+    session("fork", 2, "active-source"),
+    session("independent", 1),
+  ];
+  const graph = buildSessionGraph(buildSessionTree(archived));
+  assert.deepEqual(graph.map((row) => row.node.session.id), ["nested", "fork", "independent"]);
+  assert.equal(graph[0].output[0].targetId, "fork");
+  assert.equal(graph[1].node.missingParentId, "active-source");
+  assert.equal(graph[1].output.length, 0);
+  assert.equal(graph[2].input.length, 0);
+
+  const afterRestore = buildSessionGraph(buildSessionTree(archived.filter((item) => item.id !== "fork")));
+  assert.equal(afterRestore[0].node.missingParentId, "fork");
+  assert.equal(afterRestore[0].output.length, 0);
+});

@@ -601,7 +601,7 @@ const settings: Settings = {
     },
   ],
   defaultProviderId: "anthropic",
-  compaction: { forkBeforeCompact: true, archiveOriginal: true },
+  compaction: { forkBeforeCompact: true, archiveOriginal: false },
   retry: { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 30000 },
 };
 
@@ -787,10 +787,14 @@ function listDemoSessions(agentName: string): Array<Record<string, unknown>> {
       startedAt: Number(id.split("-")[0]) || 0,
       lastActive: Number(id.split("-")[0]) || 0,
       ...(demoParentSessions.has(id) ? { parentSessionId: demoParentSessions.get(id) } : {}),
-      ...([forkDemoSessionId, secondForkDemoSessionId].includes(id)
-        ? { forkParentId: initialDemoSessionId }
-        : {}),
+      ...(demoForkParent(id) ? { forkParentId: demoForkParent(id) } : {}),
     }));
+}
+
+function demoForkParent(id: string): string | undefined {
+  return [forkDemoSessionId, secondForkDemoSessionId].includes(id)
+    ? initialDemoSessionId
+    : undefined;
 }
 
 // 浏览器开发预览不读取宿主扩展；提供一套本地演示图标。
@@ -929,6 +933,7 @@ export function installDevMock(): void {
                 messageCount: messages.length,
                 startedAt: Number(id.split("-")[0]) || 0,
                 lastActive: Number(id.split("-")[0]) || 0,
+                ...(demoForkParent(id) ? { forkParentId: demoForkParent(id) } : {}),
               })),
             );
           }
@@ -1220,23 +1225,6 @@ export function installDevMock(): void {
           if (state) {
             state.histories.clear();
             state.archivedSessions.clear();
-          }
-          return Promise.resolve(null);
-        }
-        case "archive_session": {
-          const agentName = String(args.agentName ?? demoAgent.name);
-          const state = stateFor(agentName);
-          const sid = String(args.sessionId ?? "");
-          const current = conversationOf(agentName, sid);
-          if (current?.running) {
-            return Promise.reject(new Error(`Session "${sid}" is still running. Stop it before archiving`));
-          }
-          const history = state.histories.get(sid);
-          if (history !== undefined) {
-            // 与核心一致：归档前释放仍打开但空闲的会话槽。
-            demoConversations.delete(sessionKey(agentName, sid));
-            state.histories.delete(sid);
-            state.archivedSessions.set(sid, history);
           }
           return Promise.resolve(null);
         }

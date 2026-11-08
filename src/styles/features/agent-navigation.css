@@ -198,7 +198,6 @@
 }
 
 .sessions {
-  --rail-x: 12px;
   margin: 1px 0 6px;
 }
 
@@ -358,15 +357,6 @@
   color: var(--faint);
 }
 
-/* 归档会话与「归档」开关跟分支文本对齐（分支文本 = rail + 8 + 行内 6px 内边距）。 */
-.archived-session {
-  padding-left: calc(var(--rail-x) + 14px);
-}
-
-.sessions .archive-toggle {
-  padding-left: calc(var(--rail-x) + 5px);
-}
-
 .archive-toggle {
   display: flex;
   align-items: center;
@@ -390,41 +380,6 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-/* 已归档：默认档案图标，hover / focus 时和 Agent 标识一样换成 >。 */
-.archive-toggle-marker {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  color: var(--faint);
-}
-
-.archive-toggle-marker > svg {
-  grid-area: 1 / 1;
-  width: 14px;
-  height: 14px;
-  transition: opacity var(--motion-fast);
-}
-
-.archive-toggle-chevron {
-  display: grid;
-  place-items: center;
-  grid-area: 1 / 1;
-  opacity: 0;
-  transition: opacity var(--motion-fast);
-}
-
-.archive-toggle:hover .archive-toggle-marker > svg:first-child,
-.archive-toggle:focus-visible .archive-toggle-marker > svg:first-child {
-  opacity: 0;
-}
-
-.archive-toggle:hover .archive-toggle-chevron,
-.archive-toggle:focus-visible .archive-toggle-chevron {
-  opacity: 1;
 }
 
 .archived-agent {
