@@ -11,7 +11,6 @@ import {
   IconSearch,
   IconSkill,
   IconSubagent,
-  PipiMark,
 } from "../icons";
 import { LayoutContext } from "./layout-context";
 import type { AgentSection, NavSection } from "./navigation";
@@ -20,7 +19,6 @@ export default function AppNavigation({
   navSection,
   settingsOpen,
   onOpenSection,
-  onHome,
   onToggleSettings,
   running,
   activeWorkspace = "all",
@@ -28,7 +26,6 @@ export default function AppNavigation({
   navSection: NavSection;
   settingsOpen: boolean;
   onOpenSection: (section: NavSection) => void;
-  onHome: () => void;
   onToggleSettings: () => void;
   running: Record<AgentSection, boolean>;
   activeWorkspace?: string;
@@ -38,15 +35,6 @@ export default function AppNavigation({
 
   return (
     <nav className="rail" aria-label={t("nav.primary")}>
-      <button
-        type="button"
-        className="rail-brand"
-        aria-label={t("nav.home")}
-        title="Pipi"
-        onClick={onHome}
-      >
-        <PipiMark />
-      </button>
       <div className="rail-sections">
         {(
           [

@@ -116,28 +116,6 @@ export function IconPanelRight() {
   );
 }
 
-/** Pipi 的双环标记：在导航与空会话里复用。 */
-export function PipiMark() {
-  return (
-    <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <path
-        d="M7 25V10a6 6 0 1 1 6 6H7"
-        stroke="currentColor"
-        strokeWidth="3.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M19 25V15a4 4 0 1 1 4 4h-4"
-        stroke="currentColor"
-        strokeWidth="3.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export function IconArrowUpRight() {
   return (
     <IconBase>
@@ -432,16 +410,6 @@ export function IconWifiOff({ size }: { size?: number }) {
       <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
       <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
       <line x1="12" y1="20" x2="12.01" y2="20" />
-    </IconBase>
-  );
-}
-
-/** 首页 / 工作区 */
-export function IconHome({ size }: { size?: number } = {}) {
-  return (
-    <IconBase size={size}>
-      <path d="M3 9.5L12 3l9 6.5V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9.5z" />
-      <path d="M9 22V12h6v10" />
     </IconBase>
   );
 }

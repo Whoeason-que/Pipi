@@ -413,7 +413,6 @@ export default function App() {
         style={{ "--sidebar-width": `${sidebarResize.width}px` } as React.CSSProperties}>
     <div className="app-body">
       <AppNavigation navSection={navSection} settingsOpen={view.kind === "settings"} onToggleSettings={toggleSettings}
-        onHome={() => navigate({ kind: "home", section: "agents" })}
         activeWorkspace={activeWorkspace}
         running={{ agents: agentsInSection(filteredAgents, "agents").some(agent => agentHasRunning(agent.name)),
           subagents: agentsInSection(filteredAgents, "subagents").some(agent => agentHasRunning(agent.name)) }}

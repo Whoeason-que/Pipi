@@ -11,30 +11,6 @@
   background: var(--rail-bg);
 }
 
-.rail-brand {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  margin-bottom: 14px;
-  padding: 3px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--fg);
-  cursor: pointer;
-  transition: background var(--motion-fast);
-}
-
-.rail-brand:hover {
-  background: var(--hover);
-}
-
-.rail-brand svg {
-  width: 26px;
-  height: 26px;
-}
-
 .rail-sections {
   display: flex;
   flex-direction: column;
@@ -65,12 +41,6 @@
   border-color: var(--accent-border);
   background: var(--accent-soft);
   box-shadow: var(--inner-glow);
-}
-
-/* 工作与辅助工具之间留出可辨认的分组间距。 */
-.rail-sections .icon-btn:nth-child(4),
-.rail-sections .icon-btn:nth-child(8) {
-  margin-top: 10px;
 }
 
 .rail-spacer,
@@ -434,10 +404,6 @@
 
   .app:not(.sidebar-open) .sidebar {
     visibility: hidden;
-  }
-
-  .rail-brand {
-    margin-bottom: 14px;
   }
 }
 

@@ -1,5 +1,4 @@
 export const nav = {
-  home: "Home",
   workspace: "Workspace",
   skills: "Skills",
   stats: "Stats",

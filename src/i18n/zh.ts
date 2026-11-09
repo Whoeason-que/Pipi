@@ -33,7 +33,6 @@ export const zh: DeepPartial<I18nSchema> = {
     sessionCountOne: "{count} 条会话",
   },
   nav: {
-    home: "首页",
     workspace: "工作区",
     skills: "技能库",
     stats: "统计",
