@@ -105,7 +105,10 @@
 
 /* 侧栏搜索框与快捷搜索按钮共用一套外观（尺寸、间距、图标）。 */
 .sb-filter .search,
-.sidebar-quick {
+.workspace-scope .search,
+.sidebar-quick,
+.workspace-pill,
+.scope-search-btn {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -128,25 +131,32 @@
   font-size: var(--text-md);
 }
 
-.sb-filter .search:focus-within {
+.sb-filter .search:focus-within,
+.workspace-scope .search:focus-within {
   border-color: var(--accent-border);
   background: var(--panel-2);
 }
 
-.sidebar-quick:hover {
+.sidebar-quick:hover,
+.workspace-pill:hover,
+.scope-search-btn:hover {
   color: var(--fg);
   background: var(--panel-2);
   border-color: var(--line);
 }
 
 .sb-filter .search svg,
-.sidebar-quick svg {
+.workspace-scope .search svg,
+.sidebar-quick svg,
+.workspace-pill svg,
+.scope-search-btn svg {
   width: 13px;
   height: 13px;
   flex-shrink: 0;
 }
 
-.sidebar-quick svg { opacity: 0.8; }
+.sidebar-quick svg,
+.workspace-pill svg { opacity: 0.8; }
 
 .sidebar-quick span {
   flex: 1;
@@ -154,6 +164,61 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 侧栏顶部统一行（C 形态）：左「工作区 pill」+ 右「搜索槽」。
+   两槽共用上面的盒型，保持与其余侧栏搜索同宽同高。 */
+.workspace-scope {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  margin: 12px 10px 6px;
+}
+
+.workspace-pill {
+  flex: 1 1 40%;
+  min-width: 0;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--text-md);
+}
+
+.workspace-pill.static {
+  cursor: default;
+}
+
+.workspace-pill-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.workspace-pill-chevron {
+  display: flex;
+  flex-shrink: 0;
+  transition: transform var(--motion-fast);
+}
+
+.workspace-pill[data-state="open"] .workspace-pill-chevron {
+  transform: rotate(180deg);
+}
+
+.scope-search-btn {
+  flex: 0 0 32px;
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.workspace-scope .search {
+  flex: 1 1 60%;
+  min-width: 0;
 }
 
 .sidebar-quick kbd {
@@ -235,7 +300,8 @@
   padding-top: 12px;
 }
 
-.sb-filter input {
+.sb-filter input,
+.workspace-scope input {
   flex: 1;
   min-width: 0;
   background: none;
@@ -245,7 +311,8 @@
   font-size: var(--text-md);
 }
 
-.sb-filter input::placeholder {
+.sb-filter input::placeholder,
+.workspace-scope input::placeholder {
   color: var(--faint);
 }
 
@@ -336,12 +403,22 @@
   }
 
   .sb-filter .search,
-  .sidebar-quick {
+  .workspace-scope .search,
+  .sidebar-quick,
+  .workspace-pill,
+  .scope-search-btn {
     height: 40px;
   }
 
+  .scope-search-btn {
+    flex-basis: 40px;
+    width: 40px;
+  }
+
   .sb-filter input,
-  .sidebar-quick {
+  .workspace-scope input,
+  .sidebar-quick,
+  .workspace-pill {
     font-size: 16px;
   }
 

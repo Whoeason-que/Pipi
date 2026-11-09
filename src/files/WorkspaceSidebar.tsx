@@ -1,6 +1,7 @@
 import { useContext, useMemo, useState } from "react";
 import { LayoutContext } from "../app/layout-context";
 import { ChoiceSelect } from "../Select";
+import { WorkspaceScopeBar } from "../app/WorkspaceScopeBar";
 import { getWorkspaceBasename, type WorkspaceInfo } from "../app/workspaces";
 import {
   IconCaret,
@@ -125,36 +126,28 @@ export function WorkspaceSidebar({
 
   return (
     <div className={`file-workbench workspace-files-sidebar${mode === "git" ? " vscode-scm-sidebar" : ""}`}>
-      {/* 搜索置顶：所有分区的过滤框都作为侧栏第一行，滚动时保持可见。 */}
-      {target && (
-        <SidebarSearch
-          value={view.query}
-          onChange={(value) => store?.setQuery(value)}
-          placeholder={mode === "files" ? t("files.filterFiles") : t("files.filterChanges")}
-          label={t("files.filterFileName")}
-          clearLabel={t("files.clearFilter")}
-        />
-      )}
+      {/* C 行：工作区 pill + 过滤框（工作区切换与搜索合并为一行，搜索置顶不变）。 */}
+      <WorkspaceScopeBar
+        workspaces={workspaces}
+        value={currentWorkspacePath}
+        onSelect={(value) => onSelectWorkspace?.(value)}
+        ariaLabel={t("files.switchWorkspace")}
+        placeholder={currentWorkspaceName || t("files.selectWorkspace")}
+      >
+        {target && (
+          <SidebarSearch
+            bare
+            value={view.query}
+            onChange={(value) => store?.setQuery(value)}
+            placeholder={mode === "files" ? t("files.filterFiles") : t("files.filterChanges")}
+            label={t("files.filterFileName")}
+            clearLabel={t("files.clearFilter")}
+          />
+        )}
+      </WorkspaceScopeBar>
 
-      {/* 顶部标题栏：左侧工作区切换，右侧操作图标。 */}
+      {/* 顶部操作栏：工作区切换已并入 C 行，只剩操作图标。 */}
       <div className="file-workbench-header scm-header-bar">
-        <div className="workspace-sidebar-title scm-title">
-          {workspaces.length > 0 ? (
-            <ChoiceSelect
-              className="workspace-header-select"
-              ariaLabel={t("files.switchWorkspace")}
-              value={currentWorkspacePath}
-              choices={workspaces.map(w => ({ value: w.path, label: w.name || getWorkspaceBasename(w.path) }))}
-              onChange={value => onSelectWorkspace?.(value)}
-              placeholder={t("files.selectWorkspace")}
-              searchable={false}
-              menuInPortal
-              menuPlacement="auto"
-            />
-          ) : (
-            <strong className="truncate">{currentWorkspaceName}</strong>
-          )}
-        </div>
         <div className="workspace-sidebar-actions scm-header-actions">
           {mode === "git" && (
             <>

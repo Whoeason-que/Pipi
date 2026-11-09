@@ -53,6 +53,15 @@ export function IconChevronRight({
   );
 }
 
+/** 下拉展开箭头（工作区 pill / 选择器） */
+export function IconChevronDown() {
+  return (
+    <IconBase>
+      <path d="m6 9 6 6 6-6" />
+    </IconBase>
+  );
+}
+
 /** 关闭（错误条 / 弹窗） */
 export function IconClose() {
   return (

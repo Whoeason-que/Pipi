@@ -202,6 +202,72 @@
   color: var(--danger);
 }
 
+/* 工作区 pill 下拉：行内「标题 + 灰色描述 + 选中对勾」。 */
+.scope-menu {
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.scope-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  outline: none;
+  text-align: left;
+  background: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.scope-menu-item[data-highlighted] {
+  background: var(--hover);
+}
+
+.scope-menu-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scope-menu-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.scope-menu-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--faint);
+}
+
+.scope-menu-check {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--fg);
+}
+
+.scope-menu-check svg {
+  width: 15px;
+  height: 15px;
+}
+
 @media (max-width: 520px) {
   .modal-backdrop {
     align-items: flex-end;

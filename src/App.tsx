@@ -28,7 +28,7 @@ import {
 } from "./app/workspaces";
 import { useWorkspaceFilter } from "./app/use-workspace-filter";
 import { useFilesBridge } from "./app/use-files-bridge";
-import WorkspaceFilterBar from "./app/WorkspaceFilterBar";
+import { WorkspaceScopeBar } from "./app/WorkspaceScopeBar";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
 import { useDialogFocus } from "./components/use-dialog-focus";
@@ -419,9 +419,17 @@ export default function App() {
           subagents: agentsInSection(filteredAgents, "subagents").some(agent => agentHasRunning(agent.name)) }}
         onOpenSection={openSection} />
       <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "stats" ? t("stats.title") : navSection === "files" || navSection === "git" ? t("app.sidebarFilesGit") : t("app.sidebarAgents")}>
-        {/* 带局部过滤/搜索的分区不再叠一个全局快捷搜索按钮；⌘K 仍可用。 */}
-        {view.kind === "settings" || navSection === "agents" || navSection === "subagents" ? (
+        {/* 设置保留独立快捷搜索；agents/subagents 顶部为 C 行（工作区 pill + ⌘K 图标钮）。 */}
+        {view.kind === "settings" ? (
           <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
+        ) : (navSection === "agents" || navSection === "subagents") ? (
+          <WorkspaceScopeBar workspaces={workspaces} value={activeWorkspace} onSelect={handleSelectWorkspace}
+            includeAll ariaLabel={t("app.workspaceFilterLabel")}>
+            <button type="button" className="scope-search-btn" onClick={() => setPaletteOpen(true)}
+              title={t("app.quickActionsShortcut")} aria-label={t("app.openQuickActions")}>
+              <IconSearch />
+            </button>
+          </WorkspaceScopeBar>
         ) : null}
         {view.kind === "settings" ? settings && <SettingsSidebar settings={settings} section={settingsSection}
           showLogout={!isTauriRuntime() && authStatus.authRequired}
@@ -439,9 +447,6 @@ export default function App() {
             sessionsByAgent={filteredSessionsByAgent}
             onSelect={name => navigate({ kind: "stats", agentName: name })} />
           : <>
-            {(navSection === "agents" || navSection === "subagents") && view.kind === "home" && (
-              <WorkspaceFilterBar workspaces={workspaces} active={activeWorkspace} onSelect={handleSelectWorkspace} />
-            )}
             <AgentSidebar key={collection} section={collection} agents={visibleAgents} archivedAgents={visibleArchivedAgents} selected={selected} chatOpen={view.kind === "chat"}
             viewSessionId={view.kind === "chat" ? view.sessionId : null}
             archivedOpen={archivedOpen}

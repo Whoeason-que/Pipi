@@ -14,6 +14,7 @@ export function SidebarSearch({
   label,
   clearLabel,
   autoFocus = false,
+  bare = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -21,34 +22,35 @@ export function SidebarSearch({
   label: string;
   clearLabel?: string;
   autoFocus?: boolean;
+  /** 嵌入 .workspace-scope 行时只渲染 `.search` 盒，不再套 `.sb-filter` 包装。 */
+  bare?: boolean;
 }) {
   const { t } = useI18n();
   const clear = clearLabel ?? t("components.clearSearch");
-  return (
-    <div className="sb-filter">
-      <div className="search">
-        <IconSearch />
-        <input
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder}
-          aria-label={label}
-          autoComplete="off"
-          spellCheck={false}
-          autoFocus={autoFocus}
-        />
-        {value && (
-          <button
-            type="button"
-            className="search-clear"
-            title={clear}
-            aria-label={clear}
-            onClick={() => onChange("")}
-          >
-            <IconClose />
-          </button>
-        )}
-      </div>
+  const box = (
+    <div className="search">
+      <IconSearch />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={label}
+        autoComplete="off"
+        spellCheck={false}
+        autoFocus={autoFocus}
+      />
+      {value && (
+        <button
+          type="button"
+          className="search-clear"
+          title={clear}
+          aria-label={clear}
+          onClick={() => onChange("")}
+        >
+          <IconClose />
+        </button>
+      )}
     </div>
   );
+  return bare ? box : <div className="sb-filter">{box}</div>;
 }

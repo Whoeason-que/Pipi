@@ -11,8 +11,8 @@
 
 .scm-header-actions .icon-btn.small svg { width: 14px; height: 14px; }
 
-/* Git 侧栏没有容器内边距，搜索框与其它分区保持同样的 10px 缩进和 6px 下留白。 */
-.vscode-scm-sidebar .sb-filter { padding: 12px 10px 6px; }
+/* Git 侧栏没有容器内边距，C 行与其它分区保持同样的 10px 缩进和 6px 下留白。 */
+.vscode-scm-sidebar .workspace-scope { margin: 0; padding: 12px 10px 6px; }
 
 .scm-repo-bar { padding: 6px 12px; }
 

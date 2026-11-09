@@ -46,29 +46,11 @@
 
 .workspace-files-sidebar .file-workbench-header { min-height: 40px; padding: 4px 2px; border-bottom: 1px solid var(--line-soft); }
 
-/* 侧栏搜索置顶，与其它分区同款；容器本身已有内边距，这里不再叠加横向内边距。 */
-.workspace-files-sidebar .sb-filter { padding: 12px 0 6px; }
+/* 侧栏 C 行（工作区 pill + 过滤框）置顶；容器本身已有内边距，这里不再叠加横向内边距。 */
+.workspace-files-sidebar .workspace-scope { margin: 0; padding: 12px 0 6px; }
 
-.workspace-sidebar-title { display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; }
-
-.workspace-sidebar-title strong { display: block; font-size: var(--text-md); line-height: 1.3; }
-
-/* 标题栏左侧的工作区切换：外观按标题处理，只保留一个下拉箭头。 */
-.workspace-header-select { flex: 1; min-width: 0; }
-
-.workspace-header-select .pipi-select__control { min-height: 26px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; gap: 2px; font-size: var(--text-md); }
-
-.workspace-header-select .pipi-select__control--is-focused { border: 0; box-shadow: none; }
-
-.workspace-header-select .pipi-select__single-value { color: var(--fg); font-weight: 600; }
-
-.workspace-header-select .pipi-select__placeholder { color: var(--faint); }
-
-.workspace-header-select .pipi-select__indicator { padding: 2px; color: var(--faint); }
-
-.workspace-header-select .pipi-select__indicator svg { width: 13px; height: 13px; }
-
-.workspace-header-select .pipi-select__control:hover .pipi-select__single-value { color: var(--accent-text); }
+/* 操作图标右对齐：工作区切换已并入 C 行，标题栏左侧不再有内容。 */
+.workspace-files-sidebar .file-workbench-header .scm-header-actions { margin-left: auto; }
 
 .file-workbench .file-line-numbers button.matched { background: var(--warn-soft); color: var(--warn); }
 
