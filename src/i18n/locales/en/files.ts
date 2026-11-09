@@ -100,9 +100,7 @@ export const files = {
   listView: "List view",
   collapseAll: "Collapse all",
   showHiddenFiles: "Show hidden files",
-  repository: "Repository",
   selectRepository: "Select Git repository",
-  allRepositories: "All repositories ({count})",
   workspaceFileTree: "Workspace file tree",
   gitChangesList: "Git changes list",
   readingGitStatus: "Reading Git status…",
@@ -120,7 +118,6 @@ export const files = {
   openByPathPlaceholder: "Open a file by path…",
   open: "Open",
   mergedDiffHint: "Staged and unstaged changes shown together",
-  repositoryTitle: "Repository: {name}",
   symlinkUnpreviewable: "{path} (symlinks can't be previewed)",
   directoryTruncated: "This directory has more than 2,000 entries. Only part of it is shown.",
 

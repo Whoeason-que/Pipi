@@ -1,10 +1,11 @@
-import { useContext, useMemo, useState } from "react";
+import { useContext, useState } from "react";
+import { DropdownMenu } from "radix-ui";
 import { LayoutContext } from "../app/layout-context";
-import { ChoiceSelect } from "../Select";
-import { WorkspaceScopeBar } from "../app/WorkspaceScopeBar";
+import { WorkspaceScopeBar, ScopeRadioMenu } from "../app/WorkspaceScopeBar";
 import { getWorkspaceBasename, type WorkspaceInfo } from "../app/workspaces";
 import {
   IconCaret,
+  IconChevronDown,
   IconCollapseAll,
   IconEye,
   IconEyeOff,
@@ -18,11 +19,11 @@ import {
 import { SidebarSearch } from "../components/SidebarSearch";
 import { useI18n } from "../i18n";
 import { invoke } from "../platform";
-import { gitStatusMeta, summarizeChanges } from "./diff";
+import { gitStatusMeta } from "./diff";
 import { FileGlyph, FolderGlyph } from "./FileGlyph";
 import { formatSize } from "./FilePreview";
 import { useFileResource, type WorkspaceFilesState } from "./use-workspace-files";
-import type { WorkspaceChange, WorkspaceListing } from "./types";
+import type { WorkspaceChange, WorkspaceListing, WorkspaceRepoInfo } from "./types";
 
 export function WorkspaceSidebar({
   state,
@@ -37,7 +38,7 @@ export function WorkspaceSidebar({
   const { t } = useI18n();
   const [path, setPath] = useState("");
   const [gitViewMode, setGitViewMode] = useState<"list" | "tree">("list");
-  const [selectedRepo, setSelectedRepo] = useState<string>("all");
+  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
 
@@ -47,22 +48,16 @@ export function WorkspaceSidebar({
     closeNavigation();
   };
 
+  // 一个工作区可能声明多个子仓库（pipi.toml）；标题栏左侧只选一个，不提供「全部」。
   const repositories = changes.value?.repositories ?? [];
-  const multiRepo = repositories.length > 1;
+  const repo = repositories.find((item) => item.name === selectedRepo) ?? repositories[0];
+  const repoFiles = (changes.value?.files ?? []).filter(
+    (file) => !repo || repositories.length < 2 || !file.repository || file.repository === repo.name
+  );
 
-  const repoFilteredFiles = useMemo(() => {
-    const all = changes.value?.files ?? [];
-    if (selectedRepo === "all" || !multiRepo) return all;
-    return all.filter((file) => file.repository === selectedRepo);
-  }, [changes.value?.files, selectedRepo, multiRepo]);
-
-  const changeFiles = useMemo(() => {
-    return repoFilteredFiles.filter((item) =>
-      item.path.toLowerCase().includes(view.query.toLowerCase())
-    );
-  }, [repoFilteredFiles, view.query]);
-
-  const summary = summarizeChanges(repoFilteredFiles);
+  const changeFiles = repoFiles.filter((file) =>
+    file.path.toLowerCase().includes(view.query.toLowerCase())
+  );
 
   const groups = [
     {
@@ -146,9 +141,17 @@ export function WorkspaceSidebar({
         )}
       </WorkspaceScopeBar>
 
-      {/* 顶部操作栏：工作区切换已并入 C 行，只剩操作图标。 */}
-      <div className="file-workbench-header scm-header-bar">
-        <div className="workspace-sidebar-actions scm-header-actions">
+      {/* 顶部操作栏：Files 左侧是工作区名 + 绝对路径，Git 左侧是当前仓库；右侧是视图操作。 */}
+      <div className="file-workbench-header">
+        {mode === "files" && target && (
+          <div className="scm-file-identity" title={currentWorkspacePath}>
+            <span className="truncate scm-file-identity-path">{currentWorkspacePath}</span>
+          </div>
+        )}
+        {mode === "git" && repo && (
+          <RepoPicker repositories={repositories} value={repo.name} onSelect={setSelectedRepo} />
+        )}
+        <div className="scm-header-actions">
           {mode === "git" && (
             <>
               <button
@@ -215,39 +218,6 @@ export function WorkspaceSidebar({
         </div>
       ) : (
         <>
-          {mode === "git" && multiRepo && (
-            <div className="scm-repo-bar">
-              <div className="scm-repo-picker">
-                <span className="scm-repo-picker-label">
-                  <IconGitBranch /> {t("files.repository")}
-                </span>
-                <ChoiceSelect
-                  className="workspace-picker-select"
-                  ariaLabel={t("files.selectRepository")}
-                  value={selectedRepo}
-                  choices={[{ value: "all", label: t("files.allRepositories", { count: repositories.length }) },
-                    ...repositories.map(r => ({ value: r.name, label: `${r.name}${r.branch ? ` (${r.branch})` : ""}` }))]}
-                  onChange={setSelectedRepo}
-                  searchable={false} menuInPortal menuPlacement="auto"
-                />
-              </div>
-            </div>
-          )}
-
-          {mode === "git" && changes.value?.isRepo && (
-            <div className="workspace-git-summary scm-stat-bar">
-              <span className="scm-stat staged">
-                <b className="stat-staged">{summary.staged}</b> {t("files.staged")}
-              </span>
-              <span className="scm-stat unstaged">
-                <b className="stat-unstaged">{summary.unstaged}</b> {t("files.unstaged")}
-              </span>
-              <span className="scm-stat untracked">
-                <b className="stat-untracked">{summary.untracked}</b> {t("files.untracked")}
-              </span>
-            </div>
-          )}
-
           {/* 改动列表/树容器 */}
           <div
             className="workspace-file-list scm-resource-list"
@@ -276,7 +246,7 @@ export function WorkspaceSidebar({
                   </pre>
                 </div>
               </div>
-            ) : !changes.value.files.length ? (
+            ) : !repoFiles.length ? (
               <div className="empty-state workspace-sidebar-empty scm-clean-state">
                 <IconGit />
                 <p>{t("files.noUncommittedChanges")}</p>
@@ -313,7 +283,6 @@ export function WorkspaceSidebar({
                                   key={file.path}
                                   file={file}
                                   active={file.path === view.selected}
-                                  multiRepo={multiRepo && selectedRepo === "all"}
                                   onOpen={open}
                                 />
                               ))
@@ -325,7 +294,6 @@ export function WorkspaceSidebar({
                                   collapsedFolders={collapsedFolders}
                                   onToggleFolder={toggleFolder}
                                   onOpen={open}
-                                  multiRepo={multiRepo && selectedRepo === "all"}
                                 />
                               )}
                         </div>
@@ -369,18 +337,68 @@ export function WorkspaceSidebar({
   );
 }
 
+/** 标题栏左侧的仓库选择器：只显示当前仓库，多仓库时点开切换（不提供「全部」）。 */
+function RepoPicker({
+  repositories,
+  value,
+  onSelect,
+}: {
+  repositories: WorkspaceRepoInfo[];
+  value: string;
+  onSelect: (name: string) => void;
+}) {
+  const { t } = useI18n();
+  const current = repositories.find((repo) => repo.name === value) ?? repositories[0];
+  if (!current) return null;
+  const title = current.branch ? `${current.name} (${current.branch})` : current.name;
+  const label = (
+    <>
+      <IconGitBranch />
+      <span className="truncate scm-repo-trigger-name">{current.name}</span>
+    </>
+  );
+  if (repositories.length < 2) {
+    return (
+      <div className="scm-repo-picker">
+        <div className="scm-repo-trigger static" title={title}>{label}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="scm-repo-picker">
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button type="button" className="scm-repo-trigger" aria-label={t("files.selectRepository")} title={title}>
+            {label}
+            <span className="scm-repo-trigger-chevron"><IconChevronDown /></span>
+          </button>
+        </DropdownMenu.Trigger>
+        <ScopeRadioMenu
+          options={repositories.map((repo) => ({
+            value: repo.name,
+            label: repo.name,
+            description: repo.branch || repo.path,
+            title: repo.path,
+          }))}
+          value={current.name}
+          onSelect={onSelect}
+          ariaLabel={t("files.selectRepository")}
+        />
+      </DropdownMenu.Root>
+    </div>
+  );
+}
+
 function GitRow({
   file,
   active,
-  multiRepo,
   onOpen,
 }: {
   file: WorkspaceChange;
   active: boolean;
-  multiRepo: boolean;
   onOpen: (path: string) => void;
 }) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const meta = gitStatusMeta(file.status, locale);
   const split = file.path.lastIndexOf("/");
   const name = split < 0 ? file.path : file.path.slice(split + 1);
@@ -396,11 +414,6 @@ function GitRow({
         <span className={`scm-row-label ${meta.tone}`}>
           <span className="truncate scm-filename">{name}</span>
         </span>
-        {multiRepo && file.repository && (
-          <span className="truncate scm-repo-tag" title={t("files.repositoryTitle", { name: file.repository })}>
-            {file.repository}
-          </span>
-        )}
       </button>
       <LineCount file={file} />
       <span
@@ -538,7 +551,6 @@ function GitTree({
   collapsedFolders,
   onToggleFolder,
   onOpen,
-  multiRepo,
 }: {
   nodes: GitTreeNode[];
   depth: number;
@@ -546,9 +558,8 @@ function GitTree({
   collapsedFolders: Set<string>;
   onToggleFolder: (path: string) => void;
   onOpen: (path: string) => void;
-  multiRepo: boolean;
 }) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   return (
     <>
       {nodes.map((node) => {
@@ -582,7 +593,6 @@ function GitTree({
                     collapsedFolders={collapsedFolders}
                     onToggleFolder={onToggleFolder}
                     onOpen={onOpen}
-                    multiRepo={multiRepo}
                   />
                 </div>
               )}
@@ -608,11 +618,6 @@ function GitTree({
               <span className={`scm-row-label ${meta.tone}`}>
                 <span className="truncate scm-filename">{node.name}</span>
               </span>
-              {multiRepo && file.repository && (
-                <span className="truncate scm-repo-tag" title={t("files.repositoryTitle", { name: file.repository })}>
-                  {file.repository}
-                </span>
-              )}
             </button>
             <LineCount file={file} />
             <span

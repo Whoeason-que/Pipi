@@ -49,8 +49,13 @@
 /* 侧栏 C 行（工作区 pill + 过滤框）置顶；容器本身已有内边距，这里不再叠加横向内边距。 */
 .workspace-files-sidebar .workspace-scope { margin: 0; padding: 12px 0 6px; }
 
-/* 操作图标右对齐：工作区切换已并入 C 行，标题栏左侧不再有内容。 */
+/* 操作图标右对齐：Files 左侧放工作区名 + 路径，Git 左侧放仓库选择器。 */
 .workspace-files-sidebar .file-workbench-header .scm-header-actions { margin-left: auto; }
+
+/* Files 标题栏左侧：工作区绝对路径（小字）。 */
+.scm-file-identity { display: flex; align-items: center; min-width: 0; flex: 1 1 auto; }
+
+.scm-file-identity-path { min-width: 0; color: var(--faint); font: 10px/1.35 var(--font-mono); }
 
 .file-workbench .file-line-numbers button.matched { background: var(--warn-soft); color: var(--warn); }
 
@@ -91,14 +96,6 @@
 .workspace-sidebar-empty p { margin: 0; color: var(--muted); font-size: var(--text-md); }
 
 .workspace-sidebar-empty small { font-size: var(--text-xs); line-height: 1.5; }
-
-.workspace-picker-select { min-width: 0; width: 100%; }
-
-.workspace-picker-select .pipi-select__control { min-height: var(--control); padding: 4px 10px 4px 12px; border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--hover); font-size: var(--text-sm); transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast); }
-
-.workspace-picker-select .pipi-select__control:hover { background: var(--hover-2); border-color: var(--line); }
-
-.workspace-picker-select .pipi-select__control--is-focused { border-color: var(--accent); }
 
 .file-sidebar-hint { margin: 8px 2px 0; line-height: 1.5; }
 
@@ -143,12 +140,7 @@
 }
 
 @media (max-width: 860px) {
-  .workspace-files-sidebar .file-workbench-header .btn,
-.workspace-files-toolbar .btn { min-height: var(--control-lg); }
-}
-
-@media (max-width: 860px) {
-  .workspace-picker-select .pipi-select__control { min-height: var(--control-lg); font-size: 16px; }
+  .workspace-files-toolbar .btn { min-height: var(--control-lg); }
 }
 
 @media (hover: none) and (pointer: coarse) {
