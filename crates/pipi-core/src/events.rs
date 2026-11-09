@@ -80,6 +80,8 @@ pub struct QueuedPrompt {
     pub image_count: usize,
     #[serde(skip)]
     pub content: Option<pipi_protocol::UserContent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_result: Option<pipi_protocol::BackgroundTaskResult>,
 }
 fn is_zero(value: &usize) -> bool {
     *value == 0

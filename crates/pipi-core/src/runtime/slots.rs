@@ -384,7 +384,7 @@ impl RuntimeState {
             {
                 return Ok(());
             }
-            if !session.queue.snapshot.messages.is_empty() {
+            if session.engine.snapshot()?.running || !session.queue.snapshot.messages.is_empty() {
                 session.queue.snapshot.paused = true;
                 self.publish_queue(session)?;
             }

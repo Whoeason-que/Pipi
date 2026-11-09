@@ -5,6 +5,7 @@ import {
   buildWorkspaceList,
   getWorkspaceBasename,
   normalizeWorkspacePath,
+  resolveWorkspaceTarget,
 } from "../src/app/workspaces.ts";
 import type { AgentDefinition } from "../src/types.ts";
 
@@ -134,4 +135,22 @@ test("buildWorkspaceGroups 自定义目录保留为空组并排在有 Agent 的�
   assert.equal(empty.name, "Empty");
   assert.equal(empty.custom, true);
   assert.equal(empty.agents.length, 0);
+});
+
+test("Files/Git 显式选择优先于全局过滤，失效选择回退", () => {
+  const workspaces = [
+    { path: "/demo/first", name: "First", agentCount: 1 },
+    { path: "/demo/second", name: "Second", agentCount: 1 },
+  ];
+  assert.deepEqual(resolveWorkspaceTarget("/demo/second/", "/demo/first", "/demo/first", workspaces),
+    { path: "/demo/second", name: "Second" });
+  assert.deepEqual(resolveWorkspaceTarget(null, "/demo/first/", "/demo/second", workspaces),
+    { path: "/demo/first", name: "First" });
+  assert.deepEqual(resolveWorkspaceTarget("/removed", "/demo/first", "/demo/second", workspaces),
+    { path: "/demo/first", name: "First" });
+  assert.deepEqual(resolveWorkspaceTarget(null, "all", "/demo/second", workspaces),
+    { path: "/demo/second", name: "Second" });
+  assert.deepEqual(resolveWorkspaceTarget(null, "all", null, workspaces),
+    { path: "/demo/first", name: "First" });
+  assert.equal(resolveWorkspaceTarget(null, "all", null, []), null);
 });

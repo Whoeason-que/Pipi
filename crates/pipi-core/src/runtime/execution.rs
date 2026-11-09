@@ -49,7 +49,7 @@ impl RuntimeState {
     ) -> Result<SessionInfo, String> {
         let content = attachments::user_content(prompt, images)?;
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        self.send_prompt_locked(
+        let info = self.send_prompt_locked(
             &mut sessions,
             agent_name,
             session_id,
@@ -59,29 +59,19 @@ impl RuntimeState {
                 model,
             },
             event_sink,
-        )
-    }
-
-    /// 后台任务唤醒：在已有会话上追加 `background_result` 条目并启动一轮。
-    /// 会话不必须已经打开（空闲释放后会从载体重新载入），但绝不能新建会话。
-    pub(super) fn send_background_results(
-        &self,
-        agent_name: &str,
-        session_id: &str,
-        results: Vec<pipi_protocol::BackgroundTaskResult>,
-        event_sink: EventEmitter,
-    ) -> Result<SessionInfo, String> {
-        if results.is_empty() {
-            return Err("No background results to deliver".into());
+        )?;
+        // A fresh manual turn resumes a stop-induced pause when there is no
+        // pending work. Otherwise future completions could remain hidden in a
+        // paused empty queue after the user explicitly starts working again.
+        if let Some(session) = sessions.get_mut(&SessionKey::new(agent_name, &info.session_id))
+            && session.queue.snapshot.paused
+            && session.queue.snapshot.messages.is_empty()
+        {
+            session.queue.snapshot.paused = false;
+            session.queue.snapshot.error = None;
+            let _ = self.publish_queue(session);
         }
-        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        self.send_prompt_locked(
-            &mut sessions,
-            agent_name,
-            Some(session_id),
-            PromptInput::BackgroundResults(results),
-            event_sink,
-        )
+        Ok(info)
     }
 
     /// 排队取出与运行预约共享 sessions 锁，避免取消/停止与发送之间留下竞态。

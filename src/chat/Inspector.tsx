@@ -88,18 +88,17 @@ export default function Inspector({
     onUnpinChip,
     runtime,
   } = context;
-  const [internalTab, setInternalTab] = useState<InspectorTab>("stats");
+  const [internalTab, setInternalTab] = useState<InspectorTab>("state");
   const tab = activeTabProp ?? internalTab;
   const setTab = (next: InspectorTab) => {
     setInternalTab(next);
     onTabChange?.(next);
   };
   // 临时测试会话没有真实 notebook（id 属于进程内的测试账本），不占一个空 tab；
-  // Subagent / git 历史都属于正式会话的运行视图，也不放进调试工作台。
+  // git 历史属于正式会话的运行视图，也不放进调试工作台。
   const tabs = embedded
     ? INSPECTOR_TABS.filter(
-        (item) =>
-          item.id !== "notebook" && item.id !== "subagents" && item.id !== "history",
+        (item) => item.id !== "notebook" && item.id !== "history",
       )
     : INSPECTOR_TABS;
   const notebook = useNotebook(agent.name, embedded ? null : sessionId, entries);
@@ -116,7 +115,7 @@ export default function Inspector({
   // 选中标签时自动切到「调用详情」，取消选中后回到之前的 tab
   const tabRef = useRef(tab);
   tabRef.current = tab;
-  const previousTabRef = useRef<InspectorTab>("stats");
+  const previousTabRef = useRef<InspectorTab>("state");
   const detailKey = chipDetail ? chipDetail.id : null;
   useEffect(() => {
     if (detailKey) {
@@ -333,137 +332,6 @@ export default function Inspector({
           )}
         </div>
         <div
-          className={`ipanel${tab === "stats" ? " active" : ""}`}
-          id="ipanel-stats"
-          role="tabpanel"
-          aria-labelledby="itab-stats"
-        >
-          <div className="ip context-stats">
-            <h4>{t("inspector.currentContext")}</h4>
-            {stats?.contextPercent != null || stats?.cacheHitPct != null ? (
-              <>
-                {stats?.contextPercent != null && (
-                  <div className="context-meter">
-                    <span className="m-k">{t("inspector.contextUsage")}</span>
-                    <strong className="context-percent">
-                      {Math.round(stats.contextPercent * 10) / 10}
-                      <small>%</small>
-                    </strong>
-                    <span className="caption context-usage mono">
-                      {formatTokens(stats.contextUsed)} /{" "}
-                      {formatTokens(stats.contextMax)}
-                    </span>
-                    <span
-                      className="track"
-                      title={t("inspector.contextUsageHint")}
-                    >
-                      <i
-                        style={{
-                          width: `${Math.min(100, Math.max(0, stats.contextPercent))}%`,
-                        }}
-                      />
-                    </span>
-                  </div>
-                )}
-                {stats?.cacheHitPct != null && (
-                  <div className="metric cache-metric">
-                    <span className="m-k">{t("inspector.cacheHit")}</span>
-                    <span className="m-v">{stats.cacheHitPct.toFixed(0)}%</span>
-                    <span
-                      className="track"
-                      title={t("inspector.cacheHint")}
-                    >
-                      <i
-                        className="cache"
-                        style={{
-                          width: `${Math.min(100, Math.max(0, stats.cacheHitPct))}%`,
-                        }}
-                      />
-                    </span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="ip-note">{t("inspector.noStats")}</div>
-            )}
-          </div>
-
-          <div className="ip">
-            <h4>{t("inspector.recentCalls")}</h4>
-            {stats && (stats.avgTps != null || stats.avgLatencyS != null) ? (
-              <div className="stat-pair">
-                {stats.avgTps != null && (
-                  <div className="stat-number">
-                    <span className="m-k">{t("inspector.outputSpeed")}</span>
-                    <span className="m-v">
-                      {stats.avgTps.toFixed(1)}
-                      <small>tok/s</small>
-                    </span>
-                  </div>
-                )}
-                {stats.avgLatencyS != null && (
-                  <div className="stat-number">
-                    <span className="m-k">{t("inspector.avgLatency")}</span>
-                    <span className="m-v">
-                      {stats.avgLatencyS.toFixed(2)}
-                      <small>s</small>
-                    </span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="ip-note">{t("inspector.notEnoughCalls")}</div>
-            )}
-          </div>
-
-          <div className="ip">
-            <h4>{t("inspector.cumulative")}</h4>
-            <div className="metric">
-              <span className="m-k">{t("inspector.calls")}</span>
-              <span className="m-v">{stats?.calls ?? 0}</span>
-            </div>
-            <div className="metric">
-              <span className="m-k">{t("inspector.inputOutput")}</span>
-              <span className="m-v dim">
-                {formatTokens(stats?.input)} / {formatTokens(stats?.output)}
-              </span>
-            </div>
-          </div>
-
-          <div className="ip">
-            <h4>{t("inspector.toolCalls")}</h4>
-            {toolSummary.length > 0 ? (
-              <div className="tl">
-                {toolSummary.map((item) => (
-                  <div className="tl-row" key={item.name}>
-                    <span className="n" title={item.name}>
-                      {item.name}
-                    </span>
-                    <span className="b">
-                      <i
-                        style={{
-                          width: `${maxToolCount > 0 ? Math.max(6, (item.count / maxToolCount) * 100) : 0}%`,
-                        }}
-                      />
-                    </span>
-                    <span className={`d${item.errors > 0 ? " fail" : ""}`}>
-                      {item.errors > 0
-                        ? t("inspector.toolCountErrors", {
-                            count: item.count,
-                            errors: item.errors,
-                          })
-                        : t("inspector.toolCount", { count: item.count })}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="ip-note">{t("inspector.noToolCalls")}</div>
-            )}
-          </div>
-        </div>
-
-        <div
           className={`ipanel${tab === "state" ? " active" : ""}`}
           id="ipanel-state"
           role="tabpanel"
@@ -599,6 +467,84 @@ export default function Inspector({
               </span>
             </div>
           </div>
+
+          <div className="ip">
+            <h4>{t("inspector.stats")}</h4>
+            {stats?.cacheHitPct != null && (
+              <div className="metric cache-metric">
+                <span className="m-k">{t("inspector.cacheHit")}</span>
+                <span className="m-v">{stats.cacheHitPct.toFixed(0)}%</span>
+                <span className="track" title={t("inspector.cacheHint")}>
+                  <i
+                    className="cache"
+                    style={{ width: `${Math.min(100, Math.max(0, stats.cacheHitPct))}%` }}
+                  />
+                </span>
+              </div>
+            )}
+            {stats && (stats.avgTps != null || stats.avgLatencyS != null) ? (
+              <div className="stat-pair">
+                {stats.avgTps != null && (
+                  <div className="stat-number">
+                    <span className="m-k">{t("inspector.outputSpeed")}</span>
+                    <span className="m-v">
+                      {stats.avgTps.toFixed(1)}
+                      <small>tok/s</small>
+                    </span>
+                  </div>
+                )}
+                {stats.avgLatencyS != null && (
+                  <div className="stat-number">
+                    <span className="m-k">{t("inspector.avgLatency")}</span>
+                    <span className="m-v">
+                      {stats.avgLatencyS.toFixed(2)}
+                      <small>s</small>
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="ip-note">{t("inspector.notEnoughCalls")}</div>
+            )}
+            <div className="metric">
+              <span className="m-k">{t("inspector.inputOutput")}</span>
+              <span className="m-v dim">
+                {formatTokens(stats?.input)} / {formatTokens(stats?.output)}
+              </span>
+            </div>
+          </div>
+
+          <div className="ip">
+            <h4>{t("inspector.toolCalls")}</h4>
+            {toolSummary.length > 0 ? (
+              <div className="tl">
+                {toolSummary.map((item) => (
+                  <div className="tl-row" key={item.name}>
+                    <span className="n" title={item.name}>
+                      {item.name}
+                    </span>
+                    <span className="b">
+                      <i
+                        style={{
+                          width: `${maxToolCount > 0 ? Math.max(6, (item.count / maxToolCount) * 100) : 0}%`,
+                        }}
+                      />
+                    </span>
+                    <span className={`d${item.errors > 0 ? " fail" : ""}`}>
+                      {item.errors > 0
+                        ? t("inspector.toolCountErrors", {
+                            count: item.count,
+                            errors: item.errors,
+                          })
+                        : t("inspector.toolCount", { count: item.count })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="ip-note">{t("inspector.noToolCalls")}</div>
+            )}
+          </div>
         </div>
 
         <div
@@ -607,27 +553,19 @@ export default function Inspector({
           role="tabpanel"
           aria-labelledby="itab-history"
         >
-          <SessionHistoryPanel
-            agent={agent}
-            sessionId={sessionId}
-            running={running}
-            active={tab === "history"}
-          />
-        </div>
-
-        <div
-          className={`ipanel${tab === "subagents" ? " active" : ""}`}
-          id="ipanel-subagents"
-          role="tabpanel"
-          aria-labelledby="itab-subagents"
-        >
           <SubagentPanel
             agent={agent}
             sessionId={sessionId}
             entries={entries}
             parentRunning={running}
             runtime={runtime}
-            active={tab === "subagents"}
+            active={tab === "history"}
+          />
+          <SessionHistoryPanel
+            agent={agent}
+            sessionId={sessionId}
+            running={running}
+            active={tab === "history"}
           />
         </div>
 

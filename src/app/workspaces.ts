@@ -33,6 +33,22 @@ export function getWorkspaceBasename(path: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : normalized;
 }
 
+/** Files/Git maintain their own explicit target; the Agent filter supplies the initial fallback. */
+export function resolveWorkspaceTarget(
+  previewPath: string | null,
+  activeWorkspace: string,
+  currentWorkspace: string | null | undefined,
+  workspaces: WorkspaceInfo[],
+): Pick<WorkspaceInfo, "path" | "name"> | null {
+  const preview = normalizeWorkspacePath(previewPath);
+  const selected = preview ? workspaces.find(workspace => normalizeWorkspacePath(workspace.path) === preview) : undefined;
+  const path = selected?.path || (activeWorkspace !== "all" ? activeWorkspace : currentWorkspace) || workspaces[0]?.path;
+  if (!path) return null;
+  const normalized = normalizeWorkspacePath(path);
+  const info = workspaces.find(workspace => normalizeWorkspacePath(workspace.path) === normalized);
+  return { path: normalized, name: info?.name || getWorkspaceBasename(normalized) };
+}
+
 const CUSTOM_WORKSPACES_KEY = "pipi:custom-workspaces";
 const ACTIVE_WORKSPACE_KEY = "pipi:active-workspace";
 

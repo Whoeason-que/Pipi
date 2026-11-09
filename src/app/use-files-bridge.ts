@@ -7,6 +7,7 @@ import type { AppView } from "./navigation.ts";
 import {
   getWorkspaceBasename,
   normalizeWorkspacePath,
+  resolveWorkspaceTarget,
   type WorkspaceInfo,
 } from "./workspaces.ts";
 import { useWorkspaceFiles } from "../files/use-workspace-files.ts";
@@ -27,34 +28,20 @@ export function useFilesBridge(args: {
   agentRunning: boolean;
   navigate: (view: AppView, remember?: boolean, options?: { keepSidebar?: boolean }) => void;
   sessionRuntime: SessionRuntime;
+  selectWorkspaceFilter: (path: string) => void;
   navigation: ReturnType<typeof useSessionNavigation>;
 }) {
   const {
     agents, filteredAgents, sessionsByAgent, activeWorkspace, workspaces, current,
-    viewKind, authenticated, agentRunning, navigate, sessionRuntime, navigation,
+    viewKind, authenticated, agentRunning, navigate, sessionRuntime, navigation, selectWorkspaceFilter,
   } = args;
   const { t } = useI18n();
   const [previewWorkspacePaths, setPreviewWorkspacePaths] = useState<{ files: string | null; git: string | null }>({ files: null, git: null });
 
   const currentWorkspaceTarget = useMemo(() => {
     const mode = viewKind === "git" ? "git" : "files";
-    const previewWorkspacePath = previewWorkspacePaths[mode];
-    let wsPath: string | null = null;
-    if (activeWorkspace !== "all") {
-      wsPath = activeWorkspace;
-    } else if (previewWorkspacePath && workspaces.some((w) => w.path === previewWorkspacePath)) {
-      wsPath = previewWorkspacePath;
-    } else if (current?.workspace) {
-      wsPath = current.workspace;
-    } else {
-      wsPath = workspaces[0]?.path ?? null;
-    }
-
-    if (!wsPath) return null;
-    const norm = normalizeWorkspacePath(wsPath);
-    const info = workspaces.find((w) => normalizeWorkspacePath(w.path) === norm);
-    const name = info?.name || getWorkspaceBasename(wsPath);
-    return { name, workspace: wsPath };
+    const target = resolveWorkspaceTarget(previewWorkspacePaths[mode], activeWorkspace, current?.workspace, workspaces);
+    return target ? { name: target.name, workspace: target.path } : null;
   }, [activeWorkspace, previewWorkspacePaths, current?.workspace, workspaces, viewKind]);
 
   const workspaceAgents = useMemo(() => {
@@ -96,12 +83,15 @@ export function useFilesBridge(args: {
       throw new Error(t("app.noTargetAgent"));
     }
     const targetAgentName = targetAgent.name;
+    if (activeWorkspace !== "all" && normalizeWorkspacePath(activeWorkspace) !== normalizeWorkspacePath(targetAgent.workspace)) {
+      selectWorkspaceFilter("all");
+    }
     const draft = sessionRuntime.composerDrafts.get(targetAgentName, sessionId);
     const previous = draft.getSnapshot().text;
     draft.write(previous ? `${previous}\n\n${text}` : text);
     if (sessionId === null) void navigation.startNewSession(targetAgentName);
     else void navigation.openSession(targetAgentName, sessionId);
-  }, [workspaceAgents, current?.name, sessionsByAgent, sessionRuntime, navigation, t]);
+  }, [workspaceAgents, current?.name, sessionsByAgent, sessionRuntime, navigation, activeWorkspace, selectWorkspaceFilter, t]);
 
   return {
     previewWorkspacePaths,

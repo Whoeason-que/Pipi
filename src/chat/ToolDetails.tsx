@@ -56,11 +56,23 @@ export function ChipRow({
   onTogglePin: (id: string) => void;
 }) {
   const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const hidden = Math.max(0, chips.length - 16);
+  const visibleChips = expanded ? chips : chips.slice(hidden);
+  const hiddenFailures = chips.slice(0, hidden).filter(chip => chip.status === "error").length;
   return (
     <div className="row chip-line">
       <div className="row-inner">
         <div className="chip-row">
-          {chips.map((chip) => {
+          {hidden > 0 && (
+            <button type="button" className={`chip chip-expand${hiddenFailures ? " chip-error" : ""}`} aria-expanded={expanded}
+              onClick={() => setExpanded(value => !value)}>
+              {expanded ? t("chat.hideEarlierCalls") : hiddenFailures
+                ? t("chat.showEarlierFailures", { count: hidden, failed: hiddenFailures })
+                : t("chat.showEarlierCalls", { count: hidden })}
+            </button>
+          )}
+          {visibleChips.map((chip) => {
             const classes = ["chip", `chip-${chip.status}`];
             if (chip.id === activeId) classes.push("active");
             if (chip.id === pinnedId) classes.push("pinned");

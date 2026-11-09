@@ -1,6 +1,6 @@
 // 仅开发环境生效：在普通浏览器（无 Tauri 后端）里提供最小 invoke 桩，
 // 让前端 UI 可以脱离桌面壳独立开发调试。Tauri 生产构建不受影响。
-import type { AgentDefinition, Settings, RemoteAccessStatus, PromptQueueSnapshot } from "./types";
+import type { AgentDefinition, Settings, RemoteAccessStatus, PromptQueueSnapshot, SessionCommitView } from "./types";
 import type { ModelCatalog } from "./catalog";
 import { sessionKey } from "./session-key.ts";
 import { readStored } from "./storage.ts";
@@ -797,6 +797,38 @@ function demoForkParent(id: string): string | undefined {
     : undefined;
 }
 
+/** History tab 的演示数据：两条提交，tip 指向最新一轮。 */
+function demoSessionHistory(sessionId: string): SessionCommitView[] {
+  const base = sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(-8) || "demo";
+  const now = Date.now();
+  return [
+    {
+      id: `${base}tip`,
+      parentId: `${base}root`,
+      timestamp: now - 60_000,
+      summary: "梳理项目入口与目录结构",
+      turn: 2,
+      entries: [
+        { id: "1a2b3c4d", seq: 1, kind: "message" },
+        { id: "2b3c4d5e", seq: 2, kind: "model_change" },
+        { id: "3c4d5e6f", seq: 3, kind: "message" },
+      ],
+      isTip: true,
+    },
+    {
+      id: `${base}root`,
+      timestamp: now - 240_000,
+      summary: "user: 帮我看看这个项目的结构",
+      turn: 1,
+      entries: [
+        { id: "4d5e6f7a", seq: 1, kind: "message" },
+        { id: "5e6f7a8b", seq: 2, kind: "compaction" },
+      ],
+      isTip: false,
+    },
+  ];
+}
+
 // 浏览器开发预览不读取宿主扩展；提供一套本地演示图标。
 const demoSvg = (text: string, color: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="${color}"/><text x="12" y="16" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="9" fill="white">${text}</text></svg>`)}`;
 const demoIconTheme = {
@@ -994,6 +1026,8 @@ export function installDevMock(): void {
               runId: conversation.runId,
             })),
           );
+        case "session_history":
+          return Promise.resolve(demoSessionHistory(String(args.sessionId ?? "")));
         case "open_workbench_session": {
           const agentName = String(args.agentName ?? demoAgent.name);
           if (args.reset) {

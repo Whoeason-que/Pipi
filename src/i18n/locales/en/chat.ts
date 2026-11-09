@@ -63,6 +63,9 @@ export const chat = {
   copyMessage: "Copy message",
   chipTitle: "{name} · {status} (hover to preview · click to pin)",
   statusDone: "Done",
+  showEarlierCalls: "Show {count} earlier steps",
+  showEarlierFailures: "Show {count} earlier steps · {failed} failed",
+  hideEarlierCalls: "Hide earlier steps",
   backgroundFailed: "Background task failed",
   backgroundDone: "Background task completed",
 
@@ -84,6 +87,8 @@ export const chat = {
   imageCount: "{count} images",
   sendAfter: "After {time}",
   waitingForIdle: "Waiting for an idle session",
+  backgroundWaiting: "Result will be processed when idle",
+  backgroundPaused: "Result processing paused",
   cancelQueued: "Cancel: {text}",
   queueNote: "Runs on this host. Quitting Pipi clears pending messages.",
 

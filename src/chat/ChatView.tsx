@@ -126,7 +126,7 @@ export default function ChatView({
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [activeInspectorTab, setActiveInspectorTab] =
     useState<InspectorTab>(() => {
-      if (isTest) return "stats";
+      if (isTest) return "state";
       const stored = readStored("pipi-inspector-tab", "state");
       return INSPECTOR_TABS.some((item) => item.id === stored)
         ? (stored as InspectorTab)
@@ -134,7 +134,7 @@ export default function ChatView({
     });
   // 「调用详情」是临时的：没有 pinned chip 时不能作为恢复目标。
   const previousTabRef = useRef<InspectorTab>(
-    activeInspectorTab === "detail" ? "stats" : activeInspectorTab,
+    activeInspectorTab === "detail" ? "state" : activeInspectorTab,
   );
 
   const [inspectorOpen, setInspectorOpen] = useState(() => {

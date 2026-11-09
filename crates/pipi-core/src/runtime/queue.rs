@@ -136,6 +136,7 @@ impl RuntimeState {
             send_at,
             image_count: images.len(),
             content,
+            background_result: None,
         };
         session.queue.accepted.push_back(AcceptedPrompt {
             id: message_id.into(),
@@ -150,6 +151,60 @@ impl RuntimeState {
         let envelope = self.publish_queue(session)?;
         self.start_queue_worker(session);
         Ok(envelope)
+    }
+
+    /// Keep completion notifications typed until they are written to the session ledger.
+    pub(super) fn queue_background_results(
+        &self,
+        agent_name: &str,
+        session_id: &str,
+        results: Vec<pipi_protocol::BackgroundTaskResult>,
+    ) -> Result<(), String> {
+        validate_session_id(session_id)?;
+        let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+        self.ensure_not_shutting_down()?;
+        let key = SessionKey::new(agent_name, session_id);
+        if !sessions.contains_key(&key) {
+            let def = agents::load_agent(agent_name)?;
+            let repo = session_repo(&def)?;
+            if !repo.exists(session_id)? {
+                return Err("Session does not exist".into());
+            }
+            let session = Self::load_session_object(&def, repo, session_id)?;
+            sessions.insert(key.clone(), session);
+        }
+        let session = sessions.get_mut(&key).ok_or("Session is not open")?;
+        for result in results {
+            if self.background.was_observed(&result.job_id)
+                || session.queue.snapshot.messages.iter().any(|m| {
+                    m.background_result
+                        .as_ref()
+                        .is_some_and(|r| r.job_id == result.job_id)
+                })
+            {
+                continue;
+            }
+            let label = result
+                .target_agent
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(if result.command.is_empty() {
+                    &result.job_id
+                } else {
+                    &result.command
+                });
+            session.queue.snapshot.messages.push(QueuedPrompt {
+                id: format!("bg-{}", result.job_id),
+                text: label.to_string(),
+                send_at: pipi_protocol::now_millis(),
+                image_count: 0,
+                content: None,
+                background_result: Some(result),
+            });
+        }
+        self.publish_queue(session)?;
+        self.start_queue_worker(session);
+        Ok(())
     }
 
     pub fn cancel_queued_prompt(
@@ -247,23 +302,55 @@ impl RuntimeState {
             let next = queue.snapshot.messages.iter().map(|m| m.send_at).min()?;
             return Some(Duration::from_millis(next.saturating_sub(now).min(60_000)));
         };
-        let prompt = queue.snapshot.messages[index].text.clone();
-        let content = queue.snapshot.messages[index].content.clone();
+        // Consecutive ready background results share a run, but never overtake a
+        // ready user message. An Agent query may have observed results since enqueue.
+        let mut indices = Vec::new();
+        let input = if queue.snapshot.messages[index].background_result.is_some() {
+            let mut results = Vec::new();
+            for (i, item) in queue.snapshot.messages.iter().enumerate().skip(index) {
+                if item.send_at > now {
+                    continue;
+                }
+                let Some(result) = &item.background_result else {
+                    break;
+                };
+                indices.push(i);
+                if !self.background.was_observed(&result.job_id) {
+                    results.push(result.clone());
+                }
+                if indices.len() == 8 {
+                    break;
+                }
+            }
+            if results.is_empty() {
+                for i in indices.into_iter().rev() {
+                    queue.snapshot.messages.remove(i);
+                }
+                let _ = self.publish_queue(session);
+                return Some(Duration::ZERO);
+            }
+            super::execution::PromptInput::BackgroundResults(results)
+        } else {
+            indices.push(index);
+            super::execution::PromptInput::User {
+                prompt: queue.snapshot.messages[index].text.clone(),
+                content: queue.snapshot.messages[index].content.clone(),
+                model: None,
+            }
+        };
         let result = self.send_prompt_locked(
             &mut sessions,
             &key.agent_name,
             Some(&key.session_id),
-            super::execution::PromptInput::User {
-                prompt,
-                content,
-                model: None,
-            },
+            input,
             self.events.emitter(),
         );
         let session = sessions.get_mut(&key)?;
         match result {
             Ok(_) => {
-                session.queue.snapshot.messages.remove(index);
+                for i in indices.into_iter().rev() {
+                    session.queue.snapshot.messages.remove(i);
+                }
             }
             Err(error) => {
                 session.queue.snapshot.paused = true;
@@ -319,5 +406,259 @@ impl RuntimeState {
             let _ = self.publish_queue(session);
         }
         wake.notify_one();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::{ApiMode, ProviderConfig, Settings, save_settings};
+    use pipi_protocol::session::{EntryKind, SessionRepo};
+    use pipi_protocol::{Api, BackgroundTaskKind, BackgroundTaskResult, BackgroundTaskStatus};
+    use serde_json::json;
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Instant;
+
+    struct Environment(
+        Vec<(&'static str, Option<std::ffi::OsString>)>,
+        std::path::PathBuf,
+    );
+    impl Environment {
+        fn new() -> Self {
+            let home = pipi_test_support::temp_dir("pipi-background-queue");
+            let vars = [
+                ("HOME", home.clone()),
+                ("PIPI_HOME", home.join("pipi")),
+                ("AV_HOME", home.join("av")),
+            ]
+            .into_iter()
+            .map(|(key, path)| {
+                let previous = std::env::var_os(key);
+                pipi_test_support::set_env_var(key, path);
+                (key, previous)
+            })
+            .collect();
+            Self(vars, home)
+        }
+    }
+    impl Drop for Environment {
+        fn drop(&mut self) {
+            for (key, value) in &self.0 {
+                if let Some(value) = value {
+                    pipi_test_support::set_env_var(key, value);
+                } else {
+                    pipi_test_support::remove_env_var(key);
+                }
+            }
+            let _ = std::fs::remove_dir_all(&self.1);
+        }
+    }
+
+    #[test]
+    fn queued_results_are_batched_and_persisted_as_background_entries() {
+        let _guard = pipi_test_support::HOME_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let env = Environment::new();
+        let workspace = env.1.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let count = Arc::new(AtomicUsize::new(0));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let (server_count, server_stop) = (count.clone(), stopped.clone());
+        let server = std::thread::spawn(move || {
+            while !server_stop.load(Ordering::Acquire) {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                };
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+                let mut headers = Vec::new();
+                let mut byte = [0];
+                while !headers.ends_with(b"\r\n\r\n") {
+                    if stream.read_exact(&mut byte).is_err() {
+                        return;
+                    }
+                    headers.push(byte[0]);
+                }
+                let size = String::from_utf8_lossy(&headers)
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                    })
+                    .unwrap();
+                let mut body = vec![0; size];
+                if stream.read_exact(&mut body).is_err() {
+                    return;
+                }
+                server_count.fetch_add(1, Ordering::Release);
+                let chunk = json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":null}]});
+                let end = json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]});
+                let body = format!("data: {chunk}\n\ndata: {end}\n\ndata: [DONE]\n\n");
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        let model = Model {
+            id: "fixture".into(),
+            name: "Fixture".into(),
+            api: Api::OpenAICompletions,
+            base_url: url.clone(),
+            max_tokens: 256,
+            context_window: 0,
+            reasoning_effort: None,
+        };
+        agents::create_agent(
+            "queue-results",
+            "fixture",
+            workspace.to_str(),
+            None,
+            Some("fixture"),
+            Some(model),
+        )
+        .unwrap();
+        let settings = Settings {
+            providers: vec![ProviderConfig {
+                id: "local".into(),
+                name: "Local".into(),
+                api: Api::OpenAICompletions,
+                api_mode: ApiMode::Manual,
+                base_url: url,
+                env_key: None,
+                api_key: Some("fixture-key".into()),
+            }],
+            ..Default::default()
+        };
+        save_settings(&settings).unwrap();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let state = Arc::new(RuntimeState::new(rt.handle().clone()));
+        state.start_background_waker();
+        let id = state.create_session("queue-results").unwrap().session_id;
+        state
+            .set_prompt_queue_paused("queue-results", &id, true)
+            .unwrap();
+        let results: Vec<_> = (0..10)
+            .map(|i| BackgroundTaskResult {
+                job_id: format!("job-{i}"),
+                kind: BackgroundTaskKind::Agent,
+                status: BackgroundTaskStatus::Completed,
+                command: String::new(),
+                target_agent: Some("reviewer".into()),
+                exit_code: None,
+                error: None,
+                output: format!("result {i}"),
+            })
+            .collect();
+        state
+            .queue_background_results("queue-results", &id, results.clone())
+            .unwrap();
+        state
+            .queue_background_results("queue-results", &id, results)
+            .unwrap();
+        assert_eq!(
+            state
+                .open_session("queue-results", &id)
+                .unwrap()
+                .queue
+                .messages
+                .len(),
+            10
+        );
+        // A real job completes while paused; a later model query makes its
+        // already-queued notification redundant before the next run starts.
+        let owner = BackgroundTaskOwner::new("queue-results", &id, 0);
+        let job = rt
+            .block_on(
+                state
+                    .background
+                    .submit(crate::tools::background::BackgroundTaskSpec {
+                        owner: owner.clone(),
+                        command: "printf observed".into(),
+                        cwd: workspace.clone(),
+                        env: Default::default(),
+                        sandbox: pipi_protocol::permissions::SandboxPolicy::for_workspace(
+                            pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+                            &workspace,
+                        ),
+                        subscribe: true,
+                    }),
+            )
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while state
+            .open_session("queue-results", &id)
+            .unwrap()
+            .queue
+            .messages
+            .len()
+            < 11
+        {
+            assert!(Instant::now() < deadline, "completion was not queued");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        rt.block_on(state.background.query(
+            &owner,
+            crate::tools::background::BackgroundTaskQuery {
+                job_id: Some(job.job_id),
+                observe: true,
+                include_completed: true,
+                limit: 20,
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+        state
+            .set_prompt_queue_paused("queue-results", &id, false)
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let snapshot = state.open_session("queue-results", &id).unwrap();
+            if snapshot.queue.messages.is_empty()
+                && !snapshot.info.running
+                && count.load(Ordering::Acquire) == 2
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "background results did not finish: {:?}",
+                snapshot.queue
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        rt.block_on(state.shutdown()).unwrap();
+        let agent = agents::load_agent("queue-results").unwrap();
+        let entries = super::super::agent_repo(&agent)
+            .unwrap()
+            .entries(&id)
+            .unwrap();
+        let jobs: Vec<_> = entries
+            .iter()
+            .filter_map(|entry| match &entry.kind {
+                EntryKind::BackgroundResult { result } => Some(result.job_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(jobs.len(), 10);
+        for i in 0..10 {
+            assert_eq!(
+                jobs.iter().filter(|id| **id == format!("job-{i}")).count(),
+                1
+            );
+        }
+        stopped.store(true, Ordering::Release);
+        server.join().unwrap();
     }
 }

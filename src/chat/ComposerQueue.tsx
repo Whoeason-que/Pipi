@@ -36,14 +36,17 @@ export default function ComposerQueue({ queue, onCancel, onPause, onError }: Pro
     <li key={message.id}>
       <span className="composer-queue-index" aria-hidden="true">{index + 1}</span>
       <span className="composer-queue-message">
-        <span className="truncate fade-end composer-queue-text" title={message.text}>{message.text}</span>
+        <span className="truncate fade-end composer-queue-text" title={message.backgroundResult?.error || message.text}>
+          {message.backgroundResult && <strong>{t(message.backgroundResult.status === "failed" ? "chat.backgroundFailed" : "chat.backgroundDone")} · </strong>}
+          {message.text}
+        </span>
         <small className="composer-queue-meta">
           {!!message.imageCount && <span>{t("chat.imageCount", { count: message.imageCount })}</span>}
           <span>{message.sendAt > now
             ? t("chat.sendAfter", {
                 time: new Date(message.sendAt).toLocaleString(en ? "en-US" : "zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }),
               })
-            : t("chat.waitingForIdle")}</span>
+            : t(message.backgroundResult ? (queue.paused ? "chat.backgroundPaused" : "chat.backgroundWaiting") : "chat.waitingForIdle")}</span>
         </small>
       </span>
       <button

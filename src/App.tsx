@@ -192,8 +192,19 @@ export default function App() {
     commitView(next, remember, options);
   };
 
+  const files = useFilesBridge({
+    agents, filteredAgents, sessionsByAgent: visibleActiveSessions, activeWorkspace, workspaces,
+    current: current ?? null,
+    viewKind: view.kind,
+    authenticated: !authStatus.checking && authStatus.authenticated,
+    agentRunning: current ? agentHasRunning(current.name) : false,
+    navigate, sessionRuntime, navigation, selectWorkspaceFilter: selectWorkspacePath,
+  });
+  const { setPreviewWorkspacePaths } = files;
+
   const handleSelectWorkspace = (nextWorkspace: string) => {
     selectWorkspacePath(nextWorkspace);
+    setPreviewWorkspacePaths({ files: null, git: null });
 
     const target = normalizeWorkspacePath(nextWorkspace);
     const nextFiltered = nextWorkspace === "all"
@@ -319,15 +330,6 @@ export default function App() {
     if (current && (view.kind === "agent" || view.kind === "chat" || view.kind === "workbench")) setNavSection(agentSection(current));
   }, [current?.name, current?.subagent, view.kind]);
 
-  const files = useFilesBridge({
-    agents, filteredAgents, sessionsByAgent: visibleActiveSessions, activeWorkspace, workspaces,
-    current: current ?? null,
-    viewKind: view.kind,
-    authenticated: !authStatus.checking && authStatus.authenticated,
-    agentRunning: current ? agentHasRunning(current.name) : false,
-    navigate, sessionRuntime, navigation,
-  });
-  const { previewWorkspacePaths, setPreviewWorkspacePaths, currentWorkspaceTarget } = files;
   const openSection = (section: NavSection, options?: { keepSidebar?: boolean }) => {
     if (section === "search") {
       if (viewRef.current.kind === "settings") navigate(previousView.current);
@@ -363,9 +365,6 @@ export default function App() {
         : statsAgents[0]?.name ?? null;
       navigate({ kind: "stats", agentName: target }, true, navOptions);
     } else if (section === "files" || section === "git") {
-      if (!previewWorkspacePaths[section] && currentWorkspaceTarget?.workspace) {
-        setPreviewWorkspacePaths(previous => ({ ...previous, [section]: currentWorkspaceTarget.workspace }));
-      }
       navigate({ kind: section, agentName: null }, true, navOptions);
     } else {
       navigate({ kind: section }, true, navOptions);

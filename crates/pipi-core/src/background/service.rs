@@ -316,6 +316,15 @@ impl BackgroundTaskService for BackgroundTaskManager {
                 .then_with(|| left.task.job_id.cmp(&right.task.job_id))
         });
         snapshots.truncate(query.limit);
+        if query.observe {
+            for snapshot in &snapshots {
+                if !snapshot.task.status.is_active()
+                    && let Some(handle) = self.find_job(&snapshot.task.job_id)?
+                {
+                    handle.core().mark_observed();
+                }
+            }
+        }
         Ok(snapshots)
     }
 
@@ -538,12 +547,43 @@ mod tests {
         assert_eq!(event.status, BackgroundTaskStatus::Completed);
         assert!(event.subscribe);
 
-        // 一次查询读到终态后打上 observed，唤醒器据此不再重复推送。
+        // Host inspection must not suppress delivery to the Agent.
         manager
             .query(
                 &owner,
                 BackgroundTaskQuery {
                     job_id: Some(info.job_id.clone()),
+                    include_completed: true,
+                    limit: 20,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(!manager.was_observed(&info.job_id));
+
+        // A model listing (without jobId) also counts as observing terminal results.
+        manager
+            .query(
+                &owner,
+                BackgroundTaskQuery {
+                    observe: true,
+                    include_completed: true,
+                    limit: 20,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(manager.was_observed(&info.job_id));
+
+        // 查询单个任务也保持相同语义。
+        manager
+            .query(
+                &owner,
+                BackgroundTaskQuery {
+                    job_id: Some(info.job_id.clone()),
+                    observe: true,
                     include_completed: true,
                     limit: 20,
                     ..Default::default()

@@ -82,6 +82,8 @@ pub struct BackgroundTaskQuery {
     pub wait_ms: u64,
     pub include_completed: bool,
     pub limit: usize,
+    /// Only Agent tool queries count as the model having seen a result.
+    pub observe: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +290,7 @@ impl AgentTool for QueryBackgroundTasksTool {
                         .and_then(Value::as_bool)
                         .unwrap_or(true),
                     limit,
+                    observe: true,
                 },
             )
             .await?;

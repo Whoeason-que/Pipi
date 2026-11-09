@@ -1,12 +1,10 @@
 import type { ReactNode } from "react";
 
-export type InspectorTab = "notebook" | "detail" | "stats" | "state" | "history" | "subagents" | "files" | "search";
+export type InspectorTab = "notebook" | "detail" | "state" | "history" | "files" | "search";
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "state", label: "State" },
   { id: "detail", label: "Details" },
-  { id: "subagents", label: "Subagents" },
-  { id: "stats", label: "Stats" },
   { id: "notebook", label: "Notebook" },
   { id: "files", label: "Session files" },
   { id: "history", label: "History" },
@@ -38,7 +36,6 @@ export function InspectorTabIcon({
       </>
     ),
     detail: <path d="m4 5 6 6-6 6M12 19h8" />,
-    stats: <path d="M18 20V10M12 20V4M6 20v-6" />,
     state: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
     history: (
       <>
@@ -46,14 +43,6 @@ export function InspectorTabIcon({
         <circle cx="6" cy="18" r="2.5" />
         <circle cx="18" cy="12" r="2.5" />
         <path d="M6 8.5v7M8.5 6H14a4 4 0 0 1 4 4v.5" />
-      </>
-    ),
-    subagents: (
-      <>
-        <rect x="9" y="3" width="6" height="5" rx="1.6" />
-        <rect x="3" y="16" width="6" height="5" rx="1.6" />
-        <rect x="15" y="16" width="6" height="5" rx="1.6" />
-        <path d="M12 8v4M6 16v-2h12v2" />
       </>
     ),
     files: (

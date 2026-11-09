@@ -338,6 +338,15 @@ export interface QueuedPrompt {
   text: string;
   sendAt: number;
   imageCount?: number;
+  backgroundResult?: {
+    jobId: string;
+    kind: "shell" | "agent";
+    status: "completed" | "failed";
+    command: string;
+    targetAgent?: string;
+    error?: string;
+    output: string;
+  };
 }
 export interface PromptQueueSnapshot {
   revision: number;

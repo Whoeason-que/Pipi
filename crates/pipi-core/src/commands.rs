@@ -657,6 +657,7 @@ pub async fn query_background_tasks(
                 wait_ms: wait_ms.unwrap_or(0),
                 include_completed: include_completed.unwrap_or(true),
                 limit: limit.unwrap_or(20),
+                observe: false,
             },
         )
         .await

@@ -152,6 +152,15 @@ impl BackgroundTaskManager {
             .is_some_and(|handle| handle.core().was_observed())
     }
 
+    /// Reconcile missed completion broadcasts after a slow subscriber falls behind.
+    pub fn completion_candidates(&self) -> Vec<BackgroundTaskInfo> {
+        self.inner
+            .jobs
+            .lock()
+            .map(|jobs| jobs.values().map(|job| job.core().info()).collect())
+            .unwrap_or_default()
+    }
+
     /// 把一条终态信息整理成唤醒通知。
     ///
     /// 输出只保留尾部（`max_output_bytes` 内的完整行），完整日志仍在
@@ -306,7 +315,7 @@ impl BackgroundTaskManager {
         }
         let snapshot = handle.snapshot(query.after_seq)?;
         // 模型已经通过查询看到终态：唤醒器不再重复推同一条结果。
-        if !snapshot.task.status.is_active() {
+        if query.observe && !snapshot.task.status.is_active() {
             handle.core().mark_observed();
         }
         Ok(snapshot)

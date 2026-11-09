@@ -393,7 +393,7 @@ impl AgentTool for RunAgentTool {
         let inline = "Pass instructions instead of name to run a one-off subagent in a child session of the current Agent: no persistent Agent is created, and it inherits the current workspace, sandbox, and ordinary tools (foreground only). Prefer this for one-off delegation; use create_agent only when the same role will be reused.";
         if self.default_background {
             format!(
-                "Submit an existing Pipi Agent as a managed background task in a fresh independent session, or resume a specific session in the foreground by passing sessionId. Return immediately with a job ID for background runs; use query_background_tasks to wait/read progress and manage_background_task to terminate it. Pass background:false only when the final output is needed before continuing. {inline}"
+                "Submit an existing Pipi Agent as a managed background task in a fresh independent session, or resume a specific session in the foreground by passing sessionId. Return immediately with a job ID for background runs. By default the session is woken with the result: end your turn instead of polling. Use query_background_tasks for intermediate progress and manage_background_task to terminate it. Pass background:false only when the final output is needed before continuing. {inline}"
             )
         } else {
             format!(
@@ -599,10 +599,15 @@ where
 
 fn background_agent_to_tool_output(info: &BackgroundTaskInfo) -> Result<ToolOutput, String> {
     let mut text = format!(
-        "Agent {} submitted background task {}, status is {:?}. Use query_background_tasks to inspect status and output.",
+        "Agent {} submitted background task {}, status is {:?}. {}",
         info.target_agent.as_deref().unwrap_or("(unknown)"),
         info.job_id,
-        info.status
+        info.status,
+        if info.subscribe {
+            "You will be woken with the result when it finishes; end your turn instead of polling."
+        } else {
+            "Subscription is off: query_background_tasks can retrieve the result."
+        }
     );
     if let Some(session_id) = &info.child_session_id {
         text.push_str(&format!(" Child session: {session_id}."));

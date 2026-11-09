@@ -61,7 +61,7 @@ export default function SessionHistoryPanel({ agent, sessionId, running, active 
         sessionId,
       });
       if (id !== request.current) return;
-      setCommits(history);
+      setCommits(Array.isArray(history) ? history : []);
       setError(null);
     } catch (errorValue) {
       if (id === request.current) setError(formatRuntimeError(errorValue));

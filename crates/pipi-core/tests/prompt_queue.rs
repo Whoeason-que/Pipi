@@ -527,3 +527,46 @@ fn queue_rejects_invalid_inputs_and_bounds_pending_memory() {
     );
     rt.block_on(state.shutdown()).unwrap();
 }
+
+#[test]
+fn stopping_before_any_results_pauses_future_notifications_until_a_new_manual_turn() {
+    let _lock = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _env = Environment::new();
+    let mut endpoint = endpoint(true, false);
+    fixture(&endpoint.base);
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let id = state.create_session("queued").unwrap().session_id;
+    state
+        .send_prompt("queued", Some(&id), "start", None, state.events().emitter())
+        .unwrap();
+    until(|| endpoint.requests.lock().unwrap().len() == 1);
+    state.stop_run("queued", &id).unwrap();
+    endpoint.release.take().unwrap().send(()).unwrap();
+    until(|| {
+        state
+            .session_info("queued", &id)
+            .unwrap()
+            .is_some_and(|s| !s.running)
+    });
+    assert!(state.open_session("queued", &id).unwrap().queue.paused);
+    state
+        .send_prompt(
+            "queued",
+            Some(&id),
+            "new work",
+            None,
+            state.events().emitter(),
+        )
+        .unwrap();
+    assert!(!state.open_session("queued", &id).unwrap().queue.paused);
+    until(|| {
+        state
+            .session_info("queued", &id)
+            .unwrap()
+            .is_some_and(|s| !s.running)
+    });
+    rt.block_on(state.shutdown()).unwrap();
+}

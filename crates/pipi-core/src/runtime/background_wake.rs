@@ -12,21 +12,19 @@
 //! `RuntimeState::new` 返回 `Self`，拿不到 `Arc`，所以宿主在 `Arc::new(..)`
 //! 之后调用一次 [`RuntimeState::start_background_waker`]。
 
+use std::collections::HashSet;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use pipi_protocol::session::background_result_tagged_text;
 use pipi_protocol::{BackgroundTaskInfo, BackgroundTaskResult, BackgroundTaskStatus};
 use tokio::sync::broadcast::error::RecvError;
 
-use super::{RuntimeState, SessionKey};
+use super::RuntimeState;
 
 /// 合并窗口：窗口内完成的任务合成一轮，避免 N 个任务触发 N 轮。
 const MERGE_WINDOW: Duration = Duration::from_millis(300);
 /// 单条通知保留的输出尾部。
 const OUTPUT_TAIL_BYTES: usize = 8 * 1024;
-/// 一次唤醒最多合并的任务数（其余的下一轮再送，避免单条消息过长）。
-const MAX_RESULTS_PER_WAKE: usize = 8;
 
 /// 一条待投递的通知：投递目标来自任务所有权，不属于通知本身。
 struct PendingResult {
@@ -41,31 +39,36 @@ impl RuntimeState {
         let mut receiver = self.background.subscribe();
         let weak = Arc::downgrade(self);
         self.spawn_run(async move {
+            let mut delivered = HashSet::new();
             loop {
                 let first = match receiver.recv().await {
                     Ok(info) => info,
-                    // 落后（事件被丢弃）不致命：终态各自独立，继续等下一条。
-                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Lagged(_)) => {
+                        let mut missed = Vec::new();
+                        reconcile(&weak, &delivered, &mut missed);
+                        deliver(&weak, missed, &mut delivered);
+                        continue;
+                    }
                     Err(RecvError::Closed) => break,
                 };
                 let mut batch = Vec::new();
-                collect(&weak, first, &mut batch);
+                collect(&weak, first, &delivered, &mut batch);
                 // 固定截止时间：持续有事件也不能无限推迟投递。
                 let deadline = tokio::time::Instant::now() + MERGE_WINDOW;
                 loop {
                     tokio::select! {
                         _ = tokio::time::sleep_until(deadline) => break,
                         event = receiver.recv() => match event {
-                            Ok(info) => collect(&weak, info, &mut batch),
-                            Err(RecvError::Lagged(_)) => {}
+                            Ok(info) => collect(&weak, info, &delivered, &mut batch),
+                            Err(RecvError::Lagged(_)) => reconcile(&weak, &delivered, &mut batch),
                             Err(RecvError::Closed) => {
-                                deliver(&weak, std::mem::take(&mut batch));
+                                deliver(&weak, std::mem::take(&mut batch), &mut delivered);
                                 return;
                             }
                         },
                     }
                 }
-                deliver(&weak, std::mem::take(&mut batch));
+                deliver(&weak, std::mem::take(&mut batch), &mut delivered);
             }
         });
     }
@@ -83,9 +86,14 @@ fn is_wakeable(info: &BackgroundTaskInfo, observed: bool) -> bool {
         )
 }
 
-/// 过滤与排队：订阅、终态、未观测、合并上限。
-fn collect(weak: &Weak<RuntimeState>, info: BackgroundTaskInfo, batch: &mut Vec<PendingResult>) {
-    if batch.len() >= MAX_RESULTS_PER_WAKE {
+/// 过滤与排队：订阅、终态、未观测。
+fn collect(
+    weak: &Weak<RuntimeState>,
+    info: BackgroundTaskInfo,
+    delivered: &HashSet<String>,
+    batch: &mut Vec<PendingResult>,
+) {
+    if delivered.contains(&info.job_id) || batch.iter().any(|p| p.result.job_id == info.job_id) {
         return;
     }
     let Some(runtime) = weak.upgrade() else {
@@ -105,8 +113,20 @@ fn collect(weak: &Weak<RuntimeState>, info: BackgroundTaskInfo, batch: &mut Vec<
     });
 }
 
+fn reconcile(
+    weak: &Weak<RuntimeState>,
+    delivered: &HashSet<String>,
+    batch: &mut Vec<PendingResult>,
+) {
+    if let Some(runtime) = weak.upgrade() {
+        for info in runtime.background.completion_candidates() {
+            collect(weak, info, delivered, batch);
+        }
+    }
+}
+
 /// 按会话分组投递；每组只起一轮。
-fn deliver(weak: &Weak<RuntimeState>, batch: Vec<PendingResult>) {
+fn deliver(weak: &Weak<RuntimeState>, batch: Vec<PendingResult>, delivered: &mut HashSet<String>) {
     if batch.is_empty() {
         return;
     }
@@ -127,10 +147,12 @@ fn deliver(weak: &Weak<RuntimeState>, batch: Vec<PendingResult>) {
         }
     }
     for ((agent_name, session_id), results) in groups {
-        if let Err(error) = wake_session(&runtime, &agent_name, &session_id, results) {
-            eprintln!(
+        let ids: Vec<String> = results.iter().map(|r| r.job_id.clone()).collect();
+        match wake_session(&runtime, &agent_name, &session_id, results) {
+            Ok(()) => delivered.extend(ids),
+            Err(error) => eprintln!(
                 "pipi: failed to deliver background results to {agent_name}/{session_id}: {error}"
-            );
+            ),
         }
     }
 }
@@ -141,52 +163,9 @@ fn wake_session(
     session_id: &str,
     results: Vec<BackgroundTaskResult>,
 ) -> Result<(), String> {
-    let text = results
-        .iter()
-        .map(background_result_tagged_text)
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let message_id = format!("bg-{}", results[0].job_id);
-
-    // 运行中：排进现有队列，当前轮结束后接着跑（不打断、也不用 waitMs 阻塞）。
-    if session_is_running(runtime, agent_name, session_id) {
-        if let Err(error) = runtime.queue_prompt(agent_name, session_id, &message_id, &text, None) {
-            // 会话可能刚好空闲/关闭：退回新建一轮（下面会再判一次运行态）。
-            if !error.contains("not open") {
-                return Err(error);
-            }
-        } else {
-            return Ok(());
-        }
-    }
-
-    match runtime.send_background_results(
-        agent_name,
-        session_id,
-        results.clone(),
-        runtime.events().emitter(),
-    ) {
-        Ok(_) => Ok(()),
-        Err(error) if error.contains("is running") => {
-            // 检查与发送之间的竞态：改排队。
-            runtime.queue_prompt(agent_name, session_id, &message_id, &text, None)?;
-            Ok(())
-        }
-        Err(error) => Err(error),
-    }
-}
-
-fn session_is_running(runtime: &RuntimeState, agent_name: &str, session_id: &str) -> bool {
-    runtime
-        .sessions
-        .lock()
-        .ok()
-        .and_then(|sessions| {
-            sessions
-                .get(&SessionKey::new(agent_name, session_id))
-                .and_then(|session| session.engine.snapshot().ok())
-        })
-        .is_some_and(|snapshot| snapshot.running)
+    // Reopen an idle released session if needed, then preserve its typed results
+    // and pause state in the same queue as an already open session.
+    runtime.queue_background_results(agent_name, session_id, results)
 }
 
 #[cfg(test)]
@@ -215,6 +194,24 @@ mod tests {
             error: None,
             result: None,
         }
+    }
+
+    #[test]
+    fn completion_window_keeps_more_than_eight_results() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let runtime = Arc::new(RuntimeState::new(rt.handle().clone()));
+        let weak = Arc::downgrade(&runtime);
+        let mut batch = Vec::new();
+        let delivered = HashSet::new();
+        for i in 0..20 {
+            let mut task = info(BackgroundTaskStatus::Completed, true);
+            task.job_id = format!("job-{i}");
+            collect(&weak, task, &delivered, &mut batch);
+        }
+        assert_eq!(batch.len(), 20);
     }
 
     #[test]
