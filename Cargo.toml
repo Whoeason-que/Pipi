@@ -65,6 +65,7 @@ nix = { version = "0.31", default-features = false, features = ["signal"] }
 # 存在两套 HTTP/TLS 栈。pipi-provider 需要默认特性，pipi-core 不要默认特性，
 # 所以这里显式写 default-features = false，provider 再覆盖回 true。
 reqwest = { version = "0.13", default-features = false }
+rustix = { version = "1", features = ["fs"] }
 rig = "0.43.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

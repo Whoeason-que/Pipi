@@ -105,6 +105,7 @@ impl RuntimeState {
                 enabled: server.enabled,
                 connected: false,
                 tools: 0,
+                declared_tools: Vec::new(),
                 error: None,
             });
         }

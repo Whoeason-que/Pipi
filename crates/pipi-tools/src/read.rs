@@ -2,7 +2,7 @@
 //! 文本按行号截断输出；图片按魔数识别后以 base64 附件返回；目录按字母序列出
 //! 条目（含点文件，子目录带 `/` 后缀）。
 
-use std::path::Path;
+use std::io::Read;
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -40,7 +40,7 @@ impl AgentTool for ReadTool {
 
     fn description(&self) -> String {
         format!(
-            "Read a text file, view an image (jpg, png, gif, webp, bmp), or list a directory. Images are sent as attachments. Text output is truncated to {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). Directory entries are sorted alphabetically, include dotfiles, and use a '/' suffix for subdirectories. Use offset/limit to page through large files or directories.",
+            "Read a text file, view an image (jpg, png, gif, webp, bmp), or list a directory. Images are sent as attachments. Text output is truncated to {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). Directory entries are sorted alphabetically, include dotfiles, and use a '/' suffix for subdirectories. Use offset/limit to page through files or directories. Files larger than 16 MiB and images larger than 5 MiB are rejected; use bash to read a bounded range.",
             DEFAULT_MAX_BYTES / 1024
         )
     }
@@ -68,17 +68,47 @@ impl AgentTool for ReadTool {
         let limit = args["limit"].as_u64().map(|v| v as usize);
 
         let abs = resolve_read_path(&ctx.workspace, &ctx.read_roots, path)?;
-        let metadata = tokio::fs::metadata(&abs)
-            .await
+        // Open through trusted directory handles. A path validated above may
+        // have been replaced by a symlink before the actual read.
+        let root = std::iter::once(&ctx.workspace)
+            .chain(ctx.read_roots.iter())
+            .filter_map(|root| std::fs::canonicalize(root).ok())
+            .find(|root| abs.starts_with(root))
+            .ok_or("No trusted root for read")?;
+        let file = crate::secure_file::open_read(&root, &abs)
+            .map_err(|e| format!("Could not read path: {path}. {e}"))?;
+        let metadata = file
+            .metadata()
             .map_err(|e| format!("Could not read path: {path}. {e}"))?;
         if metadata.is_dir() {
-            return read_directory(path, &abs, offset, limit).await;
+            return read_directory(path, file, offset, limit).await;
         }
-        let bytes = tokio::fs::read(&abs)
-            .await
-            .map_err(|e| format!("Could not read file: {path}. {e}"))?;
+        if !metadata.is_file() {
+            return Err(format!(
+                "Could not read file: {path}. Path is not a regular file."
+            ));
+        }
+        const MAX_READ_BYTES: usize = 16 * 1024 * 1024;
+        let bytes = tokio::task::spawn_blocking(move || {
+            let mut bytes = Vec::new();
+            file.take(MAX_READ_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            if bytes.len() > MAX_READ_BYTES {
+                return Err(format!(
+                    "File exceeds {MAX_READ_BYTES} bytes; use bash to read a bounded range"
+                ));
+            }
+            Ok(bytes)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e: String| format!("Could not read file: {path}. {e}"))?;
 
         if let Some(mime) = detect_image_mime(&bytes) {
+            if bytes.len() > 5 * 1024 * 1024 {
+                return Err("Image exceeds the 5 MiB limit".into());
+            }
             if mime == "image/bmp" {
                 return Ok(ToolOutput::text(
                     "Read image file [image/bmp]\n[Image omitted: BMP conversion is not built in.]",
@@ -181,25 +211,41 @@ impl AgentTool for ReadTool {
 /// 看 `.github` / `.agents` / `.env` 的唯一入口）。`offset`/`limit` 按条目翻页。
 async fn read_directory(
     display_path: &str,
-    abs: &Path,
+    file: std::fs::File,
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> Result<ToolOutput, String> {
-    let mut names: Vec<String> = Vec::new();
-    let mut dir = tokio::fs::read_dir(abs)
+    #[cfg(unix)]
+    let mut names: Vec<(String, bool)> =
+        tokio::task::spawn_blocking(move || -> Result<_, String> {
+            let mut dir = rustix::fs::Dir::read_from(&file).map_err(|e| e.to_string())?;
+            let mut names = Vec::new();
+            while let Some(entry) = dir.read() {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name == "." || name == ".." {
+                    continue;
+                }
+                if names.len() >= 100_000 {
+                    return Err("Directory exceeds 100000 entries".into());
+                }
+                names.push((name, entry.file_type() == rustix::fs::FileType::Directory));
+            }
+            Ok(names)
+        })
         .await
+        .map_err(|e| e.to_string())?
         .map_err(|e| format!("Could not read directory: {display_path}. {e}"))?;
-    while let Some(entry) = dir
-        .next_entry()
-        .await
-        .map_err(|e| format!("Could not read directory: {display_path}. {e}"))?
-    {
-        names.push(entry.file_name().to_string_lossy().into_owned());
-    }
+    #[cfg(not(unix))]
+    let mut names: Vec<(String, bool)> = {
+        let _ = file;
+        return Err("Secure directory reads are unavailable on this platform".into());
+    };
     names.sort_by(|left, right| {
-        left.to_lowercase()
-            .cmp(&right.to_lowercase())
-            .then_with(|| left.cmp(right))
+        left.0
+            .to_lowercase()
+            .cmp(&right.0.to_lowercase())
+            .then_with(|| left.0.cmp(&right.0))
     });
 
     let total = names.len();
@@ -227,19 +273,11 @@ async fn read_directory(
 
     // 只给真正要返回的条目做 stat（判断目录后缀），大目录不做全量 stat。
     let mut selected: Vec<String> = Vec::with_capacity(take.min(total - start));
-    for name in names.into_iter().skip(start).take(take) {
-        let is_dir = tokio::fs::metadata(abs.join(&name))
-            .await
-            .map(|meta| meta.is_dir())
-            .unwrap_or(false);
+    for (name, is_dir) in names.into_iter().skip(start).take(take) {
         selected.push(if is_dir { format!("{name}/") } else { name });
     }
 
-    let truncation = truncate_head(
-        &selected.join("\n"),
-        DEFAULT_MAX_LINES,
-        DEFAULT_MAX_BYTES,
-    );
+    let truncation = truncate_head(&selected.join("\n"), DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
     let shown = if truncation.truncated {
         truncation.output_lines
     } else {
@@ -339,6 +377,17 @@ mod tests {
         ReadTool
             .execute(ctx, &json!({ "path": path }), &|_| {})
             .await
+    }
+
+    #[tokio::test]
+    async fn rejects_large_files_before_unbounded_allocation() {
+        let (base, ctx, _, _) = read_fixture().await;
+        let path = ctx.workspace.join("large.txt");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(16 * 1024 * 1024 + 1).unwrap();
+        let result = read(&ctx, "large.txt".into()).await;
+        assert!(result.unwrap_err().contains("exceeds"));
+        tokio::fs::remove_dir_all(base).await.unwrap();
     }
 
     #[tokio::test]

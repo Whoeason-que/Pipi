@@ -93,9 +93,15 @@ fn fuzzy_find(content: &str, old_text: &str) -> Option<(MatchSpan, bool)> {
     if normalized_old.is_empty() {
         return None;
     }
-    normalized_content
-        .find(&normalized_old)
-        .map(|index| (MatchSpan { index, len: normalized_old.len() }, true))
+    normalized_content.find(&normalized_old).map(|index| {
+        (
+            MatchSpan {
+                index,
+                len: normalized_old.len(),
+            },
+            true,
+        )
+    })
 }
 
 fn count_occurrences(content: &str, old_text: &str) -> usize {
@@ -388,9 +394,7 @@ fn parse_edits(value: &Value) -> Result<Vec<Edit>, String> {
                     vec![other]
                 }
                 _ => {
-                    return Err(
-                        "edits must contain at least one replacement.".to_string()
-                    );
+                    return Err("edits must contain at least one replacement.".to_string());
                 }
             }
         }
@@ -467,16 +471,39 @@ impl AgentTool for EditTool {
         };
         // 同一文件的两个 edit/write 在同一批里是并行执行的：从这里到写入完成
         // 必须持有文件锁，否则后写的那次会静默覆盖先写的。
-        let _file_lock = crate::file_queue::lock(&abs).await;
-        let meta = tokio::fs::metadata(&abs)
-            .await
-            .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
-        if !meta.is_file() {
-            return Err(format!("Could not edit file: {path}. Path is not a file."));
+        let _file_lock = crate::file_queue::lock_cancellable(&abs, &ctx.abort).await?;
+        if ctx.abort.is_aborted() {
+            return Err("Operation aborted".into());
         }
-        let raw = tokio::fs::read_to_string(&abs)
-            .await
-            .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
+        let confined = matches!(
+            ctx.sandbox,
+            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
+        );
+        let secure = if confined {
+            Some(
+                crate::secure_file::SecureFile::open(&ctx.workspace, &abs, false)
+                    .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?,
+            )
+        } else {
+            None
+        };
+        const MAX_EDIT_BYTES: usize = 16 * 1024 * 1024;
+        let raw = if let Some(file) = &secure {
+            file.read(MAX_EDIT_BYTES)
+                .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?
+        } else {
+            let meta = tokio::fs::metadata(&abs)
+                .await
+                .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
+            if !meta.is_file() || meta.len() > MAX_EDIT_BYTES as u64 {
+                return Err(format!(
+                    "Could not edit file: {path}. Not a regular file or file too large."
+                ));
+            }
+            tokio::fs::read_to_string(&abs)
+                .await
+                .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?
+        };
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());
         }
@@ -492,15 +519,20 @@ impl AgentTool for EditTool {
         );
         // 原子替换（同步 fs 调用走 blocking 线程池，别占住运行时 worker）
         let target = abs.clone();
+        let abort = ctx.abort.clone();
         tokio::task::spawn_blocking(move || {
-            pipi_protocol::fs::write_atomic(&target, final_content)
+            if let Some(file) = secure {
+                file.write(&final_content, &abort)
+            } else {
+                if abort.is_aborted() {
+                    return Err("Operation aborted".into());
+                }
+                pipi_protocol::fs::write_atomic(&target, final_content).map_err(|e| e.to_string())
+            }
         })
         .await
         .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?
         .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
-        if ctx.abort.is_aborted() {
-            return Err("Operation aborted".into());
-        }
 
         let (diff, first_changed_line) = diff_summary(&normalized, &new_content);
         Ok(ToolOutput {
@@ -619,12 +651,7 @@ mod tests {
     #[test]
     fn fuzzy_match_tolerates_trailing_whitespace_and_keeps_untouched_lines() {
         let content = "line one   \nlet x = 1;   \nline three\n";
-        let out = apply_edits(
-            content,
-            &[edit("let x = 1;\n", "let x = 2;\n")],
-            "m.rs",
-        )
-        .unwrap();
+        let out = apply_edits(content, &[edit("let x = 1;\n", "let x = 2;\n")], "m.rs").unwrap();
         // 被替换的行按归一化文本重写；没碰到的行保留原始行尾空白。
         assert_eq!(out, "line one   \nlet x = 2;\nline three\n");
     }
@@ -643,12 +670,7 @@ mod tests {
 
     #[test]
     fn fuzzy_match_handles_crlf_old_text() {
-        let out = apply_edits(
-            "a\nb\nc\n",
-            &[edit("a\r\nb\r\n", "a\nB\n")],
-            "m.rs",
-        )
-        .unwrap();
+        let out = apply_edits("a\nb\nc\n", &[edit("a\r\nb\r\n", "a\nB\n")], "m.rs").unwrap();
         assert_eq!(out, "a\nB\nc\n");
     }
 
@@ -678,16 +700,14 @@ mod tests {
 
     #[test]
     fn errors_name_the_failing_edit_index() {
-        let err = apply_edits(
-            "abc",
-            &[edit("abc", "x"), edit("missing", "y")],
-            "f",
-        )
-        .unwrap_err();
+        let err = apply_edits("abc", &[edit("abc", "x"), edit("missing", "y")], "f").unwrap_err();
         assert!(err.contains("edits[1]"), "{err}");
 
         let overlap = apply_edits("abcde", &[edit("abc", "X"), edit("cde", "Y")], "f").unwrap_err();
-        assert!(overlap.contains("edits[0]") && overlap.contains("edits[1]"), "{overlap}");
+        assert!(
+            overlap.contains("edits[0]") && overlap.contains("edits[1]"),
+            "{overlap}"
+        );
     }
 
     #[test]
@@ -695,7 +715,8 @@ mod tests {
         let array = parse_edits(&json!({"edits": [{"oldText": "a", "newText": "b"}]})).unwrap();
         assert_eq!(array, vec![edit("a", "b")]);
 
-        let string = parse_edits(&json!({"edits": "[{\"oldText\":\"a\",\"newText\":\"b\"}]"})).unwrap();
+        let string =
+            parse_edits(&json!({"edits": "[{\"oldText\":\"a\",\"newText\":\"b\"}]"})).unwrap();
         assert_eq!(string, vec![edit("a", "b")]);
 
         let single = parse_edits(&json!({"edits": {"oldText": "a", "newText": "b"}})).unwrap();

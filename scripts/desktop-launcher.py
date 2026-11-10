@@ -21,6 +21,40 @@ ICON = ROOT / "crates/pipi/icons/128x128.png"
 TITLE = "Pipi 源码版"
 
 
+def source_digest(root):
+    """Hash source contents: Cargo's mtime check can miss restored old files."""
+    files = [root / "Cargo.toml", root / "Cargo.lock", root / ".cargo/config.toml"]
+    crates = root / "crates"
+    for directory, subdirs, names in os.walk(crates):
+        subdirs[:] = sorted(name for name in subdirs if name not in {"target", "binaries", "gen"})
+        files.extend(Path(directory) / name for name in sorted(names))
+    digest = hashlib.sha256()
+    for file in sorted(files):
+        if not file.is_file():
+            continue
+        name = str(file.relative_to(root)).encode()
+        data = file.read_bytes()
+        digest.update(len(name).to_bytes(8, "big"))
+        digest.update(name)
+        digest.update(len(data).to_bytes(8, "big"))
+        digest.update(data)
+    return digest.hexdigest()
+
+
+def workspace_packages(metadata):
+    members = set(metadata["workspace_members"])
+    return sorted(package["name"] for package in metadata["packages"] if package["id"] in members)
+
+
+def write_stamp(path, digest):
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(digest + "\n")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def environment():
     env = os.environ.copy()
     env["PATH"] = os.pathsep.join([
@@ -97,6 +131,12 @@ def launch(build_only):
     cache = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "pipi/source-launcher"
     cache.mkdir(parents=True, exist_ok=True)
     identity = hashlib.sha256(str(ROOT).encode()).hexdigest()[:16]
+    build_dir = cache / f"build-{identity}"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    # Dedicated to this checkout, regardless of an inherited CARGO_TARGET_DIR.
+    # Other worktrees and their build caches cannot supply its local crates.
+    env["CARGO_TARGET_DIR"] = str((build_dir / "target").resolve())
+    stamp_path = build_dir / "source.sha256"
     with (cache / f"{identity}.lock").open("a+") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -112,22 +152,40 @@ def launch(build_only):
         command = ["npm", "run", "tauri:build", "--", "--debug", "--no-bundle", "--", "--locked"]
         print(f"编译日志：{log_path}", flush=True)
         with log_path.open("w") as log:
-            log.write(f"源码：{ROOT}\n命令：{shlex.join(command)}\n\n")
+            log.write(f"源码：{ROOT}\n构建目录：{env['CARGO_TARGET_DIR']}\n命令：{shlex.join(command)}\n\n")
             log.flush()
             progress = progress_start(log_path)
             try:
+                metadata = subprocess.run([
+                    "cargo", "metadata", "--format-version", "1", "--no-deps", "--offline", "--locked",
+                ], cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=log, text=True, check=True)
+                workspace = json.loads(metadata.stdout)
+                digest = source_digest(ROOT)
+                try:
+                    previous = stamp_path.read_text().strip()
+                except FileNotFoundError:
+                    previous = None
+                # Never trust a build interrupted after this point. If contents
+                # changed, rebuild workspace crates even when mtimes went back.
+                stamp_path.unlink(missing_ok=True)
+                if previous != digest:
+                    clean = ["cargo", "clean", "--locked"]
+                    for package in workspace_packages(workspace):
+                        clean.extend(["-p", package])
+                    log.write(f"源码内容已变化，重新编译本工作区：{shlex.join(clean)}\n")
+                    log.flush()
+                    subprocess.run(clean, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
                 result = subprocess.run(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
             finally:
                 progress_stop(progress)
             if result.returncode:
                 raise RuntimeError(f"编译失败，本次没有启动应用。\n\n请查看日志：\n{log_path}")
-
-            metadata = subprocess.run([
-                "cargo", "metadata", "--format-version", "1", "--no-deps", "--offline",
-            ], cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=log, text=True, check=True)
-            binary = Path(json.loads(metadata.stdout)["target_directory"]) / "debug/pipi"
+            if source_digest(ROOT) != digest:
+                raise RuntimeError(f"编译期间源码发生变化，请重新启动以保证版本一致。\n\n日志：{log_path}")
+            binary = Path(workspace["target_directory"]) / "debug/pipi"
             if not binary.is_file():
                 raise RuntimeError(f"编译后未找到本机应用：{binary}\n日志：{log_path}")
+            write_stamp(stamp_path, digest)
             if build_only:
                 print(f"编译完成：{binary}", flush=True)
                 return 0

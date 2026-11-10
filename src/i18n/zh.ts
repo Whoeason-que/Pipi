@@ -7,6 +7,8 @@ import type { DeepPartial, I18nSchema } from "./en.ts";
 export const zh: DeepPartial<I18nSchema> = {
   agents: {
     browserSandboxHint: "浏览器控制仅在完全访问下可用；完全访问也会移除其他工具的操作系统沙箱。",
+    showMcpTools: "可用工具",
+    mcpHint: "启用服务器即授权其声明的全部工具。服务器进程会收到 Agent 解析后的完整环境（包括密钥），并使用显示的沙箱。网络默认关闭，除非显式开启或使用完全访问。在 agent.json 中配置服务器。",
   },
   common: {
     confirm: "确认",

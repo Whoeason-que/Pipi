@@ -40,6 +40,10 @@ impl GitExec {
         }
     }
 
+    pub(super) fn repo_dir(&self) -> &std::path::Path {
+        &self.repo_dir
+    }
+
     /// 带 `--git-dir` 的基础命令：与 cwd、`GIT_DIR` 等环境变量解耦。
     fn command(&self) -> Command {
         let mut command = Command::new("git");

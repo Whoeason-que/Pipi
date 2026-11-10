@@ -18,6 +18,7 @@
 //! 载体，列表/归档语义会混乱），错误文案给出可执行提示。
 
 mod exec;
+mod journal;
 mod layout;
 mod reader;
 mod refs;
@@ -129,15 +130,18 @@ impl SessionRepo for GitSessionRepo {
     ) -> Result<(Box<dyn SessionLog>, Vec<SessionEntry>), String> {
         validate_session_id(session_id)?;
         let ref_name = refs::session_ref(session_id);
-        let entries = self.read_session(&ref_name)?;
+        let mut entries = self.read_session(&ref_name)?;
         let turn = reader::count_turns(&self.exec, &ref_name)?;
-        let sink = Box::new(GitSink::from_entries(
-            self.exec.clone(),
-            session_id.to_string(),
-            &entries,
-            turn,
-        ));
-        Ok((sink, entries))
+        let mut sink =
+            GitSink::from_entries(self.exec.clone(), session_id.to_string(), &entries, turn);
+        let pending = journal::recover(&self.exec, session_id, &entries)?;
+        for entry in &pending {
+            sink.restore_pending(entry);
+        }
+        entries.extend(pending);
+        sink.load_partial()
+            .map_err(|e| format!("Cannot recover partial response: {e}"))?;
+        Ok((Box::new(sink), entries))
     }
 
     fn exists(&self, session_id: &str) -> Result<bool, String> {
@@ -147,12 +151,40 @@ impl SessionRepo for GitSessionRepo {
 
     fn entries(&self, session_id: &str) -> Result<Vec<SessionEntry>, String> {
         validate_session_id(session_id)?;
-        self.read_session(&refs::session_ref(session_id))
+        let mut entries = self.read_session(&refs::session_ref(session_id))?;
+        let pending = journal::recover(&self.exec, session_id, &entries)?;
+        entries.extend(pending);
+        Ok(entries)
     }
 
     fn list(&self) -> Vec<SessionSummary> {
         // 与 JSONL 实现同口径：列表失败不拖垮界面（返回空）
-        reader::read_summaries(&self.exec, refs::SESSION_PREFIX).unwrap_or_default()
+        let mut summaries =
+            reader::read_summaries(&self.exec, refs::SESSION_PREFIX).unwrap_or_default();
+        for summary in &mut summaries {
+            if !journal::has_files(&self.exec, &summary.id).unwrap_or(false) {
+                continue;
+            }
+            let Ok(committed) = self.read_session(&refs::session_ref(&summary.id)) else {
+                continue;
+            };
+            let Ok(pending) = journal::recover(&self.exec, &summary.id, &committed) else {
+                continue;
+            };
+            if pending.is_empty() {
+                continue;
+            }
+            if summary.title == "(空会话)" {
+                summary.title = crate::title_from_entries(committed.iter().chain(pending.iter()));
+            }
+            for entry in &pending {
+                if let pipi_protocol::session::EntryKind::Message { message } = &entry.kind {
+                    summary.message_count += 1;
+                    summary.last_active = summary.last_active.max(message.timestamp());
+                }
+            }
+        }
+        summaries
     }
 
     fn list_archived(&self) -> Result<Vec<SessionSummary>, String> {
@@ -257,6 +289,18 @@ impl SessionRepo for GitSessionRepo {
             return self.create();
         }
         let entries = self.read_session(&source_ref)?;
+        let pending = journal::recover(&self.exec, session_id, &entries)?;
+        let tip = pending
+            .last()
+            .or_else(|| entries.last())
+            .map(|entry| entry.id.as_str());
+        if !pending.is_empty()
+            || journal::load_partial(&self.exec, session_id, tip)
+                .map_err(|e| e.to_string())?
+                .is_some()
+        {
+            return Err("Save the interrupted session before forking it".into());
+        }
         let new_session_id = format!("{}-{}", now_millis(), new_id());
 
         match up_to_entry_id {
@@ -331,6 +375,19 @@ impl SessionRepo for GitSessionRepo {
 
     fn archive(&self, session_id: &str) -> Result<(), String> {
         validate_session_id(session_id)?;
+        let ref_name = refs::session_ref(session_id);
+        let committed = self.read_session(&ref_name)?;
+        if !journal::recover(&self.exec, session_id, &committed)?.is_empty()
+            || journal::load_partial(
+                &self.exec,
+                session_id,
+                committed.last().map(|e| e.id.as_str()),
+            )
+            .map_err(|e| e.to_string())?
+            .is_some()
+        {
+            return Err("Save the interrupted session before archiving it".into());
+        }
         refs::archive(&self.exec, session_id)
     }
 
@@ -350,7 +407,8 @@ impl SessionRepo for GitSessionRepo {
         if let Err(error) = refs::delete_fork_markers(&self.exec, session_id) {
             eprintln!("pipi: failed to remove fork lineage refs for {session_id}: {error}");
         }
-        refs::delete_branch(&self.exec, &ref_name)
+        refs::delete_branch(&self.exec, &ref_name)?;
+        journal::clear(&self.exec, session_id).map_err(|e| e.to_string())
     }
 
     fn delete_archived(&self, session_id: &str) -> Result<(), String> {
@@ -395,7 +453,7 @@ fn write_batched(sink: &mut GitSink, entries: &[SessionEntry]) -> Result<(), Str
 /// 把一批条目写进 sink 并提交。
 fn flush_batch(sink: &mut GitSink, batch: &[&SessionEntry]) -> Result<(), String> {
     for entry in batch {
-        sink.push_entry(entry);
+        sink.push_entry(entry).map_err(|error| error.to_string())?;
     }
     use pipi_protocol::session::SessionLog;
     sink.commit_point().map_err(|error| error.to_string())

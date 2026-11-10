@@ -163,13 +163,13 @@ test("Rust wire fixtures fit frontend DTOs and typed invoke rejects misspelled c
   const fixture = read("tests/fixtures/ipc-wire.json");
   const filename = path.join(root, "tests/fixtures/wire-check.ts");
   const code = `
-import type { RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, AgentStatsView, ModelConfig, Settings, SessionStatsView, SessionInfoView, SessionSnapshotView, SkillLibrary } from "../../src/types";
+import type { McpServerStatusView, RemoteAccessStatus, AgentDefinition, AgentEditableFiles, AgentSkills, AgentStatsView, ModelConfig, Settings, SessionStatsView, SessionInfoView, SessionSnapshotView, SkillLibrary } from "../../src/types";
 import type { MessageView } from "../../src/chat-runtime";
 import type { IconTheme, IconThemeList } from "../../src/files/icon-theme-types";
 import type { BackgroundTaskSnapshot, BrowserBounds, BrowserViewState, EventMap, Invoke } from "../../src/ipc";
 import type { WorkspaceListing, WorkspaceFile, WorkspaceChanges, WorkspaceDiff } from "../../src/files/types";
 type Frame = { [K in keyof EventMap]: { type: K; payload: EventMap[K] } }[keyof EventMap];
-const wire: { browserBounds: BrowserBounds; browserView: BrowserViewState; iconTheme: IconTheme; iconThemeList: IconThemeList; workspaceListing: WorkspaceListing; workspaceFile: WorkspaceFile; workspaceChanges: WorkspaceChanges; workspaceDiff: WorkspaceDiff; remoteAccess: RemoteAccessStatus; agent: AgentDefinition; agentFiles: AgentEditableFiles; model: ModelConfig; settings: Settings; messages: MessageView[]; stats: SessionStatsView; agentStats: AgentStatsView; session: SessionInfoView; snapshot: SessionSnapshotView; background: BackgroundTaskSnapshot; skillLibrary: SkillLibrary; agentSkills: AgentSkills; events: Frame[] } = ${fixture};
+const wire: { browserBounds: BrowserBounds; browserView: BrowserViewState; iconTheme: IconTheme; iconThemeList: IconThemeList; workspaceListing: WorkspaceListing; workspaceFile: WorkspaceFile; workspaceChanges: WorkspaceChanges; workspaceDiff: WorkspaceDiff; remoteAccess: RemoteAccessStatus; mcpStatus: McpServerStatusView; agent: AgentDefinition; agentFiles: AgentEditableFiles; model: ModelConfig; settings: Settings; messages: MessageView[]; stats: SessionStatsView; agentStats: AgentStatsView; session: SessionInfoView; snapshot: SessionSnapshotView; background: BackgroundTaskSnapshot; skillLibrary: SkillLibrary; agentSkills: AgentSkills; events: Frame[] } = ${fixture};
 declare const invoke: Invoke;
 invoke("session_info", {agentName:"fixture",sessionId:"session-1"});
 invoke("list_agents");

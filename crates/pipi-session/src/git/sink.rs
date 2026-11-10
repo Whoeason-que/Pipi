@@ -1,9 +1,5 @@
-//! git 载体的写侧：条目先进内存缓冲，提交点用一次 `fast-import` 落盘。
-//!
-//! [`GitSink`] 是 [`SessionLog`] 的 git 实现：append 只进缓冲（O2：一轮一个
-//! commit），由运行时在提交点调用 `commit_point` 固化 —— 提交失败时缓冲
-//! 原样保留（内存状态不前进），下一次提交会把它一起带上。内存账本
-//! （[`crate::MemoryLog`]）与之共享同一套账本推进规则，差别只在持久化。
+//! git 载体写侧：完整条目先原子写入恢复文件，轮末通过 `fast-import` 合并为一次提交。
+//! 提交失败保留恢复文件，下一轮开始前重试；内存账本仍只用于临时会话。
 
 use std::sync::Arc;
 
@@ -13,7 +9,7 @@ use pipi_protocol::session::{
 use pipi_protocol::{BackgroundTaskResult, Message, Model, new_id, now_millis};
 
 use super::exec::GitExec;
-use super::{layout, refs};
+use super::{journal, layout, refs};
 use crate::LedgerState;
 
 /// 一个 git 分支上的会话账本。
@@ -32,6 +28,9 @@ pub struct GitSink {
     /// 分支还不存在时首个提交的父提交（entry 级分叉用：从目标提交的父起写前缀，
     /// 既精确到 entry、又与原线共享历史）。
     root_parent: Option<String>,
+    recovered: bool,
+    partial: Option<Message>,
+    uncertain_commit: bool,
 }
 
 impl GitSink {
@@ -45,6 +44,9 @@ impl GitSink {
             buffer: Vec::new(),
             turn: 0,
             root_parent: None,
+            recovered: false,
+            partial: None,
+            uncertain_commit: false,
         }
     }
 
@@ -66,30 +68,43 @@ impl GitSink {
             buffer: Vec::new(),
             turn,
             root_parent: None,
+            recovered: false,
+            partial: None,
+            uncertain_commit: false,
         }
     }
 
-    /// 追加一条 entry：挂在当前 tip 上，只进缓冲（不做 IO）。
-    fn append_entry(&mut self, kind: EntryKind, timestamp: u64) -> String {
+    fn append_entry(&mut self, kind: EntryKind, timestamp: u64) -> std::io::Result<String> {
         let entry = self.ledger.begin(kind, timestamp);
         let id = entry.id.clone();
-        self.push(entry);
-        id
+        self.push_entry(&entry)?;
+        Ok(id)
     }
 
-    /// 指定分支首个提交的父提交（entry 级分叉用；必须在首次 commit_point 之前调用）。
     pub fn set_root_parent(&mut self, parent: Option<String>) {
         self.root_parent = parent;
     }
 
-    /// 直接写入一条既有 entry（导入旧会话用）：保留原 id/seq/parentId/timestamp。
-    pub fn push_entry(&mut self, entry: &SessionEntry) {
-        self.push(entry.clone());
+    pub fn push_entry(&mut self, entry: &SessionEntry) -> std::io::Result<()> {
+        let mut pending = self.buffer.clone();
+        pending.push(entry.clone());
+        journal::write_entries(&self.exec, &self.session_id, &pending)?;
+        self.ledger.advance(entry);
+        self.buffer.push(entry.clone());
+        Ok(())
     }
 
-    fn push(&mut self, entry: SessionEntry) {
-        self.ledger.advance(&entry);
-        self.buffer.push(entry);
+    pub(super) fn restore_pending(&mut self, entry: &SessionEntry) {
+        self.ledger.advance(entry);
+        self.buffer.push(entry.clone());
+        self.recovered = true;
+    }
+
+    pub(super) fn load_partial(&mut self) -> std::io::Result<()> {
+        self.partial =
+            journal::load_partial(&self.exec, &self.session_id, self.ledger.tip_id.as_deref())?;
+        self.recovered |= self.partial.is_some();
+        Ok(())
     }
 
     /// 组装一次 `fast-import`：缓冲里的每条 entry 一个 blob，整批一个 commit。
@@ -143,21 +158,21 @@ impl SessionLog for GitSink {
 
     fn append_message(&mut self, message: &Message) -> std::io::Result<String> {
         let timestamp = message.timestamp();
-        Ok(self.append_entry(
+        self.append_entry(
             EntryKind::Message {
                 message: message.clone(),
             },
             timestamp,
-        ))
+        )
     }
 
     fn append_custom(&mut self, custom_type: &str) -> std::io::Result<String> {
-        Ok(self.append_entry(
+        self.append_entry(
             EntryKind::Custom {
                 custom_type: custom_type.to_string(),
             },
             now_millis(),
-        ))
+        )
     }
 
     fn append_subagent_run(
@@ -165,60 +180,112 @@ impl SessionLog for GitSink {
         parent_agent: &str,
         parent_session: &str,
     ) -> std::io::Result<String> {
-        Ok(self.append_entry(
+        self.append_entry(
             EntryKind::SubagentRun {
                 parent_agent: parent_agent.to_string(),
                 parent_session: parent_session.to_string(),
             },
             now_millis(),
-        ))
+        )
     }
 
     fn append_background_result(
         &mut self,
         result: &BackgroundTaskResult,
     ) -> std::io::Result<String> {
-        Ok(self.append_entry(
+        self.append_entry(
             EntryKind::BackgroundResult {
                 result: result.clone(),
             },
             now_millis(),
-        ))
+        )
     }
 
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
         // 只有压缩条目需要回滚；快照放在这里，普通消息/工具结果的热路径
         // 不承担整份账本克隆。
-        self.last_append_ledger = Some(self.ledger.clone());
-        Ok(self.append_entry(record.to_entry_kind(), now_millis()))
+        let previous = self.ledger.clone();
+        let result = self.append_entry(record.to_entry_kind(), now_millis());
+        if result.is_ok() {
+            self.last_append_ledger = Some(previous);
+        }
+        result
     }
 
     fn append_context_edit(&mut self, record: &ContextEditRecord<'_>) -> std::io::Result<String> {
         // 与 append_compaction 同一套提交失败回滚语义。
-        self.last_append_ledger = Some(self.ledger.clone());
-        Ok(self.append_entry(record.to_entry_kind(), now_millis()))
+        let previous = self.ledger.clone();
+        let result = self.append_entry(record.to_entry_kind(), now_millis());
+        if result.is_ok() {
+            self.last_append_ledger = Some(previous);
+        }
+        result
     }
 
     fn append_model_change(&mut self, model: &Model) -> std::io::Result<String> {
-        Ok(self.append_entry(
+        self.append_entry(
             EntryKind::ModelChange {
                 provider: model.clone(),
             },
             now_millis(),
-        ))
+        )
     }
 
     fn append_env(&mut self, declared: Vec<EnvDeclared>) -> std::io::Result<Option<String>> {
         if self.ledger.env_recorded {
             return Ok(None);
         }
-        let id = self.append_entry(EntryKind::Env { declared }, now_millis());
+        let id = self.append_entry(EntryKind::Env { declared }, now_millis())?;
         self.ledger.env_recorded = true;
         Ok(Some(id))
     }
 
+    fn has_recovery(&self) -> bool {
+        self.recovered
+    }
+
+    fn recovered_partial(&self) -> Option<Message> {
+        self.partial.clone()
+    }
+
+    fn checkpoint_partial(&mut self, message: &Message) -> std::io::Result<()> {
+        journal::write_partial(
+            &self.exec,
+            &self.session_id,
+            self.ledger.tip_id.as_deref(),
+            message,
+        )
+    }
+
+    fn clear_partial(&mut self) -> std::io::Result<()> {
+        journal::clear_partial(&self.exec, &self.session_id)?;
+        self.partial = None;
+        Ok(())
+    }
+
     fn commit_point(&mut self) -> std::io::Result<()> {
         let ref_name = refs::session_ref(&self.session_id);
+        if self.uncertain_commit || self.recovered {
+            let committed = if self.exec.ref_exists(&ref_name).map_err(io_error)? {
+                super::reader::read_entries(&self.exec, &ref_name).map_err(io_error)?
+            } else {
+                Vec::new()
+            };
+            let pending =
+                journal::recover(&self.exec, &self.session_id, &committed).map_err(io_error)?;
+            self.ledger = LedgerState::from_entries(&committed);
+            self.buffer.clear();
+            for entry in pending {
+                self.ledger.advance(&entry);
+                self.buffer.push(entry);
+            }
+            self.turn = if self.exec.ref_exists(&ref_name).map_err(io_error)? {
+                super::reader::count_turns(&self.exec, &ref_name).map_err(io_error)?
+            } else {
+                0
+            };
+            self.uncertain_commit = false;
+        }
         // 父提交 = 分支当前 tip；分支还不存在时用 root_parent（entry 级分叉
         // 从目标提交的父起写前缀），都没有就是一条新线的首个提交。
         let parent = match self.exec.resolve_ref(&ref_name).map_err(io_error)? {
@@ -228,14 +295,25 @@ impl SessionLog for GitSink {
         // 空缓冲 + 分支已存在 = 无事可做；空缓冲 + 分支不存在 = 空会话的首个
         // 提交（空会话也要在列表里可见，与 JSONL 的空文件同义）。
         if self.buffer.is_empty() && parent.is_some() {
+            self.recovered = false;
+            journal::clear(&self.exec, &self.session_id)?;
             return Ok(());
         }
         let has_user = self.buffer.iter().any(layout::is_user_entry);
         let turn = if has_user { Some(self.turn + 1) } else { None };
         let message = layout::commit_message(&self.buffer, turn);
         let stream = self.build_stream(parent.as_deref(), &message);
-        self.exec.fast_import(stream).map_err(io_error)?;
+        if let Err(error) = self.exec.fast_import(stream) {
+            self.uncertain_commit = true;
+            self.recovered = true;
+            return Err(io_error(error));
+        }
         self.buffer.clear();
+        self.recovered = false;
+        self.partial = None;
+        if let Err(error) = journal::clear(&self.exec, &self.session_id) {
+            eprintln!("pipi: Cannot remove committed recovery files: {error}");
+        }
         self.last_append_ledger = None;
         if has_user {
             self.turn += 1;
@@ -246,13 +324,19 @@ impl SessionLog for GitSink {
     }
 
     fn rollback_last_entry(&mut self) -> std::io::Result<bool> {
-        let Some(previous) = self.last_append_ledger.take() else {
+        let Some(previous) = self.last_append_ledger.clone() else {
             return Ok(false);
         };
-        if self.buffer.pop().is_none() {
-            self.last_append_ledger = Some(previous);
+        if self.buffer.is_empty() {
             return Ok(false);
         }
+        journal::write_entries(
+            &self.exec,
+            &self.session_id,
+            &self.buffer[..self.buffer.len() - 1],
+        )?;
+        self.buffer.pop();
+        self.last_append_ledger = None;
         self.ledger = previous;
         Ok(true)
     }

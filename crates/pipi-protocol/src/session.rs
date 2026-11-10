@@ -333,6 +333,22 @@ pub trait SessionLog: Send {
     fn append_model_change(&mut self, model: &Model) -> std::io::Result<String>;
     /// 追加环境契约记账条目（每会话至多一条，重复调用幂等跳过）。
     fn append_env(&mut self, declared: Vec<EnvDeclared>) -> std::io::Result<Option<String>>;
+    /// This log was reopened with uncommitted recovery entries.
+    fn has_recovery(&self) -> bool {
+        false
+    }
+    /// Last saved, incomplete assistant response (if it still belongs to the tail).
+    fn recovered_partial(&self) -> Option<Message> {
+        None
+    }
+    /// Save a streaming assistant snapshot; in-memory logs intentionally do nothing.
+    fn checkpoint_partial(&mut self, _message: &Message) -> std::io::Result<()> {
+        Ok(())
+    }
+    /// Clear an obsolete partial snapshot after completion or retry.
+    fn clear_partial(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
     /// 提交点：把尚未固化的条目落定。
     ///
     /// 时机由运行时决定（轮末，见 `docs/git-session-store.md`）。git 载体在这里

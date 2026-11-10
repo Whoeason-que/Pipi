@@ -54,10 +54,13 @@ impl AgentTool for MemoryTool {
 
     async fn execute(
         &self,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
         args: &Value,
         _on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String> {
+        if ctx.abort.is_aborted() {
+            return Err("Operation aborted".into());
+        }
         let action = args["action"].as_str().ok_or("Missing action")?;
         match action {
             "list" => {
@@ -73,8 +76,11 @@ impl AgentTool for MemoryTool {
             "read" => {
                 let path = args["path"].as_str().ok_or("Missing path")?;
                 let abs = resolve_in_memory_dir(&self.memory_dir, path)?;
-                let content = tokio::fs::read_to_string(&abs)
+                let file = crate::secure_file::SecureFile::open(&self.memory_dir, &abs, false)
+                    .map_err(|e| format!("Failed to read memory file {path}: {e}"))?;
+                let content = tokio::task::spawn_blocking(move || file.read(16 * 1024 * 1024))
                     .await
+                    .map_err(|e| format!("Failed to read memory file {path}: {e}"))?
                     .map_err(|e| format!("Failed to read memory file {path}: {e}"))?;
                 Ok(ToolOutput::text(content))
             }
@@ -86,9 +92,16 @@ impl AgentTool for MemoryTool {
                     .await
                     .map_err(|e| format!("Failed to create memory directory: {e}"))?;
                 let abs = resolve_in_memory_dir(&self.memory_dir, path)?;
+                let _guard = crate::file_queue::lock_cancellable(&abs, &ctx.abort).await?;
+                if ctx.abort.is_aborted() {
+                    return Err("Operation aborted".into());
+                }
                 let contents = content.to_string();
+                let root = self.memory_dir.clone();
+                let abort = ctx.abort.clone();
                 tokio::task::spawn_blocking(move || {
-                    pipi_protocol::fs::write_atomic(&abs, contents)
+                    crate::secure_file::SecureFile::open(&root, &abs, true)?
+                        .write(&contents, &abort)
                 })
                 .await
                 .map_err(|e| format!("Failed to write memory file {path}: {e}"))?

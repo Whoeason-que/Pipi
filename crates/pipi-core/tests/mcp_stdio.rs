@@ -223,3 +223,84 @@ async fn tools_list_changed_refreshes_the_catalog_and_the_snapshot() {
     restarted.shutdown_all().await;
     manager.shutdown_all().await;
 }
+
+#[tokio::test]
+async fn disconnected_call_is_not_replayed_after_an_external_side_effect() {
+    let mut fixture = Fixture::new("pipi-mcp-no-replay");
+    let marker = fixture.workspace.join("side-effects");
+    fixture
+        .env
+        .insert("MARKER".into(), marker.to_string_lossy().into_owned());
+    fixture.def.mcp_servers[0].args = vec!["-c".into(), r#"
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  case "$line" in
+    *'"method":"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"test","version":"1"}}}\n' "$id" ;;
+    *'"method":"tools/list"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"mutate","inputSchema":{"type":"object"}}]}}\n' "$id" ;;
+    *'"method":"tools/call"'*) printf x >> "$MARKER"; exit 0 ;;
+  esac
+done
+"#.into()];
+    let manager = McpManager::new(tokio::runtime::Handle::current());
+    manager.prepare(&fixture.def, &fixture.env);
+    wait_for_tools(&manager, 1).await;
+    let error = manager
+        .call(
+            AGENT,
+            "sh-mock",
+            "mutate",
+            serde_json::json!({}),
+            &AbortSignal::new(),
+        )
+        .await
+        .unwrap_err();
+    assert!(error.contains("outcome is unknown"), "{error}");
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "x");
+    manager.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn cancellation_interrupts_waiting_for_the_server_serial_lock() {
+    let mut fixture = Fixture::new("pipi-mcp-lock-cancel");
+    fixture.def.mcp_servers[0].args = vec![
+        "-c".into(),
+        SERVER.replace("name=$(printf", "sleep 2\n      name=$(printf"),
+    ];
+    let manager = McpManager::new(tokio::runtime::Handle::current());
+    manager.prepare(&fixture.def, &fixture.env);
+    wait_for_tools(&manager, 2).await;
+    let first_manager = manager.clone();
+    let first = tokio::spawn(async move {
+        first_manager
+            .call(
+                AGENT,
+                "sh-mock",
+                "echo",
+                serde_json::json!({"message":"one"}),
+                &AbortSignal::new(),
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let abort = AbortSignal::new();
+    let cancelling = abort.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        cancelling.abort();
+    });
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        manager.call(
+            AGENT,
+            "sh-mock",
+            "echo",
+            serde_json::json!({"message":"two"}),
+            &abort,
+        ),
+    )
+    .await
+    .expect("lock wait should be cancellable");
+    assert!(result.unwrap_err().contains("before MCP call was sent"));
+    first.await.unwrap().unwrap();
+    manager.shutdown_all().await;
+}

@@ -155,9 +155,11 @@ impl AgentSession {
             .map(|m| m.context_window)
             .filter(|w| *w > 0);
         let mut log = storage.log;
+        let recovered = log.has_recovery();
+        let partial = log.recovered_partial();
         match ledger::settle_unanswered_tail(&mut *log, &messages) {
             Ok(appended) => {
-                if !appended.is_empty() {
+                if !appended.is_empty() && !recovered {
                     // 提交点（尾部修复）：超时 / 中止收尾可能把半配对的批次写进
                     // 载体（提交边界只保证整轮，不保证配对完整），载入时补上
                     // 合成的失败结果并提交 —— 之后每次打开读到的都是合法记录。
@@ -167,7 +169,42 @@ impl AgentSession {
                 }
                 messages.extend(appended);
             }
+            Err(error) if recovered => {
+                return Err(format!("Cannot recover interrupted session: {error}"));
+            }
             Err(error) => eprintln!("pipi: 会话尾部修复失败（继续载入）: {error}"),
+        }
+        const INTERRUPTED: &str =
+            "Previous run was interrupted by an unexpected shutdown; tool outcomes may be unknown.";
+        // A complete response may have reached disk just before commit failed. It is
+        // already a terminal record and must not be labelled as interrupted.
+        let already_terminal = partial.is_none()
+            && matches!(
+                messages.last(),
+                Some(Message::Assistant {
+                    stop_reason: StopReason::Stop
+                        | StopReason::Length
+                        | StopReason::Error
+                        | StopReason::Aborted,
+                    ..
+                })
+            );
+        if recovered && !already_terminal {
+            let terminal = match partial {
+                Some(partial) => crate::agent_loop::interrupted_message(
+                    partial,
+                    INTERRUPTED.into(),
+                    StopReason::Aborted,
+                ),
+                None => Message::assistant_error(
+                    INTERRUPTED,
+                    model.as_ref().map_or("", |m| m.display_name()),
+                    StopReason::Aborted,
+                ),
+            };
+            log.append_message(&terminal)
+                .map_err(|e| format!("Cannot record interrupted session: {e}"))?;
+            messages.push(terminal);
         }
         let mut stats = SessionStatsTracker::new(context_max);
         // 替换式压缩只改变上下文投影；累计账本仍包含被摘要替换的请求。
@@ -259,6 +296,11 @@ impl AgentSession {
 
     pub fn record_env(&self, declarations: Vec<EnvDeclared>) -> Result<(), String> {
         let mut writer = self.state.writer.lock().map_err(|e| e.to_string())?;
+        if writer.has_recovery() {
+            writer
+                .commit_point()
+                .map_err(|e| format!("Cannot commit interrupted session: {e}"))?;
+        }
         writer.append_env(declarations).map_err(|e| e.to_string())?;
         // 提交点（env 记账）：与创建同属轮外提交，让首轮之前的状态可见
         writer

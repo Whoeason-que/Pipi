@@ -158,7 +158,7 @@ pub fn prune_cut_index(messages: &[Message], budget_tokens: u64) -> Option<usize
 }
 
 /// 结果缺失时写给模型看的合成 tool 结果文案（发送前修复与载入自愈共用）。
-pub const MISSING_TOOL_RESULT_TEXT: &str = "Tool result missing: this turn was interrupted (app restart / force stop), and this call produced no output.";
+pub const MISSING_TOOL_RESULT_TEXT: &str = "Tool result missing: this turn was interrupted; the tool outcome is unknown and it may have had side effects. Verify before retrying.";
 
 /// 合成一条「结果缺失」的失败 tool 结果。
 pub fn missing_tool_result(tool_call_id: &str, tool_name: &str) -> Message {

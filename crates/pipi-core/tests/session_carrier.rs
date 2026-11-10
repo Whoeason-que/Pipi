@@ -276,3 +276,156 @@ fn the_host_imports_legacy_sessions_through_the_command() {
     assert_eq!(repo.entries(&legacy_id).unwrap().len(), 1);
     std::fs::remove_dir_all(agent_dir.parent().unwrap()).ok();
 }
+
+#[test]
+fn interrupted_session_is_shown_then_committed_before_the_next_run() {
+    use pipi_agent::session::{AbortPolicy, AgentSession, SessionStorage};
+    use pipi_protocol::{AbortSignal, StopReason};
+    use std::sync::Arc;
+
+    let dir = pipi_test_support::temp_dir("pipi-recovery-kernel");
+    let repo = Arc::new(GitSessionRepo::new(dir.join("sessions.git")));
+    let mut log = repo.create().unwrap();
+    let id = log.session_id().to_string();
+    log.commit_point().unwrap();
+    log.append_message(&Message::user_text("unfinished prompt"))
+        .unwrap();
+    log.checkpoint_partial(&Message::assistant_text("unfinished answer", "mock"))
+        .unwrap();
+    drop(log);
+
+    let (log, entries) = repo.open_with_entries(&id).unwrap();
+    let session = AgentSession::restore(
+        SessionStorage {
+            log,
+            repo: Some(repo.clone()),
+        },
+        entries,
+        None,
+        AbortSignal::new(),
+    )
+    .unwrap();
+    let messages = session.message_history().unwrap();
+    assert_eq!(messages.len(), 2);
+    assert!(
+        matches!(&messages[1], Message::Assistant { stop_reason: StopReason::Aborted, error_message: Some(error), .. } if error.contains("unexpected shutdown"))
+    );
+    assert!(
+        serde_json::to_string(&messages[1])
+            .unwrap()
+            .contains("unfinished answer")
+    );
+    assert_eq!(
+        repo.history(&id).unwrap().len(),
+        0,
+        "opening must not create a commit"
+    );
+
+    session
+        .reserve_run(AbortPolicy::Reset)
+        .unwrap()
+        .fail_start("next prompt", "mock", "test failure".into())
+        .unwrap();
+    let history = repo.history(&id).unwrap();
+    assert_eq!(
+        history.len(),
+        2,
+        "recovery and the next run have separate commits"
+    );
+    assert_eq!(history[1].entries.len(), 2);
+    assert_eq!(history[0].entries.len(), 2);
+    assert_eq!(repo.entries(&id).unwrap().len(), 4);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn recovery_marks_unanswered_tool_outcome_unknown() {
+    use pipi_agent::session::{AgentSession, SessionStorage};
+    use pipi_protocol::{AbortSignal, ContentBlock, StopReason};
+    use std::sync::Arc;
+
+    let dir = pipi_test_support::temp_dir("pipi-recovery-tool");
+    let repo = Arc::new(GitSessionRepo::new(dir.join("sessions.git")));
+    let mut log = repo.create().unwrap();
+    let id = log.session_id().to_string();
+    log.commit_point().unwrap();
+    log.append_message(&Message::user_text("run the tool"))
+        .unwrap();
+    let mut call = Message::assistant_text("", "mock");
+    if let Message::Assistant {
+        content,
+        stop_reason,
+        ..
+    } = &mut call
+    {
+        *content = vec![ContentBlock::ToolCall {
+            id: "call-1".into(),
+            name: "write".into(),
+            arguments: serde_json::json!({}),
+        }];
+        *stop_reason = StopReason::ToolUse;
+    }
+    log.append_message(&call).unwrap();
+    drop(log);
+    let (log, entries) = repo.open_with_entries(&id).unwrap();
+    let session = AgentSession::restore(
+        SessionStorage {
+            log,
+            repo: Some(repo.clone()),
+        },
+        entries,
+        None,
+        AbortSignal::new(),
+    )
+    .unwrap();
+    let messages = session.message_history().unwrap();
+    assert_eq!(messages.len(), 4);
+    assert!(
+        matches!(&messages[2], Message::ToolResult { tool_call_id, is_error: true, .. } if tool_call_id == "call-1")
+    );
+    assert!(
+        serde_json::to_string(&messages[2])
+            .unwrap()
+            .contains("outcome is unknown")
+    );
+    assert!(matches!(
+        &messages[3],
+        Message::Assistant {
+            stop_reason: StopReason::Aborted,
+            ..
+        }
+    ));
+    assert_eq!(repo.history(&id).unwrap().len(), 0);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn completed_answer_waiting_for_commit_is_not_marked_interrupted() {
+    use pipi_agent::session::{AgentSession, SessionStorage};
+    use pipi_protocol::AbortSignal;
+    use std::sync::Arc;
+
+    let dir = pipi_test_support::temp_dir("pipi-recovery-completed");
+    let repo = Arc::new(GitSessionRepo::new(dir.join("sessions.git")));
+    let mut log = repo.create().unwrap();
+    let id = log.session_id().to_string();
+    log.commit_point().unwrap();
+    log.append_message(&Message::user_text("question")).unwrap();
+    log.append_message(&Message::assistant_text("complete answer", "mock"))
+        .unwrap();
+    drop(log);
+    let (log, entries) = repo.open_with_entries(&id).unwrap();
+    let session = AgentSession::restore(
+        SessionStorage {
+            log,
+            repo: Some(repo.clone()),
+        },
+        entries,
+        None,
+        AbortSignal::new(),
+    )
+    .unwrap();
+    assert_eq!(session.message_history().unwrap().len(), 2);
+    assert_eq!(repo.history(&id).unwrap().len(), 0);
+    std::fs::remove_dir_all(dir).ok();
+}

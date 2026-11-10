@@ -660,9 +660,13 @@ export default function AgentWorkbench({
                                     })
                                   : t("agents.disconnected")}
                             </span>
-                            {server.sandbox === "danger-full-access" && (
-                              <span className="dim">{t("agents.noSandbox")}</span>
-                            )}
+                            <span className="dim">{t(`workspace.sandbox.${server.sandbox ?? agent.permissions.sandbox}`)}</span>
+                            {status?.declaredTools?.length ? (
+                              <details className="mcp-status-tools">
+                                <summary>{t("agents.showMcpTools")}</summary>
+                                <ul>{status.declaredTools.map((tool) => <li className="mono" key={tool}>{tool}</li>)}</ul>
+                              </details>
+                            ) : null}
                             {status?.error && (
                               <span className="field-error">{status.error}</span>
                             )}

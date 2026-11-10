@@ -113,7 +113,10 @@ impl AgentTool for NotebookTool {
         }
         let action = args["action"].as_str().ok_or("Missing action")?;
         // 同一批里的 write / append 是并行执行的：读改写整段必须串行。
-        let _file_lock = crate::file_queue::lock(&self.path).await;
+        let _file_lock = crate::file_queue::lock_cancellable(&self.path, &ctx.abort).await?;
+        if ctx.abort.is_aborted() {
+            return Err("Operation aborted".into());
+        }
         match action {
             "read" => {
                 let text = bounded(read_notebook(&self.path).await?);

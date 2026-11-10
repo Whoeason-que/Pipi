@@ -364,6 +364,19 @@ fn shutdown_saves_partial_sessions_and_retries_failed_commits() {
         })
         .collect();
     assert!(wait_until(5_000, || updates.load(Ordering::SeqCst) >= 3));
+    for (agent, id) in &sessions {
+        let (log, entries) = agent_repo(agent).open_with_entries(id).unwrap();
+        assert!(
+            serde_json::to_string(&entries)
+                .unwrap()
+                .contains("keep this unfinished turn")
+        );
+        assert!(
+            serde_json::to_string(&log.recovered_partial().unwrap())
+                .unwrap()
+                .contains("开头-shutdown")
+        );
+    }
 
     // 真正的 Git 提交失败：缓冲必须保留，退出必须报告失败，下一次关闭能重试。
     let lock = home

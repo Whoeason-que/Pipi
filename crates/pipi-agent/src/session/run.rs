@@ -56,13 +56,17 @@ impl RunReservation {
             None => Message::user_text(request.prompt.clone()),
         };
         let mut history = self.session.messages.lock().map_err(|e| e.to_string())?;
-        self.session
+        let mut writer = self
+            .session
             .writer
             .lock()
-            .map_err(|e| format!("Cannot lock session writer: {e}"))?
+            .map_err(|e| format!("Cannot lock session writer: {e}"))?;
+        commit_recovery(&mut **writer)?;
+        writer
             .append_message(&message)
             .map_err(|e| format!("Cannot write user message: {e}"))?;
         history.push(message.clone());
+        drop(writer);
         drop(history);
         Ok(PreparedRun {
             session: self.session,
@@ -107,6 +111,7 @@ impl RunReservation {
                 .writer
                 .lock()
                 .map_err(|e| format!("Cannot lock session writer: {e}"))?;
+            commit_recovery(&mut **writer)?;
             for result in &results {
                 let message = pipi_protocol::session::background_result_message(result);
                 writer
@@ -138,6 +143,7 @@ impl RunReservation {
         {
             let mut history = self.session.messages.lock().map_err(|e| e.to_string())?;
             let mut writer = self.session.writer.lock().map_err(|e| e.to_string())?;
+            commit_recovery(&mut **writer)?;
             let input = Message::user_text(prompt);
             writer.append_message(&input).map_err(|e| e.to_string())?;
             history.push(input);
@@ -151,7 +157,7 @@ impl RunReservation {
                 .map_err(|e| e.to_string())?
                 .record(&failure);
         }
-        // 提交点（启动失败）：这两条今天即时落盘，git 载体下不提交就会随进程消失
+        // 提交点（启动失败）：两条记录已写入恢复文件，这里合并为一次提交。
         if let Err(error) = commit::commit_shared(&self.session.writer) {
             eprintln!("pipi: 启动失败的记录未能提交: {error}");
         }
@@ -160,6 +166,15 @@ impl RunReservation {
             messages: vec![failure],
         })
     }
+}
+
+fn commit_recovery(writer: &mut dyn SessionLog) -> Result<(), String> {
+    if writer.has_recovery() {
+        writer.commit_point().map_err(|e| {
+            format!("Cannot commit interrupted session before starting a new run: {e}")
+        })?;
+    }
+    Ok(())
 }
 
 impl PreparedRun {
@@ -234,6 +249,7 @@ async fn drive_run(
         session.stats.clone(),
         id.clone(),
         run_id,
+        session.abort.clone(),
     );
     let emitter: Emitter = {
         let observed = observed.clone();
@@ -351,7 +367,7 @@ async fn drive_run(
     // 约束 —— 在压缩之前（压缩分叉从分支 tip 起，未提交会丢整轮）、在运行守卫
     // 释放之前、在 AgentEnd 之前（否则「running 已释放」≠「历史已落盘」，前端
     // 收到 AgentEnd 后立刻发的新一轮会与提交竞争同一分支）。提交失败不失败本轮：
-    // 条目留在缓冲里，随下一轮再提交（自愈）。
+    // 条目留在恢复文件里，下一轮开始前重试提交。
     let committed = match commit::commit_log(&session).await {
         Ok(()) => true,
         Err(error) => {

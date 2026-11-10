@@ -457,12 +457,17 @@
 
 .mcp-status-item {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: baseline;
   gap: 8px;
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
+
+.mcp-status-tools { flex-basis: 100%; margin-left: 14px; color: var(--muted); }
+.mcp-status-tools summary { cursor: pointer; }
+.mcp-status-tools ul { margin: 4px 0; padding-left: 18px; }
 
 .mcp-status-dot {
   flex-shrink: 0;

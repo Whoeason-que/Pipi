@@ -55,18 +55,33 @@ impl AgentTool for WriteTool {
         };
         // 同一文件的两个 edit/write 在同一批里是并行执行的：从这里到写入完成
         // 必须持有文件锁，否则后写的那次会静默覆盖先写的。
-        let _file_lock = crate::file_queue::lock(&abs).await;
+        let _file_lock = crate::file_queue::lock_cancellable(&abs, &ctx.abort).await?;
         // 原子替换：覆盖到一半崩溃也不会把原文件毁成半截（父目录由写入助手创建）。
         // 写入是同步的文件系统调用，放到 blocking 线程池，别占住运行时 worker。
-        let target = abs.clone();
-        let contents = content.to_string();
-        tokio::task::spawn_blocking(move || pipi_protocol::fs::write_atomic(&target, contents))
-            .await
-            .map_err(|e| format!("Could not write file: {path}. {e}"))?
-            .map_err(|e| format!("Could not write file: {path}. {e}"))?;
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());
         }
+        let target = abs.clone();
+        let root = ctx.workspace.clone();
+        let contents = content.to_string();
+        let abort = ctx.abort.clone();
+        let confined = matches!(
+            ctx.sandbox,
+            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
+        );
+        tokio::task::spawn_blocking(move || {
+            if confined {
+                crate::secure_file::SecureFile::open(&root, &target, true)?.write(&contents, &abort)
+            } else {
+                if abort.is_aborted() {
+                    return Err("Operation aborted".into());
+                }
+                pipi_protocol::fs::write_atomic(&target, contents).map_err(|e| e.to_string())
+            }
+        })
+        .await
+        .map_err(|e| format!("Could not write file: {path}. {e}"))?
+        .map_err(|e| format!("Could not write file: {path}. {e}"))?;
 
         Ok(ToolOutput {
             content: vec![ToolResultContent::Text {
@@ -96,6 +111,35 @@ mod tests {
             resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn stopping_while_waiting_for_file_lock_does_not_write() {
+        let workspace = pipi_test_support::temp_dir("write-lock-abort");
+        let path = workspace.join("file.txt");
+        std::fs::write(&path, "original").unwrap();
+        let guard = crate::file_queue::lock(&path).await;
+        let context = ctx(workspace.clone(), SandboxMode::WorkspaceWrite);
+        let abort = context.abort.clone();
+        let task = tokio::spawn(async move {
+            WriteTool
+                .execute(
+                    &context,
+                    &json!({"path":"file.txt", "content":"changed"}),
+                    &|_| {},
+                )
+                .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        abort.abort();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(result.is_err());
+        drop(guard);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "original");
+        std::fs::remove_dir_all(workspace).unwrap();
     }
 
     #[tokio::test]

@@ -336,9 +336,9 @@ fn parallel_sessions_commit_without_crossing() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// §9.8 崩溃：提交点没跑，进行中的那一轮不落盘；已提交的部分照常可读。
+/// 崩溃后恢复未提交的轮次，显式提交前不会产生额外 commit。
 #[test]
-fn a_crash_loses_only_the_uncommitted_turn() {
+fn a_crash_recovers_the_uncommitted_turn() {
     let dir = pipi_test_support::temp_dir("pipi-git-crash");
     let repo = GitSessionRepo::new(dir.join("sessions.git"));
     let mut sink = repo.create().unwrap();
@@ -351,9 +351,15 @@ fn a_crash_loses_only_the_uncommitted_turn() {
     drop(sink); // 进程被杀：提交点不会执行
 
     let entries = repo.entries(&id).unwrap();
-    assert_eq!(entries.len(), 1, "只有已提交的那一轮");
-    let reopened = repo.open(&id).unwrap();
-    assert_eq!(reopened.tip_id(), Some(entries[0].id.as_str()));
+    assert_eq!(entries.len(), 2);
+    let mut reopened = repo.open(&id).unwrap();
+    assert!(reopened.has_recovery());
+    assert_eq!(reopened.tip_id(), Some(entries[1].id.as_str()));
+    assert_eq!(repo.history(&id).unwrap().len(), 1);
+    reopened.commit_point().unwrap();
+    assert!(!reopened.has_recovery());
+    assert_eq!(repo.history(&id).unwrap().len(), 2);
+    assert_eq!(repo.entries(&id).unwrap().len(), 2);
     std::fs::remove_dir_all(&dir).ok();
 }
 

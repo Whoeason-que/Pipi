@@ -67,6 +67,7 @@ export interface McpServerStatusView {
   enabled: boolean;
   connected: boolean;
   tools: number;
+  declaredTools: string[];
   error?: string | null;
 }
 

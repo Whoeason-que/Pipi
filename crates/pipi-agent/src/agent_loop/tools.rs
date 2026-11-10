@@ -190,12 +190,8 @@ async fn run_tool(
             is_error: true,
         },
     };
-    if abort.is_aborted() && !outcome.is_error {
-        return ExecutedOutcome {
-            result: ToolOutput::text("Operation aborted"),
-            is_error: true,
-        };
-    }
+    // A successful tool may already have committed side effects when stop
+    // arrived. Preserve its actual result rather than claiming it did not run.
     outcome
 }
 

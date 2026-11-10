@@ -9,6 +9,7 @@
   "workspaceDiff": {"path":"a.txt","base":"HEAD","patch":"+hello","truncated":false},
   "remoteAccess": {"config":{"port":1421,"startWithApp":false,"publicUrl":"","tunnelTokenFile":""},"localRunning":false,"tunnelRunning":false,"tunnelConnected":false,"localUrl":null,"connectedClients":0,"lastError":null},
   "model": {"id":"fixture-model","name":"Fixture","api":"openai-completions","baseUrl":"http://127.0.0.1:1/v1","maxTokens":8192,"contextWindow":128000,"reasoningEffort":"high"},
+  "mcpStatus": {"name":"fixture-server","enabled":true,"connected":true,"tools":1,"declaredTools":["mcp__fixture-server__read"],"error":null},
   "agent": {"name":"fixture","description":"contract","model":"","workspace":null,"permissions":{"tools":["read"],"sandbox":"workspace-write"},"mcpServers":[],"subagent":false,"compactThresholdPercent":75,"systemPrompt":"both"},
   "agentFiles": {"instructions":["harness/AGENTS.md"],"memory":["harness/memory/user-prefs.md"],"memoryPrefix":"harness/memory"},
   "settings": {"notifications":{"desktopEnabled":false,"completed":true,"failed":true},"theme":"dark","providers":[{"id":"fixture","name":"Fixture","api":"openai-completions","apiMode":"auto","baseUrl":"http://127.0.0.1:1/v1","envKey":"FIXTURE_API_KEY"}],"compaction":{"forkBeforeCompact":true,"archiveOriginal":true},"retry":{"maxAttempts":3,"baseDelayMs":1000,"maxDelayMs":10000}},

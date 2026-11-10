@@ -13,6 +13,7 @@ pub mod memory;
 mod notebook;
 pub mod process;
 mod read;
+mod secure_file;
 pub mod truncate;
 mod write;
 

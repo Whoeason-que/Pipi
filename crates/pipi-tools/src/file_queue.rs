@@ -84,6 +84,19 @@ pub async fn lock(path: &Path) -> FileLock {
     }
 }
 
+/// Stop waiting without performing a queued mutation after cancellation.
+pub async fn lock_cancellable(
+    path: &Path,
+    abort: &pipi_protocol::AbortSignal,
+) -> Result<FileLock, String> {
+    let token = abort.token();
+    tokio::select! {
+        biased;
+        _ = token.cancelled() => Err("Operation aborted".into()),
+        guard = lock(path) => Ok(guard),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

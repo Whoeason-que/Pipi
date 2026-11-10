@@ -17,21 +17,27 @@ const MAX_TOOL_NAME: usize = 64;
 /// 描述进提示词的字符上限。
 const MAX_DESCRIPTION_CHARS: usize = 1024;
 /// 参数 schema 的字节上限；超过就降级，不让单个服务器吃掉上下文。
-const MAX_SCHEMA_BYTES: usize = 16 * 1024;
+pub(super) const MAX_SCHEMA_BYTES: usize = 16 * 1024;
 /// `details` 落盘前的字节上限（它是会话条目的一部分，不进提示词）。
 const MAX_DETAILS_BYTES: usize = 64 * 1024;
 
 /// `mcp__<server>__<tool>`，字符集外的一律换成 `_`，超长时截断并追加稳定哈希。
 pub fn wire_name(server: &str, tool: &str) -> String {
     let name = format!("mcp__{}__{}", sanitize(server), sanitize(tool));
-    if name.len() <= MAX_TOOL_NAME {
+    // Sanitization and the `__` delimiter can otherwise alias distinct names.
+    let needs_hash = sanitize(server) != server
+        || sanitize(tool) != tool
+        || server.contains("__")
+        || tool.contains("__")
+        || server.ends_with('_')
+        || tool.starts_with('_')
+        || name.len() > MAX_TOOL_NAME;
+    if !needs_hash {
         return name;
     }
-    // sanitize 之后全是 ASCII，按字节截断是安全的。
-    let mut truncated = name[..MAX_TOOL_NAME - 9].to_string();
-    truncated.push('_');
-    truncated.push_str(&short_hash(&name));
-    truncated
+    let original = serde_json::to_string(&(server, tool)).expect("names are serializable");
+    let prefix = &name[..name.len().min(MAX_TOOL_NAME - 9)];
+    format!("{prefix}_{}", short_hash(&original))
 }
 
 fn sanitize(value: &str) -> String {
@@ -146,7 +152,12 @@ fn render(result: CallToolResult) -> Result<ToolOutput, String> {
         match part {
             ContentPart::Text(text) => texts.push(text),
             ContentPart::Image { data, mime_type } => {
-                images.push(ToolResultContent::Image { data, mime_type })
+                const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+                if data.len() > MAX_IMAGE_BYTES {
+                    texts.push("[MCP image omitted: image exceeds size limit]".into());
+                } else {
+                    images.push(ToolResultContent::Image { data, mime_type });
+                }
             }
             // 文本资源把 uri 放在前一行，模型能引用来源；二进制 resource 走 Other。
             ContentPart::ResourceText { uri, text, .. } => texts.push(format!("[{uri}]\n{text}")),
@@ -229,7 +240,9 @@ mod tests {
     fn wire_names_stay_within_the_provider_limit_and_are_stable() {
         assert_eq!(wire_name("fs", "read_file"), "mcp__fs__read_file");
         // 非安全字符替换掉，不会带出路径或标点。
-        assert_eq!(wire_name("a.b", "x/y"), "mcp__a_b__x_y");
+        assert_ne!(wire_name("a.b", "x/y"), wire_name("a_b", "x_y"));
+        assert_ne!(wire_name("a__b", "c"), wire_name("a", "b__c"));
+        assert_ne!(wire_name("a_", "b"), wire_name("a", "_b"));
         let long_tool = "t".repeat(120);
         let name = wire_name("server", &long_tool);
         assert!(name.len() <= MAX_TOOL_NAME);

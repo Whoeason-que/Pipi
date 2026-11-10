@@ -20,9 +20,14 @@ use crate::error::McpError;
 use crate::protocol::{self, CallToolResult, Inbound, McpToolDef, ServerInfo};
 
 /// 保留的 stderr 尾部行数（服务器崩溃时用于诊断）。
-const STDERR_TAIL_LINES: usize = 200;
+const STDERR_TAIL_LINES: usize = 32;
+/// Bound each inbound frame before allocating/parsing untrusted server data.
+const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
+const MAX_STDERR_LINE_BYTES: usize = 8 * 1024;
 /// `tools/list` 翻页上限，防止服务器给出循环 cursor。
 const MAX_TOOL_PAGES: usize = 32;
+const MAX_LIST_BYTES: usize = 16 * 1024 * 1024;
+const MAX_LIST_TOOLS: usize = 2048;
 /// 关闭时等服务器自己退出的宽限（先关 stdin，再 TERM，最后 KILL）。
 const SHUTDOWN_GRACE: Duration = Duration::from_millis(1500);
 
@@ -201,16 +206,30 @@ impl McpClient {
     pub async fn tools(&self) -> Result<Vec<McpToolDef>, McpError> {
         let mut tools = Vec::new();
         let mut cursor: Option<String> = None;
+        let mut total_bytes = 0usize;
         for _ in 0..MAX_TOOL_PAGES {
             let params = match cursor.as_deref() {
                 Some(cursor) if !cursor.is_empty() => json!({ "cursor": cursor }),
                 _ => json!({}),
             };
             let result = self.request("tools/list", params).await?;
+            total_bytes = total_bytes.saturating_add(
+                serde_json::to_vec(&result).map_or(MAX_LIST_BYTES + 1, |value| value.len()),
+            );
+            if total_bytes > MAX_LIST_BYTES {
+                return Err(McpError::Protocol(
+                    "tools/list exceeds total size limit".into(),
+                ));
+            }
             let page = result.get("tools").cloned().unwrap_or_else(|| json!([]));
             let page: Vec<McpToolDef> = serde_json::from_value(page).map_err(|error| {
                 McpError::Protocol(format!("invalid tools/list response: {error}"))
             })?;
+            if tools.len() + page.len() > MAX_LIST_TOOLS {
+                return Err(McpError::Protocol(
+                    "tools/list exceeds tool count limit".into(),
+                ));
+            }
             tools.extend(page);
             cursor = result
                 .get("nextCursor")
@@ -332,32 +351,56 @@ impl McpClient {
             "method": method,
             "params": params,
         });
-        if let Err(error) = write_message(&self.inner, &message).await {
-            lock_pending(&self.inner).remove(&id);
-            return Err(error);
+        let deadline = tokio::time::Instant::now() + timeout;
+        let write = write_message(&self.inner, &message);
+        let sent = match cancel {
+            Some(token) => tokio::select! {
+                biased;
+                _ = token.cancelled() => None,
+                result = tokio::time::timeout_at(deadline, write) => Some(result),
+            },
+            None => Some(tokio::time::timeout_at(deadline, write).await),
+        };
+        match sent {
+            Some(Ok(Ok(()))) => {}
+            Some(Ok(Err(error))) => {
+                lock_pending(&self.inner).remove(&id);
+                return Err(error);
+            }
+            interrupted => {
+                lock_pending(&self.inner).remove(&id);
+                // A partial JSON frame cannot safely be reused. Terminate the
+                // connection asynchronously; do not block cancellation on I/O.
+                self.inner.closed.store(true, Ordering::SeqCst);
+                let client = self.clone();
+                tokio::spawn(async move { client.shutdown().await });
+                return Err(if interrupted.is_none() {
+                    McpError::Cancelled
+                } else {
+                    McpError::Timeout {
+                        method: method.into(),
+                        after: timeout,
+                    }
+                });
+            }
         }
         let outcome = match cancel {
-            Some(token) => {
-                tokio::select! {
-                    // 取消优先：用户点了停止就不该再等响应。
-                    biased;
-                    _ = token.cancelled() => {
-                        self.abandon_request(id, method).await;
-                        return Err(McpError::Cancelled);
-                    }
-                    result = tokio::time::timeout(timeout, receiver) => result,
+            Some(token) => tokio::select! {
+                biased;
+                _ = token.cancelled() => {
+                    self.abandon_request(id, method);
+                    return Err(McpError::Cancelled);
                 }
-            }
-            None => tokio::time::timeout(timeout, receiver).await,
+                result = tokio::time::timeout_at(deadline, receiver) => result,
+            },
+            None => tokio::time::timeout_at(deadline, receiver).await,
         };
         match outcome {
             Ok(Ok(Ok(value))) => Ok(value),
             Ok(Ok(Err(error))) => Err(error),
-            // 发送端被读任务丢弃：连接已经结束。
             Ok(Err(_)) => Err(McpError::Closed),
             Err(_) => {
-                // 迟到的响应找不到等待者，会被读任务直接丢弃。
-                lock_pending(&self.inner).remove(&id);
+                self.abandon_request(id, method);
                 Err(McpError::Timeout {
                     method: method.to_string(),
                     after: timeout,
@@ -367,20 +410,16 @@ impl McpClient {
     }
 
     /// 放弃一次已发出的请求：移除等待者，并告知服务器（尽最大努力）。
-    async fn abandon_request(&self, id: u64, method: &str) {
+    fn abandon_request(&self, id: u64, method: &str) {
         lock_pending(&self.inner).remove(&id);
-        let _ = write_message(
-            &self.inner,
-            &json!({
-                "jsonrpc": "2.0",
-                "method": "notifications/cancelled",
-                "params": {
-                    "requestId": id,
-                    "reason": format!("{method} cancelled by the client"),
-                },
-            }),
-        )
-        .await;
+        let inner = self.inner.clone();
+        let method = method.to_string();
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(Duration::from_millis(250), write_message(&inner, &json!({
+                "jsonrpc": "2.0", "method": "notifications/cancelled",
+                "params": { "requestId": id, "reason": format!("{method} cancelled by the client") }
+            }))).await;
+        });
     }
 
     /// 关闭连接：关 stdin（正常退出约定）→ 整组 TERM → 整组 KILL。
@@ -445,34 +484,74 @@ fn transport_error(action: &str, error: std::io::Error) -> McpError {
     }
 }
 
+/// Read bounded lines without allowing `read_line` to allocate an arbitrary frame.
+async fn bounded_line<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    max: usize,
+) -> std::io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            break;
+        }
+        let count = available
+            .iter()
+            .position(|&byte| byte == b'\n')
+            .map_or(available.len(), |i| i + 1);
+        if bytes.len() + count > max {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "MCP message exceeds size limit",
+            ));
+        }
+        bytes.extend_from_slice(&available[..count]);
+        let done = available[count - 1] == b'\n';
+        reader.consume(count);
+        if done {
+            break;
+        }
+    }
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
 fn spawn_reader(inner: Arc<Inner>, stdout: Reader) {
     tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        loop {
-            match lines.next_line().await {
+        let mut reader = BufReader::new(stdout);
+        let error = loop {
+            match bounded_line(&mut reader, MAX_FRAME_BYTES).await {
                 Ok(Some(line)) => handle_line(&inner, &line).await,
-                Ok(None) => break,
-                Err(_) => break,
+                Ok(None) => break McpError::Closed,
+                Err(error) => break McpError::Protocol(error.to_string()),
             }
-        }
-        // 连接结束：唤醒所有等待者，别让调用方等到超时。
+        };
         inner.closed.store(true, Ordering::SeqCst);
         let pending = std::mem::take(&mut *lock_pending(&inner));
+        let message = error.to_string();
         for (_, sender) in pending {
-            let _ = sender.send(Err(McpError::Closed));
+            let _ = sender.send(Err(if matches!(error, McpError::Closed) {
+                McpError::Closed
+            } else {
+                McpError::Protocol(message.clone())
+            }));
         }
     });
 }
 
 fn spawn_stderr(inner: Arc<Inner>, stderr: Reader) {
     tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        let mut reader = BufReader::new(stderr);
+        while let Ok(Some(line)) = bounded_line(&mut reader, MAX_STDERR_LINE_BYTES).await {
             let mut tail = lock_stderr(&inner);
             if tail.len() == STDERR_TAIL_LINES {
                 tail.pop_front();
             }
-            tail.push_back(line);
+            tail.push_back(line.trim_end().to_string());
         }
     });
 }
@@ -610,4 +689,21 @@ fn signal_group(pid: u32, signal: GroupSignal) -> Result<(), McpError> {
 #[cfg(not(unix))]
 fn signal_group(_pid: u32, _signal: GroupSignal) -> Result<(), McpError> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn inbound_frames_are_bounded_before_json_decoding() {
+        let (mut writer, reader) = tokio::io::duplex(128);
+        let sending = tokio::spawn(async move {
+            let _ = writer.write_all(&vec![b'x'; 1025]).await;
+        });
+        let mut reader = BufReader::new(reader);
+        let error = bounded_line(&mut reader, 1024).await.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        drop(reader);
+        sending.await.unwrap();
+    }
 }

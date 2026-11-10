@@ -12,7 +12,7 @@ use std::time::Duration;
 use pipi_mcp::{ConnectOptions, McpClient, McpToolDef};
 use pipi_protocol::permissions::{SandboxMode, SandboxPolicy};
 use pipi_venv::agents::{AgentDefinition, McpServerConfig, expand_tilde};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::cache;
 
@@ -50,13 +50,21 @@ struct SpawnPlan {
 impl SpawnPlan {
     /// 配置指纹：任何一项变化都意味着工具清单可能变了，必须重连。
     fn fingerprint(&self) -> String {
+        use sha2::{Digest, Sha256};
+        // Length-delimited JSON avoids ambiguous field boundaries. Never persist
+        // the resolved environment or expanded arguments in the cache.
+        let payload = serde_json::json!({
+            "program": self.program, "args": self.args, "env": self.env,
+            "cwd": self.cwd, "sandbox": self.sandbox,
+        });
+        let digest =
+            Sha256::digest(serde_json::to_vec(&payload).expect("spawn plan is serializable"));
         format!(
-            "{}|{:?}|{:?}|{}|{:?}",
-            self.program,
-            self.args,
-            self.env,
-            self.cwd.display(),
-            self.sandbox
+            "v2:{}",
+            digest
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
         )
     }
 }
@@ -88,13 +96,15 @@ pub struct McpToolSpec {
 }
 
 /// 一台服务器的连接状态（给 Agent 工作台展示）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerStatus {
     pub name: String,
     pub enabled: bool,
     pub connected: bool,
     pub tools: usize,
+    #[serde(default)]
+    pub declared_tools: Vec<String>,
     pub error: Option<String>,
 }
 
@@ -133,6 +143,7 @@ impl McpManager {
     /// - 配置错误（缺 env 引用、命令为空）不失败本轮，只记在状态里。
     pub fn prepare(&self, def: &AgentDefinition, env: &BTreeMap<String, String>) {
         let agent_name = def.name.clone();
+        cache::purge_legacy(&agent_name);
         let mut pending: Vec<(ServerKey, Arc<tokio::sync::Mutex<()>>)> = Vec::new();
         {
             let mut servers = self.inner.servers();
@@ -143,6 +154,9 @@ impl McpManager {
                     continue;
                 }
                 if !server.enabled {
+                    // Disabled servers may still have a legacy cache containing
+                    // expanded secrets; discard that cache without enabling it.
+                    let _ = cache::load(&agent_name, &server.name, "v2:disabled");
                     if let Some(slot) = servers.remove(&key)
                         && let Some(client) = slot.client
                     {
@@ -266,30 +280,43 @@ impl McpManager {
                 slot.call_lock.clone(),
             )
         };
+        let token = abort.token();
         let _serial = if parallel {
             None
         } else {
-            Some(lock.lock_owned().await)
+            Some(tokio::select! {
+                biased;
+                _ = token.cancelled() => return Err("Operation aborted before MCP call was sent".into()),
+                guard = lock.lock_owned() => guard,
+            })
         };
-        let token = abort.token();
-        let client = self.ensure_client(&key).await?;
-        match client
-            .call_tool_cancellable(tool, arguments.clone(), timeout, Some(&token))
-            .await
-        {
-            Err(pipi_mcp::McpError::Closed) => {
-                let client = self.reconnect(&key).await?;
-                client
-                    .call_tool_cancellable(tool, arguments, timeout, Some(&token))
-                    .await
-                    .map_err(|error| describe(&error, &client.stderr_tail()))
-            }
-            Err(pipi_mcp::McpError::Cancelled) => Err("Operation aborted".into()),
-            result => result.map_err(|error| describe(&error, &client.stderr_tail())),
+        // The connection task is independently owned: cancelling a waiter must
+        // not drop an in-progress spawn and leak its child process.
+        let manager = self.clone();
+        let connect_key = key.clone();
+        let connect = self
+            .runtime
+            .spawn(async move { manager.ensure_client(&connect_key).await });
+        let client = tokio::select! {
+            biased;
+            _ = token.cancelled() => return Err("Operation aborted before MCP call was sent".into()),
+            result = connect => result.map_err(|e| format!("MCP connection task failed: {e}"))??,
+        };
+        if token.is_cancelled() {
+            return Err("Operation aborted before MCP call was sent".into());
+        }
+        // Once a request may have reached the server, never replay it: a closed
+        // connection cannot tell us whether an external side effect completed.
+        match client.call_tool_cancellable(tool, arguments, timeout, Some(&token)).await {
+            Ok(result) => Ok(result),
+            Err(pipi_mcp::McpError::Cancelled) => Err("Operation aborted; the MCP server may still execute the request. Verify its outcome before retrying.".into()),
+            Err(error @ (pipi_mcp::McpError::Closed | pipi_mcp::McpError::Io(_) | pipi_mcp::McpError::Timeout { .. } | pipi_mcp::McpError::Protocol(_))) => Err(format!("MCP call outcome is unknown; verify before retrying. {}", describe(&error, &client.stderr_tail()))),
+            Err(error) => Err(describe(&error, &client.stderr_tail())),
         }
     }
 
     pub fn status(&self, agent_name: &str) -> Vec<McpServerStatus> {
+        let declared = self.tools_for(agent_name);
         let servers = self.inner.servers();
         let mut statuses: Vec<McpServerStatus> = servers
             .iter()
@@ -303,7 +330,19 @@ impl McpManager {
                     .as_ref()
                     .is_some_and(|client| !client.is_closed()),
                 tools: slot.tools.len(),
-                error: slot.error.clone(),
+                declared_tools: declared.iter().filter(|spec| spec.server == key.server_name).map(|spec| spec.wire_name.clone()).collect(),
+                error: {
+                    let mut warnings = Vec::new();
+                    if let Some(error) = &slot.error { warnings.push(error.clone()); }
+                    let available = slot.tools.len();
+                    let registered = declared.iter().filter(|spec| spec.server == key.server_name).count();
+                    if registered < available {
+                        warnings.push(format!("{} of {} tools unavailable (name collision, invalid name, or 64-tool limit)", available - registered, available));
+                    }
+                    let oversized = slot.tools.iter().filter(|tool| serde_json::to_vec(&tool.input_schema).map_or(true, |schema| schema.len() > super::tool::MAX_SCHEMA_BYTES)).count();
+                    if oversized > 0 { warnings.push(format!("{oversized} tool schema(s) exceed the size limit and are degraded")); }
+                    (!warnings.is_empty()).then(|| warnings.join("; "))
+                },
             })
             .collect();
         statuses.sort_by(|left, right| left.name.cmp(&right.name));
@@ -376,12 +415,6 @@ impl McpManager {
         self.connect_now(key).await?;
         self.live_client(key)
             .ok_or_else(|| format!("MCP server \"{}\" did not connect", key.server_name))
-    }
-
-    async fn reconnect(&self, key: &ServerKey) -> Result<Arc<McpClient>, String> {
-        self.connect_now(key).await?;
-        self.live_client(key)
-            .ok_or_else(|| format!("MCP server \"{}\" did not reconnect", key.server_name))
     }
 
     fn live_client(&self, key: &ServerKey) -> Option<Arc<McpClient>> {
@@ -746,5 +779,13 @@ mod tests {
         .unwrap();
         assert_eq!(first.fingerprint(), same.fingerprint());
         assert_ne!(first.fingerprint(), changed.fingerprint());
+        let mut secret_plan = first.clone();
+        secret_plan
+            .env
+            .insert("TOKEN".into(), "synthetic-secret".into());
+        secret_plan.args.push("another-synthetic-secret".into());
+        let fingerprint = secret_plan.fingerprint();
+        assert!(fingerprint.starts_with("v2:"));
+        assert!(!fingerprint.contains("synthetic-secret"));
     }
 }

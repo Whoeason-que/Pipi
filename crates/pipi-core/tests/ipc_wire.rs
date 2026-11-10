@@ -29,6 +29,7 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
     roundtrip::<pipi_core::workspace::WorkspaceChanges>(&wire["workspaceChanges"]);
     roundtrip::<pipi_core::workspace::WorkspaceDiff>(&wire["workspaceDiff"]);
     roundtrip::<AgentDefinition>(&wire["agent"]);
+    roundtrip::<pipi_core::mcp::McpServerStatus>(&wire["mcpStatus"]);
     roundtrip::<pipi_venv::agents::AgentEditableFiles>(&wire["agentFiles"]);
     roundtrip::<Model>(&wire["model"]);
     roundtrip::<pipi_core::runtime::SessionSnapshot>(&wire["snapshot"]);

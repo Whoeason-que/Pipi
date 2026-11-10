@@ -163,18 +163,127 @@ pub fn resolve_read_path(
     ))
 }
 
-/// 按工具名查 schema 里的 required 字段做轻量校验（完整 JSON Schema 校验
-/// 是后续项）。
+/// Validate the supported JSON Schema constraints recursively before dispatch.
+/// Unknown keywords remain the server's responsibility; this is not a complete
+/// JSON Schema implementation and never resolves external references.
 pub fn validate_args(parameters: &Value, args: &Value) -> Result<(), String> {
     if !args.is_object() {
         return Err("Tool arguments must be a JSON object".into());
     }
-    if let Some(required) = parameters["required"].as_array() {
-        for name in required {
-            if let Some(name) = name.as_str()
-                && args.get(name).is_none()
+    validate_value(parameters, args, "$", 0)
+}
+
+fn validate_value(schema: &Value, value: &Value, path: &str, depth: usize) -> Result<(), String> {
+    if depth > 64 {
+        return Err(format!("{path}: schema nesting exceeds 64 levels"));
+    }
+    if schema == &Value::Bool(false) {
+        return Err(format!("{path}: value is not allowed"));
+    }
+    let Some(object) = schema.as_object() else {
+        return Ok(());
+    };
+    let matches_type = |kind: &str| match kind {
+        "object" => value.is_object(),
+        "array" => value.is_array(),
+        "string" => value.is_string(),
+        "boolean" => value.is_boolean(),
+        "null" => value.is_null(),
+        "number" => value.is_number(),
+        "integer" => {
+            value.as_i64().is_some()
+                || value.as_u64().is_some()
+                || value.as_f64().is_some_and(|n| n.fract() == 0.0)
+        }
+        _ => true,
+    };
+    if let Some(kind) = object.get("type") {
+        let valid = match kind {
+            Value::String(kind) => matches_type(kind),
+            Value::Array(kinds) => kinds.iter().filter_map(Value::as_str).any(matches_type),
+            _ => true,
+        };
+        if !valid {
+            return Err(format!("{path}: incorrect parameter type"));
+        }
+    }
+    if let Some(options) = object.get("enum").and_then(Value::as_array)
+        && !options.contains(value)
+    {
+        return Err(format!("{path}: value is not in the allowed choices"));
+    }
+    if let Some(expected) = object.get("const")
+        && expected != value
+    {
+        return Err(format!(
+            "{path}: value does not match the required constant"
+        ));
+    }
+    if let Some(number) = value.as_f64() {
+        if object
+            .get("minimum")
+            .and_then(Value::as_f64)
+            .is_some_and(|min| number < min)
+            || object
+                .get("maximum")
+                .and_then(Value::as_f64)
+                .is_some_and(|max| number > max)
+        {
+            return Err(format!("{path}: number is outside the allowed range"));
+        }
+    }
+    if let Some(values) = value.as_array() {
+        if object
+            .get("minItems")
+            .and_then(Value::as_u64)
+            .is_some_and(|min| (values.len() as u64) < min)
+            || object
+                .get("maxItems")
+                .and_then(Value::as_u64)
+                .is_some_and(|max| values.len() as u64 > max)
+        {
+            return Err(format!("{path}: array length is outside the allowed range"));
+        }
+        if let Some(items) = object.get("items") {
+            for (index, item) in values.iter().enumerate() {
+                validate_value(items, item, &format!("{path}[{index}]"), depth + 1)?;
+            }
+        }
+    }
+    if let Some(values) = value.as_object() {
+        if let Some(required) = object.get("required").and_then(Value::as_array) {
+            for name in required.iter().filter_map(Value::as_str) {
+                if !values.contains_key(name) {
+                    return Err(format!("Missing required parameter: {path}.{name}"));
+                }
+            }
+        }
+        let properties = object.get("properties").and_then(Value::as_object);
+        for (name, item) in values {
+            if let Some(child) = properties.and_then(|properties| properties.get(name)) {
+                validate_value(child, item, &format!("{path}.{name}"), depth + 1)?;
+            } else if !object.contains_key("patternProperties")
+                && object.get("additionalProperties") == Some(&Value::Bool(false))
             {
-                return Err(format!("Missing required parameter: {name}"));
+                return Err(format!("{path}.{name}: unknown parameter"));
+            } else if let Some(child @ Value::Object(_)) = object.get("additionalProperties") {
+                validate_value(child, item, &format!("{path}.{name}"), depth + 1)?;
+            }
+        }
+    }
+    for keyword in ["allOf", "anyOf", "oneOf"] {
+        if let Some(variants) = object.get(keyword).and_then(Value::as_array) {
+            let count = variants
+                .iter()
+                .filter(|variant| validate_value(variant, value, path, depth + 1).is_ok())
+                .count();
+            let valid = match keyword {
+                "allOf" => count == variants.len(),
+                "anyOf" => count > 0,
+                _ => count > 0,
+            };
+            if !valid {
+                return Err(format!("{path}: does not match {keyword} schema"));
             }
         }
     }
@@ -211,5 +320,22 @@ impl ToolRegistry {
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn AgentTool>> {
         self.tools.iter().find(|t| t.name() == name).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn validates_nested_tool_arguments_before_dispatch() {
+        let schema = json!({"type":"object", "required":["edits"], "additionalProperties":false,
+            "properties":{"edits":{"type":"array","minItems":1,"items":{"type":"object", "required":["value"], "properties":{"value":{"type":"integer","minimum":1}}}}}});
+        assert!(validate_args(&schema, &json!({"edits":[{"value":3}]})).is_ok());
+        assert!(validate_args(&schema, &json!({"edits":[{"value":"x"}]})).is_err());
+        assert!(validate_args(&schema, &json!({"edits":[{}]})).is_err());
+        assert!(validate_args(&schema, &json!({"edits":[],"extra":true})).is_err());
+        assert!(validate_args(&schema, &json!({"edits":[{"value":0}]})).is_err());
     }
 }

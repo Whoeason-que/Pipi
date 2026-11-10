@@ -6729,6 +6729,7 @@ dependencies = [
  "pipi-protocol",
  "pipi-sandbox",
  "pipi-test-support",
+ "rustix",
  "serde_json",
  "similar",
  "tempfile",
