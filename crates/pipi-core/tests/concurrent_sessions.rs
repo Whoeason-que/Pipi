@@ -1089,6 +1089,186 @@ fn archive_and_delete_idle_open_sessions_without_leaving_view() {
     let _ = std::fs::remove_dir_all(home);
 }
 
+/// A UI request already waiting in the host must not outlive archive/restore,
+/// and cleanup must be scoped to the session or agent that actually changed.
+#[test]
+fn browser_leases_are_revoked_with_session_and_agent_lifecycle() {
+    use async_trait::async_trait;
+    use pipi_core::tools::browser::{
+        BrowserAction, BrowserBackend, BrowserBounds, BrowserLease, BrowserResult, BrowserViewState,
+    };
+    use std::collections::HashMap;
+    type Key = (String, String);
+    struct Browser {
+        leases: Mutex<HashMap<Key, BrowserLease>>,
+        started: tokio::sync::Semaphore,
+        resume: tokio::sync::Semaphore,
+    }
+    impl Default for Browser {
+        fn default() -> Self {
+            Self {
+                leases: Mutex::new(HashMap::new()),
+                started: tokio::sync::Semaphore::new(0),
+                resume: tokio::sync::Semaphore::new(0),
+            }
+        }
+    }
+    #[async_trait]
+    impl BrowserBackend for Browser {
+        fn lease_session(&self, agent: &str, session: &str) -> BrowserLease {
+            self.leases
+                .lock()
+                .unwrap()
+                .entry((agent.into(), session.into()))
+                .or_default()
+                .clone()
+        }
+        fn close_session(&self, agent: &str, session: &str) {
+            if let Some(lease) = self
+                .leases
+                .lock()
+                .unwrap()
+                .remove(&(agent.into(), session.into()))
+            {
+                lease.revoke();
+            }
+        }
+        fn close_agent(&self, agent: &str) {
+            self.leases.lock().unwrap().retain(|(owner, _), lease| {
+                if owner == agent {
+                    lease.revoke();
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        async fn ui(
+            &self,
+            _agent: &str,
+            _session: &str,
+            action: &str,
+            _url: Option<&str>,
+            _bounds: Option<BrowserBounds>,
+            _lease: &BrowserLease,
+        ) -> Result<BrowserViewState, String> {
+            if action == "wait" {
+                self.started.add_permits(1);
+                self.resume.acquire().await.unwrap().forget();
+            }
+            Ok(BrowserViewState {
+                label: "view".into(),
+                url: "about:blank".into(),
+                title: String::new(),
+                loading: false,
+                can_go_back: false,
+                can_go_forward: false,
+            })
+        }
+        async fn execute(
+            &self,
+            _: &str,
+            _: &str,
+            _: BrowserAction,
+            _: &BrowserLease,
+        ) -> Result<BrowserResult, String> {
+            Ok(BrowserResult::Text(String::new()))
+        }
+    }
+    let _guard = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let home = temp_home();
+    fixture_agent("browser-owner", "http://127.0.0.1:1/v1");
+    fixture_agent("browser-other", "http://127.0.0.1:1/v1");
+    let archived = seed_session("browser-owner", "archive");
+    let deleted = seed_session("browser-owner", "delete");
+    let other = seed_session("browser-other", "other");
+    let runtime = runtime();
+    let state = Arc::new(RuntimeState::new(runtime.handle().clone()));
+    let browser = Arc::new(Browser::default());
+    state.attach_browser(browser.clone()).unwrap();
+    runtime.block_on(async {
+        let waiting_state = state.clone();
+        let waiting_id = archived.clone();
+        let waiting = tokio::spawn(async move {
+            waiting_state
+                .browser_view("browser-owner", &waiting_id, "wait", None, None)
+                .await
+        });
+        browser.started.acquire().await.unwrap().forget();
+        state.archive_session("browser-owner", &archived).unwrap();
+        assert!(
+            state
+                .browser_view("browser-owner", &archived, "state", None, None)
+                .await
+                .is_err()
+        );
+        state.restore_session("browser-owner", &archived).unwrap();
+        assert!(
+            state
+                .browser_view("browser-owner", &archived, "state", None, None)
+                .await
+                .is_ok()
+        );
+        browser.resume.add_permits(1);
+        assert!(
+            waiting.await.unwrap().is_err(),
+            "old request must not acquire the restored session"
+        );
+
+        state
+            .browser_view("browser-owner", &deleted, "state", None, None)
+            .await
+            .unwrap();
+        state
+            .browser_view("browser-other", &other, "state", None, None)
+            .await
+            .unwrap();
+        let deleted_lease = browser.lease_session("browser-owner", &deleted);
+        let other_lease = browser.lease_session("browser-other", &other);
+        state.delete_session("browser-owner", &deleted).unwrap();
+        assert!(!deleted_lease.is_valid());
+        assert!(other_lease.is_valid());
+        let temporary = state
+            .ensure_test_session("browser-owner")
+            .unwrap()
+            .session_id;
+        state
+            .browser_view("browser-owner", &temporary, "state", None, None)
+            .await
+            .unwrap();
+        let temporary_lease = browser.lease_session("browser-owner", &temporary);
+        let replacement = state
+            .reset_test_session("browser-owner")
+            .unwrap()
+            .session_id;
+        assert!(!temporary_lease.is_valid());
+        state
+            .browser_view("browser-owner", &replacement, "state", None, None)
+            .await
+            .unwrap();
+        let replacement_lease = browser.lease_session("browser-owner", &replacement);
+        state
+            .save_agent_definition(&agents::load_agent("browser-owner").unwrap())
+            .unwrap();
+        assert!(!replacement_lease.is_valid());
+        let restored_lease = browser.lease_session("browser-owner", &archived);
+        state.archive_agent("browser-owner").unwrap();
+        assert!(!restored_lease.is_valid());
+        assert!(other_lease.is_valid());
+        assert!(
+            state
+                .browser_view("browser-owner", &archived, "state", None, None)
+                .await
+                .is_err()
+        );
+        state.delete_agent("browser-other").unwrap();
+        assert!(!other_lease.is_valid());
+    });
+    let _ = std::fs::remove_dir_all(home);
+}
+
 /// 设置工作台的测试会话与正式会话共享运行时协议和并发守卫，但账本只在内存中：
 /// 不进入列表、不落盘，切页式 `new_session` 也不会把它释放。
 #[test]

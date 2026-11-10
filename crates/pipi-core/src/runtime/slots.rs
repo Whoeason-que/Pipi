@@ -119,7 +119,7 @@ impl RuntimeState {
                 "Temporary test is still running or has uncompleted managed background tasks; please stop or terminate them before resetting or saving settings".into(),
             );
         }
-        sessions.retain(|key, session| !(key.agent_name == agent_name && session.temporary));
+        self.discard_temporary_sessions(&mut sessions, agent_name);
         let definition = agents::load_agent(agent_name)?;
         let (session, session_id) = Self::create_test_session_object(&definition);
         let info = self.session_info_of(&session)?;

@@ -1,4 +1,6 @@
 {
+  "browserBounds": {"x":12,"y":34,"width":500,"height":600},
+  "browserView": {"label":"browser-fixture","url":"https://example.com/","title":"Example","loading":false,"canGoBack":true,"canGoForward":false},
   "iconThemeList": {"selected":"fixture.icons:demo","themes":[{"id":"fixture.icons:demo","label":"Demo"}]},
   "iconTheme": {"file":"_default","iconDefinitions":{"_default":{"iconPath":"data:image/svg+xml;base64,PHN2Zy8+"}},"fileExtensions":{"ts":"_default"}},
   "workspaceListing": {"workspace":"/workspace","path":"","entries":[{"path":"a.txt","name":"a.txt","kind":"file","size":5}],"truncated":false},

@@ -2,6 +2,14 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Pipi 默认窗口能力",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "webviews": ["main"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-webview-close",
+    "core:webview:allow-webview-hide",
+    "core:webview:allow-webview-show",
+    "core:webview:allow-set-webview-position",
+    "core:webview:allow-set-webview-size"
+  ]
 }

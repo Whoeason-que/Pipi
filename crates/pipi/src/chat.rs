@@ -9,19 +9,30 @@ use tauri::{AppHandle, Emitter, State};
 
 use pipi_agent::stats::SessionStats;
 use pipi_core::commands::{
-    AgentStatsArgs, ArchiveAgentArgs, ArchiveSessionArgs, CancelQueuedPromptArgs, CompactNowArgs,
-    CreateSessionArgs, DeleteAgentArgs, DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs,
-    ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs,
-    OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs, QueuePromptArgs, RestoreAgentArgs,
-    RestoreSessionArgs, SendPromptArgs, SessionHistoryArgs, SessionInfoArgs, SessionMessagesArgs,
-    SessionStatsArgs, SetPromptQueuePausedArgs, SetSessionModelArgs, SteerArgs, StopRunArgs,
+    AgentStatsArgs, ArchiveAgentArgs, ArchiveSessionArgs, BrowserViewArgs, CancelQueuedPromptArgs,
+    CompactNowArgs, CreateSessionArgs, DeleteAgentArgs, DeleteSessionArgs, ForkSessionArgs,
+    ImportSessionsArgs, ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs,
+    OpenSessionArgs, OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs, QueuePromptArgs,
+    RestoreAgentArgs, RestoreSessionArgs, SendPromptArgs, SessionHistoryArgs, SessionInfoArgs,
+    SessionMessagesArgs, SessionStatsArgs, SetPromptQueuePausedArgs, SetSessionModelArgs,
+    SteerArgs, StopRunArgs,
 };
 use pipi_core::events::{EventEmitter, PromptQueueEnvelope, RuntimeEvent};
 use pipi_core::runtime::{RuntimeState, SessionInfo, SessionSnapshot};
+use pipi_core::tools::browser::BrowserViewState;
 use pipi_protocol::session::{SessionCommit, SessionSummary};
 use pipi_protocol::{BackgroundTaskSnapshot, Message};
 
 use crate::invoke_args::InvokeArgs;
+
+#[tauri::command]
+pub async fn browser_view(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<BrowserViewArgs>,
+) -> Result<BrowserViewState, String> {
+    pipi_core::commands::browser_view(&state, pipi_core::remote::CommandSource::Desktop, args.0)
+        .await
+}
 
 pub(crate) fn tauri_emitter(app: AppHandle) -> EventEmitter {
     Arc::new(move |event| {

@@ -613,6 +613,7 @@ export default function ChatView({
         ) : (
           <Inspector
             context={inspectorContext}
+            ensureSession={() => controller.ensureSession()}
             onCompact={compactNow}
             onAgentCompact={agentCompactNow}
             onOpenFile={onOpenFile}

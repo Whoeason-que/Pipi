@@ -34,6 +34,7 @@ export const agents = {
   atLeastOneTool: "Keep at least one tool.",
   sandboxPermissions: "Sandbox permissions",
   sandboxHint: "Test sessions run with the saved permissions; workspace changes made by tools are not rolled back.",
+  browserSandboxHint: "Browser control is available only with Full access. Full access also removes the operating system sandbox for other tools.",
   agentDirectory: "Agent directory",
   legacySessions: "Legacy sessions",
   importing: "Importing…",

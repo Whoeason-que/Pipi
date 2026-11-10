@@ -3,6 +3,21 @@
 use super::*;
 
 impl RuntimeState {
+    /// A temporary session has no persisted identity to reopen after it is discarded.
+    pub(super) fn discard_temporary_sessions(
+        &self,
+        sessions: &mut HashMap<SessionKey, HostSession>,
+        agent: &str,
+    ) {
+        sessions.retain(|key, session| {
+            let discard = key.agent_name == agent && session.temporary;
+            if discard && let Some(browser) = self.browser.get() {
+                browser.close_session(agent, &key.session_id);
+            }
+            !discard
+        });
+    }
+
     /// 用宿主运行时句柄构造。句柄必须指向多线程、IO/time 驱动齐全的运行时。
     pub fn new(runtime: tokio::runtime::Handle) -> Self {
         let background =
@@ -21,6 +36,7 @@ impl RuntimeState {
             shutting_down: Arc::new(AtomicBool::new(false)),
             background,
             mcp,
+            browser: Arc::new(std::sync::OnceLock::new()),
             events,
             #[cfg(feature = "server")]
             push,
@@ -30,6 +46,47 @@ impl RuntimeState {
 
     pub fn events(&self) -> &crate::events::EventHub {
         &self.events
+    }
+
+    pub fn attach_browser(
+        &self,
+        backend: Arc<dyn crate::tools::browser::BrowserBackend>,
+    ) -> Result<(), String> {
+        self.browser
+            .set(backend)
+            .map_err(|_| "Browser backend is already mounted".into())
+    }
+
+    pub async fn browser_view(
+        &self,
+        agent: &str,
+        session: &str,
+        action: &str,
+        url: Option<&str>,
+        bounds: Option<crate::tools::browser::BrowserBounds>,
+    ) -> Result<crate::tools::browser::BrowserViewState, String> {
+        validate_session_id(session)?;
+        let browser = self
+            .browser
+            .get()
+            .ok_or("Browser is unavailable in this host.")?;
+        let lease = {
+            let sessions = self.sessions.lock().map_err(|e| e.to_string())?;
+            self.ensure_not_shutting_down()?;
+            if !sessions.contains_key(&SessionKey::new(agent, session))
+                && !Self::session_repo_for(agent)?.exists(session)?
+            {
+                return Err("Session does not exist".into());
+            }
+            browser.lease_session(agent, session)
+        };
+        let state = browser
+            .ui(agent, session, action, url, bounds, &lease)
+            .await?;
+        if !lease.is_valid() {
+            return Err("Browser session is no longer active; an already dispatched action may still complete.".into());
+        }
+        Ok(state)
     }
 
     /// 该 Agent 声明的 MCP 服务器与当前连接状态。
@@ -134,7 +191,11 @@ impl RuntimeState {
             return Err("Session does not exist".into());
         }
         self.detach_idle_session(&mut sessions, agent_name, session_id, "archiving")?;
-        repo.archive(session_id)
+        repo.archive(session_id)?;
+        if let Some(browser) = self.browser.get() {
+            browser.close_session(agent_name, session_id);
+        }
+        Ok(())
     }
 
     /// 恢复归档会话。
@@ -154,7 +215,11 @@ impl RuntimeState {
             return Err("Session does not exist".into());
         }
         self.detach_idle_session(&mut sessions, agent_name, session_id, "deleting")?;
-        repo.delete(session_id)
+        repo.delete(session_id)?;
+        if let Some(browser) = self.browser.get() {
+            browser.close_session(agent_name, session_id);
+        }
+        Ok(())
     }
 
     /// 删除已归档会话。不可恢复。
@@ -226,7 +291,11 @@ impl RuntimeState {
         // `open_session` 也必须先取得这把锁；不要在检查与目录移动之间释放它，
         // 否则并发打开会把一个仍指向活跃目录的 Session 插入 map，再由这里把
         // 目录移走。归档是罕见的同步文件操作，短暂持锁优先于留下悬空会话。
-        agents::archive_agent(name)
+        agents::archive_agent(name)?;
+        if let Some(browser) = self.browser.get() {
+            browser.close_agent(name);
+        }
+        Ok(())
     }
 
     /// 彻底删除 Agent。空闲会话会随操作自动释放；运行中或仍有托管后台任务的
@@ -237,7 +306,11 @@ impl RuntimeState {
         self.detach_agent_sessions_locked(&mut sessions, name, "deleting")?;
         // 与归档相同：占用检查和不可逆删除是同一个临界区，不能让
         // `open_session` 在两者之间抢跑。
-        agents::delete_agent(name)
+        agents::delete_agent(name)?;
+        if let Some(browser) = self.browser.get() {
+            browser.close_agent(name);
+        }
+        Ok(())
     }
 
     /// 保存 Agent 定义时，临时测试必须空闲；成功后丢弃旧测试上下文，确保下一轮
@@ -259,7 +332,7 @@ impl RuntimeState {
                 session.agent.compact_target_percent = def.compact_target_percent;
             }
         }
-        sessions.retain(|key, session| !(key.agent_name == def.name && session.temporary));
+        self.discard_temporary_sessions(&mut sessions, &def.name);
         Ok(())
     }
 
@@ -279,7 +352,7 @@ impl RuntimeState {
             return Err("Temporary test is still running, has queued messages or uncompleted managed background tasks; please cancel queued messages and stop or terminate tasks before saving files".into());
         }
         agents::write_agent_file(agent_name, rel_path, content)?;
-        sessions.retain(|key, session| !(key.agent_name == agent_name && session.temporary));
+        self.discard_temporary_sessions(&mut sessions, agent_name);
         Ok(())
     }
 }

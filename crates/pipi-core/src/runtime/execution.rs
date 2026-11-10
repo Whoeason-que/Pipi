@@ -206,6 +206,16 @@ impl RuntimeState {
         };
 
         let mut registry = pipi_tools::builtin_registry(&tool_context);
+        if tool_context.sandbox == pipi_protocol::permissions::SandboxMode::DangerFullAccess
+            && tool_context.permissions.tool_enabled("browser")
+            && let Some(backend) = self.browser.get()
+        {
+            registry.push(Arc::new(crate::tools::browser::BrowserTool::new(
+                backend.clone(),
+                def.name.clone(),
+                session_id.clone(),
+            )));
+        }
         let background_owner =
             BackgroundTaskOwner::new(def.name.clone(), session_id.clone(), run_id);
         // run_agent 先于 create_agent 注册：一次性委派是默认动作，创建持久
@@ -324,7 +334,11 @@ impl RuntimeState {
         let hooks = make_session_hooks(
             event_sink,
             def.name.clone(),
-            Some(make_rekey(self.sessions.clone(), self.background.clone())),
+            Some(make_rekey(
+                self.sessions.clone(),
+                self.background.clone(),
+                self.browser.clone(),
+            )),
         );
         let request = RunRequest {
             prompt,

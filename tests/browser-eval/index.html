@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>海星工作台</title>
+<body>
+  <h1>海星工作台</h1>
+  <nav><a href="?page=projects">项目目录</a> · <a href="?page=request">提交申请</a> · <a href="?page=embedded">服务状态</a> · <a href="?page=diagnosis">独立诊断</a></nav>
+  <main id="content"></main>
+  <script>
+    const page = new URLSearchParams(location.search).get('page') || 'home';
+    const content = document.querySelector('#content');
+    if (page === 'home') content.innerHTML = '<h2>今日概览</h2><p>本周值班负责人：林岚</p><p>服务窗口：周一至周五 09:30–17:30</p>';
+    if (page === 'projects') content.innerHTML = '<h2>项目目录</h2><p><a href="?page=detail">青岚项目</a></p><p>云杉项目</p>';
+    if (page === 'detail') content.innerHTML = '<h2>青岚项目</h2><p>项目负责人：周宁</p><p>计划上线日期：2027-03-18</p><p>状态：验收中</p>';
+    if (page === 'request') {
+      content.innerHTML = `<h2>提交申请</h2><form><label>申请人 <input name="name" required></label><br><label>申请类型 <select name="kind"><option value="">请选择</option><option value="access">访问权限</option><option value="equipment">设备借用</option></select></label><br><label>说明 <textarea name="reason"></textarea></label><br><button>提交申请</button></form><p id="result"></p>`;
+      content.querySelector('form').addEventListener('submit', event => {
+        event.preventDefault();
+        const form = new FormData(event.target);
+        const record = {name: form.get('name'), kind: form.get('kind'), reason: form.get('reason')};
+        document.querySelector('#result').textContent = `申请已提交：${record.name} / ${record.kind} / ${record.reason}。编号 HX-2048`;
+        document.body.dataset.submission = JSON.stringify(record);
+      });
+    }
+    if (page === 'embedded') content.innerHTML = '<h2>服务状态</h2><iframe title="服务信息" src="frame.html"></iframe>';
+    if (page === 'diagnosis') {
+      content.innerHTML = '<h2>独立诊断</h2><p>请在下方诊断窗口中启动诊断。</p><iframe title="独立诊断窗口" src="http://localhost:1420/tests/browser-eval/diagnosis.html"></iframe><p id="diagnosis-result"></p>';
+      window.addEventListener('message', event => {
+        if (event.origin !== 'http://localhost:1420' || event.data !== 'DIAG-314') return;
+        document.body.dataset.diagnosis = event.data;
+        document.querySelector('#diagnosis-result').textContent = '诊断已完成：' + event.data;
+      });
+    }
+  </script>
+</body>
+</html>

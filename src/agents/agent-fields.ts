@@ -18,6 +18,7 @@ export const KNOWN_TOOLS = [
   "query_background_tasks",
   "manage_background_task",
   "session_search",
+  "browser",
   "forum_list",
   "forum_read",
   "forum_post",

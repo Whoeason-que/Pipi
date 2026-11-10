@@ -611,3 +611,10 @@
   font-size: var(--text-xs);
   line-height: 1.6;
 }
+
+.browser-ipanel.active { height: 100%; }
+.browser-panel { display: flex; flex-direction: column; height: 100%; min-height: 200px; gap: 8px; }
+.browser-toolbar { display: flex; gap: 4px; flex-wrap: wrap; }
+.browser-toolbar input { flex: 1 1 100%; min-width: 0; }
+.browser-viewport { flex: 1; min-height: 120px; overflow: hidden; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.browser-empty { padding: 12px; color: var(--muted); }

@@ -109,7 +109,7 @@ pub const BACKGROUND_TASK_TOOLS: [&str; 3] = [
 pub const FORUM_TOOLS: [&str; 4] = ["forum_list", "forum_read", "forum_post", "forum_reply"];
 
 /// Pipi 已知内置工具名（基础工具 + 显式启用的 Agent 组合 / 后台任务 / 论坛工具）。
-pub const KNOWN_TOOLS: [&str; 17] = [
+pub const KNOWN_TOOLS: [&str; 18] = [
     "read",
     "write",
     "edit",
@@ -123,6 +123,7 @@ pub const KNOWN_TOOLS: [&str; 17] = [
     "query_background_tasks",
     "manage_background_task",
     "session_search",
+    "browser",
     "forum_list",
     "forum_read",
     "forum_post",

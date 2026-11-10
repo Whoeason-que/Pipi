@@ -81,6 +81,7 @@ export class SessionController {
   private settledRun: number | null = null;
   private awaitingRun: number | null = null;
   private sending = false;
+  private creatingSession: Promise<string> | null = null;
   private pendingQueue: { text: string; delayMs: number; id: string; sendAt: number | null; imageKey: string } | null = null;
   private uncertainSend: { runId: number; key: string } | null = null;
   private runEpoch = 0;
@@ -117,7 +118,7 @@ export class SessionController {
   get awaitingIdentity(): boolean { return this.value.chat.running && this.identity === null; }
   get observed(): boolean { return this.listeners.size > 0; }
   get evictable(): boolean {
-    return !this.observed && !this.sending && !this.value.chat.running
+    return !this.observed && !this.sending && !this.creatingSession && !this.value.chat.running
       && this.value.operation === "idle" && this.value.load !== "loading";
   }
   getSnapshot = (): SessionSnapshot => this.value;
@@ -142,6 +143,22 @@ export class SessionController {
   requireSessionId(): string {
     if (!this.identity) throw new Error("Session identity is not ready yet. Try again in a moment.");
     return this.identity.sessionId;
+  }
+
+  /** Share creation between the browser and the first prompt. */
+  async ensureSession(): Promise<string> {
+    if (this.identity) return this.identity.sessionId;
+    if (!this.creatingSession) {
+      this.creatingSession = (async () => {
+        const info = this.temporary
+          ? await this.transport.invoke("open_workbench_session", { agentName: this.agent.name })
+          : await this.transport.invoke("create_session", { agentName: this.agent.name });
+        if (info.agentName !== this.agent.name || !info.sessionId || info.running) throw new Error("Unable to establish an idle session");
+        this.adopt({ ...info, model: undefined }, true);
+        return info.sessionId;
+      })().finally(() => { this.creatingSession = null; });
+    }
+    return this.creatingSession;
   }
 
   private adopt(info: SessionInfoView, announce: boolean): void {
@@ -316,14 +333,7 @@ export class SessionController {
     // 先取得稳定身份：响应丢失后仍能查到同一条会话，且不会误认其他窗口的运行。
     if (!this.identity) {
       try {
-        const info = this.temporary
-          ? await this.transport.invoke("open_workbench_session", { agentName: this.agent.name })
-          : await this.transport.invoke("create_session", { agentName: this.agent.name });
-        if (info.agentName !== this.agent.name || !info.sessionId || info.running) {
-          throw new Error("Unable to establish an idle session");
-        }
-        // 创建身份不应覆盖草稿中已选择的模型。
-        this.adopt({ ...info, model: undefined }, true);
+        await this.ensureSession();
       } catch (error) { this.sending = false; throw error; }
     }
     const baseline = this.identity?.runId ?? 0;
@@ -459,11 +469,7 @@ export class SessionController {
     this.sending = true;
     try {
       if (!this.identity) {
-        const info = this.temporary
-          ? await this.transport.invoke("open_workbench_session", { agentName: this.agent.name })
-          : await this.transport.invoke("create_session", { agentName: this.agent.name });
-        if (info.agentName !== this.agent.name || !info.sessionId || info.running) throw new Error("Unable to establish an idle session");
-        this.adopt({ ...info, model: undefined }, true);
+        await this.ensureSession();
       }
       if (!this.value.chat.running && this.value.isCustomModel) await this.setModel(true, this.value.model);
       const previous = this.pendingQueue;

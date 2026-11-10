@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::settings::{self, Settings};
+use crate::tools::browser::{BrowserBounds, BrowserViewState};
 use crate::workspace::{WorkspaceChanges, WorkspaceDiff, WorkspaceFile, WorkspaceListing};
 use pipi_agent::stats::SessionStats;
 use pipi_protocol::forum::{
@@ -72,6 +73,7 @@ pub const COMMANDS: &[&str] = &[
     "manage_background_task",
     "new_session",
     "create_session",
+    "browser_view",
     "send_prompt",
     "compact_now",
     "steer",
@@ -713,6 +715,33 @@ pub fn create_session(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BrowserViewArgs {
+    pub agent_name: String,
+    pub session_id: String,
+    pub action: String,
+    pub url: Option<String>,
+    pub bounds: Option<BrowserBounds>,
+}
+
+pub async fn browser_view(
+    runtime: &RuntimeState,
+    source: CommandSource,
+    args: BrowserViewArgs,
+) -> Result<BrowserViewState, String> {
+    source.require_desktop()?;
+    runtime
+        .browser_view(
+            &args.agent_name,
+            &args.session_id,
+            &args.action,
+            args.url.as_deref(),
+            args.bounds,
+        )
+        .await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SendPromptArgs {
     pub agent_name: String,
     pub session_id: Option<String>,
@@ -1328,6 +1357,7 @@ pub async fn dispatch(
         "manage_background_task" => to_value(manage_background_task(runtime, parse(args)?).await?),
         "new_session" => to_value(new_session(runtime, parse(args)?)?),
         "create_session" => to_value(create_session(runtime, parse(args)?)?),
+        "browser_view" => to_value(browser_view(runtime, CommandSource::Web, parse(args)?).await?),
         "send_prompt" => to_value(send_prompt(runtime, emitter, parse(args)?)?),
         "compact_now" => to_value(compact_now(runtime, emitter, parse(args)?)?),
         "steer" => to_value(steer(runtime, parse(args)?)?),
@@ -1392,9 +1422,26 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            70,
-            "宿主命令数应为 70（前端 CommandMap 同步）"
+            71,
+            "宿主命令数应为 71（前端 CommandMap 同步）"
         );
+    }
+
+    #[tokio::test]
+    async fn remote_cannot_control_desktop_browser() {
+        let runtime = RuntimeState::new(tokio::runtime::Handle::current());
+        let emitter: EventEmitter = Arc::new(|_| {});
+        let error = dispatch(
+            &runtime,
+            emitter,
+            "browser_view",
+            serde_json::json!({
+                "agentName": "a", "sessionId": "s", "action": "state"
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("only allowed in the desktop"));
     }
 
     #[tokio::test]

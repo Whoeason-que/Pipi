@@ -74,6 +74,9 @@ similar = "3.2"
 tauri = { version = "2", features = [] }
 tauri-build = "2"
 tauri-plugin-notification = "2.7"
+webkit2gtk = "2"
+gtk = "0.18"
+cairo-rs = { version = "0.18", features = ["png"] }
 web-push = { version = "0.11", default-features = false }
 p256 = { version = "0.13", features = ["pem"] }
 tempfile = "3"

@@ -18,6 +18,8 @@ import SessionHistoryPanel from "./SessionHistoryPanel";
 import SubagentPanel from "./SubagentPanel";
 import { useNotebook } from "./notebook";
 import { useI18n } from "../i18n";
+import BrowserPanel from "./BrowserPanel";
+import { isTauri } from "@tauri-apps/api/core";
 // ============ 右侧检查器 ============
 
 export interface InspectorProps {
@@ -38,6 +40,7 @@ export interface InspectorProps {
   /** 标签形态：text = 文字标签（嵌入式工作台），icon = 图标标签 + 关闭（会话右栏）。 */
   tabStyle?: "text" | "icon";
   onClose?: () => void;
+  ensureSession?: () => Promise<string>;
   searchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
   searchHits?: SearchHit[];
@@ -62,6 +65,7 @@ export default function Inspector({
   onTabChange,
   tabStyle = "text",
   onClose,
+  ensureSession,
   searchQuery = "",
   onSearchQueryChange,
   searchHits = [],
@@ -89,18 +93,18 @@ export default function Inspector({
     runtime,
   } = context;
   const [internalTab, setInternalTab] = useState<InspectorTab>("state");
-  const tab = activeTabProp ?? internalTab;
+  const requestedTab = activeTabProp ?? internalTab;
+  const tab = requestedTab === "browser" && (embedded || !isTauri()) ? "state" : requestedTab;
   const setTab = (next: InspectorTab) => {
     setInternalTab(next);
     onTabChange?.(next);
   };
   // 临时测试会话没有真实 notebook（id 属于进程内的测试账本），不占一个空 tab；
   // git 历史属于正式会话的运行视图，也不放进调试工作台。
-  const tabs = embedded
-    ? INSPECTOR_TABS.filter(
-        (item) => item.id !== "notebook" && item.id !== "history",
-      )
-    : INSPECTOR_TABS;
+  const tabs = INSPECTOR_TABS.filter((item) =>
+    !(embedded && (item.id === "notebook" || item.id === "history" || item.id === "browser")) &&
+    !(item.id === "browser" && !isTauri()),
+  );
   const notebook = useNotebook(agent.name, embedded ? null : sessionId, entries);
   // 正在压缩：压缩条目在收尾前是 transient（见 chat-runtime 的 compaction_start）
   const compacting = entries.some(
@@ -299,6 +303,10 @@ export default function Inspector({
       )}
 
       <div className="ipanels">
+        <div className={`ipanel browser-ipanel${tab === "browser" ? " active" : ""}`}
+          id="ipanel-browser" role="tabpanel" aria-labelledby="itab-browser">
+          {!embedded && isTauri() && <BrowserPanel active={tab === "browser" && !hidden} agentName={agent.name} sessionId={sessionId} ensureSession={ensureSession} />}
+        </div>
         <div
           className={`ipanel${tab === "notebook" ? " active" : ""}`}
           id="ipanel-notebook"

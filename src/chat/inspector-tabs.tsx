@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export type InspectorTab = "notebook" | "detail" | "state" | "history" | "files" | "search";
+export type InspectorTab = "notebook" | "detail" | "state" | "history" | "files" | "search" | "browser";
 
 export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "state", label: "State" },
@@ -9,6 +9,7 @@ export const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "files", label: "Session files" },
   { id: "history", label: "History" },
   { id: "search", label: "Find" },
+  { id: "browser", label: "Browser" },
 ];
 
 export function getInspectorTabLabel(
@@ -28,6 +29,7 @@ export function InspectorTabIcon({
   className?: string;
 }) {
   const paths: Record<InspectorTab, ReactNode> = {
+    browser: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" /></>,
     notebook: (
       <>
         <path d="M8 3h8a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />

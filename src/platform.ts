@@ -317,6 +317,7 @@ const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }
   send_prompt: { sessionId: "optional" },
   new_session: {},
   create_session: {},
+  browser_view: { sessionId: "required" },
   list_sessions: {},
   import_sessions: {},
   archive_session: { sessionId: "required" },

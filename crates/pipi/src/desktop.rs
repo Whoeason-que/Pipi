@@ -15,6 +15,9 @@ use tauri::{
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(HostLease::acquire()?);
     let runtime = app.state::<Arc<RuntimeState>>().inner().clone();
+    runtime.attach_browser(Arc::new(crate::browser::DesktopBrowser::new(
+        app.handle().clone(),
+    )))?;
     use tauri::Emitter;
     use tauri_plugin_notification::NotificationExt;
     let handle = app.handle().clone();

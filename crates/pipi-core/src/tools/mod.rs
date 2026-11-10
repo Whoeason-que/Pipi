@@ -5,5 +5,6 @@
 
 pub mod agent;
 pub mod background;
+pub mod browser;
 pub mod forum;
 pub mod session_search;

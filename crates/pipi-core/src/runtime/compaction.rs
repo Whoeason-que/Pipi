@@ -46,7 +46,11 @@ impl RuntimeState {
         let hooks = make_session_hooks(
             event_sink,
             def.name.clone(),
-            Some(make_rekey(self.sessions.clone(), self.background.clone())),
+            Some(make_rekey(
+                self.sessions.clone(),
+                self.background.clone(),
+                self.browser.clone(),
+            )),
         );
         let reservation = session.engine.reserve_run(AbortPolicy::Reset)?;
         let run_id = reservation.run_id();

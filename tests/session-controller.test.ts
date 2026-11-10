@@ -806,3 +806,24 @@ test("runtime tracks live child sessions without registering a controller", asyn
   assert.equal(runtime.isRunning(agent.name, "child-fork"), false);
   runtime.disconnect();
 });
+
+test("browser and first prompt share one session creation", async () => {
+  const host = new Host();
+  const gate = deferred<void>();
+  const invoke = host.invoke.bind(host);
+  host.invoke = async (command, ...args) => {
+    if (command === "create_session") await gate.promise;
+    return invoke(command, ...args);
+  };
+  const runtime = new SessionRuntime(host);
+  await runtime.start();
+  const controller = runtime.get(agent, null);
+  await controller.hydrate();
+  const opening = controller.ensureSession();
+  const sending = controller.send("open the page");
+  gate.resolve();
+  assert.equal(await opening, "created");
+  assert.equal(await sending, true);
+  assert.equal(host.calls.filter(call => call.command === "create_session").length, 1);
+  assert.equal(host.calls.find(call => call.command === "send_prompt")?.args?.sessionId, "created");
+});

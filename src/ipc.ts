@@ -19,6 +19,11 @@ export interface BackgroundTaskSnapshot {
   nextSeq: number;
 }
 
+export interface BrowserViewState {
+  label: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean;
+}
+export interface BrowserBounds { x: number; y: number; width: number; height: number }
+
 export interface CommandMap {
   list_agents: { args: { archived?: boolean | null }; result: AgentDefinition[] };
   model_catalog: { args: { refresh?: boolean | null }; result: ModelCatalog };
@@ -58,6 +63,7 @@ export interface CommandMap {
   manage_background_task: { args: { agentName: string; sessionId: string; jobId: string; action: string; data?: string | null }; result: BackgroundTaskSnapshot };
   new_session: { args: { agentName: string }; result: void };
   create_session: { args: { agentName: string }; result: SessionInfoView };
+  browser_view: { args: { agentName: string; sessionId: string; action: string; url?: string | null; bounds?: BrowserBounds | null }; result: BrowserViewState };
   send_prompt: { args: { agentName: string; sessionId?: string | null; prompt: string; model?: ModelConfig | null; images?: UserImage[] | null }; result: SessionInfoView };
   compact_now: {
     args: { agentName: string; sessionId: string; mode?: string | null };

@@ -6559,6 +6559,9 @@ dependencies = [
 name = "pipi"
 version = "26.10.1"
 dependencies = [
+ "async-trait",
+ "cairo-rs",
+ "gtk",
  "pipi-agent",
  "pipi-core",
  "pipi-protocol",
@@ -6570,6 +6573,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-notification",
  "tokio",
+ "webkit2gtk",
 ]
 
 [[package]]

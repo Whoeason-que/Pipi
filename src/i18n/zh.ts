@@ -5,6 +5,9 @@ import type { DeepPartial, I18nSchema } from "./en.ts";
  * 新增文案优先只加 en；补齐 zh 是显式投入，不是必需。
  */
 export const zh: DeepPartial<I18nSchema> = {
+  agents: {
+    browserSandboxHint: "浏览器控制仅在完全访问下可用；完全访问也会移除其他工具的操作系统沙箱。",
+  },
   common: {
     confirm: "确认",
     cancel: "取消",
@@ -227,6 +230,16 @@ export const zh: DeepPartial<I18nSchema> = {
     costFootnote: "成本按 models.dev 报价估算，不是实际账单；* 表示该会话有部分模型没有可信价格。",
   },
   inspector: {
+    browser: "浏览器",
+    browserAddress: "网页地址",
+    browserOpen: "打开",
+    browserClose: "关闭",
+    browserBack: "后退",
+    browserForward: "前进",
+    browserRefresh: "刷新",
+    browserPlaceholder: "https://example.com 或 localhost:5173",
+    browserEmpty: "输入网页地址，在这里打开。",
+    browserInvalid: "请输入有效的 HTTP 或 HTTPS 地址。",
     notebook: "笔记本",
     detail: "调用详情",
     stats: "会话统计",

@@ -591,6 +591,7 @@ export default function AgentWorkbench({
                     className="tool-row vertical-choices"
                   />
                   <span className="hint">{t("agents.sandboxHint")}</span>
+                  {tools.includes("browser") && <span className="hint">{t("agents.browserSandboxHint")}</span>}
                 </div>
               </section>
             )}

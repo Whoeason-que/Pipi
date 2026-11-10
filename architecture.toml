@@ -108,6 +108,7 @@ dev-may-depend-on = ["pipi-test-support"]
 forbid = ["reqwest", "rig", "tokio"]
 
 # Tauri 薄壳：commands.rs 只做 IPC 转发。
+# 浏览器适配器在桌面壳装配；Linux 截图使用 WebKitGTK 和 Cairo。
 [crates.pipi]
 may-depend-on = [
     "pipi-agent",

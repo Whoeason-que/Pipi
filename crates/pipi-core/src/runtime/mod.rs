@@ -78,6 +78,7 @@ pub struct RuntimeState {
     background: BackgroundTaskManager,
     /// MCP 服务器的连接与工具清单（跨轮次存活；连接在后台建立）。
     mcp: crate::mcp::McpManager,
+    browser: Arc<std::sync::OnceLock<Arc<dyn crate::tools::browser::BrowserBackend>>>,
     events: crate::events::EventHub,
     #[cfg(feature = "server")]
     push: Arc<crate::notifications::push::PushService>,

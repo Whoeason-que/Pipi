@@ -3,6 +3,7 @@ import { DraftStore } from "./drafts.ts";
 import { SessionController, type SessionFrame, type SessionTransport } from "./session-controller.ts";
 import { sessionKey as composeSessionKey } from "./session-key.ts";
 import type { AgentDefinition, SessionChangedPayload } from "./types.ts";
+import { forgetAgentBrowsers, forgetBrowserSession, rekeyBrowserSession } from "./chat/browser-sessions.ts";
 
 export type RuntimeFrame = SessionFrame | { type: "session-changed"; payload: SessionChangedPayload };
 export interface RuntimeTransport extends SessionTransport {
@@ -31,6 +32,7 @@ export class SessionRuntime {
   constructor(transport: RuntimeTransport) { this.transport = transport; }
 
   forget(agent: string, session: string): void {
+    forgetBrowserSession(agent, session);
     this.composerDrafts.forget(agent, session);
     this.sessions.delete(composeSessionKey(agent, session));
     this.replay.delete(composeSessionKey(agent, session));
@@ -38,6 +40,7 @@ export class SessionRuntime {
   }
 
   forgetAgent(agent: string): void {
+    forgetAgentBrowsers(agent);
     this.composerDrafts.forgetAgent(agent);
     const prefix = `${agent}\u0000`;
     for (const map of [this.sessions, this.replay]) {
@@ -111,6 +114,7 @@ export class SessionRuntime {
     this.trim();
     const controller = new SessionController(agent, sessionId, temporary, this.transport,
       (current, previous, next) => {
+        if (previous && previous !== next) rekeyBrowserSession(current.agentName, previous, next);
         this.composerDrafts.move(current.agentName, previous, next, temporary);
         if (previous) this.sessions.delete(composeSessionKey(current.agentName, previous));
         this.drafts.delete(current);
