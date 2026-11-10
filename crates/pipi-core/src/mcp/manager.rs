@@ -26,6 +26,7 @@ const WATCH_TICK: Duration = Duration::from_secs(30);
 struct ServerKey {
     agent_name: String,
     server_name: String,
+    strict: bool,
 }
 
 impl ServerKey {
@@ -33,7 +34,20 @@ impl ServerKey {
         Self {
             agent_name: agent_name.to_string(),
             server_name: server_name.to_string(),
+            strict: false,
         }
+    }
+    fn cache_name(&self) -> String {
+        if !self.strict {
+            return self.server_name.clone();
+        }
+        use sha2::{Digest, Sha256};
+        let hash = Sha256::digest(self.server_name.as_bytes());
+        format!(
+            "strict-{}",
+            hash.iter().map(|v| format!("{v:02x}")).collect::<String>()
+        )[..63]
+            .to_string()
     }
 }
 
@@ -45,6 +59,7 @@ struct SpawnPlan {
     env: BTreeMap<String, String>,
     cwd: PathBuf,
     sandbox: SandboxMode,
+    strict: bool,
 }
 
 impl SpawnPlan {
@@ -93,6 +108,7 @@ pub struct McpToolSpec {
     pub wire_name: String,
     pub server: String,
     pub tool: McpToolDef,
+    pub(super) strict: bool,
 }
 
 /// 一台服务器的连接状态（给 Agent 工作台展示）。
@@ -142,6 +158,15 @@ impl McpManager {
     /// - 停用或从定义里删掉的服务器：断开并移除；
     /// - 配置错误（缺 env 引用、命令为空）不失败本轮，只记在状态里。
     pub fn prepare(&self, def: &AgentDefinition, env: &BTreeMap<String, String>) {
+        self.prepare_inner(def, env, false);
+    }
+
+    /// A separate process pool with an upper bound on sandbox permissions.
+    pub fn prepare_workspace(&self, def: &AgentDefinition, env: &BTreeMap<String, String>) {
+        self.prepare_inner(def, env, true);
+    }
+
+    fn prepare_inner(&self, def: &AgentDefinition, env: &BTreeMap<String, String>, strict: bool) {
         let agent_name = def.name.clone();
         cache::purge_legacy(&agent_name);
         let mut pending: Vec<(ServerKey, Arc<tokio::sync::Mutex<()>>)> = Vec::new();
@@ -149,14 +174,15 @@ impl McpManager {
             let mut servers = self.inner.servers();
             let mut seen = HashSet::new();
             for server in &def.mcp_servers {
-                let key = ServerKey::new(&agent_name, &server.name);
+                let mut key = ServerKey::new(&agent_name, &server.name);
+                key.strict = strict;
                 if !seen.insert(server.name.clone()) {
                     continue;
                 }
                 if !server.enabled {
                     // Disabled servers may still have a legacy cache containing
                     // expanded secrets; discard that cache without enabling it.
-                    let _ = cache::load(&agent_name, &server.name, "v2:disabled");
+                    let _ = cache::load(&agent_name, &key.cache_name(), "v2:disabled");
                     if let Some(slot) = servers.remove(&key)
                         && let Some(client) = slot.client
                     {
@@ -164,7 +190,7 @@ impl McpManager {
                     }
                     continue;
                 }
-                let plan = match plan_for(def, server, env) {
+                let mut plan = match plan_for(def, server, env) {
                     Ok(plan) => plan,
                     Err(error) => {
                         let slot = servers.entry(key).or_default();
@@ -177,6 +203,12 @@ impl McpManager {
                         continue;
                     }
                 };
+                if strict {
+                    plan.strict = true;
+                    if plan.sandbox == SandboxMode::DangerFullAccess {
+                        plan.sandbox = SandboxMode::WorkspaceWrite;
+                    }
+                }
                 let fingerprint = plan.fingerprint();
                 let slot = servers.entry(key.clone()).or_default();
                 if slot.fingerprint != fingerprint {
@@ -186,7 +218,7 @@ impl McpManager {
                     slot.fingerprint = fingerprint;
                     slot.plan = Some(plan);
                     // 新配置下先沿用磁盘快照，连接成功后会被真实清单覆盖。
-                    slot.tools = cache::load(&agent_name, &server.name, &slot.fingerprint);
+                    slot.tools = cache::load(&agent_name, &key.cache_name(), &slot.fingerprint);
                     slot.error = None;
                 } else if slot.plan.is_none() {
                     slot.plan = Some(plan);
@@ -205,7 +237,11 @@ impl McpManager {
             // 定义里已经不存在的服务器。
             let stale: Vec<ServerKey> = servers
                 .keys()
-                .filter(|key| key.agent_name == agent_name && !seen.contains(&key.server_name))
+                .filter(|key| {
+                    key.agent_name == agent_name
+                        && key.strict == strict
+                        && !seen.contains(&key.server_name)
+                })
                 .cloned()
                 .collect();
             for key in stale {
@@ -223,11 +259,17 @@ impl McpManager {
 
     /// 当前可以声明的工具（缓存或实时清单，已去重、有上限、顺序稳定）。
     pub fn tools_for(&self, agent_name: &str) -> Vec<McpToolSpec> {
+        self.tools_for_inner(agent_name, false)
+    }
+    pub fn workspace_tools_for(&self, agent_name: &str) -> Vec<McpToolSpec> {
+        self.tools_for_inner(agent_name, true)
+    }
+    fn tools_for_inner(&self, agent_name: &str, strict: bool) -> Vec<McpToolSpec> {
         let servers = self.inner.servers();
         let mut specs = Vec::new();
         for (key, slot) in servers
             .iter()
-            .filter(|(key, _)| key.agent_name == agent_name)
+            .filter(|(key, _)| key.agent_name == agent_name && key.strict == strict)
         {
             for tool in &slot.tools {
                 if tool.name.trim().is_empty() {
@@ -237,6 +279,7 @@ impl McpManager {
                     wire_name: super::tool::wire_name(&key.server_name, &tool.name),
                     server: key.server_name.clone(),
                     tool: tool.clone(),
+                    strict,
                 });
             }
         }
@@ -265,7 +308,20 @@ impl McpManager {
         arguments: serde_json::Value,
         abort: &pipi_protocol::AbortSignal,
     ) -> Result<pipi_mcp::CallToolResult, String> {
-        let key = ServerKey::new(agent_name, server_name);
+        self.call_scoped(agent_name, server_name, tool, arguments, abort, false)
+            .await
+    }
+    pub(super) async fn call_scoped(
+        &self,
+        agent_name: &str,
+        server_name: &str,
+        tool: &str,
+        arguments: serde_json::Value,
+        abort: &pipi_protocol::AbortSignal,
+        strict: bool,
+    ) -> Result<pipi_mcp::CallToolResult, String> {
+        let mut key = ServerKey::new(agent_name, server_name);
+        key.strict = strict;
         let (parallel, timeout, lock) = {
             let servers = self.inner.servers();
             let slot = servers.get(&key).ok_or_else(|| {
@@ -320,7 +376,7 @@ impl McpManager {
         let servers = self.inner.servers();
         let mut statuses: Vec<McpServerStatus> = servers
             .iter()
-            .filter(|(key, _)| key.agent_name == agent_name)
+            .filter(|(key, _)| key.agent_name == agent_name && !key.strict)
             .map(|(key, slot)| McpServerStatus {
                 name: key.server_name.clone(),
                 // 槽只为启用的服务器存在（停用的在 prepare 里移除）。
@@ -496,7 +552,7 @@ impl McpManager {
             client.shutdown().await;
             return Ok(());
         }
-        cache::store(&key.agent_name, &key.server_name, &fingerprint, &tools);
+        cache::store(&key.agent_name, &key.cache_name(), &fingerprint, &tools);
         self.spawn_tool_watcher(key.clone(), client, fingerprint);
         Ok(())
     }
@@ -561,7 +617,7 @@ impl McpManager {
         }
         slot.tools = tools.clone();
         drop(servers);
-        cache::store(&key.agent_name, &key.server_name, fingerprint, &tools);
+        cache::store(&key.agent_name, &key.cache_name(), fingerprint, &tools);
     }
 
     fn record_error(&self, key: &ServerKey, error: String) {
@@ -630,6 +686,7 @@ fn plan_for(
         env: spawn_env,
         cwd,
         sandbox,
+        strict: false,
     })
 }
 
@@ -655,7 +712,10 @@ fn expand_env_refs(value: &str, env: &BTreeMap<String, String>) -> Result<String
 }
 
 fn build_command(plan: &SpawnPlan) -> Result<pipi_mcp::Command, String> {
-    let policy = SandboxPolicy::for_workspace(plan.sandbox, &plan.cwd);
+    let mut policy = SandboxPolicy::for_workspace(plan.sandbox, &plan.cwd);
+    if plan.strict {
+        policy.allow_env_overrides = false;
+    }
     let mut command =
         pipi_sandbox::tokio_agent_command(&policy, &plan.program, &plan.args, &plan.env)?;
     // 与 bash 同一条口径：子进程环境完全来自契约解析结果，不读进程环境。
@@ -689,6 +749,45 @@ mod tests {
 
     fn server(value: serde_json::Value) -> McpServerConfig {
         serde_json::from_value(value).expect("test server is valid")
+    }
+
+    #[tokio::test]
+    async fn restricted_and_default_connections_never_share_tool_slots_or_cache_names() {
+        let manager = McpManager::new(tokio::runtime::Handle::current());
+        let legacy = ServerKey::new("agent", "server");
+        let mut restricted = legacy.clone();
+        restricted.strict = true;
+        assert_ne!(legacy.cache_name(), restricted.cache_name());
+        let tool = |name: &str| McpToolDef {
+            name: name.into(),
+            title: None,
+            description: None,
+            input_schema: serde_json::json!({"type":"object"}),
+        };
+        {
+            let mut slots = manager.inner.servers();
+            slots.insert(
+                legacy,
+                Slot {
+                    tools: vec![tool("legacy")],
+                    ..Default::default()
+                },
+            );
+            slots.insert(
+                restricted,
+                Slot {
+                    tools: vec![tool("restricted")],
+                    ..Default::default()
+                },
+            );
+        }
+        assert_eq!(manager.tools_for("agent")[0].tool.name, "legacy");
+        assert_eq!(
+            manager.workspace_tools_for("agent")[0].tool.name,
+            "restricted"
+        );
+        assert!(!manager.tools_for("agent")[0].strict);
+        assert!(manager.workspace_tools_for("agent")[0].strict);
     }
 
     #[test]

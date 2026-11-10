@@ -24,6 +24,7 @@
 //! 尚未移植（有意推迟，需要时再从上游搬运）：
 //! hooks 全集、prepareNextTurn、多 provider 目录、图片工具等。
 
+pub mod approvals;
 pub mod background;
 pub mod commands;
 pub mod events;

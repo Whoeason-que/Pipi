@@ -117,15 +117,27 @@ fn policy_json(policy: &SandboxPolicy) -> Result<String, String> {
 fn effective_policy(policy: &SandboxPolicy) -> SandboxPolicy {
     let allow_network = std::env::var("PIPI_SANDBOX_NETWORK")
         .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "on"));
+    let roots = std::env::var_os("PIPI_SANDBOX_WRITABLE")
+        .map(|raw| std::env::split_paths(&raw).collect())
+        .unwrap_or_default();
+    apply_environment_overrides(policy, allow_network, roots)
+}
+
+fn apply_environment_overrides(
+    policy: &SandboxPolicy,
+    allow_network: bool,
+    roots: Vec<PathBuf>,
+) -> SandboxPolicy {
     let mut effective = policy.clone();
+    if !policy.allow_env_overrides {
+        return effective;
+    }
     if allow_network {
         effective.network_access = true;
     }
-    if let Some(raw) = std::env::var_os("PIPI_SANDBOX_WRITABLE") {
-        for path in std::env::split_paths(&raw) {
-            if path.is_absolute() && !effective.writable_roots.contains(&path) {
-                effective.writable_roots.push(path);
-            }
+    for path in roots {
+        if path.is_absolute() && !effective.writable_roots.contains(&path) {
+            effective.writable_roots.push(path);
         }
     }
     effective
@@ -302,5 +314,17 @@ mod tests {
         let policy =
             SandboxPolicy::for_workspace(SandboxMode::DangerFullAccess, Path::new("/tmp/ws"));
         assert!(helper_for(&policy).unwrap().is_none());
+    }
+
+    #[test]
+    fn explicit_session_policy_ignores_process_wide_escape_valves() {
+        let mut policy =
+            SandboxPolicy::for_workspace(SandboxMode::WorkspaceWrite, Path::new("/tmp/ws"));
+        let root = PathBuf::from("/outside");
+        let legacy = apply_environment_overrides(&policy, true, vec![root.clone()]);
+        assert!(legacy.network_access && legacy.writable_roots.contains(&root));
+        policy.allow_env_overrides = false;
+        let isolated = apply_environment_overrides(&policy, true, vec![root.clone()]);
+        assert!(!isolated.network_access && !isolated.writable_roots.contains(&root));
     }
 }

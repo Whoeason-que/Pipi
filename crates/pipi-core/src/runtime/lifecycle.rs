@@ -42,6 +42,8 @@ impl RuntimeState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             shutting_down: Arc::new(AtomicBool::new(false)),
             background,
+            approvals: crate::approvals::ApprovalBroker::default(),
+            permission_modes: permission::SessionModes::default(),
             mcp,
             browser: Arc::new(std::sync::OnceLock::new()),
             events,
@@ -200,6 +202,8 @@ impl RuntimeState {
         }
         self.detach_idle_session(&mut sessions, agent_name, session_id, "archiving")?;
         repo.archive(session_id)?;
+        self.permission_modes
+            .forget(&SessionKey::new(agent_name, session_id));
         if let Some(browser) = self.browser.get() {
             browser.close_session(agent_name, session_id);
         }
@@ -224,6 +228,8 @@ impl RuntimeState {
         }
         self.detach_idle_session(&mut sessions, agent_name, session_id, "deleting")?;
         repo.delete(session_id)?;
+        self.permission_modes
+            .forget(&SessionKey::new(agent_name, session_id));
         if let Some(browser) = self.browser.get() {
             browser.close_session(agent_name, session_id);
         }

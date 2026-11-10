@@ -367,6 +367,7 @@ mod tests {
             read_roots: vec![skill_root],
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
         };

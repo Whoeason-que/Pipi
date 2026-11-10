@@ -52,6 +52,8 @@ pub fn kind_token(kind: &EntryKind) -> &'static str {
         EntryKind::ModelChange { .. } => "model_change",
         EntryKind::Env { .. } => "env",
         EntryKind::BackgroundResult { .. } => "background_result",
+        EntryKind::Question { .. } => "question",
+        EntryKind::Approval { .. } => "approval",
         EntryKind::SubagentRun { .. } => "subagent_run",
     }
 }
@@ -64,6 +66,12 @@ pub fn is_user_entry(entry: &SessionEntry) -> bool {
         EntryKind::Message {
             message: Message::User { .. }
         } | EntryKind::BackgroundResult { .. }
+            | EntryKind::Question {
+                event: pipi_protocol::interaction::QuestionEvent::Delivered {
+                    answer: Some(_),
+                    ..
+                }
+            }
     )
 }
 
@@ -72,6 +80,12 @@ pub fn entry_role(entry: &SessionEntry) -> &'static str {
     match &entry.kind {
         EntryKind::Message { message } => message.role(),
         EntryKind::BackgroundResult { .. } => "user",
+        EntryKind::Question {
+            event:
+                pipi_protocol::interaction::QuestionEvent::Delivered {
+                    answer: Some(_), ..
+                },
+        } => "user",
         other => kind_token(other),
     }
 }
@@ -134,6 +148,10 @@ pub fn summary_line(entry: &SessionEntry) -> String {
         EntryKind::Env { declared } => format!("env: {} 项声明", declared.len()),
         EntryKind::BackgroundResult { result } => {
             format!("background: {} {}", result.status.as_str(), result.job_id)
+        }
+        EntryKind::Question { .. } => "question: interaction".to_string(),
+        EntryKind::Approval { audit } => {
+            format!("approval: {} {}", audit.tool_name, audit.decision)
         }
         EntryKind::SubagentRun { parent_session, .. } => {
             format!("subagent_run: parent {parent_session}")

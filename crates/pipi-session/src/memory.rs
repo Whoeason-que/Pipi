@@ -109,6 +109,30 @@ impl SessionLog for MemoryLog {
         ))
     }
 
+    fn append_question(
+        &mut self,
+        event: &pipi_protocol::interaction::QuestionEvent,
+    ) -> std::io::Result<String> {
+        Ok(self.append(
+            EntryKind::Question {
+                event: event.clone(),
+            },
+            now_millis(),
+        ))
+    }
+
+    fn append_approval(
+        &mut self,
+        audit: &pipi_protocol::permissions::ApprovalAudit,
+    ) -> std::io::Result<String> {
+        Ok(self.append(
+            EntryKind::Approval {
+                audit: audit.clone(),
+            },
+            now_millis(),
+        ))
+    }
+
     fn append_compaction(&mut self, record: &CompactionRecord<'_>) -> std::io::Result<String> {
         self.last_append_ledger = Some(self.ledger.clone());
         Ok(self.append(record.to_entry_kind(), now_millis()))

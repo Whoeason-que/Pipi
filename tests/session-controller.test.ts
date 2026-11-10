@@ -338,9 +338,52 @@ test("sessions of the same Agent receive isolated events and share one host subs
   host.event({ type: "message_update", message: message("only first") });
   assert.equal(other.getSnapshot().chat.entries.length, 0);
   assert.equal(other.getSnapshot().chat.running, false);
-  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 6);
+  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 9);
   runtime.disconnect();
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
+});
+
+test("question updates remain session-scoped and ignore older revisions", async () => {
+  const { host, runtime, controller } = await fixture();
+  await runtime.start();
+  await controller.hydrate();
+  const question = { questionId: "q1", runId: 1, question: { question: "Which?", sync: false }, status: { state: "pending" as const } };
+  runtime.receive({ type: "session-questions", payload: { agentName: agent.name, sessionId: "s", runId: 1, revision: 2, questions: [question] } });
+  runtime.receive({ type: "session-questions", payload: { agentName: agent.name, sessionId: "s", runId: 1, revision: 1, questions: [] } });
+  runtime.receive({ type: "session-questions", payload: { agentName: agent.name, sessionId: "other", runId: 1, revision: 3, questions: [] } });
+  assert.deepEqual(controller.getSnapshot().questions, [question]);
+  assert.equal(controller.getSnapshot().questionsRevision, 2);
+  runtime.disconnect();
+});
+
+test("approval terminal updates reject late requests and mismatched owners", async () => {
+  const { runtime, controller } = await fixture();
+  await runtime.start();
+  await controller.hydrate();
+  const owner = { agentName: agent.name, sessionId: "s", runId: 2 };
+  const request = { approvalId: "approval-1", owner, toolCallId: "call", toolName: "bash", arguments: { command: "pwd" }, reason: "Confirm" };
+  runtime.receive({ type: "session-approval", payload: { ...owner, approvalId: request.approvalId, request } });
+  assert.equal(controller.getSnapshot().approvals.length, 1);
+  runtime.receive({ type: "session-approval", payload: { ...owner, approvalId: request.approvalId, request: null } });
+  runtime.receive({ type: "session-approval", payload: { ...owner, approvalId: request.approvalId, request } });
+  assert.equal(controller.getSnapshot().approvals.length, 0);
+  const wrong = { ...request, approvalId: "approval-2", owner: { ...owner, sessionId: "other" } };
+  runtime.receive({ type: "session-approval", payload: { ...owner, approvalId: wrong.approvalId, request: wrong } });
+  assert.equal(controller.getSnapshot().approvals.length, 0);
+  runtime.disconnect();
+});
+
+test("permission changes are session-scoped and stale revisions cannot roll them back", async () => {
+  const { runtime, controller } = await fixture();
+  await runtime.start();
+  await controller.hydrate();
+  runtime.receive({ type: "session-permission", payload: { ...info("s", 2, true), permissionMode: "ask", activePermissionMode: "plan", permissionRevision: 2 } });
+  runtime.receive({ type: "session-permission", payload: { ...info("s", 2, true), permissionMode: "full-access", permissionRevision: 1 } });
+  runtime.receive({ type: "session-permission", payload: { ...info("other", 2, true), permissionMode: "full-access", permissionRevision: 3 } });
+  assert.equal(controller.getSnapshot().permissionMode, "ask");
+  assert.equal(controller.getSnapshot().activePermissionMode, "plan");
+  assert.equal(controller.getSnapshot().permissionRevision, 2);
+  runtime.disconnect();
 });
 
 test("idle cache limits never evict running sessions or impose a concurrency limit", async () => {
@@ -433,7 +476,7 @@ test("a failed host subscription cleans partial listeners and can reconnect with
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
   fail = false;
   await runtime.start();
-  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 6);
+  assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 9);
   runtime.disconnect();
   assert.equal([...host.listeners.values()].reduce((count, listeners) => count + listeners.size, 0), 0);
 });

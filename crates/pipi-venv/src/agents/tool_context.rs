@@ -103,6 +103,7 @@ pub fn build_tool_context(
             read_roots,
             permissions: std::sync::Arc::new(def.permissions.clone()),
             sandbox: def.permissions.sandbox,
+            sandbox_policy_override: None,
             resolved_env: std::sync::Arc::new(resolved.vars.clone()),
             abort,
         },

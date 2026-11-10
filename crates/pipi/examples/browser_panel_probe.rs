@@ -65,7 +65,7 @@ fn main() {
                 std::thread::sleep(Duration::from_secs(4));
                 let tool = BrowserTool::new(browser.clone(), "test-agent".into(), "test-session".into());
                 let other_tool = BrowserTool::new(browser.clone(), "test-agent".into(), "other-session".into());
-                let context = ToolContext { workspace: "/tmp".into(), memory_dir: None, notebook_path: None, read_roots: vec![], permissions: Arc::new(PermissionsConfig { tools: vec!["browser".into()], sandbox: SandboxMode::DangerFullAccess }), sandbox: SandboxMode::DangerFullAccess, resolved_env: Arc::new(BTreeMap::new()), abort: AbortSignal::new() };
+                let context = ToolContext { workspace: "/tmp".into(), memory_dir: None, notebook_path: None, read_roots: vec![], permissions: Arc::new(PermissionsConfig { tools: vec!["browser".into()], sandbox: SandboxMode::DangerFullAccess }), sandbox: SandboxMode::DangerFullAccess, sandbox_policy_override: None, resolved_env: Arc::new(BTreeMap::new()), abort: AbortSignal::new() };
                 tauri::async_runtime::block_on(async {
                     assert!(tool.execute(&context, &serde_json::json!({"action":"navigate", "url":"file:///etc/passwd"}), &|_| {}).await.is_err());
                     assert_eq!(handle.webviews().keys().filter(|label| label.starts_with("browser-")).count(), 0);

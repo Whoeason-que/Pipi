@@ -570,3 +570,367 @@ fn stopping_before_any_results_pauses_future_notifications_until_a_new_manual_tu
     });
     rt.block_on(state.shutdown()).unwrap();
 }
+
+#[test]
+fn real_model_tool_questions_wait_or_resume_through_the_session_queue() {
+    use pipi_protocol::interaction::{QuestionAnswer, QuestionState};
+    let _lock = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _env = Environment::new();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let seen = requests.clone();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten().take(5) {
+            let mut headers = Vec::new();
+            let mut byte = [0];
+            while !headers.ends_with(b"\r\n\r\n") {
+                if stream.read_exact(&mut byte).is_err() {
+                    return;
+                }
+                headers.push(byte[0]);
+            }
+            let size = String::from_utf8_lossy(&headers)
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .and_then(|s| s.trim().parse::<usize>().ok())
+                })
+                .unwrap();
+            let mut body = vec![0; size];
+            stream.read_exact(&mut body).unwrap();
+            let index = {
+                let mut requests = seen.lock().unwrap();
+                let index = requests.len();
+                requests.push(serde_json::from_slice(&body).unwrap());
+                index
+            };
+            let (start, end) = if index == 0 || index == 2 {
+                (
+                    json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":format!("question-{index}"),"type":"function","function":{"name":"ask_question","arguments":json!({"question":"Which?","options":["A"],"sync":index == 0}).to_string()}}]},"finish_reason":null}]}),
+                    json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}),
+                )
+            } else {
+                (
+                    json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":null}]}),
+                    json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
+                )
+            };
+            let body = format!("data: {start}\n\ndata: {end}\n\ndata: [DONE]\n\n");
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    fixture(&base);
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let sync_id = state.create_session("queued").unwrap().session_id;
+    state
+        .send_prompt(
+            "queued",
+            Some(&sync_id),
+            "first",
+            None,
+            state.events().emitter(),
+        )
+        .unwrap();
+    until(|| {
+        !state
+            .open_session("queued", &sync_id)
+            .unwrap()
+            .questions
+            .is_empty()
+    });
+    let q = state.open_session("queued", &sync_id).unwrap().questions[0].clone();
+    assert!(q.question.sync && matches!(q.status, QuestionState::Pending));
+    assert_eq!(requests.lock().unwrap().len(), 1);
+    state
+        .answer_question(
+            "queued",
+            &sync_id,
+            &q.question_id,
+            QuestionAnswer {
+                selected_option: Some("A".into()),
+                text: "detail".into(),
+            },
+        )
+        .unwrap();
+    until(|| {
+        state
+            .session_info("queued", &sync_id)
+            .unwrap()
+            .is_some_and(|i| !i.running)
+            && requests.lock().unwrap().len() == 2
+    });
+    assert!(requests.lock().unwrap()[1].to_string().contains("detail"));
+    let async_id = state.create_session("queued").unwrap().session_id;
+    state
+        .send_prompt(
+            "queued",
+            Some(&async_id),
+            "second",
+            None,
+            state.events().emitter(),
+        )
+        .unwrap();
+    until(|| {
+        state
+            .session_info("queued", &async_id)
+            .unwrap()
+            .is_some_and(|i| !i.running)
+            && requests.lock().unwrap().len() == 4
+    });
+    let q = state.open_session("queued", &async_id).unwrap().questions[0].clone();
+    assert!(!q.question.sync && matches!(q.status, QuestionState::Pending));
+    state
+        .answer_question(
+            "queued",
+            &async_id,
+            &q.question_id,
+            QuestionAnswer {
+                selected_option: None,
+                text: "custom".into(),
+            },
+        )
+        .unwrap();
+    until(|| {
+        state
+            .session_info("queued", &async_id)
+            .unwrap()
+            .is_some_and(|i| !i.running)
+            && requests.lock().unwrap().len() == 5
+    });
+    assert!(requests.lock().unwrap()[4].to_string().contains("custom"));
+    assert!(matches!(
+        state.open_session("queued", &async_id).unwrap().questions[0].status,
+        QuestionState::Delivered { .. }
+    ));
+    rt.block_on(state.shutdown()).unwrap();
+}
+
+#[test]
+fn plan_and_ask_modes_gate_real_tool_calls_before_any_file_write() {
+    use pipi_core::approvals::ApprovalDecision;
+    use pipi_protocol::permissions::PermissionMode;
+    let _lock = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _env = Environment::new();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let seen = requests.clone();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten().take(6) {
+            let mut headers = Vec::new();
+            let mut byte = [0];
+            while !headers.ends_with(b"\r\n\r\n") {
+                if stream.read_exact(&mut byte).is_err() {
+                    return;
+                }
+                headers.push(byte[0]);
+            }
+            let size = String::from_utf8_lossy(&headers)
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .and_then(|s| s.trim().parse::<usize>().ok())
+                })
+                .unwrap();
+            let mut body = vec![0; size];
+            stream.read_exact(&mut body).unwrap();
+            let index = {
+                let mut requests = seen.lock().unwrap();
+                let index = requests.len();
+                requests.push(serde_json::from_slice(&body).unwrap());
+                index
+            };
+            let (start, end) = if index % 2 == 0 {
+                (
+                    json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":format!("write-{index}"),"type":"function","function":{"name":"write","arguments":json!({"path":"guarded.txt","content":"created"}).to_string()}}]},"finish_reason":null}]}),
+                    json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}),
+                )
+            } else {
+                (
+                    json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{"role":"assistant","content":"done"},"finish_reason":null}]}),
+                    json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
+                )
+            };
+            let body = format!("data: {start}\n\ndata: {end}\n\ndata: [DONE]\n\n");
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    fixture(&base);
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let id = state.create_session("queued").unwrap().session_id;
+    let target =
+        std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("workspace/guarded.txt");
+    state
+        .set_session_permission_mode("queued", &id, Some(PermissionMode::Plan), false)
+        .unwrap();
+    state
+        .send_prompt("queued", Some(&id), "plan", None, state.events().emitter())
+        .unwrap();
+    until(|| {
+        state
+            .session_info("queued", &id)
+            .unwrap()
+            .is_some_and(|s| !s.running)
+            && requests.lock().unwrap().len() >= 2
+    });
+    assert!(!target.exists());
+    state
+        .set_session_permission_mode("queued", &id, Some(PermissionMode::Ask), false)
+        .unwrap();
+    for (round, decision) in [
+        (0, ApprovalDecision::Deny),
+        (1, ApprovalDecision::AllowOnce),
+    ] {
+        state
+            .send_prompt("queued", Some(&id), "edit", None, state.events().emitter())
+            .unwrap();
+        until(|| {
+            !state
+                .open_session("queued", &id)
+                .unwrap()
+                .approvals
+                .is_empty()
+        });
+        let snapshot = state.open_session("queued", &id).unwrap();
+        let approval = &snapshot.approvals[0];
+        assert_eq!(approval.tool_name, "write");
+        assert!(!target.exists());
+        state
+            .answer_approval(
+                "queued",
+                &id,
+                snapshot.info.run_id,
+                &approval.approval_id,
+                decision,
+            )
+            .unwrap();
+        until(|| {
+            state
+                .session_info("queued", &id)
+                .unwrap()
+                .is_some_and(|s| !s.running)
+                && requests.lock().unwrap().len() >= 4 + round * 2
+        });
+    }
+    assert_eq!(std::fs::read_to_string(target).unwrap(), "created");
+    rt.block_on(state.shutdown()).unwrap();
+}
+
+#[test]
+fn auto_review_uses_a_separate_tool_free_request_and_records_the_decision() {
+    use pipi_protocol::permissions::PermissionMode;
+    use pipi_protocol::session::{EntryKind, SessionRepo};
+    let _lock = pipi_test_support::HOME_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _env = Environment::new();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let seen = requests.clone();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten().take(3) {
+            let mut headers = Vec::new();
+            let mut byte = [0];
+            while !headers.ends_with(b"\r\n\r\n") {
+                if stream.read_exact(&mut byte).is_err() {
+                    return;
+                }
+                headers.push(byte[0]);
+            }
+            let size = String::from_utf8_lossy(&headers)
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .and_then(|s| s.trim().parse::<usize>().ok())
+                })
+                .unwrap();
+            let mut body = vec![0; size];
+            stream.read_exact(&mut body).unwrap();
+            let index = {
+                let mut requests = seen.lock().unwrap();
+                let index = requests.len();
+                requests.push(serde_json::from_slice(&body).unwrap());
+                index
+            };
+            let delta = if index == 0 {
+                json!({"role":"assistant","tool_calls":[{"index":0,"id":"review-write","type":"function","function":{"name":"write","arguments":json!({"path":"reviewed.txt","content":"created"}).to_string()}}]})
+            } else if index == 1 {
+                json!({"role":"assistant","content":r#"{"verdict":"allow","reason":"The user requested this file"}"#})
+            } else {
+                json!({"role":"assistant","content":"done"})
+            };
+            let start = json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":delta,"finish_reason":null}]});
+            let end = json!({"id":"fixture","object":"chat.completion.chunk","model":"fixture","choices":[{"index":0,"delta":{},"finish_reason":if index == 0 { "tool_calls" } else { "stop" }}]});
+            let body = format!("data: {start}\n\ndata: {end}\n\ndata: [DONE]\n\n");
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    fixture(&base);
+    let rt = runtime();
+    let state = RuntimeState::new(rt.handle().clone());
+    let id = state.create_session("queued").unwrap().session_id;
+    state
+        .set_session_permission_mode("queued", &id, Some(PermissionMode::AutoReview), false)
+        .unwrap();
+    state
+        .send_prompt(
+            "queued",
+            Some(&id),
+            "Create reviewed.txt",
+            None,
+            state.events().emitter(),
+        )
+        .unwrap();
+    until(|| {
+        state
+            .session_info("queued", &id)
+            .unwrap()
+            .is_some_and(|s| !s.running)
+            && requests.lock().unwrap().len() >= 3
+    });
+    let target =
+        std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join("workspace/reviewed.txt");
+    assert_eq!(std::fs::read_to_string(target).unwrap(), "created");
+    let requests = requests.lock().unwrap();
+    assert!(
+        requests[1]
+            .get("tools")
+            .is_none_or(|v| v.as_array().is_some_and(Vec::is_empty))
+    );
+    assert!(requests[1].to_string().contains("Create reviewed.txt"));
+    drop(requests);
+    let dir = agents::load_agent("queued")
+        .unwrap()
+        .sessions_dir()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let repo = pipi_session::GitSessionRepo::new(dir.join("sessions.git"));
+    let entries = repo.entries(&id).unwrap();
+    assert!(entries.iter().any(|entry| matches!(&entry.kind, EntryKind::Approval { audit } if audit.reviewer == "model" && audit.decision == "allow" && audit.tool_call_id == "review-write")));
+    rt.block_on(state.shutdown()).unwrap();
+}

@@ -467,3 +467,91 @@ fn same_entries(left: &[SessionEntry], right: &[SessionEntry]) -> bool {
             .zip(right)
             .all(|(a, b)| serde_json::to_string(a).ok() == serde_json::to_string(b).ok())
 }
+
+#[cfg(test)]
+mod question_tests {
+    use super::*;
+    use pipi_protocol::interaction::{
+        Question, QuestionAnswer, QuestionEvent, QuestionState, restore_questions,
+    };
+
+    #[test]
+    fn uncommitted_questions_survive_reopening_and_sync_waiters_are_interrupted() {
+        let root = pipi_test_support::temp_dir("question-journal");
+        let repo = GitSessionRepo::new(root.join("sessions.git"));
+        let mut writer = repo.create().unwrap();
+        let id = writer.session_id().to_string();
+        writer.commit_point().unwrap();
+        for sync in [false, true] {
+            writer
+                .append_question(&QuestionEvent::Requested {
+                    question_id: format!("q-{sync}"),
+                    run_id: 1,
+                    question: Question {
+                        question: "Which?".into(),
+                        options: vec![],
+                        sync,
+                    },
+                })
+                .unwrap();
+        }
+        drop(writer);
+        let (_writer, entries) = repo.open_with_entries(&id).unwrap();
+        let questions = restore_questions(&entries).unwrap();
+        assert_eq!(questions.len(), 2);
+        assert!(matches!(questions[0].status, QuestionState::Pending));
+        assert!(matches!(questions[1].status, QuestionState::Interrupted));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delivered_async_answer_is_one_replayable_message_and_one_acknowledgement() {
+        let root = pipi_test_support::temp_dir("question-delivery");
+        let repo = GitSessionRepo::new(root.join("sessions.git"));
+        let mut writer = repo.create().unwrap();
+        let id = writer.session_id().to_string();
+        let answer = QuestionAnswer {
+            selected_option: None,
+            text: "use staging".into(),
+        };
+        writer
+            .append_question(&QuestionEvent::Requested {
+                question_id: "q1".into(),
+                run_id: 1,
+                question: Question {
+                    question: "Where?".into(),
+                    options: vec![],
+                    sync: false,
+                },
+            })
+            .unwrap();
+        writer
+            .append_question(&QuestionEvent::Answered {
+                question_id: "q1".into(),
+                answer: answer.clone(),
+            })
+            .unwrap();
+        writer
+            .append_question(&QuestionEvent::Delivered {
+                question_id: "q1".into(),
+                answer: Some(answer),
+                timestamp: 123,
+            })
+            .unwrap();
+        writer.commit_point().unwrap();
+        drop(writer);
+        let (writer, entries) = repo.open_with_entries(&id).unwrap();
+        let refs = entries.iter().collect::<Vec<_>>();
+        let (messages, ids) = pipi_protocol::session::replay(&refs);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(ids, writer.message_ids());
+        assert!(
+            matches!(&messages[0], pipi_protocol::Message::User { content, timestamp: 123 } if content.text().contains("use staging"))
+        );
+        assert!(matches!(
+            restore_questions(&entries).unwrap()[0].status,
+            QuestionState::Delivered { .. }
+        ));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

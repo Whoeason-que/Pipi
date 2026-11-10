@@ -9,6 +9,9 @@ pub struct SessionSnapshot {
     pub messages: Vec<Message>,
     pub stats: pipi_agent::stats::SessionStats,
     pub queue: crate::events::PromptQueueSnapshot,
+    pub questions: Vec<pipi_protocol::interaction::QuestionRecord>,
+    pub questions_revision: u64,
+    pub approvals: Vec<crate::approvals::ApprovalRequest>,
 }
 
 /// 列出指定 Agent 的会话摘要。
@@ -26,6 +29,7 @@ impl RuntimeState {
         session_id: &str,
     ) -> Result<HostSession, String> {
         let (log, entries) = repo.open_with_entries(session_id)?;
+        let questions = pipi_protocol::interaction::restore_questions(&entries)?;
         let engine = AgentSession::restore(
             SessionStorage {
                 log,
@@ -39,7 +43,11 @@ impl RuntimeState {
             agent: def.clone(),
             engine,
             temporary: false,
-            queue: Default::default(),
+            queue: super::questions::recovered_queue(&questions),
+            questions,
+            questions_revision: 0,
+            question_changed: Arc::new(tokio::sync::Notify::new()),
+            active_permission_mode: None,
         })
     }
     pub(super) fn create_session_object(
@@ -64,6 +72,10 @@ impl RuntimeState {
                 engine,
                 temporary: false,
                 queue: Default::default(),
+                questions: Vec::new(),
+                questions_revision: 0,
+                question_changed: Arc::new(tokio::sync::Notify::new()),
+                active_permission_mode: None,
             },
             id,
         ))
@@ -84,6 +96,10 @@ impl RuntimeState {
                 engine,
                 temporary: true,
                 queue: Default::default(),
+                questions: Vec::new(),
+                questions_revision: 0,
+                question_changed: Arc::new(tokio::sync::Notify::new()),
+                active_permission_mode: None,
             },
             id,
         )
@@ -156,11 +172,19 @@ impl RuntimeState {
         let info = self.session_info_of(session)?;
         let messages = session.engine.message_history()?;
         let stats = session.engine.stats()?;
+        let approvals = self.approvals.pending(&crate::approvals::ApprovalOwner {
+            agent_name: agent_name.into(),
+            session_id: session_id.into(),
+            run_id: info.run_id,
+        })?;
         Ok(SessionSnapshot {
             info,
             messages,
             stats,
             queue: session.queue.snapshot.clone(),
+            questions: session.questions.clone(),
+            questions_revision: session.questions_revision,
+            approvals,
         })
     }
 
@@ -202,6 +226,27 @@ impl RuntimeState {
             ));
         }
 
+        // A fork must not duplicate a live question or an undelivered answer.
+        // Read the durable source too: the source session may not be open.
+        let source_questions =
+            if let Some(source) = sessions.get(&SessionKey::new(agent_name, session_id)) {
+                source.questions.clone()
+            } else {
+                pipi_protocol::interaction::restore_questions(&repo.entries(session_id)?)?
+            };
+        if source_questions.iter().any(|q| {
+            matches!(
+                q.status,
+                pipi_protocol::interaction::QuestionState::Pending
+                    | pipi_protocol::interaction::QuestionState::Answered { .. }
+            )
+        }) {
+            return Err(
+                "Answer pending questions and deliver their answers before forking this session"
+                    .into(),
+            );
+        }
+
         let writer = repo.fork(session_id, up_to_entry_id)?;
         let new_session_id = writer.session_id().to_string();
         // 手动分叉同样带上 notebook：分出来的是同一次工作的延续。
@@ -210,6 +255,7 @@ impl RuntimeState {
         }
 
         let entries = repo.entries(&new_session_id)?;
+        let questions = pipi_protocol::interaction::restore_questions(&entries)?;
         let engine = AgentSession::restore(
             SessionStorage {
                 log: writer,
@@ -224,6 +270,10 @@ impl RuntimeState {
             engine,
             temporary: false,
             queue: Default::default(),
+            questions,
+            questions_revision: 0,
+            question_changed: Arc::new(tokio::sync::Notify::new()),
+            active_permission_mode: None,
         };
         let info = self.session_info_of(&session)?;
         sessions.insert(SessionKey::new(agent_name, &new_session_id), session);
@@ -267,6 +317,12 @@ impl RuntimeState {
             snapshot.session_id.clone(),
             snapshot.run_id,
         );
+        let permission_mode = self
+            .permission_modes
+            .get(&SessionKey::new(&session.agent.name, &snapshot.session_id))?;
+        let permission_revision = self
+            .permission_modes
+            .revision(&SessionKey::new(&session.agent.name, &snapshot.session_id))?;
         Ok(SessionInfo {
             agent_name: session.agent.name.clone(),
             session_id: snapshot.session_id,
@@ -274,6 +330,13 @@ impl RuntimeState {
             running: snapshot.running,
             background_tasks: self.background.active_count(&owner),
             run_id: snapshot.run_id,
+            permission_mode,
+            permission_revision,
+            active_permission_mode: if snapshot.running {
+                session.active_permission_mode
+            } else {
+                None
+            },
             is_custom_model: snapshot.selected_model.is_some(),
             model: snapshot
                 .selected_model

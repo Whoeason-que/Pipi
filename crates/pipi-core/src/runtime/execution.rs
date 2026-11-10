@@ -10,8 +10,16 @@ pub(super) enum PromptInput {
         prompt: String,
         content: Option<pipi_protocol::UserContent>,
         model: Option<Model>,
+        mode_snapshot: Option<Option<pipi_protocol::permissions::PermissionMode>>,
     },
-    BackgroundResults(Vec<pipi_protocol::BackgroundTaskResult>),
+    BackgroundResults {
+        results: Vec<pipi_protocol::BackgroundTaskResult>,
+        mode: Option<pipi_protocol::permissions::PermissionMode>,
+    },
+    QuestionAnswer {
+        answer: crate::events::QueuedQuestionAnswer,
+        mode: Option<pipi_protocol::permissions::PermissionMode>,
+    },
 }
 
 impl RuntimeState {
@@ -57,6 +65,7 @@ impl RuntimeState {
                 prompt: prompt.to_string(),
                 content,
                 model,
+                mode_snapshot: None,
             },
             event_sink,
         )?;
@@ -83,18 +92,37 @@ impl RuntimeState {
         input: PromptInput,
         event_sink: EventEmitter,
     ) -> Result<SessionInfo, String> {
-        let (prompt, content, model, results) = match input {
+        let (prompt, content, model, results, question_answer, mode_snapshot) = match input {
             PromptInput::User {
                 prompt,
                 content,
                 model,
-            } => (prompt.trim().to_string(), content, model, Vec::new()),
-            PromptInput::BackgroundResults(results) => (String::new(), None, None, results),
+                mode_snapshot,
+            } => (
+                prompt.trim().to_string(),
+                content,
+                model,
+                Vec::new(),
+                None,
+                mode_snapshot,
+            ),
+            PromptInput::BackgroundResults { results, mode } => {
+                (String::new(), None, None, results, None, Some(mode))
+            }
+            PromptInput::QuestionAnswer { answer, mode } => (
+                String::new(),
+                None,
+                None,
+                Vec::new(),
+                Some(answer),
+                Some(mode),
+            ),
         };
         if let Some(id) = session_id {
             validate_session_id(id)?;
         }
-        if prompt.is_empty() && content.is_none() && results.is_empty() {
+        if prompt.is_empty() && content.is_none() && results.is_empty() && question_answer.is_none()
+        {
             return Err("Message cannot be empty".into());
         }
         if !results.is_empty() && session_id.is_none() {
@@ -143,6 +171,15 @@ impl RuntimeState {
             .map(|(_, session)| session)
             .or_else(|| reuse_key.as_ref().and_then(|key| sessions.get_mut(key)))
             .ok_or("Failed to create session")?;
+        if let Some(answer) = &question_answer {
+            let event = pipi_protocol::interaction::QuestionEvent::Delivered {
+                question_id: answer.question_id.clone(),
+                answer: Some(answer.answer.clone()),
+                timestamp: 0,
+            };
+            let mut next = session.questions.clone();
+            pipi_protocol::interaction::apply_question_event(&mut next, &event)?;
+        }
         // 若复用已有会话且传入了明确的模型变更请求
         if reuse_key.is_some()
             && let Some(target) = &model
@@ -155,6 +192,13 @@ impl RuntimeState {
         let current_session_model = session.engine.snapshot()?.selected_model;
         let abort = session.engine.abort_signal();
         let session_id = session.engine.snapshot()?.session_id;
+        let selected_mode = match mode_snapshot {
+            Some(mode) => mode,
+            None => self
+                .permission_modes
+                .get(&SessionKey::new(agent_name, &session_id))?,
+        };
+        use pipi_protocol::permissions::{PermissionMode, SandboxMode};
 
         // Agent 契约（agent.toml + 项目层、`[resources]` 素材、声明的 store
         // 技能）每轮只解析一次：工具上下文与系统提示共用同一份，避免两次
@@ -163,11 +207,33 @@ impl RuntimeState {
         // av 环境契约：会话启动时解析一次（requires fail-closed + AV_* 注入）
         let (mut tool_context, resolved_env) =
             agents::build_tool_context(&def, &prepared, Some(session_id.clone()), abort.clone())?;
+        if let Some(mode) = selected_mode {
+            tool_context.sandbox = match mode {
+                PermissionMode::Plan => SandboxMode::ReadOnly,
+                PermissionMode::Ask | PermissionMode::Workspace | PermissionMode::AutoReview => {
+                    SandboxMode::WorkspaceWrite
+                }
+                PermissionMode::FullAccess => SandboxMode::DangerFullAccess,
+            };
+            let mut policy = pipi_protocol::permissions::SandboxPolicy::for_workspace(
+                tool_context.sandbox,
+                &tool_context.workspace,
+            );
+            policy.allow_env_overrides = false;
+            tool_context.sandbox_policy_override = Some(policy);
+        }
         // 环境记账：每会话至多一条（writer 幂等去重）；只记声明键（非 process 来源）
         append_declared_env(&session.engine, &resolved_env)?;
         // MCP：按定义刷新服务器集合。连接在后台建立，本轮注册表只声明已知清单
         // （重启后的第一轮由 <Agent>/mcp-cache/ 的快照兜住）。
-        self.mcp.prepare(&def, &resolved_env.vars);
+        let legacy_or_full =
+            selected_mode.is_none() || selected_mode == Some(PermissionMode::FullAccess);
+        if legacy_or_full {
+            self.mcp.prepare(&def, &resolved_env.vars);
+        }
+        if selected_mode == Some(PermissionMode::Workspace) {
+            self.mcp.prepare_workspace(&def, &resolved_env.vars);
+        }
         // provider key 与工具子进程消费同一份 resolved env
         let ResolvedModel {
             model,
@@ -181,6 +247,7 @@ impl RuntimeState {
 
         let reservation = session.engine.reserve_run(AbortPolicy::Reset)?;
         let run_id = reservation.run_id();
+        session.active_permission_mode = selected_mode;
         // 权威身份在起跑前就取好（纯内存快照）：此刻 session_id / run_id /
         // running / model 都已确定，失败也发生在新消息落盘之前。
         let info = self.session_info_of(session)?;
@@ -191,7 +258,7 @@ impl RuntimeState {
         // 仓库只开一次，供工具与 run 启动时的未读摘要共用。
         // **论坛不可用不应让主 run 失败**（根目录被换成符号链接、权限不足等）：
         // 当作「本轮没有论坛能力」降级处理。
-        let forum = if crate::forum::enabled(&tool_context.permissions) {
+        let forum = if legacy_or_full && crate::forum::enabled(&tool_context.permissions) {
             let root = crate::forum::resolve_root(&tool_context.workspace);
             tool_context.read_roots.push(root.clone());
             match pipi_forum::FileForumRepo::open(root.clone()) {
@@ -206,6 +273,14 @@ impl RuntimeState {
         };
 
         let mut registry = pipi_tools::builtin_registry(&tool_context);
+        if selected_mode == Some(PermissionMode::Plan) {
+            registry.push(Arc::new(pipi_tools::search::SearchWorkspaceTool));
+        }
+        registry.push(Arc::new(crate::tools::question::AskQuestionTool {
+            runtime: self.clone(),
+            key: SessionKey::new(&def.name, &session_id),
+            run_id,
+        }));
         if tool_context.sandbox == pipi_protocol::permissions::SandboxMode::DangerFullAccess
             && tool_context.permissions.tool_enabled("browser")
             && let Some(backend) = self.browser.get()
@@ -220,7 +295,7 @@ impl RuntimeState {
             BackgroundTaskOwner::new(def.name.clone(), session_id.clone(), run_id);
         // run_agent 先于 create_agent 注册：一次性委派是默认动作，创建持久
         // Agent 只在同一角色会被复用时才发生（工具顺序会影响模型的选择）。
-        if tool_context.permissions.tool_enabled("run_agent") {
+        if legacy_or_full && tool_context.permissions.tool_enabled("run_agent") {
             let default_background = tool_context
                 .permissions
                 .tool_enabled("query_background_tasks")
@@ -242,7 +317,7 @@ impl RuntimeState {
                 .with_session_sink(make_session_change_sink(event_sink.clone())),
             ));
         }
-        if tool_context.permissions.tool_enabled("create_agent") {
+        if legacy_or_full && tool_context.permissions.tool_enabled("create_agent") {
             registry.push(Arc::new(CreateAgentTool::new(model.clone())));
         }
         if tool_context.permissions.tool_enabled("read_agent") {
@@ -274,9 +349,10 @@ impl RuntimeState {
                 background_owner.clone(),
             )));
         }
-        if tool_context
-            .permissions
-            .tool_enabled("manage_background_task")
+        if legacy_or_full
+            && tool_context
+                .permissions
+                .tool_enabled("manage_background_task")
         {
             registry.push(Arc::new(ManageBackgroundTaskTool::new(
                 Arc::new(self.background.clone()),
@@ -295,7 +371,13 @@ impl RuntimeState {
         }
         // MCP 工具：启用一台服务器就是它那批工具的授权（不经过 permissions.tools）。
         // 清单来自缓存，顺序稳定；服务器进程在后台连接，调用时按需重连。
-        for spec in self.mcp.tools_for(&def.name) {
+        for spec in if legacy_or_full {
+            self.mcp.tools_for(&def.name)
+        } else if selected_mode == Some(PermissionMode::Workspace) {
+            self.mcp.workspace_tools_for(&def.name)
+        } else {
+            Vec::new()
+        } {
             registry.push(Arc::new(crate::mcp::McpTool::new(
                 self.mcp.clone(),
                 def.name.clone(),
@@ -338,8 +420,28 @@ impl RuntimeState {
                 self.sessions.clone(),
                 self.background.clone(),
                 self.browser.clone(),
+                self.permission_modes.clone(),
             )),
         );
+        let reviewer = (selected_mode == Some(PermissionMode::AutoReview)).then(|| {
+            let mut options =
+                run_stream_options(api_key.clone(), &model, &session_id, auto_protocol);
+            options.max_tokens = Some(1024.min(model.max_tokens));
+            crate::approvals::ModelReviewer {
+                provider: provider_for(),
+                model: model.clone(),
+                options,
+            }
+        });
+        let gate = selected_mode.map(|mode| {
+            self.session_tool_gate(
+                mode,
+                &SessionKey::new(&def.name, &session_id),
+                run_id,
+                reviewer,
+                prompt.clone(),
+            )
+        });
         let request = RunRequest {
             prompt,
             user_content: content,
@@ -348,6 +450,7 @@ impl RuntimeState {
             provider: provider_for(),
             tools: registry,
             tool_context,
+            tool_gate: gate,
             options: run_stream_options(api_key, &model, &session_id, auto_protocol),
             retry: retry_policy,
             tool_execution: ToolExecutionMode::Parallel,
@@ -358,7 +461,24 @@ impl RuntimeState {
             }),
             timeout: None,
         };
-        let prepared = if results.is_empty() {
+        let prepared = if let Some(answer) = &question_answer {
+            let prepared = reservation.prepare_question_answer(
+                &answer.question_id,
+                &answer.answer,
+                request,
+                hooks,
+            )?;
+            let event = pipi_protocol::interaction::QuestionEvent::Delivered {
+                question_id: answer.question_id.clone(),
+                answer: Some(answer.answer.clone()),
+                timestamp: 0,
+            };
+            pipi_protocol::interaction::apply_question_event(&mut session.questions, &event)?;
+            session.questions_revision += 1;
+            let envelope = self.question_envelope(session)?;
+            self.events.emitter()(RuntimeEvent::SessionQuestions(envelope));
+            prepared
+        } else if results.is_empty() {
             reservation.prepare(request, hooks)?
         } else {
             // 后台通知：先落 background_result 条目，再启动同一轮。

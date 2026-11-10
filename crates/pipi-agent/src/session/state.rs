@@ -294,6 +294,45 @@ impl AgentSession {
         self.state.abort.clone()
     }
 
+    /// Journal an interaction before publishing it. Idle events also have a
+    /// commit point, while events within a run use that run's normal commit.
+    pub fn record_question(
+        &self,
+        event: &pipi_protocol::interaction::QuestionEvent,
+    ) -> Result<(), String> {
+        let _control = self.state.control.lock().map_err(|e| e.to_string())?;
+        let mut writer = self.state.writer.lock().map_err(|e| e.to_string())?;
+        writer
+            .append_question(event)
+            .map_err(|e| format!("Cannot save question: {e}"))?;
+        if !self.state.running.is_running()
+            && let Err(error) = writer.commit_point()
+        {
+            // The event is already in the recovery journal. Returning failure
+            // would encourage the caller to repeat an operation that succeeded.
+            eprintln!("pipi: cannot commit question event; recovery journal retained: {error}");
+        }
+        Ok(())
+    }
+
+    /// Record the authorization decision before allowing a waiting tool to run.
+    pub fn record_approval(
+        &self,
+        audit: &pipi_protocol::permissions::ApprovalAudit,
+    ) -> Result<(), String> {
+        let _control = self.state.control.lock().map_err(|e| e.to_string())?;
+        let mut writer = self.state.writer.lock().map_err(|e| e.to_string())?;
+        writer
+            .append_approval(audit)
+            .map_err(|e| format!("Cannot save approval: {e}"))?;
+        if !self.state.running.is_running()
+            && let Err(error) = writer.commit_point()
+        {
+            eprintln!("pipi: cannot commit approval event; recovery journal retained: {error}");
+        }
+        Ok(())
+    }
+
     pub fn record_env(&self, declarations: Vec<EnvDeclared>) -> Result<(), String> {
         let mut writer = self.state.writer.lock().map_err(|e| e.to_string())?;
         if writer.has_recovery() {

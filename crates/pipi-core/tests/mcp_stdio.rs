@@ -119,6 +119,7 @@ impl Fixture {
             read_roots: Vec::new(),
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox: SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: Arc::new(self.env.clone()),
             abort: AbortSignal::new(),
         }

@@ -49,7 +49,7 @@ export default function ComposerQueue({ queue, onCancel, onPause, onError }: Pro
             : t(message.backgroundResult ? (queue.paused ? "chat.backgroundPaused" : "chat.backgroundWaiting") : "chat.waitingForIdle")}</span>
         </small>
       </span>
-      <button
+      {!message.questionAnswer && <button
         type="button"
         className="icon-btn composer-queue-cancel"
         disabled={busy}
@@ -58,7 +58,7 @@ export default function ComposerQueue({ queue, onCancel, onPause, onError }: Pro
         onClick={() => void act(() => onCancel(message.id))}
       >
         <IconClose />
-      </button>
+      </button>}
     </li>
   );
   return (

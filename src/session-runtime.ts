@@ -10,7 +10,7 @@ export interface RuntimeTransport extends SessionTransport {
   listen: Listen;
 }
 
-const EVENT_NAMES = ["agent-event", "session-stats", "session-error", "session-switched", "session-changed", "prompt-queue"] as const;
+const EVENT_NAMES = ["agent-event", "session-stats", "session-error", "session-switched", "session-changed", "prompt-queue", "session-questions", "session-approval", "session-permission"] as const;
 const REPLAY_LIMIT = 2048;
 const IDLE_CACHE_LIMIT = 32;
 
@@ -147,7 +147,7 @@ export class SessionRuntime {
         controller = [...this.drafts].find(draft => draft.agentName === identity.agentName && draft.awaitingIdentity);
       }
       if (controller) controller.receive(frame);
-      else this.remember(sessionKey, identity.runId, frame);
+      else this.remember(sessionKey, identity.runId ?? 0, frame);
     }
     if (frame.type === "agent-event") {
       const key = composeSessionKey(frame.payload.agentName, frame.payload.sessionId);

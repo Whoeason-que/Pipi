@@ -50,9 +50,11 @@ impl RuntimeState {
                 self.sessions.clone(),
                 self.background.clone(),
                 self.browser.clone(),
+                self.permission_modes.clone(),
             )),
         );
         let reservation = session.engine.reserve_run(AbortPolicy::Reset)?;
+        session.active_permission_mode = None;
         let run_id = reservation.run_id();
         let prepared = reservation.prepare_compaction(request, hooks);
         let wake = session.queue.wake.clone();

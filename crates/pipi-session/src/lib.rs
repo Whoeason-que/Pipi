@@ -126,6 +126,12 @@ fn track_message_ids(ids: &mut Vec<String>, entry: &SessionEntry) {
         EntryKind::Message { .. } | EntryKind::BackgroundResult { .. } => {
             ids.push(entry.id.clone())
         }
+        EntryKind::Question {
+            event:
+                pipi_protocol::interaction::QuestionEvent::Delivered {
+                    answer: Some(_), ..
+                },
+        } => ids.push(entry.id.clone()),
         EntryKind::Compaction {
             keep_from_entry, ..
         } => {

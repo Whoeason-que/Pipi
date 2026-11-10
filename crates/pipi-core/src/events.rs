@@ -82,6 +82,18 @@ pub struct QueuedPrompt {
     pub content: Option<pipi_protocol::UserContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_result: Option<pipi_protocol::BackgroundTaskResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question_answer: Option<QueuedQuestionAnswer>,
+    /// Permission snapshot captured when this item entered the queue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<pipi_protocol::permissions::PermissionMode>,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedQuestionAnswer {
+    pub question_id: String,
+    pub answer: pipi_protocol::interaction::QuestionAnswer,
 }
 fn is_zero(value: &usize) -> bool {
     *value == 0
@@ -105,6 +117,27 @@ pub struct PromptQueueEnvelope {
     pub queue: PromptQueueSnapshot,
 }
 
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionsEnvelope {
+    pub agent_name: String,
+    pub session_id: String,
+    pub run_id: usize,
+    pub questions: Vec<pipi_protocol::interaction::QuestionRecord>,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalEnvelope {
+    pub agent_name: String,
+    pub session_id: String,
+    pub run_id: usize,
+    pub approval_id: String,
+    /// None is a terminal update; a request with this id can no longer be approved.
+    pub request: Option<crate::approvals::ApprovalRequest>,
+}
+
 /// 宿主只需将这个协议映射为 Tauri event 或 WebSocket frame。
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "payload")]
@@ -121,6 +154,12 @@ pub enum RuntimeEvent {
     SessionChanged(SessionChangedEnvelope),
     #[serde(rename = "prompt-queue")]
     PromptQueue(PromptQueueEnvelope),
+    #[serde(rename = "session-questions")]
+    SessionQuestions(QuestionsEnvelope),
+    #[serde(rename = "session-approval")]
+    SessionApproval(ApprovalEnvelope),
+    #[serde(rename = "session-permission")]
+    SessionPermission(crate::runtime::SessionInfo),
     #[serde(rename = "notification")]
     Notification(crate::notifications::NotificationEnvelope),
 }

@@ -337,6 +337,9 @@ fn wait_for<F: Fn(&[RuntimeEvent]) -> bool>(
                 .iter()
                 .map(|event| match event {
                     RuntimeEvent::PromptQueue(_) => "prompt-queue".to_string(),
+                    RuntimeEvent::SessionQuestions(_) => "session-questions".to_string(),
+                    RuntimeEvent::SessionApproval(_) => "session-approval".to_string(),
+                    RuntimeEvent::SessionPermission(_) => "session-permission".to_string(),
                     RuntimeEvent::Notification(_) => "notification".to_string(),
                     RuntimeEvent::AgentEvent(envelope) => {
                         format!("{:?}", envelope.event).chars().take(80).collect()

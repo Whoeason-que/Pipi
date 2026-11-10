@@ -128,12 +128,13 @@ impl AgentTool for McpTool {
     ) -> Result<ToolOutput, String> {
         let result = self
             .manager
-            .call(
+            .call_scoped(
                 &self.agent_name,
                 &self.spec.server,
                 &self.spec.tool.name,
                 args.clone(),
                 &ctx.abort,
+                self.spec.strict,
             )
             .await?;
         render(result)

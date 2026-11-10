@@ -268,6 +268,7 @@ mod tests {
             read_roots: vec![],
             permissions: Arc::new(permissions),
             sandbox: mode,
+            sandbox_policy_override: None,
             resolved_env: Arc::default(),
             abort: AbortSignal::new(),
         }

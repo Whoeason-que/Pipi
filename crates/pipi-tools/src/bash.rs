@@ -563,6 +563,7 @@ mod tests {
                 pipi_protocol::permissions::PermissionsConfig::default(),
             ),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: std::sync::Arc::new(resolved),
             abort: pipi_protocol::AbortSignal::new(),
         };
@@ -596,6 +597,7 @@ mod tests {
                 pipi_protocol::permissions::PermissionsConfig::default(),
             ),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
             abort,
         }

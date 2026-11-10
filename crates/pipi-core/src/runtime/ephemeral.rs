@@ -146,6 +146,7 @@ pub(super) async fn run_ephemeral_with_sink(
         provider: provider_for(),
         tools,
         tool_context,
+        tool_gate: None,
         options: run_stream_options(api_key, &model, &session_id, auto_protocol),
         retry: load_settings().retry.policy(),
         tool_execution: ToolExecutionMode::Parallel,

@@ -331,7 +331,42 @@ export interface SessionInfoView {
   runId?: number;
   model?: ModelConfig | null;
   isCustomModel?: boolean;
+  permissionMode?: PermissionMode | null;
+  activePermissionMode?: PermissionMode | null;
+  permissionRevision?: number;
 }
+export type PermissionMode = "plan" | "ask" | "workspace" | "auto-review" | "full-access";
+
+export interface QuestionAnswer { selectedOption: string | null; text: string }
+export interface QuestionRecord {
+  questionId: string;
+  runId: number;
+  question: { question: string; options?: string[]; sync: boolean };
+  status: { state: "pending" | "cancelled" | "interrupted" } | { state: "answered" | "delivered"; answer: QuestionAnswer };
+}
+export interface QuestionsEnvelope {
+  agentName: string;
+  sessionId: string;
+  runId: number;
+  revision: number;
+  questions: QuestionRecord[];
+}
+export interface ApprovalRequest {
+  approvalId: string;
+  owner: { agentName: string; sessionId: string; runId: number };
+  toolCallId: string;
+  toolName: string;
+  arguments: unknown;
+  reason: string;
+}
+export interface ApprovalEnvelope {
+  agentName: string;
+  sessionId: string;
+  runId: number;
+  approvalId: string;
+  request: ApprovalRequest | null;
+}
+export type ApprovalDecision = "allow_once" | "deny";
 
 export interface UserImage { data: string; mimeType: string }
 export interface QueuedPrompt {
@@ -339,6 +374,8 @@ export interface QueuedPrompt {
   text: string;
   sendAt: number;
   imageCount?: number;
+  questionAnswer?: { questionId: string; answer: QuestionAnswer };
+  permissionMode?: PermissionMode | null;
   backgroundResult?: {
     jobId: string;
     kind: "shell" | "agent";
@@ -367,6 +404,9 @@ export interface SessionSnapshotView {
   info: SessionInfoView;
   messages: MessageView[];
   stats: SessionStatsView;
+  questions: QuestionRecord[];
+  questionsRevision: number;
+  approvals: ApprovalRequest[];
 }
 
 // ---- 技能（av 全局 store 与 Agent 契约；Rust 侧 pipi-venv）----

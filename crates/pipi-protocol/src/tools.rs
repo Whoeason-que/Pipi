@@ -52,6 +52,9 @@ pub struct ToolContext {
     pub read_roots: Vec<PathBuf>,
     pub permissions: Arc<PermissionsConfig>,
     pub sandbox: SandboxMode,
+    /// Explicit per-run policy, when session mode must not inherit process-wide
+    /// escape valves. Absent preserves the Agent's legacy sandbox behavior.
+    pub sandbox_policy_override: Option<SandboxPolicy>,
     pub resolved_env: Arc<BTreeMap<String, String>>,
     pub abort: AbortSignal,
 }
@@ -60,7 +63,9 @@ impl ToolContext {
     /// 本次运行的能力清单。bash / 后台任务把它交给 `pipi-sandbox` helper，
     /// 由内核执行；`danger-full-access` 返回的 policy 不启用（显式逃生门）。
     pub fn sandbox_policy(&self) -> SandboxPolicy {
-        SandboxPolicy::for_workspace(self.sandbox, &self.workspace)
+        self.sandbox_policy_override
+            .clone()
+            .unwrap_or_else(|| SandboxPolicy::for_workspace(self.sandbox, &self.workspace))
     }
 
     /// 沙箱下的写入约束（移植自 codex 的 SandboxMode 语义）：
@@ -106,6 +111,19 @@ pub trait AgentTool: Send + Sync {
         args: &Value,
         on_update: &(dyn Fn(ToolOutput) + Send + Sync),
     ) -> Result<ToolOutput, String>;
+}
+
+/// Host-owned authorization at the tool boundary. A refusal is returned as a
+/// tool error; callers must never execute the operation after refusal or abort.
+#[async_trait]
+pub trait ToolGate: Send + Sync {
+    async fn authorize(
+        &self,
+        call_id: &str,
+        name: &str,
+        args: &Value,
+        abort: &crate::AbortSignal,
+    ) -> Result<(), String>;
 }
 
 /// 把相对路径解析到工作目录下（绝对路径原样通过）。同 pi 的 path-utils。

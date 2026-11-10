@@ -579,6 +579,7 @@ mod tests {
                 pipi_protocol::permissions::PermissionsConfig::default(),
             ),
             sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
+            sandbox_policy_override: None,
             resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
             abort: pipi_protocol::AbortSignal::new(),
         };

@@ -99,6 +99,7 @@ async fn create_run_and_read_agent_output() {
         read_roots: Vec::new(),
         permissions: Arc::new(permissions),
         sandbox: SandboxMode::WorkspaceWrite,
+        sandbox_policy_override: None,
         resolved_env: Arc::new(BTreeMap::new()),
         abort: AbortSignal::new(),
     };

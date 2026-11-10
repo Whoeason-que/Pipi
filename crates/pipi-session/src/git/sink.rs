@@ -140,6 +140,28 @@ impl GitSink {
 }
 
 impl SessionLog for GitSink {
+    fn append_approval(
+        &mut self,
+        audit: &pipi_protocol::permissions::ApprovalAudit,
+    ) -> std::io::Result<String> {
+        self.append_entry(
+            EntryKind::Approval {
+                audit: audit.clone(),
+            },
+            now_millis(),
+        )
+    }
+    fn append_question(
+        &mut self,
+        event: &pipi_protocol::interaction::QuestionEvent,
+    ) -> std::io::Result<String> {
+        self.append_entry(
+            EntryKind::Question {
+                event: event.clone(),
+            },
+            now_millis(),
+        )
+    }
     fn session_id(&self) -> &str {
         &self.session_id
     }

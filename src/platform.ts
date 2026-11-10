@@ -299,6 +299,8 @@ function webListen(
 const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }> = {
   open_workbench_session: {},
   session_info: { sessionId: "required" },
+  answer_question: { sessionId: "required" },
+  answer_approval: { sessionId: "required" },
   session_messages: { sessionId: "required" },
   session_history: { sessionId: "required" },
   session_stats: { sessionId: "required" },
@@ -311,6 +313,7 @@ const AGENT_COMMAND_ARGS: Record<string, { sessionId?: "required" | "optional" }
   cancel_queued_prompt: { sessionId: "required" },
   set_prompt_queue_paused: { sessionId: "required" },
   set_session_model: { sessionId: "required" },
+  set_session_permission_mode: { sessionId: "required" },
   compact_now: { sessionId: "required" },
   open_session: { sessionId: "required" },
   fork_session: { sessionId: "required" },

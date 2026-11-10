@@ -34,6 +34,10 @@ struct HostSession {
     engine: AgentSession,
     temporary: bool,
     queue: queue::PromptQueue,
+    questions: Vec<pipi_protocol::interaction::QuestionRecord>,
+    questions_revision: u64,
+    question_changed: Arc<tokio::sync::Notify>,
+    active_permission_mode: Option<pipi_protocol::permissions::PermissionMode>,
 }
 
 /// 打开中的会话的键：**Agent 名 + 会话 id**。
@@ -76,6 +80,8 @@ pub struct RuntimeState {
     sessions: Arc<Mutex<HashMap<SessionKey, HostSession>>>,
     shutting_down: Arc<AtomicBool>,
     background: BackgroundTaskManager,
+    approvals: crate::approvals::ApprovalBroker,
+    permission_modes: permission::SessionModes,
     /// MCP 服务器的连接与工具清单（跨轮次存活；连接在后台建立）。
     mcp: crate::mcp::McpManager,
     browser: Arc<std::sync::OnceLock<Arc<dyn crate::tools::browser::BrowserBackend>>>,
@@ -94,6 +100,8 @@ mod events;
 mod execution;
 mod lifecycle;
 mod model;
+mod permission;
+mod questions;
 mod queue;
 mod shutdown;
 mod slots;
@@ -119,4 +127,14 @@ pub struct SessionInfo {
     pub run_id: usize,
     pub model: Option<Model>,
     pub is_custom_model: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<pipi_protocol::permissions::PermissionMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_permission_mode: Option<pipi_protocol::permissions::PermissionMode>,
+    #[serde(default, skip_serializing_if = "is_zero_revision")]
+    pub permission_revision: u64,
+}
+
+fn is_zero_revision(value: &u64) -> bool {
+    *value == 0
 }

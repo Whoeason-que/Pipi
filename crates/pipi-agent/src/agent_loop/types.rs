@@ -105,6 +105,7 @@ pub struct AgentLoopConfig {
     pub provider: Arc<dyn Provider>,
     pub tools: Arc<ToolRegistry>,
     pub tool_context: ToolContext,
+    pub tool_gate: Option<Arc<dyn pipi_protocol::tools::ToolGate>>,
     pub options: StreamOptions,
     /// 失败重发策略（全局设置 `retry` 段；分类见 [`pipi_context::retry`]）。
     pub retry: pipi_context::retry::RetryPolicy,

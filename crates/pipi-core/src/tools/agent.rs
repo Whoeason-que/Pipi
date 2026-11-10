@@ -858,6 +858,7 @@ mod tests {
             read_roots: Vec::new(),
             permissions: Arc::new(Default::default()),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
         };
@@ -935,6 +936,7 @@ mod tests {
             read_roots: Vec::new(),
             permissions: Arc::new(Default::default()),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
         };
@@ -978,6 +980,7 @@ mod tests {
             read_roots: Vec::new(),
             permissions: Arc::new(Default::default()),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
         };
@@ -1059,6 +1062,7 @@ mod tests {
             read_roots: Vec::new(),
             permissions: Arc::new(Default::default()),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
         };
@@ -1135,6 +1139,7 @@ mod tests {
                 ..Default::default()
             }),
             sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
         }

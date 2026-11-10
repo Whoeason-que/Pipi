@@ -7,4 +7,5 @@ pub mod agent;
 pub mod background;
 pub mod browser;
 pub mod forum;
+pub mod question;
 pub mod session_search;

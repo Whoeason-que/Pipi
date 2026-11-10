@@ -67,6 +67,8 @@ pub const COMMANDS: &[&str] = &[
     "open_session",
     "session_info",
     "session_infos",
+    "answer_question",
+    "answer_approval",
     "open_workbench_session",
     "stop_run",
     "query_background_tasks",
@@ -81,6 +83,7 @@ pub const COMMANDS: &[&str] = &[
     "cancel_queued_prompt",
     "set_prompt_queue_paused",
     "set_session_model",
+    "set_session_permission_mode",
     "session_messages",
     "session_history",
     "session_stats",
@@ -589,6 +592,68 @@ pub fn session_info(
 /// 所有打开中的会话：前端据此知道「哪些 Agent 正在跑」（多 Agent 并发下运行态是集合）。
 pub fn session_infos(runtime: &RuntimeState) -> Result<Vec<SessionInfo>, String> {
     runtime.session_infos()
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnswerQuestionArgs {
+    pub agent_name: String,
+    pub session_id: String,
+    pub question_id: String,
+    pub answer: pipi_protocol::interaction::QuestionAnswer,
+}
+
+pub fn answer_question(
+    runtime: &RuntimeState,
+    args: AnswerQuestionArgs,
+) -> Result<crate::events::QuestionsEnvelope, String> {
+    runtime.answer_question(
+        &args.agent_name,
+        &args.session_id,
+        &args.question_id,
+        args.answer,
+    )
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnswerApprovalArgs {
+    pub agent_name: String,
+    pub session_id: String,
+    pub run_id: usize,
+    pub approval_id: String,
+    pub decision: crate::approvals::ApprovalDecision,
+}
+
+pub fn answer_approval(runtime: &RuntimeState, args: AnswerApprovalArgs) -> Result<(), String> {
+    runtime.answer_approval(
+        &args.agent_name,
+        &args.session_id,
+        args.run_id,
+        &args.approval_id,
+        args.decision,
+    )
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSessionPermissionModeArgs {
+    pub agent_name: String,
+    pub session_id: String,
+    pub mode: Option<pipi_protocol::permissions::PermissionMode>,
+    pub confirm_full_access: bool,
+}
+
+pub fn set_session_permission_mode(
+    runtime: &RuntimeState,
+    args: SetSessionPermissionModeArgs,
+) -> Result<SessionInfo, String> {
+    runtime.set_session_permission_mode(
+        &args.agent_name,
+        &args.session_id,
+        args.mode,
+        args.confirm_full_access,
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -1351,6 +1416,8 @@ pub async fn dispatch(
         "open_session" => to_value(open_session(runtime, parse(args)?)?),
         "session_info" => to_value(session_info(runtime, parse(args)?)?),
         "session_infos" => to_value(session_infos(runtime)?),
+        "answer_question" => to_value(answer_question(runtime, parse(args)?)?),
+        "answer_approval" => to_value(answer_approval(runtime, parse(args)?)?),
         "open_workbench_session" => to_value(open_workbench_session(runtime, parse(args)?)?),
         "stop_run" => to_value(stop_run(runtime, parse(args)?)?),
         "query_background_tasks" => to_value(query_background_tasks(runtime, parse(args)?).await?),
@@ -1365,6 +1432,9 @@ pub async fn dispatch(
         "cancel_queued_prompt" => to_value(cancel_queued_prompt(runtime, parse(args)?)?),
         "set_prompt_queue_paused" => to_value(set_prompt_queue_paused(runtime, parse(args)?)?),
         "set_session_model" => to_value(set_session_model(runtime, parse(args)?)?),
+        "set_session_permission_mode" => {
+            to_value(set_session_permission_mode(runtime, parse(args)?)?)
+        }
         "session_messages" => to_value(session_messages(runtime, parse(args)?).await?),
         "session_history" => to_value(session_history(runtime, parse(args)?)?),
         "session_stats" => to_value(session_stats(runtime, parse(args)?)?),
@@ -1422,8 +1492,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            71,
-            "宿主命令数应为 71（前端 CommandMap 同步）"
+            74,
+            "宿主命令数应为 74（前端 CommandMap 同步）"
         );
     }
 

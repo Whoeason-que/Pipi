@@ -92,6 +92,9 @@ fn send_prompt_runs_without_an_ambient_reactor() {
                 RuntimeEvent::SessionSwitched(_) => ("session-switched", None),
                 RuntimeEvent::PromptQueue(_) => ("prompt-queue", None),
                 RuntimeEvent::SessionChanged(_) => ("session-changed", None),
+                RuntimeEvent::SessionQuestions(_) => ("session-questions", None),
+                RuntimeEvent::SessionApproval(_) => ("session-approval", None),
+                RuntimeEvent::SessionPermission(_) => ("session-permission", None),
                 RuntimeEvent::Notification(payload) => ("notification", Some(payload.session_id)),
             };
             events.lock().unwrap().push((name, session_id));

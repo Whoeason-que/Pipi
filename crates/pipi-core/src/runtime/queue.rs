@@ -137,6 +137,10 @@ impl RuntimeState {
             image_count: images.len(),
             content,
             background_result: None,
+            question_answer: None,
+            permission_mode: self
+                .permission_modes
+                .get(&SessionKey::new(agent_name, session_id))?,
         };
         session.queue.accepted.push_back(AcceptedPrompt {
             id: message_id.into(),
@@ -200,6 +204,8 @@ impl RuntimeState {
                 image_count: 0,
                 content: None,
                 background_result: Some(result),
+                question_answer: None,
+                permission_mode: self.permission_modes.get(&key)?,
             });
         }
         self.publish_queue(session)?;
@@ -217,6 +223,15 @@ impl RuntimeState {
         let session = sessions
             .get_mut(&SessionKey::new(agent_name, session_id))
             .ok_or("Session is not open")?;
+        if session
+            .queue
+            .snapshot
+            .messages
+            .iter()
+            .any(|m| m.id == message_id && m.question_answer.is_some())
+        {
+            return Err("An accepted question answer cannot be removed from the queue".into());
+        }
         // 已发送与已取消都幂等；开始运行的消息需通过 stop_run 停止。
         session
             .queue
@@ -246,7 +261,7 @@ impl RuntimeState {
         Ok(envelope)
     }
 
-    fn start_queue_worker(&self, session: &mut HostSession) {
+    pub(super) fn start_queue_worker(&self, session: &mut HostSession) {
         session.queue.wake.notify_one();
         if session.queue.worker {
             return;
@@ -305,7 +320,13 @@ impl RuntimeState {
         // Consecutive ready background results share a run, but never overtake a
         // ready user message. An Agent query may have observed results since enqueue.
         let mut indices = Vec::new();
-        let input = if queue.snapshot.messages[index].background_result.is_some() {
+        let input = if let Some(answer) = &queue.snapshot.messages[index].question_answer {
+            indices.push(index);
+            super::execution::PromptInput::QuestionAnswer {
+                answer: answer.clone(),
+                mode: queue.snapshot.messages[index].permission_mode,
+            }
+        } else if queue.snapshot.messages[index].background_result.is_some() {
             let mut results = Vec::new();
             for (i, item) in queue.snapshot.messages.iter().enumerate().skip(index) {
                 if item.send_at > now {
@@ -314,6 +335,9 @@ impl RuntimeState {
                 let Some(result) = &item.background_result else {
                     break;
                 };
+                if item.permission_mode != queue.snapshot.messages[index].permission_mode {
+                    break;
+                }
                 indices.push(i);
                 if !self.background.was_observed(&result.job_id) {
                     results.push(result.clone());
@@ -329,13 +353,17 @@ impl RuntimeState {
                 let _ = self.publish_queue(session);
                 return Some(Duration::ZERO);
             }
-            super::execution::PromptInput::BackgroundResults(results)
+            super::execution::PromptInput::BackgroundResults {
+                results,
+                mode: queue.snapshot.messages[index].permission_mode,
+            }
         } else {
             indices.push(index);
             super::execution::PromptInput::User {
                 prompt: queue.snapshot.messages[index].text.clone(),
                 content: queue.snapshot.messages[index].content.clone(),
                 model: None,
+                mode_snapshot: Some(queue.snapshot.messages[index].permission_mode),
             }
         };
         let result = self.send_prompt_locked(

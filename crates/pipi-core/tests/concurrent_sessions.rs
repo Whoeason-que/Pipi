@@ -280,6 +280,15 @@ fn recording_sink() -> (EventEmitter, EventLog) {
             RuntimeEvent::SessionChanged(envelope) => {
                 format!("{}:{}:changed", envelope.agent_name, envelope.session_id)
             }
+            RuntimeEvent::SessionQuestions(envelope) => {
+                format!("{}:{}:questions", envelope.agent_name, envelope.session_id)
+            }
+            RuntimeEvent::SessionApproval(envelope) => {
+                format!("{}:{}:approval", envelope.agent_name, envelope.session_id)
+            }
+            RuntimeEvent::SessionPermission(info) => {
+                format!("{}:{}:permission", info.agent_name, info.session_id)
+            }
         };
         sink_log.lock().unwrap().push(label);
     });

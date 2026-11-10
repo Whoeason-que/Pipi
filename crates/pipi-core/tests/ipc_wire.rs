@@ -57,6 +57,9 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
         run_id: 7,
         model: None,
         is_custom_model: false,
+        permission_mode: None,
+        active_permission_mode: None,
+        permission_revision: 0,
     };
     assert_eq!(serde_json::to_value(session).unwrap(), wire["session"]);
     let icon_list = pipi_core::icon_themes::IconThemeList {
@@ -121,6 +124,8 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
                     pipi_core::events::QueuedPrompt {
                         content: None,
                         background_result: None,
+                        question_answer: None,
+                        permission_mode: None,
                         image_count: 0,
                         id: "queued-1".into(),
                         text: "next task".into(),
@@ -128,6 +133,8 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
                     },
                     pipi_core::events::QueuedPrompt {
                         content: None,
+                        question_answer: None,
+                        permission_mode: None,
                         background_result: Some(pipi_protocol::BackgroundTaskResult {
                             job_id: "job-1".into(),
                             kind: pipi_protocol::BackgroundTaskKind::Agent,
@@ -145,6 +152,53 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
                     },
                 ],
             },
+        }),
+        RuntimeEvent::SessionQuestions(pipi_core::events::QuestionsEnvelope {
+            agent_name: "fixture".into(),
+            session_id: "session-1".into(),
+            run_id: 7,
+            revision: 1,
+            questions: vec![pipi_protocol::interaction::QuestionRecord {
+                question_id: "q-1".into(),
+                run_id: 7,
+                question: pipi_protocol::interaction::Question {
+                    question: "Which?".into(),
+                    options: vec!["A".into()],
+                    sync: false,
+                },
+                status: pipi_protocol::interaction::QuestionState::Pending,
+            }],
+        }),
+        RuntimeEvent::SessionApproval(pipi_core::events::ApprovalEnvelope {
+            agent_name: "fixture".into(),
+            session_id: "session-1".into(),
+            run_id: 7,
+            approval_id: "approval-1".into(),
+            request: Some(pipi_core::approvals::ApprovalRequest {
+                approval_id: "approval-1".into(),
+                owner: pipi_core::approvals::ApprovalOwner {
+                    agent_name: "fixture".into(),
+                    session_id: "session-1".into(),
+                    run_id: 7,
+                },
+                tool_call_id: "call-1".into(),
+                tool_name: "bash".into(),
+                arguments: serde_json::json!({"command":"pwd"}),
+                reason: "Confirm command".into(),
+            }),
+        }),
+        RuntimeEvent::SessionPermission(SessionInfo {
+            agent_name: "fixture".into(),
+            session_id: "session-1".into(),
+            temporary: false,
+            running: true,
+            background_tasks: 0,
+            run_id: 7,
+            model: None,
+            is_custom_model: false,
+            permission_mode: Some(pipi_protocol::permissions::PermissionMode::Ask),
+            active_permission_mode: Some(pipi_protocol::permissions::PermissionMode::Plan),
+            permission_revision: 1,
         }),
         RuntimeEvent::Notification(pipi_core::notifications::NotificationEnvelope {
             agent_name: "fixture".into(),

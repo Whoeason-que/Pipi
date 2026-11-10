@@ -99,6 +99,7 @@ pub struct RunRequest {
     pub provider: Arc<dyn Provider>,
     pub tools: Arc<ToolRegistry>,
     pub tool_context: ToolContext,
+    pub tool_gate: Option<Arc<dyn pipi_protocol::tools::ToolGate>>,
     pub options: StreamOptions,
     pub retry: RetryPolicy,
     pub tool_execution: ToolExecutionMode,

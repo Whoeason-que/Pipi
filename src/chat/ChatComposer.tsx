@@ -15,7 +15,10 @@ import ComposerQueue from "./ComposerQueue";
 import DelayPicker from "./DelayPicker";
 import SendAction from "./SendAction";
 import ModelEffortPicker from "./ModelEffortPicker";
-import type { ModelConfig, PromptQueueSnapshot, ReasoningEffort, UserImage } from "../types";
+import QuestionCards from "./QuestionCards";
+import ApprovalCards from "./ApprovalCards";
+import PermissionModePicker from "./PermissionModePicker";
+import type { ModelConfig, PromptQueueSnapshot, ReasoningEffort, UserImage, QuestionRecord, QuestionAnswer, ApprovalRequest, ApprovalDecision, PermissionMode, SandboxMode } from "../types";
 
 interface ChatComposerProps {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -33,6 +36,14 @@ interface ChatComposerProps {
   onSteer: (text: string, images: UserImage[]) => Promise<boolean>;
   onQueue: (text: string, delayMs: number, images: UserImage[]) => Promise<boolean>;
   queue: PromptQueueSnapshot;
+  questions: QuestionRecord[];
+  onAnswerQuestion: (id: string, answer: QuestionAnswer) => Promise<void>;
+  approvals: ApprovalRequest[];
+  onAnswerApproval: (approval: ApprovalRequest, decision: ApprovalDecision) => Promise<void>;
+  permissionMode: PermissionMode | null;
+  activePermissionMode: PermissionMode | null;
+  agentSandbox: SandboxMode;
+  onPermissionMode: (mode: PermissionMode | null, confirmed: boolean) => Promise<void>;
   onCancelQueued: (id: string) => Promise<void>;
   onPauseQueue: (paused: boolean) => Promise<void>;
   onBeforeSend: () => void;
@@ -60,6 +71,14 @@ export default function ChatComposer({
   onSteer,
   onQueue,
   queue,
+  questions,
+  onAnswerQuestion,
+  approvals,
+  onAnswerApproval,
+  permissionMode,
+  activePermissionMode,
+  agentSandbox,
+  onPermissionMode,
   onCancelQueued,
   onPauseQueue,
   onBeforeSend,
@@ -158,6 +177,8 @@ export default function ChatComposer({
         </div>
       )}
       <ComposerQueue queue={queue} onCancel={onCancelQueued} onPause={onPauseQueue} onError={onError} />
+      <QuestionCards questions={questions} onAnswer={onAnswerQuestion} onError={onError} />
+      <ApprovalCards approvals={approvals} onAnswer={onAnswerApproval} onError={onError} />
       {(delayOpen || running || queue.messages.length > 0) && (
         <div className="composer-mode-hint" role="status">
           {t(delayOpen ? "chat.composerDelayHint" : running ? "chat.composerQueueHint" : "chat.composerPendingHint")}
@@ -200,6 +221,8 @@ export default function ChatComposer({
           }}
         />
         <div className="composer-bar">
+          {!temporary && <PermissionModePicker mode={permissionMode} activeMode={activePermissionMode} agentSandbox={agentSandbox}
+            running={running} disabled={!ready || stopping || uncertain} onChange={onPermissionMode} onError={onError} />}
           <input ref={fileInput} type="file" multiple hidden onChange={event => { const picked = Array.from(event.target.files ?? []); if (picked.length) draft.setFiles([...draft.getSnapshot().files, ...picked]); event.target.value = ""; }} />
           <button type="button" className="composer-attach" disabled={!ready || sending} title={t("chat.attachFilesTitle")} aria-label={t("chat.attachFiles")} onClick={() => fileInput.current?.click()}>+</button>
           {!temporary ? <ModelEffortPicker

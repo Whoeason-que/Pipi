@@ -563,6 +563,14 @@ export default function ChatView({
             onSteer={(text, images) => controller.steer(text, images)}
             onQueue={(text, delayMs, images) => controller.enqueue(text, delayMs, images)}
             queue={snapshot.queue}
+            questions={snapshot.questions}
+            onAnswerQuestion={(id, answer) => controller.answerQuestion(id, answer)}
+            approvals={snapshot.approvals}
+            onAnswerApproval={(approval, decision) => controller.answerApproval(approval, decision)}
+            permissionMode={snapshot.permissionMode}
+            activePermissionMode={snapshot.activePermissionMode}
+            agentSandbox={agent.permissions.sandbox}
+            onPermissionMode={(mode, confirmed) => controller.setPermissionMode(mode, confirmed)}
             onCancelQueued={(id) => controller.cancelQueued(id)}
             onPauseQueue={(paused) => controller.pauseQueue(paused)}
             onBeforeSend={() => {

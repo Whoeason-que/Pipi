@@ -24,6 +24,7 @@ fn context() -> ToolContext {
         read_roots: Vec::new(),
         permissions: Arc::new(PermissionsConfig::default()),
         sandbox: SandboxMode::DangerFullAccess,
+        sandbox_policy_override: None,
         resolved_env: Arc::new(BTreeMap::new()),
         abort: AbortSignal::new(),
     }

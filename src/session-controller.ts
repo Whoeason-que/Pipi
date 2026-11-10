@@ -7,7 +7,7 @@ import {
 } from "./chat-runtime.ts";
 import { CommandTransportError } from "./transport-error.ts";
 import type { Invoke } from "./ipc.ts";
-import type { AgentDefinition, ModelConfig, ReasoningEffort, SessionInfoView, PromptQueueSnapshot, PromptQueueEnvelope, UserImage } from "./types.ts";
+import type { AgentDefinition, ModelConfig, ReasoningEffort, SessionInfoView, PromptQueueSnapshot, PromptQueueEnvelope, UserImage, QuestionRecord, QuestionAnswer, QuestionsEnvelope, ApprovalRequest, ApprovalEnvelope, ApprovalDecision, PermissionMode } from "./types.ts";
 
 export interface SessionTransport {
   invoke: Invoke;
@@ -54,6 +54,9 @@ function snapshotCoversFrame(frame: SessionFrame, messages: MessageView[], info:
 
 export type SessionFrame =
   | { type: "prompt-queue"; payload: PromptQueueEnvelope }
+  | { type: "session-questions"; payload: QuestionsEnvelope }
+  | { type: "session-approval"; payload: ApprovalEnvelope }
+  | { type: "session-permission"; payload: SessionInfoView }
   | { type: "agent-event"; payload: AgentEventPayload }
   | { type: "session-stats"; payload: SessionStatsPayload }
   | { type: "session-error"; payload: SessionErrorPayload }
@@ -61,6 +64,12 @@ export type SessionFrame =
 
 export interface SessionSnapshot {
   queue: PromptQueueSnapshot;
+  questions: QuestionRecord[];
+  questionsRevision: number;
+  approvals: ApprovalRequest[];
+  permissionMode: PermissionMode | null;
+  activePermissionMode: PermissionMode | null;
+  permissionRevision: number;
   chat: ChatState;
   load: "idle" | "loading" | "ready" | "failed";
   operation: "idle" | "stopping" | "uncertain";
@@ -88,6 +97,7 @@ export class SessionController {
   private loadEpoch = 0;
   private pending: SessionFrame[] = [];
   private revision = 0;
+  private resolvedApprovals = new Set<string>();
   private agent: AgentDefinition;
   readonly temporary: boolean;
   private transport: SessionTransport;
@@ -109,7 +119,7 @@ export class SessionController {
     this.delay = delay;
     this.identity = sessionId ? { sessionId } : null;
     this.value = {
-      queue: EMPTY_PROMPT_QUEUE, chat: INITIAL_CHAT_STATE, load: "idle", operation: "idle", sessionId,
+      queue: EMPTY_PROMPT_QUEUE, questions: [], questionsRevision: 0, approvals: [], permissionMode: null, activePermissionMode: null, permissionRevision: 0, chat: INITIAL_CHAT_STATE, load: "idle", operation: "idle", sessionId,
       model: agent.provider ?? null, isCustomModel: false, change: null, error: null,
     };
   }
@@ -145,6 +155,25 @@ export class SessionController {
     return this.identity.sessionId;
   }
 
+  async answerQuestion(questionId: string, answer: QuestionAnswer): Promise<void> {
+    const payload = await this.transport.invoke("answer_question", {
+      agentName: this.agent.name, sessionId: this.requireSessionId(), questionId, answer,
+    });
+    this.receive({ type: "session-questions", payload });
+  }
+
+  async answerApproval(approval: ApprovalRequest, decision: ApprovalDecision): Promise<void> {
+    await this.transport.invoke("answer_approval", { agentName: this.agent.name, sessionId: this.requireSessionId(),
+      runId: approval.owner.runId, approvalId: approval.approvalId, decision });
+    this.receive({ type: "session-approval", payload: { ...approval.owner, approvalId: approval.approvalId, request: null } });
+  }
+
+  async setPermissionMode(mode: PermissionMode | null, confirmFullAccess = false): Promise<void> {
+    const sessionId = await this.ensureSession();
+    const info = await this.transport.invoke("set_session_permission_mode", { agentName: this.agent.name, sessionId, mode, confirmFullAccess });
+    this.receive({ type: "session-permission", payload: info });
+  }
+
   /** Share creation between the browser and the first prompt. */
   async ensureSession(): Promise<string> {
     if (this.identity) return this.identity.sessionId;
@@ -168,6 +197,8 @@ export class SessionController {
     this.patch({
       sessionId: info.sessionId,
       ...(info.model !== undefined ? { model: info.model ?? this.agent.provider ?? null, isCustomModel: Boolean(info.isCustomModel) } : {}),
+      ...(info.permissionRevision !== undefined && info.permissionRevision >= this.value.permissionRevision
+        ? { permissionMode: info.permissionMode ?? null, activePermissionMode: info.activePermissionMode ?? null, permissionRevision: info.permissionRevision } : {}),
       ...(announce ? { change: { revision: ++this.revision, info } } : {}),
     });
   }
@@ -204,6 +235,34 @@ export class SessionController {
   }
 
   private apply(frame: SessionFrame): void {
+    if (frame.type === "session-permission") {
+      const info = frame.payload;
+      if (info.agentName === this.agent.name && info.sessionId === this.value.sessionId
+        && (info.permissionRevision ?? 0) >= this.value.permissionRevision) {
+        this.patch({ permissionMode: info.permissionMode ?? null, activePermissionMode: info.activePermissionMode ?? null, permissionRevision: info.permissionRevision ?? 0 });
+      }
+      return;
+    }
+    if (frame.type === "session-approval") {
+      const payload = frame.payload;
+      if (payload.agentName !== this.agent.name || payload.sessionId !== this.value.sessionId) return;
+      if (payload.request === null) {
+        this.resolvedApprovals.add(payload.approvalId);
+        this.patch({ approvals: this.value.approvals.filter(item => item.approvalId !== payload.approvalId) });
+      } else if (payload.request.approvalId === payload.approvalId
+        && payload.request.owner.agentName === payload.agentName && payload.request.owner.sessionId === payload.sessionId
+        && payload.request.owner.runId === payload.runId
+        && !this.resolvedApprovals.has(payload.approvalId) && this.accept(payload)) {
+        this.patch({ approvals: [...this.value.approvals.filter(item => item.approvalId !== payload.approvalId), payload.request] });
+      }
+      return;
+    }
+    if (frame.type === "session-questions") {
+      const { agentName, sessionId, questions, revision } = frame.payload;
+      if (agentName === this.agent.name && sessionId === this.value.sessionId && revision >= this.value.questionsRevision)
+        this.patch({ questions, questionsRevision: revision });
+      return;
+    }
     if (frame.type === "prompt-queue") {
       const { agentName, sessionId, queue } = frame.payload;
       // 队列有自己的版本：当前 run 已结束也可取消/排队，不能走 settledRun 过滤。
@@ -222,7 +281,7 @@ export class SessionController {
       if (!accepted && !recovery) return;
       if (event.type === "agent_end") {
         this.settledRun = meta?.runId ?? this.identity?.runId ?? null;
-        this.patch({ operation: "idle" });
+        this.patch({ operation: "idle", approvals: [], activePermissionMode: null });
       }
       this.dispatch({ type: "event", event, key: createEntryKey("event") });
     } else if (frame.type === "session-stats") {
@@ -285,7 +344,8 @@ export class SessionController {
           return;
         }
         snapshotCoverage = { messages: snapshot.messages, info };
-        this.patch({ queue: snapshot.queue ?? EMPTY_PROMPT_QUEUE });
+        this.patch({ queue: snapshot.queue ?? EMPTY_PROMPT_QUEUE, questions: snapshot.questions ?? [], questionsRevision: snapshot.questionsRevision ?? 0, approvals: snapshot.approvals ?? [],
+          permissionMode: info.permissionMode ?? null, activePermissionMode: info.activePermissionMode ?? null, permissionRevision: info.permissionRevision ?? 0 });
         const knownRun = this.identity?.runId ?? 0;
         const stale = (info.runId ?? 0) < knownRun;
         if (!stale) {

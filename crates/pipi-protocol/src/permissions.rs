@@ -9,6 +9,62 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// A user-facing session policy. This is deliberately separate from the OS
+/// sandbox: deciding who reviews an action does not itself constrain a process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PermissionMode {
+    Plan,
+    Ask,
+    Workspace,
+    AutoReview,
+    FullAccess,
+}
+
+/// Audit record for an explicit approval decision. The arguments themselves are
+/// not copied here; the digest binds the decision without duplicating secrets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalAudit {
+    pub approval_id: String,
+    pub run_id: usize,
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub arguments_sha256: String,
+    pub decision: String,
+    pub reviewer: String,
+    pub reason: String,
+}
+
+/// A decision on an already enabled tool; the OS sandbox still enforces the
+/// actual filesystem and process boundary. Unknown tool actions are not read-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolPermission {
+    Allow,
+    Ask,
+    Deny,
+}
+
+impl PermissionMode {
+    pub fn for_tool(self, name: &str, args: &serde_json::Value) -> ToolPermission {
+        use ToolPermission::{Allow, Ask, Deny};
+        let is_read = match name {
+            "read" | "session_search" | "ask_question" | "search_workspace" => true,
+            "memory" => matches!(
+                args.get("action").and_then(|v| v.as_str()),
+                Some("read" | "list")
+            ),
+            "notebook" => args.get("action").and_then(|v| v.as_str()) == Some("read"),
+            _ => false,
+        };
+        match self {
+            Self::Plan if !is_read => Deny,
+            Self::Ask | Self::AutoReview if !is_read => Ask,
+            _ => Allow,
+        }
+    }
+}
+
 /// 沙箱策略。移植自 codex 的 `SandboxMode`。
 ///
 /// 缺省值为 `WorkspaceWrite`：旧 agent.json 缺少 `sandbox` 时也落到受限档位，
@@ -49,6 +105,10 @@ impl SandboxMode {
 #[serde(rename_all = "camelCase")]
 pub struct SandboxPolicy {
     pub mode: SandboxMode,
+    /// Legacy environment escape valves are opt-in for each policy. Session
+    /// permission modes disable them so their displayed boundary is authoritative.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub allow_env_overrides: bool,
     /// 默认关闭。开启后 helper 不安装网络过滤器（或允许 Seatbelt 网络）。
     #[serde(default)]
     pub network_access: bool,
@@ -76,6 +136,7 @@ impl SandboxPolicy {
         }
         SandboxPolicy {
             mode,
+            allow_env_overrides: true,
             network_access: false,
             writable_roots,
         }
@@ -84,6 +145,13 @@ impl SandboxPolicy {
     pub fn is_enforced(&self) -> bool {
         self.mode.is_enforced()
     }
+}
+
+fn default_true() -> bool {
+    true
+}
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 /// 普通 Agent 默认启用的基础工具。Agent 组合工具不在默认集合中，避免旧的
@@ -222,6 +290,25 @@ fn canonicalize_existing_ancestor(path: &Path) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_policy_handles_mixed_tools_by_action_and_denies_unknown_in_plan() {
+        use ToolPermission::{Allow, Ask, Deny};
+        use serde_json::json;
+        let cases = [
+            ("read", json!({}), Allow, Allow),
+            ("memory", json!({"action":"read"}), Allow, Allow),
+            ("memory", json!({"action":"write"}), Deny, Ask),
+            ("notebook", json!({"action":"append"}), Deny, Ask),
+            ("bash", json!({"command":"rg TODO"}), Deny, Ask),
+            ("mcp__server__unknown", json!({}), Deny, Ask),
+            ("ask_question", json!({"sync":true}), Allow, Allow),
+        ];
+        for (name, args, plan, ask) in cases {
+            assert_eq!(PermissionMode::Plan.for_tool(name, &args), plan, "{name}");
+            assert_eq!(PermissionMode::Ask.for_tool(name, &args), ask, "{name}");
+        }
+    }
 
     #[test]
     fn default_permissions_enable_the_baseline_tools() {

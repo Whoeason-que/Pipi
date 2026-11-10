@@ -132,6 +132,45 @@ impl RunReservation {
         })
     }
 
+    /// A question answer is recorded as one entry that is both a durable
+    /// delivery marker and the replayed user message.
+    pub fn prepare_question_answer(
+        self,
+        question_id: &str,
+        answer: &pipi_protocol::interaction::QuestionAnswer,
+        mut request: RunRequest,
+        hooks: SessionHooks,
+    ) -> Result<PreparedRun, String> {
+        request.options.session_id = Some(self.session_id()?);
+        request.tool_context.abort = self.session.abort.clone();
+        let timestamp = pipi_protocol::now_millis();
+        let event = pipi_protocol::interaction::QuestionEvent::Delivered {
+            question_id: question_id.into(),
+            answer: Some(answer.clone()),
+            timestamp,
+        };
+        let message =
+            pipi_protocol::session::question_answer_message(question_id, answer, timestamp);
+        {
+            let mut history = self.session.messages.lock().map_err(|e| e.to_string())?;
+            let mut writer = self.session.writer.lock().map_err(|e| e.to_string())?;
+            commit_recovery(&mut **writer)?;
+            writer
+                .append_question(&event)
+                .map_err(|e| format!("Cannot deliver question answer: {e}"))?;
+            history.push(message.clone());
+        }
+        Ok(PreparedRun {
+            session: self.session,
+            operation: Operation::Background {
+                messages: vec![message],
+                request: Box::new(request),
+            },
+            hooks,
+            guard: self.guard,
+        })
+    }
+
     pub fn fail_start(
         self,
         prompt: &str,
@@ -285,6 +324,7 @@ async fn drive_run(
         provider: request.provider.clone(),
         tools: request.tools,
         tool_context: request.tool_context,
+        tool_gate: request.tool_gate,
         options: request.options.clone(),
         retry: request.retry,
         tool_execution: request.tool_execution,

@@ -92,6 +92,14 @@ pub enum EntryKind {
     BackgroundResult {
         result: crate::BackgroundTaskResult,
     },
+    /// Durable user-interaction state; it is not itself a model message.
+    Question {
+        event: crate::interaction::QuestionEvent,
+    },
+    /// A human or model permission decision; never replayed as user consent.
+    Approval {
+        audit: crate::permissions::ApprovalAudit,
+    },
     /// 一次性子运行标记（Pipi 新增）。`run_agent` 的 inline 模式在调用者
     /// Agent 的会话库里开一条 child session，首条条目记录父会话身份；
     /// 回放中性（不产生消息），会话列表据此把子运行与顶层会话分开。
@@ -320,6 +328,25 @@ pub trait SessionLog: Send {
         &mut self,
         result: &crate::BackgroundTaskResult,
     ) -> std::io::Result<String>;
+    /// Append a question lifecycle event to the same recovery journal.
+    fn append_question(
+        &mut self,
+        _event: &crate::interaction::QuestionEvent,
+    ) -> std::io::Result<String> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Question events are not supported by this session log",
+        ))
+    }
+    fn append_approval(
+        &mut self,
+        _audit: &crate::permissions::ApprovalAudit,
+    ) -> std::io::Result<String> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Approval audit is not supported by this session log",
+        ))
+    }
     fn append_custom(&mut self, custom_type: &str) -> std::io::Result<String>;
     /// 追加一次性子运行标记（新会话的首条条目）：记录父 Agent 与父会话。
     fn append_subagent_run(
@@ -555,6 +582,17 @@ pub fn replay(entries: &[&SessionEntry]) -> (Vec<Message>, Vec<String>) {
                 messages.push(background_result_message(result));
                 ids.push(entry.id.clone());
             }
+            EntryKind::Question {
+                event:
+                    crate::interaction::QuestionEvent::Delivered {
+                        question_id,
+                        answer: Some(answer),
+                        timestamp,
+                    },
+            } => {
+                messages.push(question_answer_message(question_id, answer, *timestamp));
+                ids.push(entry.id.clone());
+            }
             EntryKind::Compaction {
                 summary,
                 keep_from_entry,
@@ -580,6 +618,19 @@ pub fn replay(entries: &[&SessionEntry]) -> (Vec<Message>, Vec<String>) {
         }
     }
     (messages, ids)
+}
+
+/// Model-visible user answer; emitted only when an asynchronous answer is delivered.
+pub fn question_answer_message(
+    question_id: &str,
+    answer: &crate::interaction::QuestionAnswer,
+    timestamp: u64,
+) -> Message {
+    let body = serde_json::json!({ "questionId": question_id, "selectedOption": answer.selected_option, "text": answer.text });
+    Message::User {
+        content: format!("<question_answer>{body}</question_answer>").into(),
+        timestamp,
+    }
 }
 
 /// 应用一条 Agent 上下文编辑（与 `pipi-session` 的 `track_message_ids` 共用

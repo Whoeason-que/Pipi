@@ -65,6 +65,7 @@ pub(super) fn make_rekey(
     sessions: Arc<Mutex<HashMap<SessionKey, HostSession>>>,
     background: BackgroundTaskManager,
     browser: Arc<std::sync::OnceLock<Arc<dyn crate::tools::browser::BrowserBackend>>>,
+    permission_modes: super::permission::SessionModes,
 ) -> SessionRekey {
     Arc::new(move |old, new| {
         // Browser lease changes and the session index share this lock: an old
@@ -73,6 +74,7 @@ pub(super) fn make_rekey(
             return;
         };
         background.rekey_session(&old.agent_name, &old.session_id, new);
+        permission_modes.rekey(old, new);
         if let Some(browser) = browser.get() {
             browser.rekey_session(&old.agent_name, &old.session_id, new);
         }

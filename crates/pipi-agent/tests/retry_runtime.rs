@@ -141,6 +141,7 @@ fn test_config(addr: std::net::SocketAddr, retry: RetryPolicy) -> AgentLoopConfi
             read_roots: Vec::new(),
             permissions: Arc::new(Default::default()),
             sandbox: SandboxMode::DangerFullAccess,
+            sandbox_policy_override: None,
             resolved_env: Arc::new(BTreeMap::new()),
             abort: AbortSignal::new(),
         },
@@ -154,6 +155,7 @@ fn test_config(addr: std::net::SocketAddr, retry: RetryPolicy) -> AgentLoopConfi
         },
         retry,
         // 这个套件测的是故障重发：协议协商不参与（等价的钉死模式）
+        tool_gate: None,
         tool_execution: pipi_agent::agent_loop::ToolExecutionMode::Sequential,
         steering: pipi_agent::agent_loop::MessageQueue::new(),
         transform_context: None,

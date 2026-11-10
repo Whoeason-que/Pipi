@@ -9,13 +9,14 @@ use tauri::{AppHandle, Emitter, State};
 
 use pipi_agent::stats::SessionStats;
 use pipi_core::commands::{
-    AgentStatsArgs, ArchiveAgentArgs, ArchiveSessionArgs, BrowserViewArgs, CancelQueuedPromptArgs,
-    CompactNowArgs, CreateSessionArgs, DeleteAgentArgs, DeleteSessionArgs, ForkSessionArgs,
-    ImportSessionsArgs, ListSessionsArgs, ManageBackgroundTaskArgs, NewSessionArgs,
-    OpenSessionArgs, OpenWorkbenchSessionArgs, QueryBackgroundTasksArgs, QueuePromptArgs,
-    RestoreAgentArgs, RestoreSessionArgs, SendPromptArgs, SessionHistoryArgs, SessionInfoArgs,
-    SessionMessagesArgs, SessionStatsArgs, SetPromptQueuePausedArgs, SetSessionModelArgs,
-    SteerArgs, StopRunArgs,
+    AgentStatsArgs, AnswerApprovalArgs, AnswerQuestionArgs, ArchiveAgentArgs, ArchiveSessionArgs,
+    BrowserViewArgs, CancelQueuedPromptArgs, CompactNowArgs, CreateSessionArgs, DeleteAgentArgs,
+    DeleteSessionArgs, ForkSessionArgs, ImportSessionsArgs, ListSessionsArgs,
+    ManageBackgroundTaskArgs, NewSessionArgs, OpenSessionArgs, OpenWorkbenchSessionArgs,
+    QueryBackgroundTasksArgs, QueuePromptArgs, RestoreAgentArgs, RestoreSessionArgs,
+    SendPromptArgs, SessionHistoryArgs, SessionInfoArgs, SessionMessagesArgs, SessionStatsArgs,
+    SetPromptQueuePausedArgs, SetSessionModelArgs, SetSessionPermissionModeArgs, SteerArgs,
+    StopRunArgs,
 };
 use pipi_core::events::{EventEmitter, PromptQueueEnvelope, RuntimeEvent};
 use pipi_core::runtime::{RuntimeState, SessionInfo, SessionSnapshot};
@@ -47,6 +48,9 @@ pub(crate) fn tauri_emitter(app: AppHandle) -> EventEmitter {
             RuntimeEvent::SessionSwitched(payload) => app.emit("session-switched", &payload),
             RuntimeEvent::SessionChanged(payload) => app.emit("session-changed", &payload),
             RuntimeEvent::PromptQueue(payload) => app.emit("prompt-queue", &payload),
+            RuntimeEvent::SessionQuestions(payload) => app.emit("session-questions", &payload),
+            RuntimeEvent::SessionApproval(payload) => app.emit("session-approval", &payload),
+            RuntimeEvent::SessionPermission(payload) => app.emit("session-permission", &payload),
         };
         let _ = result;
     })
@@ -80,6 +84,30 @@ pub fn session_info(
 #[tauri::command]
 pub fn session_infos(state: State<Arc<RuntimeState>>) -> Result<Vec<SessionInfo>, String> {
     pipi_core::commands::session_infos(&state)
+}
+
+#[tauri::command]
+pub fn answer_question(
+    state: State<Arc<RuntimeState>>,
+    args: InvokeArgs<AnswerQuestionArgs>,
+) -> Result<pipi_core::events::QuestionsEnvelope, String> {
+    pipi_core::commands::answer_question(&state, args.0)
+}
+
+#[tauri::command]
+pub fn answer_approval(
+    state: State<Arc<RuntimeState>>,
+    args: InvokeArgs<AnswerApprovalArgs>,
+) -> Result<(), String> {
+    pipi_core::commands::answer_approval(&state, args.0)
+}
+
+#[tauri::command]
+pub fn set_session_permission_mode(
+    state: State<Arc<RuntimeState>>,
+    args: InvokeArgs<SetSessionPermissionModeArgs>,
+) -> Result<SessionInfo, String> {
+    pipi_core::commands::set_session_permission_mode(&state, args.0)
 }
 
 /// 打开或重置工作台测试会话。

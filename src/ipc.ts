@@ -2,6 +2,7 @@ import type { IconTheme, IconThemeList } from "./files/icon-theme-types";
 import type { WorkspaceListing, WorkspaceFile, WorkspaceChanges, WorkspaceDiff } from "./files/types";
 import type { NotificationEnvelope } from "./notifications";
 import type { UserImage } from "./types";
+import type { ApprovalDecision, ApprovalEnvelope, PermissionMode, QuestionAnswer, QuestionsEnvelope } from "./types";
 /** 宿主命令契约。Tauri/Web 的命令名与参数由 ipc-contract.test.ts 核对。 */
 import type { ModelCatalog } from "./catalog";
 import type { AgentEventPayload, MessageView, SessionErrorPayload, SessionStatsPayload, SessionSwitchedPayload } from "./chat-runtime";
@@ -57,6 +58,8 @@ export interface CommandMap {
   open_session: { args: { agentName: string; sessionId: string }; result: SessionSnapshotView };
   session_info: { args: { agentName: string; sessionId: string }; result: SessionInfoView | null };
   session_infos: { args: {  }; result: SessionInfoView[] };
+  answer_question: { args: { agentName: string; sessionId: string; questionId: string; answer: QuestionAnswer }; result: QuestionsEnvelope };
+  answer_approval: { args: { agentName: string; sessionId: string; runId: number; approvalId: string; decision: ApprovalDecision }; result: void };
   open_workbench_session: { args: { agentName: string; reset?: boolean | null }; result: SessionInfoView };
   stop_run: { args: { agentName: string; sessionId: string; runId?: number | null }; result: void };
   query_background_tasks: { args: { agentName: string; sessionId: string; jobId?: string | null; afterSeq?: number | null; waitMs?: number | null; includeCompleted?: boolean | null; limit?: number | null }; result: BackgroundTaskSnapshot[] };
@@ -74,6 +77,7 @@ export interface CommandMap {
   cancel_queued_prompt: { args: { agentName: string; sessionId: string; messageId: string }; result: PromptQueueEnvelope };
   set_prompt_queue_paused: { args: { agentName: string; sessionId: string; paused: boolean }; result: PromptQueueEnvelope };
   set_session_model: { args: { agentName: string; sessionId: string; model?: ModelConfig | null }; result: void };
+  set_session_permission_mode: { args: { agentName: string; sessionId: string; mode?: PermissionMode | null; confirmFullAccess: boolean }; result: SessionInfoView };
   session_messages: { args: { agentName: string; sessionId: string }; result: MessageView[] };
   session_history: { args: { agentName: string; sessionId: string }; result: SessionCommitView[] };
   session_stats: { args: { agentName: string; sessionId: string }; result: SessionStatsView };
@@ -109,6 +113,9 @@ export type Invoke = <K extends CommandName>(command: K, ...args: CommandArgs<K>
 
 export interface EventMap {
   "prompt-queue": PromptQueueEnvelope;
+  "session-questions": QuestionsEnvelope;
+  "session-approval": ApprovalEnvelope;
+  "session-permission": SessionInfoView;
   "notification": NotificationEnvelope;
   "notification-open": NotificationEnvelope;
   "agent-event": AgentEventPayload;

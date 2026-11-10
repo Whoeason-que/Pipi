@@ -164,6 +164,7 @@ mod tests {
             read_roots: Vec::new(),
             permissions: Arc::new(PermissionsConfig::default()),
             sandbox: SandboxMode::WorkspaceWrite,
+            sandbox_policy_override: None,
             resolved_env: Arc::new(std::collections::BTreeMap::new()),
             abort: AbortSignal::new(),
         }

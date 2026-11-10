@@ -29,6 +29,7 @@ pub mod error;
 pub mod forum;
 pub mod fs;
 pub mod ids;
+pub mod interaction;
 pub mod permissions;
 pub mod provider;
 pub mod session;

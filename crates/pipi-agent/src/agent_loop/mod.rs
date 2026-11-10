@@ -306,6 +306,7 @@ mod tests {
                 read_roots: Vec::new(),
                 permissions: Arc::new(Default::default()),
                 sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
+                sandbox_policy_override: None,
                 resolved_env: Arc::new(std::collections::BTreeMap::new()),
                 abort: AbortSignal::new(),
             },
@@ -317,6 +318,7 @@ mod tests {
             // 需要重试的用例自己指定策略
             retry: pipi_context::retry::RetryPolicy::NONE,
             // 协议协商默认关（等价于用户把提供商协议钉死）：需要协商的用例自己开
+            tool_gate: None,
             tool_execution: ToolExecutionMode::Sequential,
             steering: MessageQueue::new(),
             transform_context: None,
@@ -385,6 +387,105 @@ mod tests {
             events
                 .iter()
                 .any(|e| matches!(e, AgentEvent::AgentEnd { .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_gate_denial_never_executes_tool_in_either_execution_mode() {
+        struct Deny;
+        #[async_trait::async_trait]
+        impl pipi_protocol::tools::ToolGate for Deny {
+            async fn authorize(
+                &self,
+                call_id: &str,
+                name: &str,
+                args: &Value,
+                _: &AbortSignal,
+            ) -> Result<(), String> {
+                assert_eq!((call_id, name), ("t1", "count"));
+                assert_eq!(args["n"], 3);
+                Err("Denied by policy".into())
+            }
+        }
+        for mode in [ToolExecutionMode::Sequential, ToolExecutionMode::Parallel] {
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let registry = Arc::new(ToolRegistry::new(vec![Arc::new(CountTool {
+                calls: calls.clone(),
+            })]));
+            let provider = Arc::new(ScriptedProvider {
+                turns: vec![tool_use_turn("t1", 3), stop_turn("done")],
+                call: AtomicUsize::new(0),
+            });
+            let (_, emit) = event_sink();
+            let mut config = test_config(provider, registry);
+            config.tool_gate = Some(Arc::new(Deny));
+            config.tool_execution = mode;
+            let messages = run_agent_loop(
+                vec![Message::user_text("count")],
+                AgentContext::default(),
+                config,
+                emit,
+                AbortSignal::new(),
+            )
+            .await;
+            assert!(calls.lock().unwrap().is_empty());
+            assert!(messages.iter().any(|message| match message {
+                Message::ToolResult { is_error: true, content, .. } => content.iter().any(|part| {
+                    matches!(part, ToolResultContent::Text { text } if text.contains("Denied by policy"))
+                }),
+                _ => false,
+            }));
+        }
+    }
+
+    #[tokio::test]
+    async fn abort_cancels_a_waiting_tool_gate_without_running_the_tool() {
+        struct Waiting(Arc<tokio::sync::Notify>);
+        #[async_trait::async_trait]
+        impl pipi_protocol::tools::ToolGate for Waiting {
+            async fn authorize(
+                &self,
+                _: &str,
+                _: &str,
+                _: &Value,
+                _: &AbortSignal,
+            ) -> Result<(), String> {
+                self.0.notify_one();
+                std::future::pending().await
+            }
+        }
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let registry = Arc::new(ToolRegistry::new(vec![Arc::new(CountTool {
+            calls: calls.clone(),
+        })]));
+        let provider = Arc::new(ScriptedProvider {
+            turns: vec![tool_use_turn("t1", 3)],
+            call: AtomicUsize::new(0),
+        });
+        let started = Arc::new(tokio::sync::Notify::new());
+        let mut config = test_config(provider, registry);
+        config.tool_gate = Some(Arc::new(Waiting(started.clone())));
+        let abort = AbortSignal::new();
+        let stop = abort.clone();
+        let (_, emit) = event_sink();
+        let task = tokio::spawn(run_agent_loop(
+            vec![Message::user_text("count")],
+            AgentContext::default(),
+            config,
+            emit,
+            abort,
+        ));
+        started.notified().await;
+        stop.abort();
+        let messages = tokio::time::timeout(std::time::Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(calls.lock().unwrap().is_empty());
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m, Message::ToolResult { is_error: true, .. }))
         );
     }
 

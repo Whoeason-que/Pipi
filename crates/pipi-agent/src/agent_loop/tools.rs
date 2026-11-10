@@ -157,6 +157,7 @@ async fn run_tool(
     args: Value,
     emit: &Emitter,
     abort: &AbortSignal,
+    gate: Option<Arc<dyn pipi_protocol::tools::ToolGate>>,
 ) -> ExecutedOutcome {
     let Some((call_id, call_name, _)) = call_parts(call) else {
         return ExecutedOutcome {
@@ -169,6 +170,24 @@ async fn run_tool(
             result: ToolOutput::text("Operation aborted"),
             is_error: true,
         };
+    }
+    if let Some(gate) = gate {
+        let decision = tokio::select! {
+            result = gate.authorize(call_id, call_name, &args, abort) => result,
+            _ = abort.wait_aborted() => Err("Operation aborted".into()),
+        };
+        if let Err(error) = decision {
+            return ExecutedOutcome {
+                result: ToolOutput::text(error),
+                is_error: true,
+            };
+        }
+        if abort.is_aborted() {
+            return ExecutedOutcome {
+                result: ToolOutput::text("Operation aborted"),
+                is_error: true,
+            };
+        }
     }
     let call_id = call_id.to_string();
     let call_name = call_name.to_string();
@@ -237,7 +256,16 @@ async fn execute_sequential(
         let finalized = match prepare_call(call, config, abort) {
             Prepared::Immediate { result, is_error } => ExecutedOutcome { result, is_error },
             Prepared::Ready { tool, call, args } => {
-                run_tool(tool, &config.tool_context, &call, args, emit, abort).await
+                run_tool(
+                    tool,
+                    &config.tool_context,
+                    &call,
+                    args,
+                    emit,
+                    abort,
+                    config.tool_gate.clone(),
+                )
+                .await
             }
         };
         terminates.push(finalized.result.terminate);
@@ -284,8 +312,10 @@ async fn execute_parallel(
             let call2 = call.clone();
             let args2 = args.clone();
             let tool2 = tool.clone();
-            futures
-                .push(async move { run_tool(tool2, &ctx, &call2, args2, &emit2, &abort2).await });
+            let gate = config.tool_gate.clone();
+            futures.push(async move {
+                run_tool(tool2, &ctx, &call2, args2, &emit2, &abort2, gate).await
+            });
         }
     }
     let executed = join_all(futures).await;
