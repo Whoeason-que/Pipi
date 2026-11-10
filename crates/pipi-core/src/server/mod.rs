@@ -141,7 +141,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let _lease = crate::remote::HostLease::acquire()?;
-    let runtime = Arc::new(RuntimeState::new(tokio::runtime::Handle::current()));
+    let runtime = Arc::new(RuntimeState::with_agent_memory_limit(
+        tokio::runtime::Handle::current(),
+    ));
     runtime.start_background_waker();
     let mut server = start(runtime, addr, auth_token, WebAssets::Directory(web_root)).await?;
     println!("Pipi Web server listening on http://{}", server.address());

@@ -157,6 +157,22 @@ helper 路径可用 `PIPI_SANDBOX_BIN` 覆盖；`PIPI_SANDBOX_NETWORK=1` 可在�
 Landlock 不中介 `chmod`/`chown`/`utime`；授权范围内的破坏（删自己的仓库、
 把工作区内容发到已放行网络）也不在沙箱职责内。
 
+### Agent 子进程内存
+
+Linux 桌面与独立 Web 宿主把前台 bash、托管后台 shell 和 MCP 服务器放入
+`systemd --user` 管理的同一个 `pipi-agents.slice`：这些进程及其普通子进程合计
+最多使用 16 GiB 内存，不使用 swap。它们分别位于该 slice 下的独立 scope；
+超限时内核可能终止其中一个 scope 内的进程，相关工具或任务报告失败，Pipi 宿主
+不在这个限额中。多个 Pipi 宿主以同一系统用户运行时也共享该额度。
+
+这不限制 Pipi 宿主本身、WebKit 渲染进程或进程内的 child Agent；GPU 显存也不在
+保证范围内。整个系统或上层 cgroup 耗尽内存时，宿主仍可能被终止。此机制是资源
+限制，不替代 OS 沙箱，也不是阻止有权限的进程自行迁移 cgroup 的安全边界。
+Linux 需要 systemd 254+、可用的用户管理器和用户总线；无法建立限额或找不到 helper 时，
+相关 Agent 子进程直接报错，不会无限制启动。其他操作系统不启用这个 Linux 限额。
+手动为 Pipi 桌面进程另设 systemd scope 时，这些 Agent scope 位于独立的用户 slice，
+不会自动继承那个桌面 scope 的内存限制。
+
 
 正式会话输入框底部也可直接选择思考程度，立即保存为当前会话的模型覆盖；运行中不可切换。
 
@@ -845,17 +861,18 @@ cargo xtask arch
 安装“Pipi 源码版”应用菜单与桌面图标：
 
 ```bash
-python3 scripts/desktop-launcher.py --install
+npm run desktop:install
 ```
 
-每次点击都会从当前本地源码（含未提交修改）打包前端，再增量编译 Rust 调试包，
-成功后启动。桌面入口按源码目录使用独立的构建缓存，并按文件内容检查工作区源码；
-源码变化时重新编译本仓库的 Rust crate，避免复用其他检出的旧产物。缓存和程序位于
-`~/.cache/pipi/source-launcher/build-<目录标识>/target/`，首次构建需要更多时间和磁盘空间。
-不需要 Vite 开发服务器，不注册系统服务。编译期间
-显示进度，失败时提示日志位置；日志位于 `~/.cache/pipi/source-launcher/`。
-已运行时请先从托盘退出 Pipi，再点击重新编译。只编译可运行
-`python3 scripts/desktop-launcher.py --build-only`；源码目录移动后重新安装图标即可。
+桌面图标运行 `npm run tauri:desktop`，以当前本地源码启动 Tauri 开发模式。
+该入口关闭 Rust 文件监听、Vite 文件监听和热更新；修改源码后需退出并重新启动。
+普通的 `npm run tauri:dev` 仍保留开发时的监听与热更新。
+
+桌面入口使用独立的 `target/pipi-desktop/` 构建目录，并按文件内容检查工作区源码；
+源码变化时清理本仓库 Rust crate 的缓存，避免复用过期产物。首次构建需要更多时间和
+磁盘空间。运行期间 Vite 开发服务器保持启动，日志位于
+`${XDG_CACHE_HOME:-~/.cache}/pipi/desktop-dev.log`。已运行时请先从托盘退出 Pipi，
+再点击图标；源码目录移动后重新安装图标即可。
 
 ## Web/远程模式
 

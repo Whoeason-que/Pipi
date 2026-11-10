@@ -259,7 +259,11 @@ impl AgentTool for BashTool {
 
         // cwd 默认工作目录；相对路径按工作目录解析。是否可写由 OS 沙箱决定，
         // 这里只做「存在且是目录」的 UX 校验（否则 bash 会以难读的方式失败）。
-        let cwd = match args["cwd"].as_str().map(str::trim).filter(|value| !value.is_empty()) {
+        let cwd = match args["cwd"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             Some(raw) => {
                 let path = resolve_path(&ctx.workspace, raw);
                 let metadata = tokio::fs::metadata(&path)
@@ -273,13 +277,14 @@ impl AgentTool for BashTool {
             None => ctx.workspace.clone(),
         };
 
-        let mut builder =
-            pipi_sandbox::tokio_command(&ctx.sandbox_policy(), "bash", ["-c", command])?;
+        let mut builder = pipi_sandbox::tokio_agent_command(
+            &ctx.sandbox_policy(),
+            "bash",
+            ["-c", command],
+            &ctx.resolved_env,
+        )?;
         builder
             .current_dir(&cwd)
-            // 环境整体来自 av 契约解析结果（会话启动时已定，含继承策略与 AV_* 注入）
-            .env_clear()
-            .envs(ctx.resolved_env.iter())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -451,7 +456,9 @@ impl AgentTool for BashTool {
         }
         let exit_code = status.code().unwrap_or(0);
         if exit_code != 0 {
-            return Err(format!("{output_text}\n\nCommand exited with code {exit_code}"));
+            return Err(format!(
+                "{output_text}\n\nCommand exited with code {exit_code}"
+            ));
         }
 
         let details = json!({
@@ -514,7 +521,10 @@ mod tests {
 
         let (text, path) = buffer.finish();
         assert_eq!(path.as_deref(), Some(spill.as_path()));
-        assert!(text.starts_with("line "), "tail must start on a line boundary");
+        assert!(
+            text.starts_with("line "),
+            "tail must start on a line boundary"
+        );
         assert!(text.ends_with("line 29999\n"));
 
         let full = std::fs::read_to_string(&spill).unwrap();
@@ -702,7 +712,11 @@ mod tests {
         let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
 
         let result = BashTool
-            .execute(&ctx, &serde_json::json!({ "command": "kill -9 $$" }), &|_| {})
+            .execute(
+                &ctx,
+                &serde_json::json!({ "command": "kill -9 $$" }),
+                &|_| {},
+            )
             .await;
         let error = result.expect_err("signal death must not be reported as success");
         assert!(error.contains("terminated by signal 9"), "{error}");
@@ -718,7 +732,11 @@ mod tests {
         let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
 
         let output = BashTool
-            .execute(&ctx, &serde_json::json!({ "command": "seq 1 40000" }), &|_| {})
+            .execute(
+                &ctx,
+                &serde_json::json!({ "command": "seq 1 40000" }),
+                &|_| {},
+            )
             .await
             .unwrap();
         let text = output_text(&output);

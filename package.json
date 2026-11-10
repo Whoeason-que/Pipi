@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "cargo build -p pipi-sandbox && node scripts/prepare-sidecar.mjs debug && tauri dev --config crates/pipi/tauri.conf.json",
+    "tauri:desktop": "mkdir -p target/pipi-desktop && CARGO_TARGET_DIR=\"$PWD/target/pipi-desktop\" PIPI_DESKTOP_NO_WATCH=1 flock -n target/pipi-desktop/.pipi-launch.lock sh -c 'node scripts/prepare-desktop-dev.mjs && exec npm run tauri:dev -- --no-watch'",
+    "desktop:install": "node scripts/install-desktop.mjs",
     "tauri:build": "cargo build --release -p pipi-sandbox && node scripts/prepare-sidecar.mjs release && tauri build --config crates/pipi/tauri.conf.json"
   },
   "dependencies": {

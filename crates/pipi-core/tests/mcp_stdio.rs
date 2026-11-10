@@ -304,3 +304,173 @@ async fn cancellation_interrupts_waiting_for_the_server_serial_lock() {
     first.await.unwrap().unwrap();
     manager.shutdown_all().await;
 }
+
+/// Opt-in integration: all three real Agent spawn paths must join the same
+/// production slice while retaining MCP stdio and background task behavior.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_processes_use_the_shared_memory_slice() {
+    if std::env::var_os("PIPI_TEST_SYSTEMD_MEMORY").is_none() {
+        return;
+    }
+    use pipi_core::background::{BackgroundTaskManager, ChildAgentRunner};
+    use pipi_core::tools::agent::{AgentRunResult, ChildProgressTx};
+    use pipi_core::tools::background::{
+        BackgroundAgentSessionSink, BackgroundTaskOwner, BackgroundTaskQuery,
+        BackgroundTaskService, BackgroundTaskSpec,
+    };
+    use pipi_protocol::BackgroundTaskStatus;
+    use pipi_protocol::permissions::SandboxPolicy;
+
+    struct NoChild;
+    #[async_trait::async_trait]
+    impl ChildAgentRunner for NoChild {
+        async fn run_child(
+            &self,
+            _: &str,
+            _: &str,
+            _: AbortSignal,
+            _: Option<ChildProgressTx>,
+            _: Option<BackgroundAgentSessionSink>,
+        ) -> Result<AgentRunResult, String> {
+            unreachable!("this test only runs shell jobs")
+        }
+    }
+
+    pipi_sandbox::enable_agent_memory_limit();
+    let mut fixture = Fixture::new("pipi-agent-shared-limit");
+    fixture
+        .env
+        .insert("PIPI_SCOPE_TEST_VALUE".into(), "agent-value".into());
+    pipi_venv::agents::create_agent(
+        AGENT,
+        "memory test",
+        fixture.workspace.to_str(),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let marker = fixture.workspace.join("mcp-cgroup");
+    fixture.def.mcp_servers[0].args[1] =
+        format!("cat /proc/self/cgroup > '{}'; {}", marker.display(), SERVER,);
+    let manager = McpManager::new(tokio::runtime::Handle::current());
+    manager.prepare(&fixture.def, &fixture.env);
+    let specs = wait_for_tools(&manager, 2).await;
+    let mcp_group = std::fs::read_to_string(&marker).unwrap();
+    assert!(mcp_group.contains("pipi-agents.slice"), "{mcp_group}");
+    let tool = McpTool::new(manager.clone(), AGENT.into(), spec(&specs, "echo"));
+    tool.execute(
+        &fixture.context(),
+        &serde_json::json!({"message":"hi"}),
+        &|_| {},
+    )
+    .await
+    .unwrap();
+
+    let context = fixture.context();
+    let bash = pipi_tools::builtin_registry(&context).get("bash").unwrap();
+    let output = bash
+        .execute(
+            &context,
+            &serde_json::json!({"command":"cat /proc/self/cgroup"}),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+    let bash_group = match &output.content[0] {
+        ToolResultContent::Text { text } => text,
+        _ => panic!("bash did not return text"),
+    };
+    assert!(bash_group.contains("pipi-agents.slice"), "{bash_group}");
+    assert_ne!(mcp_group.trim(), bash_group.trim());
+    let quoted = bash.execute(
+        &context,
+        &serde_json::json!({"command": "printf '%s\\n' '$$' '${PIPI_SCOPE_TEST_VALUE}' \"$PIPI_SCOPE_TEST_VALUE\""}),
+        &|_| {},
+    ).await.unwrap();
+    let text = match &quoted.content[0] {
+        ToolResultContent::Text { text } => text,
+        _ => panic!("bash did not return text"),
+    };
+    assert_eq!(text.trim(), "$$\n${PIPI_SCOPE_TEST_VALUE}\nagent-value");
+
+    let background =
+        BackgroundTaskManager::new(tokio::runtime::Handle::current(), Arc::new(NoChild));
+    let mut completed = background.subscribe();
+    let owner = BackgroundTaskOwner::new(AGENT, "test-session", 1);
+    let info = background
+        .submit(BackgroundTaskSpec {
+            owner: owner.clone(),
+            command: "cat /proc/self/cgroup".into(),
+            cwd: fixture.workspace.clone(),
+            env: fixture.env.clone(),
+            sandbox: SandboxPolicy::for_workspace(
+                SandboxMode::DangerFullAccess,
+                &fixture.workspace,
+            ),
+            subscribe: false,
+        })
+        .await
+        .unwrap();
+    let terminal = tokio::time::timeout(Duration::from_secs(10), completed.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        terminal.status,
+        BackgroundTaskStatus::Completed,
+        "{terminal:?}"
+    );
+    let jobs = background
+        .query(
+            &owner,
+            BackgroundTaskQuery {
+                job_id: Some(info.job_id),
+                include_completed: true,
+                limit: 20,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let background_group = jobs[0]
+        .output
+        .iter()
+        .map(|part| part.text.as_str())
+        .collect::<String>();
+    assert!(
+        background_group.contains("pipi-agents.slice"),
+        "{background_group}"
+    );
+    assert_ne!(bash_group.trim(), background_group.trim());
+    let killed = background
+        .submit(BackgroundTaskSpec {
+            owner: owner.clone(),
+            command: "kill -9 $$".into(),
+            cwd: fixture.workspace.clone(),
+            env: fixture.env.clone(),
+            sandbox: SandboxPolicy::for_workspace(
+                SandboxMode::DangerFullAccess,
+                &fixture.workspace,
+            ),
+            subscribe: false,
+        })
+        .await
+        .unwrap();
+    let terminal = tokio::time::timeout(Duration::from_secs(10), completed.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(terminal.job_id, killed.job_id);
+    assert_eq!(terminal.status, BackgroundTaskStatus::Failed);
+    assert!(
+        terminal
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("signal 9")),
+        "{terminal:?}"
+    );
+    background.shutdown().await.unwrap();
+    manager.shutdown_all().await;
+}

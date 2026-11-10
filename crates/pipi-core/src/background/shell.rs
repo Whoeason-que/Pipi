@@ -114,7 +114,7 @@ pub(super) async fn run_job(
         Ok(exit) => (
             BackgroundTaskStatus::Failed,
             exit.code(),
-            Some(format!("Background task exit code {:?}", exit.code())),
+            Some(exit_error(&exit)),
         ),
         Err(error) => (
             BackgroundTaskStatus::Failed,
@@ -138,6 +138,17 @@ pub(super) async fn run_job(
         .core
         .finished
         .store(true, std::sync::atomic::Ordering::Release);
+}
+
+fn exit_error(exit: &std::process::ExitStatus) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = exit.signal() {
+            return format!("Background task terminated by signal {signal}");
+        }
+    }
+    format!("Background task exit code {:?}", exit.code())
 }
 
 async fn read_output<R>(
@@ -207,6 +218,17 @@ mod tests {
     use crate::background::MAX_OUTPUT_BYTES;
     use crate::background::test_support::{entry, owner};
     use crate::tools::background::BackgroundTaskOwner;
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_exit_reports_signal_without_guessing_oom() {
+        use std::os::unix::process::ExitStatusExt;
+        let status = std::process::ExitStatus::from_raw(9);
+        assert_eq!(
+            exit_error(&status),
+            "Background task terminated by signal 9"
+        );
+    }
 
     #[test]
     fn output_buffer_is_bounded_and_keeps_cursor() {

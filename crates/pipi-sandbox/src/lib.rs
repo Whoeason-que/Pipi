@@ -20,6 +20,8 @@ use std::path::PathBuf;
 use pipi_protocol::permissions::SandboxPolicy;
 
 #[cfg(target_os = "linux")]
+mod agent_memory;
+#[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -157,6 +159,40 @@ where
             Ok(command)
         }
     }
+}
+
+/// Private transport used only between the scope launcher and sandbox helper.
+#[doc(hidden)]
+pub const AGENT_ENV_TRANSFER: &str = "PIPI_INTERNAL_AGENT_ENV_TRANSFER";
+#[doc(hidden)]
+pub const AGENT_ENV_CHUNK_PREFIX: &str = "PIPI_INTERNAL_AGENT_ENV_CHUNK_";
+
+/// Production hosts opt into a shared memory budget for Agent-controlled
+/// processes. The desktop and server hosts enable this before accepting work.
+pub fn enable_agent_memory_limit() {
+    #[cfg(target_os = "linux")]
+    agent_memory::enable();
+}
+
+/// Construct an Agent process with exactly the resolved contract environment.
+/// When enabled, the Linux host places it in the common, bounded user slice.
+pub fn tokio_agent_command<I, S>(
+    policy: &SandboxPolicy,
+    program: impl AsRef<OsStr>,
+    args: I,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Result<tokio::process::Command, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    #[cfg(target_os = "linux")]
+    if agent_memory::enabled() {
+        return agent_memory::command(policy, program.as_ref(), args, env);
+    }
+    let mut command = tokio_command(policy, program, args)?;
+    command.env_clear().envs(env);
+    Ok(command)
 }
 
 /// helper 侧的参数：`--policy <json> -- <program> [args...]`。

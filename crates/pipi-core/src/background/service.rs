@@ -76,13 +76,11 @@ impl BackgroundTaskService for BackgroundTaskManager {
         // 在落盘任务之前先确认沙箱 helper 可用：构造失败就不留一个永远
         // Queued 的孤儿任务。
         let mut command_builder =
-            pipi_sandbox::tokio_command(&spec.sandbox, "bash", ["-c", command])?;
+            pipi_sandbox::tokio_agent_command(&spec.sandbox, "bash", ["-c", command], &spec.env)?;
         self.persist_start(&metadata_path, &queued).await?;
 
         command_builder
             .current_dir(&cwd)
-            .env_clear()
-            .envs(spec.env)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())

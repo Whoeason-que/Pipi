@@ -3,6 +3,13 @@
 use super::*;
 
 impl RuntimeState {
+    /// Production hosts bound Agent-controlled subprocesses as one workload.
+    /// Test/in-memory hosts can continue to use `new` without systemd.
+    pub fn with_agent_memory_limit(runtime: tokio::runtime::Handle) -> Self {
+        pipi_sandbox::enable_agent_memory_limit();
+        Self::new(runtime)
+    }
+
     /// A temporary session has no persisted identity to reopen after it is discarded.
     pub(super) fn discard_temporary_sessions(
         &self,

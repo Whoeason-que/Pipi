@@ -656,12 +656,10 @@ fn expand_env_refs(value: &str, env: &BTreeMap<String, String>) -> Result<String
 
 fn build_command(plan: &SpawnPlan) -> Result<pipi_mcp::Command, String> {
     let policy = SandboxPolicy::for_workspace(plan.sandbox, &plan.cwd);
-    let mut command = pipi_sandbox::tokio_command(&policy, &plan.program, &plan.args)?;
+    let mut command =
+        pipi_sandbox::tokio_agent_command(&policy, &plan.program, &plan.args, &plan.env)?;
     // 与 bash 同一条口径：子进程环境完全来自契约解析结果，不读进程环境。
-    command
-        .current_dir(&plan.cwd)
-        .env_clear()
-        .envs(plan.env.clone());
+    command.current_dir(&plan.cwd);
     Ok(command)
 }
 
