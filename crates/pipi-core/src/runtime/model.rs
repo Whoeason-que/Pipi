@@ -89,7 +89,7 @@ pub(super) fn resolve_model(
         let catalog = pipi_provider::catalog::cached_catalog(
             pipi_venv::av::paths::catalog_cache_path().as_deref(),
         );
-        pipi_provider::effective_api(catalog.as_ref(), &target.base_url, &target.id, target.api)
+        pipi_provider::effective_api(catalog.as_deref(), &target.base_url, &target.id, target.api)
     } else {
         target.api
     };

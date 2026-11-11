@@ -22,6 +22,7 @@
 //! `pipi_venv::av::paths` 的职责，provider 层不该反向依赖它。
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -485,7 +486,8 @@ pub(crate) fn build_catalog(
 
 /// 只读本地缓存（**不联网、不判保鲜期**）：宿主在 run 前解析模型级协议用。
 /// 需要刷新走 [`load_catalog`]；没有缓存返回 `None`（调用方按原协议继续）。
-pub fn cached_catalog(cache_path: Option<&Path>) -> Option<ModelCatalog> {
+/// 返回进程内 memo 共享的 `Arc`，命中时不复制约 4.6 MB 的目录。
+pub fn cached_catalog(cache_path: Option<&Path>) -> Option<Arc<ModelCatalog>> {
     let path = cache_path?;
     let metadata = std::fs::metadata(path).ok()?;
     let modified = metadata.modified().ok();
@@ -496,16 +498,16 @@ pub fn cached_catalog(cache_path: Option<&Path>) -> Option<ModelCatalog> {
         && entry.modified == modified
         && entry.len == len
     {
-        return Some(entry.catalog.clone());
+        return Some(Arc::clone(&entry.catalog));
     }
     let text = std::fs::read_to_string(path).ok()?;
-    let catalog: ModelCatalog = serde_json::from_str(&text).ok()?;
+    let catalog = Arc::new(serde_json::from_str::<ModelCatalog>(&text).ok()?);
     if let Ok(mut memo) = CATALOG_MEMO.lock() {
         *memo = Some(CachedCatalog {
             path: path.to_path_buf(),
             modified,
             len,
-            catalog: catalog.clone(),
+            catalog: Arc::clone(&catalog),
         });
     }
     Some(catalog)
@@ -517,7 +519,7 @@ struct CachedCatalog {
     path: PathBuf,
     modified: Option<std::time::SystemTime>,
     len: u64,
-    catalog: ModelCatalog,
+    catalog: Arc<ModelCatalog>,
 }
 
 static CATALOG_MEMO: std::sync::Mutex<Option<CachedCatalog>> = std::sync::Mutex::new(None);
@@ -619,13 +621,15 @@ async fn fetch_upstream() -> Result<serde_json::Value, String> {
 /// 回落决策（纯函数）：刷新成功就用新结果；刷新失败退回缓存并标 stale；
 /// 两者都没有则把「退化为手填」写进错误里。
 fn resolve_catalog(
-    cached: Option<ModelCatalog>,
+    cached: Option<Arc<ModelCatalog>>,
     fetched: Result<ModelCatalog, String>,
 ) -> Result<ModelCatalog, String> {
     match fetched {
         Ok(catalog) => Ok(catalog),
         Err(error) => match cached {
-            Some(mut catalog) => {
+            Some(catalog) => {
+                // 只有回落路径需要改写 source/stale，因此只在这里复制一次。
+                let mut catalog = (*catalog).clone();
                 catalog.source = "cache".to_string();
                 catalog.stale = true;
                 Ok(catalog)
@@ -657,7 +661,7 @@ pub async fn load_catalog(
                 .unwrap_or(false)
         })
     {
-        let mut hit = cached.take().expect("fresh cache checked above");
+        let mut hit = (*cached.take().expect("fresh cache checked above")).clone();
         hit.source = "cache".to_string();
         hit.stale = false;
         return Ok(hit);
@@ -1126,13 +1130,13 @@ mod tests {
     #[test]
     fn 离线回落_有缓存就用缓存并标_stale() {
         let fresh = fixture_catalog();
-        let resolved = resolve_catalog(Some(fresh.clone()), Err("断网".into())).unwrap();
+        let resolved = resolve_catalog(Some(Arc::new(fresh.clone())), Err("断网".into())).unwrap();
         assert_eq!(resolved.source, "cache");
         assert!(resolved.stale);
         assert_eq!(resolved.providers, fresh.providers, "内容必须原样可用");
 
         // 刷新成功时以新结果为准（不标 stale）
-        let resolved = resolve_catalog(Some(fresh.clone()), Ok(fresh.clone())).unwrap();
+        let resolved = resolve_catalog(Some(Arc::new(fresh.clone())), Ok(fresh.clone())).unwrap();
         assert_eq!(resolved.source, "models.dev");
         assert!(!resolved.stale);
     }

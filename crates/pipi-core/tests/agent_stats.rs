@@ -1,12 +1,13 @@
 //! Agent 统计命令的跨会话读侧回归：从真实 git 会话分支读回并聚合。
+#![allow(clippy::await_holding_lock)] // HOME_LOCK 必须覆盖整个异步测试
 
 use pipi_core::commands::{AgentStatsArgs, agent_stats};
 use pipi_protocol::session::SessionRepo;
 use pipi_protocol::{Message, StopReason, Usage};
 use pipi_session::GitSessionRepo;
 
-#[test]
-fn agent_stats_aggregates_committed_sessions() {
+#[tokio::test]
+async fn agent_stats_aggregates_committed_sessions() {
     let _guard = pipi_test_support::HOME_LOCK.lock().unwrap();
     let home = pipi_test_support::temp_dir("pipi-agent-stats");
     let previous = std::env::var("HOME").unwrap_or_default();
@@ -55,6 +56,7 @@ fn agent_stats_aggregates_committed_sessions() {
         agent_name: "stats-test".into(),
         range_days: None,
     })
+    .await
     .expect("stats should read committed sessions");
 
     assert_eq!(stats.agent_name, "stats-test");
@@ -74,8 +76,8 @@ fn agent_stats_aggregates_committed_sessions() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
-#[test]
-fn subagents_are_excluded_from_statistics() {
+#[tokio::test]
+async fn subagents_are_excluded_from_statistics() {
     let _guard = pipi_test_support::HOME_LOCK.lock().unwrap();
     let home = pipi_test_support::temp_dir("pipi-agent-stats-subagent");
     let previous = std::env::var("HOME").unwrap_or_default();
@@ -96,6 +98,7 @@ fn subagents_are_excluded_from_statistics() {
         agent_name: "stats-child".into(),
         range_days: None,
     })
+    .await
     .expect_err("subagent stats must be rejected");
     assert!(error.contains("primary"), "error={error}");
 

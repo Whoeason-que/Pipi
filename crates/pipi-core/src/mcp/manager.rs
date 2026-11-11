@@ -117,11 +117,19 @@ pub struct McpServerStatus {
 
 struct Inner {
     servers: Mutex<HashMap<ServerKey, Slot>>,
+    /// 已完成 legacy 清理的 Agent：一次性迁移，每 Agent 每进程只扫一次目录。
+    purged: Mutex<HashSet<String>>,
 }
 
 impl Inner {
     fn servers(&self) -> MutexGuard<'_, HashMap<ServerKey, Slot>> {
         self.servers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn purged(&self) -> MutexGuard<'_, HashSet<String>> {
+        self.purged
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -138,6 +146,7 @@ impl McpManager {
         Self {
             inner: Arc::new(Inner {
                 servers: Mutex::new(HashMap::new()),
+                purged: Mutex::new(HashSet::new()),
             }),
             runtime,
         }
@@ -159,7 +168,11 @@ impl McpManager {
 
     fn prepare_inner(&self, def: &AgentDefinition, env: &BTreeMap<String, String>, strict: bool) {
         let agent_name = def.name.clone();
-        cache::purge_legacy(&agent_name);
+        // legacy 清理是一次性迁移：每个 Agent 每进程只扫一次目录，后续 prepare 跳过。
+        let first_prepare = self.inner.purged().insert(agent_name.clone());
+        if first_prepare {
+            cache::purge_legacy(&agent_name);
+        }
         let mut pending: Vec<(ServerKey, Arc<tokio::sync::Mutex<()>>)> = Vec::new();
         {
             let mut servers = self.inner.servers();

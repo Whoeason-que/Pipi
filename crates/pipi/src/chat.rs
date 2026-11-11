@@ -240,10 +240,10 @@ pub fn session_stats(
 
 /// Agent 级跨会话统计（趋势 / 模型 / 工具 / 成本估算）。
 #[tauri::command]
-pub fn agent_stats(
+pub async fn agent_stats(
     args: InvokeArgs<AgentStatsArgs>,
 ) -> Result<pipi_core::stats::AgentStats, String> {
-    pipi_core::commands::agent_stats(args.0)
+    pipi_core::commands::agent_stats(args.0).await
 }
 
 #[tauri::command]

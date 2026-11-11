@@ -1138,8 +1138,13 @@ pub struct AgentStatsArgs {
 }
 
 /// Agent 级跨会话统计（趋势 / 模型 / 工具 / 成本估算）。
-pub fn agent_stats(args: AgentStatsArgs) -> Result<crate::stats::AgentStats, String> {
-    crate::stats::agent_stats(&args.agent_name, args.range_days)
+pub async fn agent_stats(args: AgentStatsArgs) -> Result<crate::stats::AgentStats, String> {
+    // 统计要扫最多 300 个会话的 git 分支；放到阻塞池，别卡住异步运行时。
+    tokio::task::spawn_blocking(move || {
+        crate::stats::agent_stats(&args.agent_name, args.range_days)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[derive(Debug, Deserialize)]
@@ -1589,7 +1594,7 @@ pub async fn dispatch(
         "session_messages" => to_value(session_messages(runtime, parse(args)?).await?),
         "session_history" => to_value(session_history(runtime, parse(args)?)?),
         "session_stats" => to_value(session_stats(runtime, parse(args)?)?),
-        "agent_stats" => to_value(agent_stats(parse(args)?)?),
+        "agent_stats" => to_value(agent_stats(parse(args)?).await?),
         "fork_session" => to_value(fork_session(runtime, parse(args)?)?),
         "archive_agent" => to_value(archive_agent(runtime, parse(args)?)?),
         "restore_agent" => to_value(restore_agent(parse(args)?)?),

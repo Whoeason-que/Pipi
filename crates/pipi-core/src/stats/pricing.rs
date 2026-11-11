@@ -18,19 +18,19 @@ impl Pricing {
             return Self::default();
         };
         let mut pricing = Self::default();
-        for provider in catalog.providers {
-            for model in provider.models {
-                let Some(cost) = model.cost else {
+        for provider in &catalog.providers {
+            for model in &provider.models {
+                let Some(cost) = &model.cost else {
                     continue;
                 };
                 pricing
                     .by_id
                     .entry(model.id.to_ascii_lowercase())
-                    .or_insert(cost.clone());
+                    .or_insert_with(|| cost.clone());
                 pricing
                     .by_name
                     .entry(model.name.to_ascii_lowercase())
-                    .or_insert(cost);
+                    .or_insert_with(|| cost.clone());
             }
         }
         pricing
