@@ -305,7 +305,12 @@ export default function ChatView({
   }, []);
 
   useEffect(() => {
-    setInspectorOpen(isTest && !narrow);
+    if (isTest) {
+      setInspectorOpen(!narrow);
+      return;
+    }
+    // 宽屏沿用用户上次的选择（初始化已从 storage 读取）；只负责收起窄屏抽屉。
+    if (narrow) setInspectorOpen(false);
   }, [narrow, isTest]);
 
   useEffect(() => {

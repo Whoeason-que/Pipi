@@ -43,10 +43,8 @@ export function SkillsView({
   const skill = library?.skills.find((candidate) => candidate.name === selected) ?? null;
   const skillName = skill?.name ?? null;
 
-  // 从左侧栏选择技能时也直接展开右栏；用户手动关闭后不会反复弹开。
-  useEffect(() => { if (selected) rail.setOpen(true); }, [selected]);
-  // 没有选中项时不在启动阶段留下一块空面板。
-  useEffect(() => { if (!selected) rail.setOpen(false); }, []);
+  // 选中技能时展开右栏，清除选择时收起；用户手动关闭后不会反复弹开。
+  useEffect(() => { rail.setOpen(Boolean(selected)); }, [selected]);
 
   const runVerify = async (name: string) => {
     setWorking(`verify:${name}`);
