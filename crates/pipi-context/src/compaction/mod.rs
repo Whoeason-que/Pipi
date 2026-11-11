@@ -511,7 +511,7 @@ pub fn needs_compaction(messages: &[Message], budget: Budget) -> bool {
 }
 
 /// 从被摘要的消息中提取文件操作（read → 读取清单，write/edit → 修改清单）。
-/// glob 的 `path` 参数是搜索根而非文件，bash 参数不可靠，都跳过。
+/// 搜索类工具的路径参数是搜索根而非文件，bash 参数不可靠，都跳过。
 fn file_operations(messages: &[Message]) -> (Vec<String>, Vec<String>) {
     use std::collections::BTreeSet;
     let mut read = BTreeSet::new();

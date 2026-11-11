@@ -47,7 +47,7 @@ dev-may-depend-on = ["pipi-test-support"]
 may-depend-on = ["pipi-protocol"]
 dev-may-depend-on = ["pipi-test-support"]
 
-# 内置工具实现与 bash 权限策略（端口与权限数据在契约层）。
+# 内置工具实现（端口与权限数据在契约层，执行边界在 pipi-sandbox）。
 # rustix 提供文件工具的 Unix 目录句柄操作，防止路径检查后被符号链接替换。
 [crates.pipi-tools]
 may-depend-on = ["pipi-protocol", "pipi-sandbox"]

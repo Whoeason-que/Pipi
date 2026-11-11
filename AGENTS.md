@@ -45,11 +45,14 @@ crates/pipi-agent/    L5 单会话内核：session（运行守卫 / abort / stee
                       账本恢复 / 压缩编排）/ agent_loop / stats
 crates/pipi-core/     宿主层：runtime（多会话索引、能力装配与调度）/ events /
                       background / commands（**宿主命令表**）/ settings /
-                      tools（Agent 组合工具）；`--features server` 的 Web 宿主
+                      tools（Agent 组合工具）/ approvals / mcp / terminal /
+                      workspace / stats / notifications / remote / forum /
+                      icon_themes；`--features server` 的 Web 宿主
 crates/pipi-test-support/ 测试脚手架（HOME/AV_HOME 串行化改写），仅 dev-dependency
 crates/xtask/        仓库维护任务：cargo xtask arch 按 architecture.toml 检查
                      分层与依赖方向
-crates/pipi/         Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务逻辑
+crates/pipi/         Tauri 薄壳：commands.rs 只做 IPC 转发，不含业务逻辑；
+                      browser/ 是平台浏览器适配器（不是 Agent 工具）
 src/                 React + TypeScript 前端
 ```
 
@@ -271,12 +274,14 @@ src/                 React + TypeScript 前端
   一次，仍截断则 fail-closed 丢弃。手动压缩与自动压缩共用
   `pipi-agent::session` 内部的 `run_compaction`，差别只在手动触发标记（手动跳过阈值预检，
   并且要在首尾补一对 AgentStart/AgentEnd —— 前端靠 agent_end 落 running）。
-  压缩默认**分叉 + 归档**（settings 的 `compaction.forkBeforeCompact` /
-  `archiveOriginal`）：压缩写进新会话、原会话留作完整记录。换会话是**原地替换
+  压缩默认**分叉**（settings 的 `compaction.forkBeforeCompact`）：压缩写进新会话，
+  原会话记录保留。宿主不再自动归档原会话（`archiveOriginal` 只是旧 settings 的
+  兼容字段，两条宿主路径恒传 `archive_original: false`；引擎能力保留给内核测试）。
+  换会话是**原地替换
   writer 与 messages**（`running`/`abort`/`steering` 必须共享同一批对象，重建
   Session 会让停止按钮与 steering 断链），并且**事件身份必须跟着切换**：
   `session-switched` 用旧 id（前端此刻身份还是旧的）、后续事件用新 id；
-  归档只在旧 writer 关闭之后做 —— 否则 Linux 上打开的 fd 会继续往被移动的文件追加。
+  若要归档原会话，只在旧 writer 关闭之后做 —— 否则 Linux 上打开的 fd 会继续往被移动的文件追加。
 - 替换式有两档（`CompactMode::{Summary, Edit}`，手动 `compact_now` 带 `mode`）：
   **摘要**（`LlmSummarize`，注入摘要 + `keep_from_entry`）与 **Agent 编辑**
   （`LlmEdit`，一次性把完整历史编号发给模型，模型只返回

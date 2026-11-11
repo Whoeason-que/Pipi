@@ -16,8 +16,8 @@
 做：
 
 - 会话的**持久化载体**从「一个 JSONL 文件」变为「一个 git 分支」。
-- 一条 entry = 一个 commit；commit 摘要 = 一行人类可读文本；tree 里放该条 entry 的
-  **原文 JSON 行**（与今天落盘的那一行逐字节相同）。
+- 一条 entry = 一个文件；**一轮一个 commit**，该轮新增的全部 entry 落在同一个 tree
+  （文件内容 = 该条 entry 的**原文 JSON 行**，与今天落盘的那一行逐字节相同）。
 - 压缩 = 新建分支（零复制），旧线保留可回溯。
 - 归档 = ref 前缀迁移；分叉 = 从某个 entry 的 commit 起建分支（共享对象，零复制）。
 - 分发 = `git bundle` / `git push` / `git fetch`。
@@ -107,7 +107,7 @@ git log --format='%s  [%(trailers:key=Turn,valueonly)]' # 每行带轮号
 
 - **session id 不变**：仍是 `{millis}-{uuid}`，即分支名后缀。列表的 startedAt 仍取
   millis 前缀，下游（`read_agent_output`、后台任务 owner、供应商缓存路由键）契约不动。
-- 一个 commit = 一条 entry：
+- 一个 commit = 一轮运行（不再是「一条 entry」）：
   - tree：新增 `e/<3 位分片>/<seq:05>-<kind>-<id8>.json`，文件内容 = 今天那一行 JSON 原文。
     路径里的零填充 seq 让「按文件名排序 = 对话顺序」，读回不必依赖 DAG 拓扑。
   - message：一行摘要，`user: …` / `assistant: …` / `toolResult/<name>: …` / `compaction: …` /
@@ -291,14 +291,14 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 兼容（已实测）：
 
 - 行格式零变更：payload 就是今天那一行，1472/1472 逐字节还原。
-- 旧会话零迁移：默认后端仍是 JSONL，`sessions/*.jsonl` 与 `.archive/*.jsonl` 照旧可读；
-  列表可同时覆盖两种载体（按 id 合并）。
+- **git 是唯一写入载体**：未迁移的 `sessions/*.jsonl` 不再被运行时直接读取，只经显式
+  `import_sessions`（幂等、原文件改名 `.jsonl.imported`）迁入 git 后可用。
 - IPC/DTO/前端不需要改；session id 形态不变。
 
 风险：
 
 - **读取路径新增外部依赖**：以前读会话只碰文件，现在要 spawn git。git 不可用时 git 载体
-  的会话读不出来（缓解：默认 JSONL、显式导出命令、payload 仍是明文 JSON，`git cat-file` 可取）。
+  的会话读不出来（缓解：payload 仍是明文 JSON，`git cat-file` 可取）。
 - **删除语义**：删 ref 后对象在 gc 前仍在盘上（`git fsck` 类手段可找回），删除必须紧接着
   `gc --prune=now`。
 - **松散对象/包数量**：逐条 spawn 会产生大量松散对象，必须有 gc 策略与 repo 级互斥。
@@ -316,9 +316,9 @@ SessionLog::commit_point()     → 把缓冲的 N 条组装成 fast-import 输�
 5. 分发：`bundle` → `fetch` → 接收方 `log`/`show` 与源一致。
 6. 缺 git：探测失败时启动会话报明确错误，不产生半 git 半 jsonl 的会话。
 7. 并发：同 Agent 两个会话并行跑，两条分支内容互不串（对齐现有 `concurrent_sessions.rs` 口径）。
-8. 崩溃：写入中途被杀，重启后能读到已提交条目；进行中的那一轮整轮不落盘。
+8. 崩溃：写入中途被杀，重启后能读到已提交条目；未提交的缓冲整段丢失。
    超时 / 中止收尾提交的半配对批次由 `settle_unanswered_tail` 在提交前补齐。
-9. 现有测试：JSONL 后端下全部既有断言不变通过。
+9. 现有测试：git 载体下全部既有断言通过。
 
 ## 10. 实施阶段
 

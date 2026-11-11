@@ -3,7 +3,7 @@ name = "pipi-tools"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Pipi Agent 的工具协议、权限策略与内置工具实现"
+description = "Pipi 的内置工具实现（端口/权限数据在契约层，执行边界在 pipi-sandbox）"
 
 [dependencies]
 async-trait = { workspace = true }

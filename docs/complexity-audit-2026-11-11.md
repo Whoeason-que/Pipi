@@ -94,8 +94,8 @@
 | core | 删纯转发的 `wake_session`（唯一调用点直调 `queue_background_results`） | `runtime/background_wake.rs:151/160-169` | -10 |
 | core | 删 `JobHandle` 的 4 个纯转发方法（`job_id/belongs_to/is_active/snapshot`） | `background/mod.rs:102-125` | -12 |
 | core | 删 `server::AppState.events` 字段（与 `runtime.events()` 同一份，测试已分叉） | `server/mod.rs:42/92-99/312/395` | -5 |
-| core | `pub(crate) mod background;`（crate 外零消费者） | `lib.rs:31` | 0 |
-| core | `McpManager::call` 只测试用且与 `call_scoped` 重复；删重复文档行 | `mcp/manager.rs:298-303` | -12 |
+| core | `pub(crate) mod background;`（**已验证不可行**：集成测试消费，见 §8） | `lib.rs:31` | 0 |
+| core | `McpManager::call` 只测试用且与 `call_scoped` 重复；删重复文档行（**保留 `call`：集成测试入口**） | `mcp/manager.rs:298-303` | -12 |
 | core | `session_search` / `stats` 的 `pub const` 改私有 | `tools/session_search.rs:24-30`、`stats/mod.rs:32` | 0 |
 | agent | 删 `CompactMode::as_str`（零调用） | `context/src/compaction/mod.rs:68-75` | -8 |
 | agent | `run_compaction` 返回 `Result<(), String>`（bool 无消费者） | `agent/src/session/compaction.rs:74-81` | 0 |
@@ -279,3 +279,40 @@
 4. `SkillVersion.reference` / `AgentSkills.declaredByPath` / `agentContractExists` 是否为后续 UI 预留
    ——当前零消费者，删除需同步 wire fixture。
 5. `GitExec` 共享注册表的路径归一化边界（符号链接 vs canonical）需要一次实测。
+
+---
+
+## 8. 实施结果（2026-11-11）
+
+已按批次落地（分支 `codex/agent-workspace-redesign`，未 push）：
+
+- **PR-1 缺陷**：venv 重复层去重 + 回归测试；ChatView/SkillsView 右栏状态；
+  `GroupGuard` 合并并在 `wait()` 后 `disarm`；`GitExec` 符号链接守卫前移到 HEAD 快路径。
+- **批次 A**：7 个 commit（protocol / session / core / agent / venv / tools-mcp-terminal-sandbox / ui）。
+- **PR-3 core 去重**：`HostSession::new`、`ensure_session_loaded`、`SessionModes::snapshot`、
+  `forward_progress`、`configured_model_label`、stats `record_call`、key 解析、
+  压缩装配四件套、`ApprovalOwner::new`/`ApprovalEnvelope::for_request`、`arguments_sha256`。
+- **PR-4 去重**：`ToolContext` 测试夹具收敛到 `pipi-tools/src/test_support.rs`、
+  `mutation_target`、bash spill、edit 行切分、venv 受包含读/技能合并/日期/短哈希/清单遍历、
+  前端 `mergeToolResultEntry`/`upsertEntry`/`session-key`/`storage`。
+- **PR-5 性能**：会话 sink 去掉整缓冲克隆、列表引用化、`cached_catalog` → `Arc`、
+  `agent_stats` 进阻塞线程池、MCP legacy 清理每 Agent 一次、edit 归一化缓存与阻塞读、
+  前端隐藏 Inspector 门控、`agent_end` 投影提前、Intl 缓存、WorkspaceRail memo 依赖。
+- **PR-6 文档**：本文件、AGENTS.md 压缩描述与模块表、`docs/git-session-store.md`
+  commit 粒度/单轨化/崩溃语义、`architecture.toml` 与 `pipi-tools` 描述。
+
+**实施中推翻的审计论断（下一轮不要再照抄）**：
+
+1. `pub(crate) mod background` 不可行：`crates/pipi-core/tests/mcp_stdio.rs:317` 需要
+   `pipi_core::background::{BackgroundTaskManager, ChildAgentRunner}`，保留 `pub mod`。
+2. `McpManager::call` 保留：它仍是集成测试的公开入口（`call_scoped` 是内部串行实现）；
+   `ServerInfo` 本轮未删（是否接入诊断面板待定）。
+3. 「`approval_id` 先生成再被 broker 覆盖」不能改：`audit_review` 在 `broker.request`
+   之前就用 `request.approval_id` 记账，构造时必须已有 id。
+4. `SessionModes::revision` 在 `snapshot` 合并后已无调用点，已删除。
+5. `TerminalManager` 的 `Default` 已恢复：删除后 `clippy::new_without_default` 报警，
+   保留 5 行样板换来干净的 clippy。
+
+**未做 / 待拍板**：`archiveOriginal` 字段去留、`TurnStart/TurnEnd` 宿主过滤、dev-mock
+15 个未实现命令、弹窗/空态/时间格式化统一、`ipc-wire.json` 补 11 类结果、
+后台任务文件句柄复用、`query` 的 250ms sleep、`GitExec` 共享 `Arc<GitExec>` 注册表。
