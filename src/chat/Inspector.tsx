@@ -166,21 +166,27 @@ export default function Inspector({
     }
   };
 
+  // 这三个投影只被「状态」面板消费；其他 tab（以及收起的右栏）不必为每条
+  // 流式 entries 反复全量扫描。
+  const statePanelVisible = tab === "state" && !hidden;
+
   const lastTool = useMemo(() => {
+    if (!statePanelVisible) return null;
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       if (entries[index].role === "toolResult") return entries[index];
     }
     return null;
-  }, [entries]);
+  }, [entries, statePanelVisible]);
 
   // 「当前工具」只在真的有工具在跑时才算数；否则只显示最近一次工具。
   const runningTool = useMemo(() => {
+    if (!statePanelVisible) return null;
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const entry = entries[index];
       if (entry.role === "toolResult" && entry.toolRunning) return entry;
     }
     return null;
-  }, [entries]);
+  }, [entries, statePanelVisible]);
 
   const handleTabKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
@@ -194,6 +200,7 @@ export default function Inspector({
   };
 
   const toolSummary = useMemo(() => {
+    if (!statePanelVisible) return [];
     const map = new Map<
       string,
       { count: number; errors: number; running: number }
@@ -210,7 +217,7 @@ export default function Inspector({
     return [...map.entries()]
       .map(([name, value]) => ({ name, ...value }))
       .sort((left, right) => right.count - left.count);
-  }, [entries]);
+  }, [entries, statePanelVisible]);
 
   const maxToolCount = toolSummary.reduce(
     (max, item) => Math.max(max, item.count),
@@ -601,7 +608,7 @@ export default function Inspector({
           role="tabpanel"
           aria-labelledby="itab-files"
         >
-          <SessionFilesPanel key={JSON.stringify([agent.name, sessionId])} entries={entries} onOpenFile={onOpenFile} />
+          <SessionFilesPanel key={JSON.stringify([agent.name, sessionId])} entries={entries} active={tab === "files" && !hidden} onOpenFile={onOpenFile} />
         </div>
 
         <div

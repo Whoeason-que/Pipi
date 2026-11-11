@@ -66,10 +66,19 @@ export function emptyDay(dayStart: number): StatsDayView {
   };
 }
 
+// Intl.DateTimeFormat 构造代价高；按 locale 缓存，日期格式化复用同一实例。
+const dayFormatters = new Map<string, Intl.DateTimeFormat>();
+
 export function dayLabel(dayStart: number, locale: string): string {
-  return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(dayStart);
+  const tag = locale === "zh" ? "zh-CN" : "en";
+  let formatter = dayFormatters.get(tag);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(tag, {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+    dayFormatters.set(tag, formatter);
+  }
+  return formatter.format(dayStart);
 }

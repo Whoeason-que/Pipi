@@ -411,17 +411,20 @@ function sameImages(left: UserImage[] = [], right: UserImage[] = []): boolean {
   return left.length === right.length && left.every((image, index) => image.data === right[index].data && image.mimeType === right[index].mimeType);
 }
 
-function sameMessage(left: ChatEntry, message: MessageView): boolean {
-  return left.role === message.role
-    && (message.role !== "assistant" || left.timestamp == null || message.timestamp == null
-      || left.timestamp === message.timestamp)
-    && left.toolCallId === (message.toolCallId ?? firstToolCallId(message))
-    && left.text === messageText(message)
-    && sameImages(left.images, messageFields(message).images)
-    && left.thinking === messageThinking(message)
-    && left.stopReason === message.stopReason
-    && left.errorMessage === (message.errorMessage ?? undefined)
-    && left.errorKind === (message.errorKind ?? undefined);
+/** 消息投影：同一条消息在去重比较中只计算一次，避免逐条目重建文本与图片。 */
+type MessageProjection = ReturnType<typeof messageFields>;
+
+function sameMessage(left: ChatEntry, expected: MessageProjection): boolean {
+  return left.role === expected.role
+    && (expected.role !== "assistant" || left.timestamp == null || expected.timestamp == null
+      || left.timestamp === expected.timestamp)
+    && left.toolCallId === expected.toolCallId
+    && left.text === expected.text
+    && sameImages(left.images, expected.images)
+    && left.thinking === expected.thinking
+    && left.stopReason === expected.stopReason
+    && left.errorMessage === expected.errorMessage
+    && left.errorKind === expected.errorKind;
 }
 
 function updateAssistantEntry(entry: ChatEntry, message: MessageView, streaming: boolean): ChatEntry {
@@ -696,7 +699,8 @@ function finishRunningEntries(entries: ChatEntry[]): ChatEntry[] {
  */
 function applyCompletedMessage(state: ChatState, message: MessageView, key: string): ChatState {
   if (message.role === "assistant") {
-    if (state.entries.some((entry) => entry.key !== state.activeAssistantKey && sameMessage(entry, message))) {
+    const expected = messageFields(message);
+    if (state.entries.some((entry) => entry.key !== state.activeAssistantKey && sameMessage(entry, expected))) {
       return state;
     }
     const assistantKey = state.activeAssistantKey ?? key;
@@ -718,7 +722,8 @@ function applyCompletedMessage(state: ChatState, message: MessageView, key: stri
   const merged = mergeToolResultEntry(state, message);
   if (merged) return merged;
 
-  if (state.entries.some((entry) => sameMessage(entry, message))) return state;
+  const expected = messageFields(message);
+  if (state.entries.some((entry) => sameMessage(entry, expected))) return state;
   return {
     ...state,
     entries: [...state.entries, entryFromMessage(message, key, true)],
@@ -769,19 +774,30 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           // 结算掉；把运行循环带回来的完整消息先合并，再结束 transient 状态。
           const messages = event.messages ?? [];
           const lastAssistant = messages.map(message => message.role).lastIndexOf("assistant");
+          // active 槽位只在补回早期消息时悬挂；索引随键变化局部维护，避免每条
+          // 消息都对全表 findIndex。
+          let activeKey = state.activeAssistantKey;
+          let activeIndex = activeKey == null ? -1 : state.entries.findIndex(entry => entry.key === activeKey);
           const recovered = messages.reduce((current, message, index) => {
-            const activeIndex = current.entries.findIndex(entry => entry.key === current.activeAssistantKey);
-            const active = current.entries[activeIndex];
+            if (current.activeAssistantKey !== activeKey) {
+              activeKey = current.activeAssistantKey;
+              activeIndex = activeKey == null ? -1 : current.entries.findIndex(entry => entry.key === activeKey);
+            }
+            const active = activeIndex >= 0 ? current.entries[activeIndex] : undefined;
             // 补回漏掉的早期消息时，不能把正在流式显示的末条回复槽位消耗掉。
             // 新宿主时间戳贯穿消息生命周期；旧宿主无稳定时间戳时由末条助手兜底。
             if (active && index !== lastAssistant
               && (active.timestamp == null || message.timestamp !== active.timestamp)) {
               const next = applyCompletedMessage({ ...current, activeAssistantKey: null }, message, `${action.key}-rec-${index}`);
-              const entries = next.entries.length > current.entries.length
-                ? [...next.entries.slice(0, activeIndex), ...next.entries.slice(current.entries.length),
-                    ...next.entries.slice(activeIndex, current.entries.length)]
-                : next.entries;
-              return { ...next, entries, activeAssistantKey: current.activeAssistantKey };
+              const added = next.entries.length - current.entries.length;
+              if (added > 0) {
+                const entries = [...next.entries.slice(0, activeIndex), ...next.entries.slice(current.entries.length),
+                  ...next.entries.slice(activeIndex, current.entries.length)];
+                // 新条目插在 active 槽位之前，active 条目整体后移。
+                activeIndex += added;
+                return { ...next, entries, activeAssistantKey: current.activeAssistantKey };
+              }
+              return { ...next, entries: next.entries, activeAssistantKey: current.activeAssistantKey };
             }
             return applyCompletedMessage(current, message, `${action.key}-rec-${index}`);
           }, state);
@@ -798,7 +814,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           if (message.role !== "assistant") {
             const merged = mergeToolResultEntry(state, message);
             if (merged) return merged;
-            if (state.entries.some((entry) => sameMessage(entry, message))) return state;
+            const expected = messageFields(message);
+            if (state.entries.some((entry) => sameMessage(entry, expected))) return state;
             return {
               ...state,
               entries: [...state.entries, entryFromMessage(message, action.key, true)],

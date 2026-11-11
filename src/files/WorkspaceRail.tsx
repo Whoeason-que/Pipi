@@ -35,7 +35,10 @@ export function WorkspaceRail({
 }) {
   const clipboard = useCopyFeedback();
   const { t } = useI18n();
-  const parsed = useMemo(() => source?.type === "git" ? parsePatch(normalizePatch(source.diff.patch)) : null, [source]);
+  // 主区每次 render 都会新建 source 对象；memo 依赖稳定的 patch 字符串，
+  // 拖拽栏宽等无关重渲染不再重算 diff 解析。
+  const gitPatch = source?.type === "git" ? source.diff.patch : null;
+  const parsed = useMemo(() => gitPatch === null ? null : parsePatch(normalizePatch(gitPatch)), [gitPatch]);
   const status = selectedPath ? changes?.files.find((file) => file.path === selectedPath) : undefined;
   const summary = summarizeChanges(changes?.files ?? []);
   const title = mode === "files" ? t("files.fileInfo") : t("files.gitChanges");

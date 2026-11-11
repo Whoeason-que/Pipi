@@ -6,10 +6,12 @@ import { FilePreview, type PreviewSource } from "./FilePreview";
 import { toolFiles } from "./model";
 
 /** 会话只拥有操作记录；磁盘当前内容交由独立 File 页面读取。 */
-export function SessionFilesPanel({ entries, onOpenFile }: { entries: ChatEntry[]; onOpenFile?: (path: string) => void }) {
+export function SessionFilesPanel({ entries, onOpenFile, active }: { entries: ChatEntry[]; onOpenFile?: (path: string) => void; active: boolean }) {
   const { t } = useI18n();
-  const files = useMemo(() => toolFiles(entries), [entries]);
+  // 面板不可见时不扫描 entries；组件保持挂载，operationId 选择状态不丢失。
+  const files = useMemo(() => (active ? toolFiles(entries) : []), [entries, active]);
   const [operationId, setOperationId] = useState<string | null>(null);
+  if (!active) return null;
   let source: PreviewSource | null = null;
   for (const file of files) {
     const operation = file.operations.find(item => item.id === operationId);
