@@ -236,6 +236,47 @@ impl Aggregator {
         }
     }
 
+    /// 记一次模型调用（助手回复或压缩摘要的用量）：估价一次，再把同一份结果
+    /// 按固定顺序累加到会话行、总计、当天与模型四个维度。
+    ///
+    /// `model` 是这条记录要记入「模型」维度的模型（`None` = 不记模型维度）；
+    /// `last_model` 只在缺少 `model` 时用于估价 —— 压缩条目没有自己的模型，
+    /// 估价借用同会话最近一次助手调用的模型，累加目标由调用点显式给出。
+    fn record_call(
+        &mut self,
+        row: &mut SessionStatsRow,
+        day_start: u64,
+        model: Option<&str>,
+        usage: &pipi_protocol::Usage,
+        last_model: Option<&str>,
+    ) {
+        let model = model.filter(|model| !model.is_empty());
+        let pricing_model = model.or(last_model).unwrap_or("");
+        let cost = self.pricing.lookup(pricing_model).map(|price| {
+            price.estimate(
+                usage.input,
+                usage.output,
+                usage.cache_read,
+                usage.cache_write,
+            )
+        });
+        row.add_call(usage, cost);
+        self.stats.totals.add_call(usage, cost);
+        self.days
+            .entry(day_start)
+            .or_default()
+            .add_call(usage, cost);
+        if let Some(model) = model {
+            self.models
+                .entry(model.to_string())
+                .or_insert_with(|| ModelStats {
+                    model: model.to_string(),
+                    ..Default::default()
+                })
+                .add_call(usage, cost);
+        }
+    }
+
     fn add_session(
         &mut self,
         summary: &SessionSummary,
@@ -285,34 +326,15 @@ impl Aggregator {
                             last_model = Some(model.clone());
                             row.model = Some(model.clone());
                         }
-                        let pricing_model = if model.is_empty() {
-                            last_model.as_deref().unwrap_or("")
-                        } else {
-                            model.as_str()
-                        };
-                        let call_cost = self.pricing.lookup(pricing_model).map(|price| {
-                            price.estimate(
-                                usage.input,
-                                usage.output,
-                                usage.cache_read,
-                                usage.cache_write,
-                            )
-                        });
-                        row.add_call(usage, call_cost);
-                        self.stats.totals.add_call(usage, call_cost);
-                        self.days
-                            .entry(day_start)
-                            .or_default()
-                            .add_call(usage, call_cost);
-                        if !model.is_empty() {
-                            self.models
-                                .entry(model.clone())
-                                .or_insert_with(|| ModelStats {
-                                    model: model.clone(),
-                                    ..Default::default()
-                                })
-                                .add_call(usage, call_cost);
-                        }
+                        // 条目自带模型进「模型」维度；缺模型时只借 last_model 估价。
+                        let attribution = (!model.is_empty()).then_some(model.as_str());
+                        self.record_call(
+                            &mut row,
+                            day_start,
+                            attribution,
+                            usage,
+                            last_model.as_deref(),
+                        );
                         if let Some(ms) = duration_ms {
                             self.stats.totals.generation_ms += ms;
                         }
@@ -361,30 +383,9 @@ impl Aggregator {
                     row.compactions += 1;
                     self.stats.totals.compactions += 1;
                     if let Some(usage) = usage {
-                        let model = last_model.as_deref().unwrap_or("");
-                        let call_cost = self.pricing.lookup(model).map(|price| {
-                            price.estimate(
-                                usage.input,
-                                usage.output,
-                                usage.cache_read,
-                                usage.cache_write,
-                            )
-                        });
-                        row.add_call(usage, call_cost);
-                        self.stats.totals.add_call(usage, call_cost);
-                        self.days
-                            .entry(day_start)
-                            .or_default()
-                            .add_call(usage, call_cost);
-                        if !model.is_empty() {
-                            self.models
-                                .entry(model.to_string())
-                                .or_insert_with(|| ModelStats {
-                                    model: model.to_string(),
-                                    ..Default::default()
-                                })
-                                .add_call(usage, call_cost);
-                        }
+                        // 压缩条目没有自己的模型：沿用同会话最近一次助手调用的模型。
+                        let model = last_model.as_deref();
+                        self.record_call(&mut row, day_start, model, usage, model);
                     }
                     recorded = true;
                     touched = true;
