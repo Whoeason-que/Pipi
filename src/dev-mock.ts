@@ -1,6 +1,6 @@
 // 仅开发环境生效：在普通浏览器（无 Tauri 后端）里提供最小 invoke 桩，
 // 让前端 UI 可以脱离桌面壳独立开发调试。Tauri 生产构建不受影响。
-import type { AgentDefinition, Settings, RemoteAccessStatus, PromptQueueSnapshot, SessionCommitView } from "./types";
+import type { AgentDefinition, Settings, RemoteAccessStatus, PromptQueueSnapshot, SessionCommitView, PermissionMode } from "./types";
 import type { ModelCatalog } from "./catalog";
 import { sessionKey } from "./session-key.ts";
 import { readStored } from "./storage.ts";
@@ -234,6 +234,11 @@ interface DemoConversation {
   queue: PromptQueueSnapshot;
   queuedImages?: Map<string, Array<{ data: string; mimeType: string }>>;
   queueTimer?: ReturnType<typeof setTimeout>;
+  /** 下一轮生效的会话权限；null = 跟随 Agent 默认。 */
+  permissionMode: PermissionMode | null;
+  /** 当前这一轮实际使用的权限（运行结束后清空，与核心的 session_info 一致）。 */
+  activePermissionMode: PermissionMode | null;
+  permissionRevision: number;
 }
 
 const demoConversations = new Map<string, DemoConversation>();
@@ -255,6 +260,9 @@ function openConversation(agentName: string, sessionId: string): DemoConversatio
     runId: 0,
     runTimer: null,
     queue: { revision: 0, paused: false, error: null, messages: [] },
+    permissionMode: null,
+    activePermissionMode: null,
+    permissionRevision: 0,
   };
   demoConversations.set(key, conversation);
   return conversation;
@@ -283,6 +291,9 @@ function createTestConversation(agentName: string): DemoConversation {
     runId: 0,
     runTimer: null,
     queue: { revision: 0, paused: false, error: null, messages: [] },
+    permissionMode: null,
+    activePermissionMode: null,
+    permissionRevision: 0,
   };
   demoConversations.set(sessionKey(agentName, sessionId), conversation);
   return conversation;
@@ -297,6 +308,20 @@ function testConversationOf(agentName: string): DemoConversation | undefined {
 /** 取一条已打开的会话（没打开返回 undefined）。 */
 function conversationOf(agentName: string, sessionId: string): DemoConversation | undefined {
   return demoConversations.get(sessionKey(agentName, sessionId));
+}
+
+/** SessionInfo 的演示同构：active 只在运行中暴露，与核心 session_info_of 一致。 */
+function demoSessionInfo(conversation: DemoConversation) {
+  return {
+    agentName: conversation.agentName,
+    sessionId: conversation.sessionId,
+    temporary: conversation.temporary,
+    running: conversation.running,
+    runId: conversation.runId,
+    permissionMode: conversation.permissionMode,
+    activePermissionMode: conversation.running ? conversation.activePermissionMode : null,
+    permissionRevision: conversation.permissionRevision,
+  };
 }
 
 /** 新建一条会话（还没发消息的「新会话」也算）。 */
@@ -371,6 +396,8 @@ function startDemoRun(conversation: DemoConversation, prompt: string, images: Ar
   if (conversation.runTimer) clearTimeout(conversation.runTimer);
   conversation.runId += 1;
   conversation.running = true;
+  // 与核心同构：每轮开跑时把当前权限快照成 active，运行中再改只影响下一轮。
+  conversation.activePermissionMode = conversation.permissionMode;
   if (!conversation.temporary) {
     state.titles.set(
       conversation.sessionId,
@@ -529,6 +556,7 @@ function startDemoRun(conversation: DemoConversation, prompt: string, images: Ar
     if (stepIndex >= steps.length) {
       conversation.runTimer = null;
       conversation.running = false;
+      conversation.activePermissionMode = null;
       scheduleDemoQueue(conversation);
       return;
     }
@@ -1021,13 +1049,7 @@ export function installDevMock(): void {
           const sessionId = String(args.sessionId ?? "");
           const conversation = openConversation(agentName, sessionId);
           return Promise.resolve({
-            info: {
-              agentName,
-              sessionId: conversation.sessionId,
-              temporary: conversation.temporary,
-              running: conversation.running,
-              runId: conversation.runId,
-            },
+            info: demoSessionInfo(conversation),
             queue: { ...conversation.queue, messages: [...conversation.queue.messages] },
             messages: conversation.messages ?? [],
             stats: {
@@ -1048,29 +1070,11 @@ export function installDevMock(): void {
         case "session_info": {
           const agentName = String(args.agentName ?? demoAgent.name);
           const conversation = conversationOf(agentName, String(args.sessionId ?? ""));
-          return Promise.resolve(
-            conversation
-              ? {
-                  agentName,
-                  sessionId: conversation.sessionId,
-                  temporary: conversation.temporary,
-                  running: conversation.running,
-                  runId: conversation.runId,
-                }
-              : null,
-          );
+          return Promise.resolve(conversation ? demoSessionInfo(conversation) : null);
         }
         // 所有打开中的会话（核心 session_infos 的同构桩：同一个 Agent 可以有多条）
         case "session_infos":
-          return Promise.resolve(
-            [...demoConversations.values()].map((conversation) => ({
-              agentName: conversation.agentName,
-              sessionId: conversation.sessionId,
-              temporary: conversation.temporary,
-              running: conversation.running,
-              runId: conversation.runId,
-            })),
-          );
+          return Promise.resolve([...demoConversations.values()].map(demoSessionInfo));
         case "session_history":
           return Promise.resolve(demoSessionHistory(String(args.sessionId ?? "")));
         case "open_workbench_session": {
@@ -1081,23 +1085,10 @@ export function installDevMock(): void {
               return Promise.reject(new Error("A temporary test is still running. Stop it before clearing or saving settings"));
             }
             if (current) demoConversations.delete(sessionKey(agentName, current.sessionId));
-            const conversation = createTestConversation(agentName);
-            return Promise.resolve({
-              agentName,
-              sessionId: conversation.sessionId,
-              temporary: true,
-              running: false,
-              runId: 0,
-            });
+            return Promise.resolve(demoSessionInfo(createTestConversation(agentName)));
           }
           const conversation = testConversationOf(agentName) ?? createTestConversation(agentName);
-          return Promise.resolve({
-            agentName,
-            sessionId: conversation.sessionId,
-            temporary: true,
-            running: conversation.running,
-            runId: conversation.runId,
-          });
+          return Promise.resolve(demoSessionInfo(conversation));
         }
         case "session_messages": {
           const conversation = conversationOf(
@@ -1172,8 +1163,7 @@ export function installDevMock(): void {
         case "create_session": {
           const agentName = String(args.agentName ?? demoAgent.name);
           const conversation = createConversation(agentName);
-          return Promise.resolve({ agentName, sessionId: conversation.sessionId,
-            temporary: false, running: false, runId: conversation.runId });
+          return Promise.resolve(demoSessionInfo(conversation));
         }
         case "send_prompt": {
           const agentName = String(args.agentName ?? demoAgent.name);
@@ -1192,13 +1182,7 @@ export function installDevMock(): void {
           }
           startDemoRun(conversation, String(args.prompt ?? ""), Array.isArray(args.images) ? args.images as Array<{ data: string; mimeType: string }> : []);
           // 与核心同构：响应返回这条会话的权威身份
-          return Promise.resolve({
-            agentName,
-            sessionId: conversation.sessionId,
-            temporary: conversation.temporary,
-            running: conversation.running,
-            runId: conversation.runId,
-          });
+          return Promise.resolve(demoSessionInfo(conversation));
         }
         case "compact_now":
           // 演示模式没有真实会话可压：返回拒绝的 Promise，让 UI 的错误通路走到
@@ -1251,7 +1235,23 @@ export function installDevMock(): void {
           conversation.runTimer = null;
           if (conversation.running) emitDemoAgentEvent(conversation, { type: "agent_end" });
           conversation.running = false;
+          conversation.activePermissionMode = null;
           return Promise.resolve(null);
+        }
+        case "set_session_permission_mode": {
+          const conversation = conversationOf(
+            String(args.agentName ?? demoAgent.name),
+            String(args.sessionId ?? ""),
+          );
+          if (!conversation) return Promise.reject(new Error("Session is not open"));
+          const mode = (args.mode ?? null) as PermissionMode | null;
+          if (mode === "full-access" && !args.confirmFullAccess) {
+            return Promise.reject(new Error("Full access requires explicit confirmation"));
+          }
+          conversation.permissionMode = mode;
+          conversation.permissionRevision += 1;
+          emitDevEvent("session-permission", demoSessionInfo(conversation));
+          return Promise.resolve(demoSessionInfo(conversation));
         }
         case "set_session_model":
           return Promise.resolve(null);
