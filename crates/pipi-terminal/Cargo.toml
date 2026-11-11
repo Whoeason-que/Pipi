@@ -1,0 +1,19 @@
+[package]
+name = "pipi-terminal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "User terminal PTY lifecycle: bounded output buffer, resize and process-group cleanup"
+
+[dependencies]
+portable-pty = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+uuid = { workspace = true }
+
+# Unix process-group cleanup (killpg). portable-pty handles the PTY itself.
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time"] }

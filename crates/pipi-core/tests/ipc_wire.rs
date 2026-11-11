@@ -38,6 +38,8 @@ fn shared_fixture_preserves_optional_fields_message_roles_and_all_host_event_env
     roundtrip::<Vec<Message>>(&wire["messages"]);
     roundtrip::<pipi_core::icon_themes::IconThemeList>(&wire["iconThemeList"]);
     roundtrip::<BackgroundTaskSnapshot>(&wire["background"]);
+    roundtrip::<pipi_terminal::TerminalSnapshot>(&wire["terminal"]);
+    roundtrip::<pipi_core::terminal::TerminalReadView>(&wire["terminalRead"]);
     roundtrip::<SkillLibrary>(&wire["skillLibrary"]);
     roundtrip::<AgentSkills>(&wire["agentSkills"]);
     let stats = SessionStats {

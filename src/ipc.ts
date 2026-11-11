@@ -25,6 +25,18 @@ export interface BrowserViewState {
 }
 export interface BrowserBounds { x: number; y: number; width: number; height: number }
 
+/** One user shell, owned by a canonical workspace directory. */
+export interface TerminalSnapshot {
+  terminalId: string; workspace: string; shell: string; cols: number; rows: number;
+  running: boolean; exitCode?: number | null; createdAt: number;
+}
+/** PTY output is base64 so a UTF-8 sequence may split across chunks safely. */
+export interface TerminalChunk { seq: number; data: string }
+export interface TerminalRead {
+  chunks: TerminalChunk[]; nextSeq: number; truncated: boolean;
+  running: boolean; exitCode?: number | null;
+}
+
 export interface CommandMap {
   list_agents: { args: { archived?: boolean | null }; result: AgentDefinition[] };
   model_catalog: { args: { refresh?: boolean | null }; result: ModelCatalog };
@@ -67,6 +79,12 @@ export interface CommandMap {
   new_session: { args: { agentName: string }; result: void };
   create_session: { args: { agentName: string }; result: SessionInfoView };
   browser_view: { args: { agentName: string; sessionId: string; action: string; url?: string | null; bounds?: BrowserBounds | null }; result: BrowserViewState };
+  list_terminals: { args: { agentName: string; workspace?: string | null }; result: TerminalSnapshot[] };
+  open_terminal: { args: { agentName: string; workspace?: string | null; cols?: number | null; rows?: number | null }; result: TerminalSnapshot };
+  read_terminal: { args: { agentName: string; workspace?: string | null; terminalId: string; afterSeq: number; maxBytes?: number | null; waitMs?: number | null }; result: TerminalRead };
+  write_terminal: { args: { agentName: string; workspace?: string | null; terminalId: string; data: string }; result: void };
+  resize_terminal: { args: { agentName: string; workspace?: string | null; terminalId: string; cols: number; rows: number }; result: void };
+  close_terminal: { args: { agentName: string; workspace?: string | null; terminalId: string }; result: void };
   send_prompt: { args: { agentName: string; sessionId?: string | null; prompt: string; model?: ModelConfig | null; images?: UserImage[] | null }; result: SessionInfoView };
   compact_now: {
     args: { agentName: string; sessionId: string; mode?: string | null };

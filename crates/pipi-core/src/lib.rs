@@ -9,6 +9,7 @@
 //! | [`events`] | 宿主事件协议（叶子：runtime 依赖它） |
 //! | [`runtime`] | 会话槽、运行编排、压缩重键、会话载体装配点 |
 //! | [`background`] | 后台任务托管（shell / child Agent） |
+//! | [`terminal`] | 用户终端装配：工作区/shell/env 解析与 base64 wire |
 //! | [`mcp`] | MCP 服务器接入（连接缓存、工具适配、清单快照） |
 //! | [`commands`] | 宿主命令表（参数结构 + 实现 + dispatch） |
 //! | [`settings`] | `~/.pipi/settings.json`（供应商、压缩、重试策略） |
@@ -36,6 +37,7 @@ pub mod remote;
 pub mod runtime;
 pub mod settings;
 pub mod stats;
+pub mod terminal;
 pub mod tools;
 pub mod workspace;
 

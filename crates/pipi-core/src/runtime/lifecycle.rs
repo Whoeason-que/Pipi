@@ -42,6 +42,7 @@ impl RuntimeState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             shutting_down: Arc::new(AtomicBool::new(false)),
             background,
+            terminals: pipi_terminal::TerminalManager::new(),
             approvals: crate::approvals::ApprovalBroker::default(),
             permission_modes: permission::SessionModes::default(),
             mcp,
@@ -55,6 +56,11 @@ impl RuntimeState {
 
     pub fn events(&self) -> &crate::events::EventHub {
         &self.events
+    }
+
+    /// 用户终端注册表（按 canonical workspace 分桶）。
+    pub fn terminals(&self) -> &pipi_terminal::TerminalManager {
+        &self.terminals
     }
 
     pub fn attach_browser(
@@ -298,6 +304,7 @@ impl RuntimeState {
     /// 仍有托管后台任务的会话必须先停止/终止。占用检查与目录移动在同一把
     /// sessions 锁内，避免检查后被并发打开抢跑。
     pub fn archive_agent(&self, name: &str) -> Result<(), String> {
+        let workspace = Self::canonical_agent_workspace(name);
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         // 空闲正式会话的 writer 也在这里释放，避免归档后仍有打开的文件句柄；
         // 临时测试同样一并清掉。前端不需要先退出会话界面。
@@ -309,12 +316,16 @@ impl RuntimeState {
         if let Some(browser) = self.browser.get() {
             browser.close_agent(name);
         }
+        if let Some(workspace) = workspace {
+            self.close_terminals_if_unused(&workspace);
+        }
         Ok(())
     }
 
     /// 彻底删除 Agent。空闲会话会随操作自动释放；运行中或仍有托管后台任务的
     /// 会话必须先停止/终止；不可恢复。
     pub fn delete_agent(&self, name: &str) -> Result<(), String> {
+        let workspace = Self::canonical_agent_workspace(name);
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         // 与归档相同：先释放所有空闲会话槽，再做不可逆删除。
         self.detach_agent_sessions_locked(&mut sessions, name, "deleting")?;
@@ -324,7 +335,35 @@ impl RuntimeState {
         if let Some(browser) = self.browser.get() {
             browser.close_agent(name);
         }
+        if let Some(workspace) = workspace {
+            self.close_terminals_if_unused(&workspace);
+        }
         Ok(())
+    }
+
+    fn canonical_agent_workspace(agent_name: &str) -> Option<std::path::PathBuf> {
+        agents::load_agent(agent_name)
+            .ok()?
+            .resolve_workspace()?
+            .canonicalize()
+            .ok()
+    }
+
+    /// 归档/删除 Agent 后收掉它的终端 —— 但只在没有其他 Agent 仍指向该目录
+    /// 时。共享工作区里的 shell 属于所有使用者，不能因为其中一个 Agent 消失
+    /// 就被杀。列表失败时保守地不关闭。
+    fn close_terminals_if_unused(&self, workspace: &std::path::Path) {
+        let still_used = agents::list_agents()
+            .map(|list| {
+                list.iter()
+                    .filter_map(|definition| definition.resolve_workspace())
+                    .filter_map(|path| path.canonicalize().ok())
+                    .any(|path| path == workspace)
+            })
+            .unwrap_or(true);
+        if !still_used {
+            self.terminals.close_workspace(workspace);
+        }
     }
 
     /// 保存 Agent 定义时，临时测试必须空闲；成功后丢弃旧测试上下文，确保下一轮

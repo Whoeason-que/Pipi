@@ -20,6 +20,7 @@ pipi-agent = { workspace = true }
 pipi-core = { workspace = true, features = ["server"] }
 pipi-provider = { workspace = true }
 pipi-protocol = { workspace = true }
+pipi-terminal = { workspace = true }
 pipi-venv = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -68,6 +68,13 @@ may-depend-on = []
 forbid = ["reqwest", "rig"]
 
 # 模型面：rig 的 HTTP/SSE 适配与错误分类（不做重发）+ models.dev 模型目录。
+# 用户终端：PTY 生命周期、输出环形缓冲与进程组收尾。
+# 只做终端域，不认识 Agent / 权限 / 沙箱 / 工作区布局；装配（shell、cwd、env）
+# 与工作区解析在宿主。用户终端是 user-controlled spawn，不经过沙箱。
+[crates.pipi-terminal]
+may-depend-on = []
+forbid = ["reqwest", "rig"]
+
 [crates.pipi-provider]
 may-depend-on = ["pipi-protocol"]
 
@@ -92,6 +99,7 @@ may-depend-on = [
     "pipi-forum",
     "pipi-mcp",
     "pipi-protocol",
+    "pipi-terminal",
     "pipi-provider",
     "pipi-sandbox",
     "pipi-session",
@@ -116,5 +124,6 @@ may-depend-on = [
     "pipi-core",
     "pipi-provider",
     "pipi-protocol",
+    "pipi-terminal",
     "pipi-venv",
 ]

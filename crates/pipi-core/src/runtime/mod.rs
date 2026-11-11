@@ -80,6 +80,9 @@ pub struct RuntimeState {
     sessions: Arc<Mutex<HashMap<SessionKey, HostSession>>>,
     shutting_down: Arc<AtomicBool>,
     background: BackgroundTaskManager,
+    /// 用户终端按 canonical workspace 归属，与会话槽无关：切换会话或压缩换
+    /// 会话都不影响它们，只有工作区不再被任何 Agent 使用或宿主退出时才收尾。
+    terminals: pipi_terminal::TerminalManager,
     approvals: crate::approvals::ApprovalBroker,
     permission_modes: permission::SessionModes,
     /// MCP 服务器的连接与工具清单（跨轮次存活；连接在后台建立）。

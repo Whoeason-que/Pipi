@@ -60,6 +60,10 @@ use pipi_core::commands::{
     VerifyStoreSkillsArgs, WriteAgentFileArgs,
 };
 use pipi_core::commands::{
+    CloseTerminalArgs, ListTerminalsArgs, OpenTerminalArgs, ReadTerminalArgs, ResizeTerminalArgs,
+    WriteTerminalArgs,
+};
+use pipi_core::commands::{
     ListWorkspaceFilesArgs, PreviewWorkspaceFileArgs, WorkspaceChangesArgs, WorkspaceDiffArgs,
 };
 use pipi_core::runtime::RuntimeState;
@@ -316,4 +320,54 @@ pub async fn set_icon_theme(
     args: InvokeArgs<SetIconThemeArgs>,
 ) -> Result<Option<serde_json::Value>, String> {
     pipi_core::commands::set_icon_theme(args.0).await
+}
+
+// ============ 用户终端 ============
+
+#[tauri::command]
+pub fn list_terminals(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<ListTerminalsArgs>,
+) -> Result<Vec<pipi_terminal::TerminalSnapshot>, String> {
+    pipi_core::commands::list_terminals(&state, args.0)
+}
+
+#[tauri::command]
+pub async fn open_terminal(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<OpenTerminalArgs>,
+) -> Result<pipi_terminal::TerminalSnapshot, String> {
+    pipi_core::commands::open_terminal(&state, args.0).await
+}
+
+#[tauri::command]
+pub async fn read_terminal(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<ReadTerminalArgs>,
+) -> Result<pipi_core::terminal::TerminalReadView, String> {
+    pipi_core::commands::read_terminal(&state, args.0).await
+}
+
+#[tauri::command]
+pub async fn write_terminal(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<WriteTerminalArgs>,
+) -> Result<(), String> {
+    pipi_core::commands::write_terminal(&state, args.0).await
+}
+
+#[tauri::command]
+pub fn resize_terminal(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<ResizeTerminalArgs>,
+) -> Result<(), String> {
+    pipi_core::commands::resize_terminal(&state, args.0)
+}
+
+#[tauri::command]
+pub fn close_terminal(
+    state: State<'_, Arc<RuntimeState>>,
+    args: InvokeArgs<CloseTerminalArgs>,
+) -> Result<(), String> {
+    pipi_core::commands::close_terminal(&state, args.0)
 }

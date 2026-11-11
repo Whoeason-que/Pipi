@@ -28,6 +28,7 @@ pipi-protocol = { workspace = true }
 pipi-provider = { workspace = true }
 pipi-sandbox = { workspace = true }
 pipi-session = { workspace = true }
+pipi-terminal = { workspace = true }
 pipi-tools = { workspace = true }
 pipi-venv = { workspace = true }
 async-trait = { workspace = true }

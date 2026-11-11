@@ -25,6 +25,7 @@ use pipi_protocol::permissions::PermissionsConfig;
 use pipi_protocol::session::{SessionCommit, SessionImportReport, SessionSummary};
 use pipi_protocol::{BackgroundTaskSnapshot, Message, Model};
 use pipi_provider::catalog::ModelCatalog;
+use pipi_terminal::TerminalSnapshot;
 use pipi_venv::agents::{self, AgentDefinition, AgentEditableFiles};
 use pipi_venv::skills::{
     AgentSkills, SkillInstallReport, SkillLibrary, SkillSyncReport, SkillUsage, SkillVerify,
@@ -32,6 +33,7 @@ use pipi_venv::skills::{
 
 use crate::events::{EventEmitter, PromptQueueEnvelope};
 use crate::runtime::{self, RuntimeState, SessionInfo, SessionSnapshot, agent_repo};
+use crate::terminal::TerminalReadView;
 
 /// 全部宿主命令名，顺序与前端 `src/ipc.ts` 的 `CommandMap` 一致。
 pub const COMMANDS: &[&str] = &[
@@ -76,6 +78,12 @@ pub const COMMANDS: &[&str] = &[
     "new_session",
     "create_session",
     "browser_view",
+    "list_terminals",
+    "open_terminal",
+    "read_terminal",
+    "write_terminal",
+    "resize_terminal",
+    "close_terminal",
     "send_prompt",
     "compact_now",
     "steer",
@@ -805,6 +813,149 @@ pub async fn browser_view(
         .await
 }
 
+// ============ 用户终端 ============
+//
+// 终端按 canonical workspace 归属，不绑定会话或运行。命令只做参数解析与
+// 工作区分辨；PTY 生命周期在 `pipi-terminal`，装配（shell/env）在
+// `crate::terminal` 桥。用户终端是 user-controlled spawn，不经过沙箱。
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListTerminalsArgs {
+    pub agent_name: String,
+    pub workspace: Option<String>,
+}
+
+pub fn list_terminals(
+    runtime: &RuntimeState,
+    args: ListTerminalsArgs,
+) -> Result<Vec<TerminalSnapshot>, String> {
+    let workspace =
+        crate::terminal::resolve_workspace(&args.agent_name, args.workspace.as_deref())?;
+    Ok(runtime.terminals().list(&workspace))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTerminalArgs {
+    pub agent_name: String,
+    pub workspace: Option<String>,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
+pub async fn open_terminal(
+    runtime: &RuntimeState,
+    args: OpenTerminalArgs,
+) -> Result<TerminalSnapshot, String> {
+    let workspace =
+        crate::terminal::resolve_workspace(&args.agent_name, args.workspace.as_deref())?;
+    let cols = args
+        .cols
+        .unwrap_or(crate::terminal::DEFAULT_COLS)
+        .clamp(20, 500);
+    let rows = args
+        .rows
+        .unwrap_or(crate::terminal::DEFAULT_ROWS)
+        .clamp(5, 200);
+    let spec = crate::terminal::shell_spec(cols, rows);
+    let manager = runtime.terminals().clone();
+    // openpty + spawn are blocking; keep them off the reactor (and off the GTK
+    // main thread in the desktop shell).
+    tokio::task::spawn_blocking(move || manager.open(&workspace, spec))
+        .await
+        .map_err(|error| format!("Terminal start task failed: {error}"))?
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadTerminalArgs {
+    pub agent_name: String,
+    pub workspace: Option<String>,
+    pub terminal_id: String,
+    pub after_seq: u64,
+    pub max_bytes: Option<usize>,
+    pub wait_ms: Option<u64>,
+}
+
+pub async fn read_terminal(
+    runtime: &RuntimeState,
+    args: ReadTerminalArgs,
+) -> Result<TerminalReadView, String> {
+    let workspace =
+        crate::terminal::resolve_workspace(&args.agent_name, args.workspace.as_deref())?;
+    let max_bytes = args
+        .max_bytes
+        .unwrap_or(crate::terminal::DEFAULT_READ_BYTES)
+        .clamp(1024, crate::terminal::MAX_READ_BYTES);
+    let wait_ms = args
+        .wait_ms
+        .unwrap_or(crate::terminal::DEFAULT_WAIT_MS)
+        .min(crate::terminal::MAX_WAIT_MS);
+    let read = runtime
+        .terminals()
+        .read(
+            &workspace,
+            &args.terminal_id,
+            args.after_seq,
+            max_bytes,
+            wait_ms,
+        )
+        .await?;
+    Ok(read.into())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteTerminalArgs {
+    pub agent_name: String,
+    pub workspace: Option<String>,
+    pub terminal_id: String,
+    pub data: String,
+}
+
+pub async fn write_terminal(runtime: &RuntimeState, args: WriteTerminalArgs) -> Result<(), String> {
+    let workspace =
+        crate::terminal::resolve_workspace(&args.agent_name, args.workspace.as_deref())?;
+    let data = crate::terminal::decode_input(&args.data)?;
+    runtime
+        .terminals()
+        .write(&workspace, &args.terminal_id, data)
+        .await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResizeTerminalArgs {
+    pub agent_name: String,
+    pub workspace: Option<String>,
+    pub terminal_id: String,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+pub fn resize_terminal(runtime: &RuntimeState, args: ResizeTerminalArgs) -> Result<(), String> {
+    let workspace =
+        crate::terminal::resolve_workspace(&args.agent_name, args.workspace.as_deref())?;
+    runtime
+        .terminals()
+        .resize(&workspace, &args.terminal_id, args.cols, args.rows)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloseTerminalArgs {
+    pub agent_name: String,
+    pub workspace: Option<String>,
+    pub terminal_id: String,
+}
+
+pub fn close_terminal(runtime: &RuntimeState, args: CloseTerminalArgs) -> Result<(), String> {
+    let workspace =
+        crate::terminal::resolve_workspace(&args.agent_name, args.workspace.as_deref())?;
+    runtime.terminals().close(&workspace, &args.terminal_id)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendPromptArgs {
@@ -1425,6 +1576,12 @@ pub async fn dispatch(
         "new_session" => to_value(new_session(runtime, parse(args)?)?),
         "create_session" => to_value(create_session(runtime, parse(args)?)?),
         "browser_view" => to_value(browser_view(runtime, CommandSource::Web, parse(args)?).await?),
+        "list_terminals" => to_value(list_terminals(runtime, parse(args)?)?),
+        "open_terminal" => to_value(open_terminal(runtime, parse(args)?).await?),
+        "read_terminal" => to_value(read_terminal(runtime, parse(args)?).await?),
+        "write_terminal" => to_value(write_terminal(runtime, parse(args)?).await?),
+        "resize_terminal" => to_value(resize_terminal(runtime, parse(args)?)?),
+        "close_terminal" => to_value(close_terminal(runtime, parse(args)?)?),
         "send_prompt" => to_value(send_prompt(runtime, emitter, parse(args)?)?),
         "compact_now" => to_value(compact_now(runtime, emitter, parse(args)?)?),
         "steer" => to_value(steer(runtime, parse(args)?)?),
@@ -1492,8 +1649,8 @@ mod tests {
         assert_eq!(unique.len(), COMMANDS.len(), "COMMANDS 存在重复命令名");
         assert_eq!(
             COMMANDS.len(),
-            74,
-            "宿主命令数应为 74（前端 CommandMap 同步）"
+            80,
+            "宿主命令数应为 80（前端 CommandMap 同步）"
         );
     }
 
