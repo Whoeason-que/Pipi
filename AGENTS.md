@@ -36,6 +36,8 @@ crates/pipi-forum/    论坛载体：纯文件的本地论坛（一个主题一�
                       一个文件）与 pipi-forum CLI；只依赖契约层
 crates/pipi-mcp/      MCP stdio 客户端：JSON-RPC 分帧、请求多路复用、子进程收尾；
                       只认协议，不依赖任何 Pipi crate（装配在宿主）
+crates/pipi-terminal/ 用户终端：portable-pty 生命周期、有界输出环形缓冲（chunk seq
+                      游标）与进程组收尾；不依赖任何 Pipi crate（装配在宿主）
 crates/pipi-venv/     Agent 环境域：agents（清单与注册表、契约层收集、prompt
                       装配）/ av（agent.toml 契约 + 全局技能 store + `av` CLI）
                       / skills（技能中心）/ prompt（纯提示词层）
@@ -171,6 +173,19 @@ src/                 React + TypeScript 前端
   `migrate_tool_lists` 幂等追加：按 `serde_json::Value` 改数组（typed 往返会丢未知键）、
   跳过子 Agent 与 `.archive`。右栏「笔记本」tab 走 `read_notebook` 单独读取，不从
   会话事件里猜。
+- **用户终端是工作区级基础设施，不是 Agent 工具**：PTY 生命周期在
+  `crates/pipi-terminal`（只依赖 portable-pty，不认识 Agent / 权限；约 2 MiB 环形
+  缓冲 + chunk seq 游标、`setsid` 后整组 HUP/TERM/KILL），装配（`$SHELL -l`、cwd、
+  env）在 `pipi-core/src/terminal.rs`。终端按 **canonical workspace** 归属：同一
+  工作区的所有 Agent / 会话共享，切换会话、离开页面或压缩分叉都不杀进程；左侧
+  导航页与聊天右栏只是两个展示入口。**它由用户驱动，不是 Agent 可控执行，因此
+  不走 `pipi_sandbox`**（与 zcode/opencode 的用户终端一致）；不要把它注册成工具，
+  未来「Agent 辅助操作用户终端」需要单独的用户授权设计。输出**不要走 `EventHub`**
+  （容量 1024，高频输出会挤掉 agent 事件；Web 端也只有服务端→客户端文本帧）：
+  `read_terminal(afterSeq, waitMs)` 做有界长轮询，输入与尺寸是普通命令。
+  归档/删除 Agent 时只在该工作区不再被任何活跃 Agent 使用后才收终端；宿主退出
+  统一收尾。改这里必须跑 `cargo test -p pipi-terminal`、`cargo test -p pipi-core`
+  与契约测试。
 - **MCP 是宿主能力，不是工具实现**：协议客户端在 `crates/pipi-mcp`（不依赖任何
   Pipi crate；沙箱/env/cwd 由宿主装配），连接与工具清单缓存在 `pipi-core::mcp`。
   `prepare` 是同步的（在 `send_prompt_locked` 里调用，持会话锁不能 await），连接
@@ -207,7 +222,13 @@ src/                 React + TypeScript 前端
     src/files/DiffView.tsx）——正文在 shadow DOM 内，背景/行色通过 `--diffs-*`
     变量映射到工作台令牌；patch 只有局部上下文，固定 `hunkSeparators: "simple"`
     并禁用 worker pool。`diff.ts` 的 `normalizePatch` 只给 hunk 内缺失前导空格的
-    空上下文行补一个空格，别把 hunk 外的空行/文件分隔改掉。
+    空上下文行补一个空格，别把 hunk 外的空行/文件分隔改掉；
+  - @xterm/xterm + @xterm/addon-fit（用户终端的屏幕渲染与尺寸自适应，见
+    src/terminal/）——xterm 只拥有终端内部结构，容器/标签/工具栏仍由
+    terminal.css 与自有组件拥有；主题从 `--card` / `--fg` / `--accent` 等 token
+    生成，v1 不引入 WebGL / 搜索 / 剪贴板 addon。终端输入输出走
+    `read_terminal` 游标长轮询与 `write_terminal`，不要另起一套 `scrollHeight`
+    跟随或把 PTY 字节塞进宿主事件总线。
 - 模型目录（提供商与模型清单）**不再手写或生成**：运行时从 models.dev 拉取并缓存到
   `~/.pipi/cache/models.json`，实现见 `crates/pipi-provider/src/catalog/mod.rs`。上游给的是
   AI SDK 语义的 baseUrl，未经 `CURATION` 表核实不得直接当 Pipi 的 baseUrl 使用。
