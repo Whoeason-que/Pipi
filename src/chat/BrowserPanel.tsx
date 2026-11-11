@@ -3,8 +3,23 @@ import { Webview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { useI18n } from "../i18n";
+import {
+  IconAlertTriangle,
+  IconArrowRight,
+  IconBack,
+  IconClose,
+  IconForward,
+  IconGlobe,
+  IconLock,
+  IconRefresh,
+} from "../icons";
 import { invoke } from "../platform";
 import { browserSession, removeBrowserSession, setBrowserSession, type BrowserSession } from "./browser-sessions";
+
+/** A readable fallback when the page reports no title yet. */
+function hostLabel(url: string): string {
+  try { return new URL(url).host; } catch { return url; }
+}
 
 /** The inspector attaches to a session-owned view; unmount only hides it. */
 export default function BrowserPanel({ active, agentName, sessionId, ensureSession }: {
@@ -20,7 +35,7 @@ export default function BrowserPanel({ active, agentName, sessionId, ensureSessi
   const [address, setAddress] = useState(() => sessionId ? browserSession(agentName, sessionId)?.address ?? "" : "");
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
-  const [navigation, setNavigation] = useState({ canGoBack: false, canGoForward: false, loading: false });
+  const [navigation, setNavigation] = useState({ canGoBack: false, canGoForward: false, loading: false, title: "" });
 
   const open = async (event: FormEvent) => {
     event.preventDefault();
@@ -46,6 +61,12 @@ export default function BrowserPanel({ active, agentName, sessionId, ensureSessi
         }
         record.address = state.url || url.href;
         setAddress(record.address);
+        setNavigation({
+          canGoBack: state.canGoBack,
+          canGoForward: state.canGoForward,
+          loading: state.loading,
+          title: state.title,
+        });
         setError("");
         return;
       } catch (reason) {
@@ -181,8 +202,10 @@ export default function BrowserPanel({ active, agentName, sessionId, ensureSessi
         const record = browserSession(agentName, sessionId);
         if (record && state.url) record.address = state.url;
         if (state.url && document.activeElement !== addressInput.current) setAddress(state.url);
-        setNavigation(previous => previous.canGoBack === state.canGoBack && previous.canGoForward === state.canGoForward && previous.loading === state.loading
-          ? previous : { canGoBack: state.canGoBack, canGoForward: state.canGoForward, loading: state.loading });
+        setNavigation(previous => previous.canGoBack === state.canGoBack && previous.canGoForward === state.canGoForward
+          && previous.loading === state.loading && previous.title === state.title
+          ? previous
+          : { canGoBack: state.canGoBack, canGoForward: state.canGoForward, loading: state.loading, title: state.title });
       } catch { /* The view can be closing or the host can lack native controls. */ }
       finally { pending = false; }
     };
@@ -203,22 +226,46 @@ export default function BrowserPanel({ active, agentName, sessionId, ensureSessi
     try {
       await record.ready; await record.pending; await record.view.close();
       removeBrowserSession(agentName, sessionId, record);
+      setNavigation({ canGoBack: false, canGoForward: false, loading: false, title: "" });
       setRevision(n => n + 1);
     } catch (reason) { setError(String(reason)); }
   };
+  const secure = /^https:/i.test(address);
   return <div className="browser-panel">
     <form className="browser-toolbar" aria-busy={navigation.loading} onSubmit={event => void open(event)}>
-      <button type="button" aria-label={t("inspector.browserBack")} disabled={!hasBrowser || !navigation.canGoBack} onClick={() => void control("back")}>‹</button>
-      <button type="button" aria-label={t("inspector.browserForward")} disabled={!hasBrowser || !navigation.canGoForward} onClick={() => void control("forward")}>›</button>
-      <button type="button" aria-label={t("inspector.browserRefresh")} disabled={!hasBrowser} onClick={() => void control("reload")}>↻</button>
-      <input ref={addressInput} aria-label={t("inspector.browserAddress")} placeholder={t("inspector.browserPlaceholder")}
-        value={address} onChange={event => setAddress(event.target.value)} />
-      <button type="submit">{t("inspector.browserOpen")}</button>
-      <button type="button" disabled={!hasBrowser} onClick={() => void close()}>{t("inspector.browserClose")}</button>
+      <div className="browser-nav" role="group" aria-label={t("inspector.browserNavigation")}>
+        <button type="button" className="icon-btn" aria-label={t("inspector.browserBack")} title={t("inspector.browserBack")}
+          disabled={!hasBrowser || !navigation.canGoBack} onClick={() => void control("back")}><IconBack /></button>
+        <button type="button" className="icon-btn" aria-label={t("inspector.browserForward")} title={t("inspector.browserForward")}
+          disabled={!hasBrowser || !navigation.canGoForward} onClick={() => void control("forward")}><IconForward /></button>
+        <button type="button" className="icon-btn" aria-label={t("inspector.browserRefresh")} title={t("inspector.browserRefresh")}
+          disabled={!hasBrowser} onClick={() => void control("reload")}><IconRefresh /></button>
+      </div>
+      <div className="browser-address">
+        <span className="browser-address-icon" aria-hidden="true">
+          {navigation.loading ? <span className="browser-spinner" /> : secure ? <IconLock size={13} /> : <IconGlobe />}
+        </span>
+        <input ref={addressInput} aria-label={t("inspector.browserAddress")} placeholder={t("inspector.browserPlaceholder")}
+          value={address} onChange={event => setAddress(event.target.value)}
+          spellCheck={false} autoCapitalize="off" autoCorrect="off" />
+        <button type="submit" className="browser-go" aria-label={t("inspector.browserOpen")} title={t("inspector.browserOpen")}
+          disabled={!address.trim()}><IconArrowRight /></button>
+      </div>
+      <span className="browser-page-title" title={navigation.title || undefined}>
+        {hasBrowser ? (navigation.loading ? t("inspector.browserLoading") : navigation.title || hostLabel(address)) : ""}
+      </span>
+      <button type="button" className="icon-btn browser-close" aria-label={t("inspector.browserClose")} title={t("inspector.browserClose")}
+        disabled={!hasBrowser} onClick={() => void close()}><IconClose /></button>
     </form>
-    {error && <p className="file-notice" role="alert">{error}</p>}
+    {error && <p className="browser-error" role="alert"><IconAlertTriangle size={13} /><span>{error}</span></p>}
     <div className="browser-viewport" ref={viewport}>
-      {!hasBrowser && <p className="browser-empty">{t("inspector.browserEmpty")}</p>}
+      {!hasBrowser && (
+        <div className="empty-state inspector-empty browser-empty">
+          <span className="icon-tile inspector-empty-icon"><IconGlobe /></span>
+          <strong>{t("inspector.browserEmptyTitle")}</strong>
+          <p>{t("inspector.browserEmpty")}</p>
+        </div>
+      )}
     </div>
   </div>;
 }

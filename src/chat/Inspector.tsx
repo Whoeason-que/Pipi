@@ -239,6 +239,11 @@ export default function Inspector({
           : "";
   const sandboxTone = agent.permissions.sandbox === "danger-full-access" ? "error" : "ok";
   const lastToolEntry = runningTool ?? lastTool;
+  const storagePath = temporary
+    ? t("inspector.memoryNoPersist")
+    : sessionId
+      ? `~/.pipi/agents/${agent.name}/sessions.git/`
+      : "—";
 
   const Wrapper: "aside" | "div" = embedded ? "div" : "aside";
   return (
@@ -362,7 +367,7 @@ export default function Inspector({
               onUnpin={onUnpinChip}
             />
           ) : (
-            <div className="empty-state detail-empty">
+            <div className="empty-state inspector-empty">
               <span className="icon-tile inspector-empty-icon">
                 <InspectorTabIcon tab="detail" />
               </span>
@@ -532,18 +537,14 @@ export default function Inspector({
               <div className="state-meta-grid">
                 <div className="state-field">
                   <span className="state-field-label">{t("inspector.sessionId")}</span>
-                  <span className="state-field-value mono">
+                  <span className="state-field-value mono" title={sessionId ?? undefined}>
                     {sessionId ?? t("inspector.newSession")}
                   </span>
                 </div>
                 <div className="state-field">
                   <span className="state-field-label">{t("inspector.sessionStorage")}</span>
-                  <span className="state-field-value mono dim">
-                    {temporary
-                      ? t("inspector.memoryNoPersist")
-                      : sessionId
-                        ? `~/.pipi/agents/${agent.name}/sessions.git/`
-                        : "—"}
+                  <span className="state-field-value mono dim" title={storagePath}>
+                    {storagePath}
                   </span>
                 </div>
               </div>

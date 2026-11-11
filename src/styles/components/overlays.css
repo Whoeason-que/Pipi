@@ -82,16 +82,6 @@
   font-weight: 550;
 }
 
-.inspector-empty-icon {
-  --tile-icon-size: 21px;
-  --tile-size: 44px;
-  margin-bottom: 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  color: var(--muted);
-  background: var(--stripe);
-}
-
 /* 弹窗、确认框与操作菜单；快捷命令面板由对应功能拥有。 */
 /* 删除确认弹窗 */
 

@@ -44,7 +44,13 @@ export function InspectorTabIcon({
         <path d="M9 16h6" />
       </>
     ),
-    detail: <path d="m4 5 6 6-6 6M12 19h8" />,
+    detail: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v5" />
+        <path d="M12 8h.01" />
+      </>
+    ),
     state: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
     history: (
       <>

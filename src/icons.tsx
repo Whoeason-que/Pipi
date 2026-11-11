@@ -40,6 +40,35 @@ export function IconBack() {
   );
 }
 
+/** 前进（内置浏览器） */
+export function IconForward() {
+  return (
+    <IconBase>
+      <path d="M9 18l6-6-6-6" />
+    </IconBase>
+  );
+}
+
+/** 地球（内置浏览器 / 地址） */
+export function IconGlobe() {
+  return (
+    <IconBase>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" />
+    </IconBase>
+  );
+}
+
+/** 前往（地址栏提交） */
+export function IconArrowRight() {
+  return (
+    <IconBase>
+      <path d="M4 12h15" />
+      <path d="m13 6 6 6-6 6" />
+    </IconBase>
+  );
+}
+
 export function IconChevronRight({
   expanded = false,
 }: { expanded?: boolean } = {}) {
@@ -242,6 +271,17 @@ export function IconPlus() {
   return (
     <IconBase>
       <path d="M12 5v14M5 12h14" />
+    </IconBase>
+  );
+}
+
+/** 清空（终端缓冲 / 列表） */
+export function IconEraser() {
+  return (
+    <IconBase>
+      <path d="m7 21-4.3-4.3a2 2 0 0 1 0-2.8l9.6-9.6a2 2 0 0 1 2.8 0l5.6 5.6a2 2 0 0 1 0 2.8L13 21" />
+      <path d="M22 21H7" />
+      <path d="m5 11 9 9" />
     </IconBase>
   );
 }

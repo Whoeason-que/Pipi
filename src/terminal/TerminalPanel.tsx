@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useI18n } from "../i18n";
+import { IconClose, IconEraser, IconPlus, IconRefresh } from "../icons";
 import type { TerminalSnapshot } from "../ipc";
 import { invoke, onHostReconnect } from "../platform";
 import { readStored, writeStored } from "../storage";
@@ -250,7 +251,7 @@ export function TerminalPanel({
                 title={t("terminal.close")}
                 onClick={() => void closeTab(snapshot.terminalId)}
               >
-                ×
+                <IconClose />
               </button>
             </div>
           );
@@ -267,7 +268,7 @@ export function TerminalPanel({
           }
           onClick={add}
         >
-          +
+          <IconPlus />
         </button>
       </div>
 
@@ -285,7 +286,7 @@ export function TerminalPanel({
                   : t("terminal.exited")}
             </span>
             <span
-              className="terminal-path"
+              className="terminal-path fade-end"
               title={selectedSnapshot.workspace}
             >
               {selectedSnapshot.workspace}
@@ -293,19 +294,23 @@ export function TerminalPanel({
             {selectedSession && (
               <button
                 type="button"
-                className="btn small ghost"
+                className="icon-btn terminal-action"
+                aria-label={t("terminal.clear")}
+                title={t("terminal.clear")}
                 onClick={() => selectedSession.clear()}
               >
-                {t("terminal.clear")}
+                <IconEraser />
               </button>
             )}
             <button
               type="button"
-              className="btn small ghost"
+              className="icon-btn terminal-action"
+              aria-label={t("terminal.restart")}
+              title={t("terminal.restart")}
               onClick={restart}
               disabled={busy}
             >
-              {t("terminal.restart")}
+              <IconRefresh />
             </button>
           </div>
           {displayError && (

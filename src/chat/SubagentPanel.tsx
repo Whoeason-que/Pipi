@@ -107,9 +107,9 @@ export default function SubagentPanel({ agent, sessionId, entries, parentRunning
       {error && <p className="file-error" role="status">{t("inspector.subagentLoadFailed", { error })}</p>}
       {runs.length === 0 ? (
         loading
-          ? <div className="subagent-loading" role="status"><span className="file-state-spinner" />{t("common.loading")}</div>
-          : <div className="subagent-empty">
-            <span className="icon-tile subagent-empty-icon"><IconSubagent /></span>
+          ? <div className="inspector-loading" role="status"><span className="file-state-spinner" />{t("common.loading")}</div>
+          : <div className="inspector-empty">
+            <span className="icon-tile inspector-empty-icon"><IconSubagent /></span>
             <strong>{t("inspector.subagentEmptyTitle")}</strong>
             <p>{t("inspector.subagentEmptyHint")}</p>
           </div>

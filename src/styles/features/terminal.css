@@ -113,14 +113,23 @@
 }
 
 .terminal-tab-close {
+  display: inline-flex;
+  width: 24px;
   height: var(--control-sm);
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--faint);
   cursor: pointer;
-  font-size: var(--text-md);
-  padding: 0 6px;
+  padding: 0;
+}
+
+.terminal-tab-close svg {
+  width: 12px;
+  height: 12px;
 }
 
 .terminal-tab-close:hover {
@@ -129,15 +138,23 @@
 }
 
 .terminal-new {
+  display: inline-flex;
   height: var(--control-sm);
   min-width: var(--control-sm);
   flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: 1px dashed var(--line);
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  font-size: var(--text-md);
+}
+
+.terminal-new svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 .terminal-new:hover:not(:disabled) {
@@ -191,8 +208,18 @@
   color: var(--faint);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.terminal-action {
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+}
+
+.terminal-action svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 .terminal-surface {
@@ -207,6 +234,11 @@
 
 .terminal-surface > .xterm {
   height: 100%;
+}
+
+/* xterm 默认给 viewport 铺纯黑；屏幕比 viewport 矮几像素时会在底部露出黑条。 */
+.terminal-surface .xterm-viewport {
+  background: transparent;
 }
 
 .terminal-empty {

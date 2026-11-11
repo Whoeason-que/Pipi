@@ -332,6 +332,12 @@
 
 .session-files-panel { min-height: 0; }
 
+.session-files-count {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
 .workspace-files-page .file-preview-scroll { min-height: 0; max-height: none; }
 
 .workspace-files-page .file-media object { height: 55vh; }

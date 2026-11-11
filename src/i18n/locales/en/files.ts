@@ -84,7 +84,7 @@ export const files = {
   operationDiff: "{name} diff {index}",
   operationDiffFailed: "{name} diff {index} (failed)",
   sessionFilesHint: "Only files touched by read / write / edit in this session are shown, along with their operation records.",
-  noFileOperations: "No file operations in this session yet.",
+  noFileOperationsTitle: "No file operations yet",
 
   // sidebar
   filterFiles: "Filter files…",

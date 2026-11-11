@@ -123,8 +123,8 @@ export default function SessionHistoryPanel({ agent, sessionId, running, active 
           </p>
         )}
         {!sessionId ? (
-          <div className="history-empty">
-            <span className="icon-tile history-empty-icon">
+          <div className="inspector-empty">
+            <span className="icon-tile inspector-empty-icon">
               <IconGitBranch size={19} />
             </span>
             <strong>{t("inspector.historyEmptyTitle")}</strong>
@@ -132,13 +132,13 @@ export default function SessionHistoryPanel({ agent, sessionId, running, active 
           </div>
         ) : commits.length === 0 ? (
           loading ? (
-            <div className="history-loading" role="status">
+            <div className="inspector-loading" role="status">
               <span className="file-state-spinner" />
               {t("common.loading")}
             </div>
           ) : (
-            <div className="history-empty">
-              <span className="icon-tile history-empty-icon">
+            <div className="inspector-empty">
+              <span className="icon-tile inspector-empty-icon">
                 <IconGitBranch size={19} />
               </span>
               <strong>{t("inspector.historyEmptyTitle")}</strong>

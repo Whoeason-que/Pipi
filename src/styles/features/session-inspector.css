@@ -89,6 +89,50 @@
   line-height: 1.7;
 }
 
+/* 右栏列表型面板共用的空态：详情、历史、子任务、笔记本、会话文件、浏览器。
+   搜索面板有自己的大图标 + 键盘提示变体，不套这一套。 */
+.inspector-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 18px 10px 8px;
+  text-align: center;
+}
+
+.inspector-empty-icon {
+  --tile-size: 38px;
+  --tile-icon-size: 19px;
+  margin-bottom: 2px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--stripe);
+  color: var(--faint);
+}
+
+.inspector-empty strong {
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.inspector-empty p {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.inspector-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 10px 8px;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
 /* ============ 状态面板：上下文优先的仪表盘 ============ */
 
 .state-panel {
@@ -341,9 +385,12 @@
 }
 
 .state-meta-grid .state-field-value {
+  overflow: hidden;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .state-sandbox-row {
@@ -566,11 +613,12 @@
   flex-shrink: 0;
 }
 
-/* 会话右栏标签保留文字，避免把入口藏在图标提示中。 */
+/* 右栏标签压成单行图标：名称走 title / aria-label，260px 栏宽下 8 个入口
+   加关闭仍能放下；详情与终端的图标必须保持可区分。 */
 
 .inspector-head-tabs {
   justify-content: flex-start;
-  align-items: flex-start;
+  align-items: center;
   min-height: var(--toolbar-height);
   height: auto;
   padding: 10px;
@@ -578,8 +626,7 @@
 }
 
 .inspector-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
   flex: 1;
   min-width: 0;
   gap: 2px;
@@ -588,12 +635,12 @@
 .inspector-tab {
   position: relative;
   display: inline-flex;
-  gap: 5px;
+  flex: 1 1 0;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   min-width: 0;
   height: 32px;
-  padding: 0 8px;
+  padding: 0;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -605,7 +652,7 @@
     box-shadow var(--motion-fast);
 }
 
-.inspector-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-xs); white-space: nowrap; }
+.inspector-tab-label { display: none; }
 
 .inspector-tab:hover:not(.active) {
   color: var(--fg);
@@ -636,8 +683,8 @@
 
 .inspector-tab .tab-dot {
   position: absolute;
-  top: 6px;
-  right: 3px;
+  top: 2px;
+  right: 2px;
 }
 
 .inspector-close {
@@ -670,14 +717,22 @@
   gap: var(--space-2);
 }
 
+.notebook-progress-row {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
 .notebook-progress-label {
+  flex-shrink: 0;
   font: var(--text-xs) var(--font-mono);
   color: var(--faint);
 }
 
 .notebook-progress {
   display: block;
-  flex-shrink: 0;
+  flex: 1;
   height: 4px;
   border-radius: var(--r-full);
   background: var(--track);
@@ -868,42 +923,209 @@
   font-size: var(--text-sm);
 }
 
-.subagent-empty {
+/* ============ 内置浏览器 ============ */
+
+/* 窄栏是「地址行 + 控制行」，面板够宽时收成单行浏览器式工具栏。 */
+.browser-ipanel.active { height: 100%; }
+
+.browser-panel {
   display: flex;
+  height: 100%;
+  min-height: 200px;
   flex-direction: column;
-  align-items: center;
-  gap: 7px;
-  padding: 18px 10px 8px;
-  text-align: center;
+  gap: 8px;
+  container-type: inline-size;
 }
 
-.subagent-empty-icon {
-  --tile-size: 38px;
-  --tile-icon-size: 19px;
-  margin-bottom: 2px;
+.browser-toolbar {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "address address address"
+    "nav title close";
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.browser-nav {
+  display: inline-flex;
+  grid-area: nav;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
   border: 1px solid var(--line-soft);
   border-radius: var(--r);
   background: var(--stripe);
+}
+
+.browser-nav .icon-btn,
+.browser-close {
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  border-radius: 5px;
+}
+
+.browser-nav .icon-btn svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
+.browser-nav .icon-btn:disabled { opacity: 0.35; }
+
+.browser-address {
+  display: flex;
+  grid-area: address;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  min-width: 0;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: var(--chat-surface);
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    background var(--motion-fast);
+}
+
+.browser-address:focus-within {
+  border-color: var(--accent-border);
+  background: var(--card);
+  box-shadow: var(--focus-ring);
+}
+
+.browser-address-icon {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
   color: var(--faint);
 }
 
-.subagent-empty strong {
+.browser-address-icon svg { width: 13px; height: 13px; }
+
+.browser-address input {
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--fg);
-  font-size: var(--text-sm);
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  outline: none;
 }
 
-.subagent-empty p {
-  margin: 0;
-  max-width: 34ch;
+.browser-address input::placeholder {
+  color: var(--faint);
+  font-family: var(--font-sans);
+}
+
+.browser-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--line-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: browser-spin 0.7s linear infinite;
+}
+
+@keyframes browser-spin {
+  to { transform: rotate(360deg); }
+}
+
+.browser-go {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast),
+    color var(--motion-fast);
+}
+
+.browser-go svg { width: var(--icon-sm); height: var(--icon-sm); }
+
+.browser-go:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.browser-go:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.browser-page-title {
+  grid-area: title;
+  overflow: hidden;
   color: var(--faint);
   font-size: var(--text-xs);
-  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.browser-ipanel.active { height: 100%; }
-.browser-panel { display: flex; flex-direction: column; height: 100%; min-height: 200px; gap: 8px; }
-.browser-toolbar { display: flex; gap: 4px; flex-wrap: wrap; }
-.browser-toolbar input { flex: 1 1 100%; min-width: 0; }
-.browser-viewport { flex: 1; min-height: 120px; overflow: hidden; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm); }
-.browser-empty { padding: 12px; color: var(--muted); }
+.browser-close { grid-area: close; }
+
+.browser-close:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.browser-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.browser-error svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.browser-viewport {
+  display: flex;
+  flex: 1;
+  min-height: 120px;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--stripe);
+}
+
+.browser-empty {
+  flex: 1;
+  justify-content: center;
+  padding: 24px 20px;
+}
+
+@container (min-width: 400px) {
+  .browser-toolbar {
+    grid-template-areas: "nav address close";
+  }
+
+  .browser-page-title { display: none; }
+}
