@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { overlayOpen } from "../components/overlays";
 import { useI18n } from "../i18n";
 import { IconClose } from "../icons";
 import { useResizableWidth, type ResizableHandleProps } from "../resizable";
@@ -62,7 +63,7 @@ export function useRightRail(key: string, defaultOpen = false): RightRailControl
   useEffect(() => {
     if (!open || !narrow) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !document.querySelector('[aria-modal="true"]')) close();
+      if (event.key === "Escape" && !event.defaultPrevented && !overlayOpen()) close();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

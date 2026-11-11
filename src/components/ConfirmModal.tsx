@@ -40,6 +40,9 @@ export default function ConfirmModal({
         <Dialog.Content
           className="modal confirm-modal"
           role="alertdialog"
+          // Radix Dialog 1.3 不输出 aria-modal，而 App / RightRail / ChatView /
+          // BrowserPanel 的「有模态打开吗」守卫都查这个属性。
+          aria-modal="true"
           aria-busy={busy}
           onEscapeKeyDown={closeBlocked}
           onPointerDownOutside={closeBlocked}

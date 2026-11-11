@@ -10,6 +10,7 @@ import {
 } from "react";
 import { LayoutContext } from "../app/layout-context";
 import { findSearchHits } from "./find";
+import { overlayOpen } from "../components/overlays";
 import { useDialogFocus } from "../components/use-dialog-focus";
 import {
   formatRuntimeError,
@@ -322,7 +323,7 @@ export default function ChatView({
       if (
         event.isComposing ||
         composingRef.current ||
-        document.querySelector('[aria-modal="true"]')
+        overlayOpen()
       )
         return;
       // Keys typed into the user terminal belong to the shell (vim, readline,
@@ -362,7 +363,7 @@ export default function ChatView({
         event.target.closest(".terminal-panel")
       )
         return;
-      if (event.key === "Escape") setInspectorOpen(false);
+      if (event.key === "Escape" && !event.defaultPrevented && !overlayOpen()) setInspectorOpen(false);
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);

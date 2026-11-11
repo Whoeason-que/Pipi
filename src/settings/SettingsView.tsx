@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { errorMessage } from "../errors.ts";
 import { LayoutContext } from "../app/layout-context";
+import { overlayOpen } from "../components/overlays";
 import { NavigationToggle } from "../app/AppNavigation";
 import { useRightRail } from "../app/right-rail";
 import { catalogSourceLabel, type CatalogProvider } from "../catalog";
@@ -90,11 +91,12 @@ export default function SettingsView({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === "Escape" &&
-        !(navigationOpen && window.matchMedia("(max-width: 860px)").matches)
-      )
-        onClose();
+      if (event.key !== "Escape") return;
+      // 浮层先处理 Escape（Radix 会 preventDefault）；react-select 只关自己的
+      // 菜单、不 stopPropagation，所以焦点在下拉里时这一下也不该关整页。
+      if (event.defaultPrevented || overlayOpen()) return;
+      if (event.target instanceof Element && event.target.closest(".pipi-select__control")) return;
+      if (!(navigationOpen && window.matchMedia("(max-width: 860px)").matches)) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

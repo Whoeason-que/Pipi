@@ -32,6 +32,7 @@ import { useFilesBridge } from "./app/use-files-bridge";
 import { WorkspaceScopeBar } from "./app/WorkspaceScopeBar";
 import { formatRuntimeError, isAuthSilentError } from "./chat-runtime";
 import ConfirmModal from "./components/ConfirmModal";
+import { overlayOpen } from "./components/overlays";
 import { useDialogFocus } from "./components/use-dialog-focus";
 import { useI18n } from "./i18n";
 import { IconAlertTriangle, IconClose, IconSearch } from "./icons";
@@ -274,10 +275,11 @@ export default function App() {
       // The focused terminal owns its keys (Ctrl/Cmd-K clear, Escape in vim).
       if (event.target instanceof Element && event.target.closest(".terminal-panel")) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k"
-        && !document.querySelector('[aria-modal="true"]')) {
+        && !overlayOpen()) {
         event.preventDefault(); setPaletteOpen(open => !open);
       }
-      if (event.key === "Escape" && !document.querySelector('[aria-modal="true"]')) setSidebarOpen(false);
+      // 浮层先处理 Escape（Radix 会 preventDefault），别一次关两层。
+      if (event.key === "Escape" && !event.defaultPrevented && !overlayOpen()) setSidebarOpen(false);
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
