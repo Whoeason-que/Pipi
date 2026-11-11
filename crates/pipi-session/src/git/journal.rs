@@ -93,18 +93,11 @@ fn sync_directory(file: &std::path::Path) -> io::Result<()> {
     .sync_all()?;
     Ok(())
 }
-pub(super) fn has_files(exec: &GitExec, id: &str) -> io::Result<bool> {
-    for suffix in ["jsonl", "partial.json"] {
-        if pipi_protocol::fs::ensure_real_file(
-            &path(exec, id, suffix, false)?,
-            "Session recovery file",
-        )
-        .map_err(io::Error::other)?
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+/// 是否有未提交的恢复条目。只看 `jsonl`：`partial.json` 只是进行中的
+/// assistant 快照，由 [`load_partial`] 单独读取，不该把列表引向完整 `read_session`。
+pub(super) fn has_entries(exec: &GitExec, id: &str) -> io::Result<bool> {
+    pipi_protocol::fs::ensure_real_file(&path(exec, id, "jsonl", false)?, "Session recovery file")
+        .map_err(io::Error::other)
 }
 pub(super) fn clear_partial(exec: &GitExec, id: &str) -> io::Result<()> {
     remove(exec, id, "partial.json")

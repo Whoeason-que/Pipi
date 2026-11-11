@@ -87,12 +87,11 @@ pub fn read_summaries(exec: &GitExec, prefix: &str) -> Result<Vec<SessionSummary
             .and_then(|millis| millis.parse::<u64>().ok())
             .unwrap_or(0);
 
-        let mut selected: Vec<TreePath> = Vec::new();
+        let mut selected: Vec<&TreePath> = Vec::new();
         let mut seen = BTreeSet::new();
         let mut messages = paths
             .iter()
             .filter(|path| path.kind == "message")
-            .cloned()
             .collect::<Vec<_>>();
         messages.sort_by_key(|path| path.seq);
         // 标题取最早的几条消息；模型回退与最后活跃取最新的几条
@@ -190,9 +189,9 @@ pub fn read_summaries(exec: &GitExec, prefix: &str) -> Result<Vec<SessionSummary
     Ok(out)
 }
 
-fn select(path: &TreePath, selected: &mut Vec<TreePath>, seen: &mut BTreeSet<u64>) {
+fn select<'a>(path: &'a TreePath, selected: &mut Vec<&'a TreePath>, seen: &mut BTreeSet<u64>) {
     if seen.insert(path.seq) {
-        selected.push(path.clone());
+        selected.push(path);
     }
 }
 

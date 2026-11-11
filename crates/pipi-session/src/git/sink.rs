@@ -77,7 +77,7 @@ impl GitSink {
     fn append_entry(&mut self, kind: EntryKind, timestamp: u64) -> std::io::Result<String> {
         let entry = self.ledger.begin(kind, timestamp);
         let id = entry.id.clone();
-        self.push_entry(&entry)?;
+        self.push_owned(entry)?;
         Ok(id)
     }
 
@@ -86,11 +86,19 @@ impl GitSink {
     }
 
     pub fn push_entry(&mut self, entry: &SessionEntry) -> std::io::Result<()> {
-        let mut pending = self.buffer.clone();
-        pending.push(entry.clone());
-        journal::write_entries(&self.exec, &self.session_id, &pending)?;
-        self.ledger.advance(entry);
-        self.buffer.push(entry.clone());
+        self.push_owned(entry.clone())
+    }
+
+    /// 条目入缓冲后直接写恢复文件（不再克隆整个缓冲）；写失败就弹出，
+    /// 缓冲与账本保持与写之前一致。
+    fn push_owned(&mut self, entry: SessionEntry) -> std::io::Result<()> {
+        self.buffer.push(entry);
+        let index = self.buffer.len() - 1;
+        if let Err(error) = journal::write_entries(&self.exec, &self.session_id, &self.buffer) {
+            self.buffer.pop();
+            return Err(error);
+        }
+        self.ledger.advance(&self.buffer[index]);
         Ok(())
     }
 

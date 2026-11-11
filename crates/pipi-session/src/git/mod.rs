@@ -162,7 +162,7 @@ impl SessionRepo for GitSessionRepo {
         let mut summaries =
             reader::read_summaries(&self.exec, refs::SESSION_PREFIX).unwrap_or_default();
         for summary in &mut summaries {
-            if !journal::has_files(&self.exec, &summary.id).unwrap_or(false) {
+            if !journal::has_entries(&self.exec, &summary.id).unwrap_or(false) {
                 continue;
             }
             let Ok(committed) = self.read_session(&refs::session_ref(&summary.id)) else {
