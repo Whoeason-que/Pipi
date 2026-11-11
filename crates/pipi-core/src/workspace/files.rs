@@ -1,6 +1,7 @@
 use std::{fs::File, io::Read, path::Path};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
+use pipi_protocol::text::hex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -163,10 +164,7 @@ pub(super) fn preview_at(root: &Path, input: &str) -> Result<WorkspaceFile, Stri
     let version = if truncated {
         String::new()
     } else {
-        Sha256::digest(&bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
+        hex(&Sha256::digest(&bytes))
     };
     let mut preview = WorkspaceFile {
         workspace: root.to_string_lossy().into_owned(),

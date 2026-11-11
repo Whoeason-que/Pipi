@@ -55,6 +55,18 @@ pub fn truncate_at_char_boundary(text: &str, max_bytes: usize) -> &str {
     &text[..index]
 }
 
+/// 字节序列的小写十六进制文本：每字节两位、补零（`0x0f` → `"0f"`，`0xff` → `"ff"`）。
+///
+/// 哈希与指纹的落盘 / 比对都依赖这个稳定形态。
+pub fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(out, "{byte:02x}").unwrap();
+    }
+    out
+}
+
 /// 取文本尾部不超过 `max_bytes` 字节的完整字符片段（命令 stderr 摘要用）。
 pub fn tail_at_char_boundary(text: &str, max_bytes: usize) -> &str {
     if max_bytes >= text.len() {
@@ -69,7 +81,15 @@ pub fn tail_at_char_boundary(text: &str, max_bytes: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::escape_path_for_prompt;
+    use super::{escape_path_for_prompt, hex};
+
+    #[test]
+    fn hex_is_lowercase_and_zero_padded() {
+        assert_eq!(hex(&[]), "");
+        assert_eq!(hex(&[0x00]), "00");
+        assert_eq!(hex(&[0xff]), "ff");
+        assert_eq!(hex(&[0x0f, 0x10, 0xab]), "0f10ab");
+    }
 
     #[test]
     fn path_escaping_preserves_prompt_structure() {

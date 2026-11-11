@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use pipi_mcp::{CallToolResult, ContentPart};
 use pipi_protocol::ToolResultContent;
+use pipi_protocol::text::hex;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_tools::truncate::truncate_head;
 use serde_json::Value;
@@ -56,11 +57,7 @@ fn sanitize(value: &str) -> String {
 fn short_hash(value: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(value.as_bytes());
-    digest
-        .iter()
-        .take(4)
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    hex(&digest[..4])
 }
 
 fn truncate_chars(value: &str, max: usize) -> String {

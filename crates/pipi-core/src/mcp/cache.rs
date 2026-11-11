@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use sha2::{Digest, Sha256};
 
 use pipi_mcp::McpToolDef;
+use pipi_protocol::text::hex;
 use pipi_venv::agents::agent_dir;
 use serde::{Deserialize, Serialize};
 
@@ -93,13 +94,7 @@ fn keyed_fingerprint(key: &[u8], fingerprint: &str) -> String {
     outer.update(outer_pad);
     outer.update(inner.finalize());
     let digest = outer.finalize();
-    format!(
-        "v3:{}",
-        digest
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-    )
+    format!("v3:{}", hex(&digest))
 }
 
 /// Remove old cache files containing plaintext fingerprints, including orphaned

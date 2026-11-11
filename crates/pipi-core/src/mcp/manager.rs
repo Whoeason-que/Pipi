@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use pipi_mcp::{ConnectOptions, McpClient, McpToolDef};
 use pipi_protocol::permissions::{SandboxMode, SandboxPolicy};
+use pipi_protocol::text::hex;
 use pipi_venv::agents::{AgentDefinition, McpServerConfig, expand_tilde};
 use serde::{Deserialize, Serialize};
 
@@ -43,11 +44,7 @@ impl ServerKey {
         }
         use sha2::{Digest, Sha256};
         let hash = Sha256::digest(self.server_name.as_bytes());
-        format!(
-            "strict-{}",
-            hash.iter().map(|v| format!("{v:02x}")).collect::<String>()
-        )[..63]
-            .to_string()
+        format!("strict-{}", hex(&hash))[..63].to_string()
     }
 }
 
@@ -74,13 +71,7 @@ impl SpawnPlan {
         });
         let digest =
             Sha256::digest(serde_json::to_vec(&payload).expect("spawn plan is serializable"));
-        format!(
-            "v2:{}",
-            digest
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
-        )
+        format!("v2:{}", hex(&digest))
     }
 }
 
