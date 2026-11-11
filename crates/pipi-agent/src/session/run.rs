@@ -239,7 +239,27 @@ impl PreparedRun {
             }
             Operation::Compact(request) => {
                 hooks.agent(&id, run_id, AgentEvent::AgentStart);
-                drive_compaction(session, *request, hooks.clone(), run_id).await
+                let mut session_id = session.session_id()?;
+                if let Err(error) = compaction::run_compaction(
+                    &session,
+                    &mut session_id,
+                    run_id,
+                    &request,
+                    &hooks,
+                    true,
+                )
+                .await
+                {
+                    hooks.error(
+                        &session_id,
+                        run_id,
+                        format!("Compaction not executed: {error}"),
+                    );
+                }
+                Ok(RunOutcome {
+                    session_id,
+                    messages: Vec::new(),
+                })
             }
         };
         drop(guard);
@@ -253,24 +273,6 @@ impl PreparedRun {
         hooks.agent(id, run_id, AgentEvent::AgentEnd { messages });
         outcome
     }
-}
-
-async fn drive_compaction(
-    session: SessionHandle,
-    request: CompactionRequest,
-    hooks: SessionHooks,
-    run_id: usize,
-) -> Result<RunOutcome, String> {
-    let mut id = session.session_id()?;
-    if let Err(error) =
-        compaction::run_compaction(&session, &mut id, run_id, &request, &hooks, true).await
-    {
-        hooks.error(&id, run_id, format!("Compaction not executed: {error}"));
-    }
-    Ok(RunOutcome {
-        session_id: id,
-        messages: Vec::new(),
-    })
 }
 
 async fn drive_run(

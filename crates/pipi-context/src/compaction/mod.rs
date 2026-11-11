@@ -65,15 +65,6 @@ pub enum CompactMode {
     Edit,
 }
 
-impl CompactMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            CompactMode::Summary => "summary",
-            CompactMode::Edit => "edit",
-        }
-    }
-}
-
 /// 压缩预算。默认值集中在这里，从模型的上下文窗口推导；调参只改这一处。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Budget {

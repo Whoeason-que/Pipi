@@ -78,9 +78,9 @@ pub(super) async fn run_compaction(
     request: &CompactionRequest,
     hooks: &SessionHooks,
     manual: bool,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     if session.abort.is_aborted() {
-        return Ok(false);
+        return Ok(());
     }
     // 压缩（尤其 fork）只能从已提交的 tip 出发。自动路径刚在轮末提交过；
     // 手动路径可能还留着上一轮提交失败的缓冲 —— 先统一提交一次，失败就
@@ -96,10 +96,10 @@ pub(super) async fn run_compaction(
         .expect("session history poisoned")
         .clone();
     if !manual && !pipi_context::compaction::needs_compaction(&history, request.budget) {
-        return Ok(false);
+        return Ok(());
     }
     hooks.agent(id, run_id, AgentEvent::CompactionStart);
-    let result: Result<bool, String> = async {
+    let result: Result<(), String> = async {
         let tokens_before = pipi_context::context::context_tokens(&history);
         let mut options = request.options.clone();
         options.session_id = Some(id.clone());
@@ -228,7 +228,7 @@ pub(super) async fn run_compaction(
                 tokens_after,
             },
         );
-        Ok(true)
+        Ok(())
     }
     .await;
     if let Err(error) = &result {
