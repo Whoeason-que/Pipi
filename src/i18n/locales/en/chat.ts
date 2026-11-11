@@ -138,7 +138,6 @@ export const chat = {
   modelCustomTitle: "{model} · Custom",
   resetEffort: "Reset reasoning effort",
   reasoningEffort: "Reasoning effort",
-  effortDefault: "Default",
   steer: "Guide the current task · Alt+Enter",
   messageActions: "Message actions",
   waiting: "Waiting…",
