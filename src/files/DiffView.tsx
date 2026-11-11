@@ -54,11 +54,14 @@ export const DiffView = memo(function DiffView({
   patch,
   emptyText,
   hideFileHeaders = false,
+  hideSummary = false,
 }: {
   patch: string;
   emptyText?: string;
   /** 工作区 Git 预览已用标题栏展示路径，省略库自带的文件头。 */
   hideFileHeaders?: boolean;
+  /** 工具卡等紧凑容器只要正文，统计条与 hunk 导航由外壳承担。 */
+  hideSummary?: boolean;
 }) {
   const { t } = useI18n();
   const normalized = useMemo(() => normalizePatch(patch), [patch]);
@@ -120,7 +123,7 @@ export const DiffView = memo(function DiffView({
 
   return (
     <div className="diff-view vscode-diff">
-      <div className="diff-summary">
+      {!hideSummary && <div className="diff-summary">
         <span className="diff-stat added">+{parsed.added}</span>
         <span className="diff-stat removed">−{parsed.removed}</span>
         <span className="diff-stat muted">{t("files.hunkCount", { count: parsed.hunks })}</span>
@@ -152,7 +155,7 @@ export const DiffView = memo(function DiffView({
             </button>
           </>}
         </div>
-      </div>
+      </div>}
       <div className="diff-lines" ref={hostRef}>
         <PatchDiff
           patch={normalized}

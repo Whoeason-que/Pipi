@@ -5,6 +5,7 @@ import {
 } from "../chat-runtime";
 import { IconCheck, IconChevronRight, IconCopy } from "../icons";
 import { useCopyFeedback } from "../components/use-copy";
+import { DiffView } from "../files/DiffView";
 import { useI18n } from "../i18n";
 
 
@@ -166,20 +167,11 @@ function ToolResultCard({ entry }: { entry: ChatEntry }) {
           <div className={`tpane${argsText ? "" : " full"}`}>
             <div className="caption plabel">{t("inspector.output")}</div>
             {hasDiff ? (
-              <pre className="code">
-                {details!.diff!.split("\n").map((line, index) => {
-                  let lineClass = "ln-ctx";
-                  if (line.startsWith("+++") || line.startsWith("---")) lineClass = "ln-ctx";
-                  else if (line.startsWith("+")) lineClass = "ln-add";
-                  else if (line.startsWith("-")) lineClass = "ln-del";
-                  else if (line.startsWith("@@")) lineClass = "ln-hunk";
-                  return (
-                    <span key={index} className={lineClass}>
-                      {line}
-                    </span>
-                  );
-                })}
-              </pre>
+              // 和 Files 面板同一份 patch，用同一个渲染器：高亮、行号与逐词差异
+              // 都由 @pierre/diffs 提供，不再自己按行首字符上色。
+              <div className="tool-diff">
+                <DiffView patch={details!.diff!} hideSummary />
+              </div>
             ) : (
               <pre className="code">{toolOutputBody(entry) || (running ? t("inspector.runningOutput") : t("inspector.noOutput"))}</pre>
             )}

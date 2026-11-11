@@ -201,26 +201,11 @@ pre.code {
   user-select: text;
 }
 
-.ln-add {
-  display: block;
-  color: var(--ok);
-  background: var(--ok-soft);
-}
+/* diff 输出交给 DiffView（与 Files 面板共用渲染器），让它铺满卡片底边。 */
 
-.ln-del {
-  display: block;
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-
-.ln-ctx {
-  display: block;
-  color: var(--faint);
-}
-
-.ln-hunk {
-  display: block;
-  color: var(--accent-text);
+.tool-diff {
+  min-width: 0;
+  margin: 0 -12px -12px;
 }
 
 /* ============ 右栏「调用详情」面板 ============ */
