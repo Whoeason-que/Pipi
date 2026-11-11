@@ -148,24 +148,15 @@ fn deliver(weak: &Weak<RuntimeState>, batch: Vec<PendingResult>, delivered: &mut
     }
     for ((agent_name, session_id), results) in groups {
         let ids: Vec<String> = results.iter().map(|r| r.job_id.clone()).collect();
-        match wake_session(&runtime, &agent_name, &session_id, results) {
+        // Reopen an idle released session if needed, then preserve its typed results
+        // and pause state in the same queue as an already open session.
+        match runtime.queue_background_results(&agent_name, &session_id, results) {
             Ok(()) => delivered.extend(ids),
             Err(error) => eprintln!(
                 "pipi: failed to deliver background results to {agent_name}/{session_id}: {error}"
             ),
         }
     }
-}
-
-fn wake_session(
-    runtime: &Arc<RuntimeState>,
-    agent_name: &str,
-    session_id: &str,
-    results: Vec<BackgroundTaskResult>,
-) -> Result<(), String> {
-    // Reopen an idle released session if needed, then preserve its typed results
-    // and pause state in the same queue as an already open session.
-    runtime.queue_background_results(agent_name, session_id, results)
 }
 
 #[cfg(test)]

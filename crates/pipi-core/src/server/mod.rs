@@ -19,7 +19,7 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 
-use crate::events::{EventHub, RuntimeEvent};
+use crate::events::RuntimeEvent;
 use crate::runtime::RuntimeState;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -39,7 +39,6 @@ const PIPI_TOKEN_HEADER: &str = "x-pipi-token";
 #[derive(Clone)]
 struct AppState {
     runtime: Arc<RuntimeState>,
-    events: EventHub,
     assets: WebAssets,
     shutdown: watch::Receiver<bool>,
     clients: Arc<AtomicUsize>,
@@ -309,7 +308,7 @@ async fn auth_middleware(
 }
 
 async fn ws_events(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    let receiver = state.events.subscribe();
+    let receiver = state.runtime.events().subscribe();
     ws.on_upgrade(move |socket| stream_events(socket, receiver, state.shutdown, state.clients))
 }
 
@@ -392,7 +391,7 @@ async fn invoke_handler(
 }
 
 async fn invoke_command(request: InvokeRequest, state: &AppState) -> Result<Value, String> {
-    let emitter = state.events.emitter();
+    let emitter = state.runtime.events().emitter();
     crate::commands::dispatch(
         &state.runtime,
         emitter,
@@ -410,10 +409,8 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_state(token: Option<String>) -> AppState {
-        let events = EventHub::default();
         AppState {
             runtime: Arc::new(RuntimeState::new(tokio::runtime::Handle::current())),
-            events,
             assets: WebAssets::Directory(PathBuf::from("target/test-web-root")),
             shutdown: watch::channel(false).1,
             clients: Arc::new(AtomicUsize::new(0)),

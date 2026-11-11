@@ -90,7 +90,6 @@ pub async fn start(
     let clients = Arc::new(AtomicUsize::new(0));
     let (shutdown, receiver) = watch::channel(false);
     let state = AppState {
-        events: runtime.events().clone(),
         runtime,
         assets,
         auth_token: token,

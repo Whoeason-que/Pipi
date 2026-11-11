@@ -21,13 +21,13 @@ use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use pipi_protocol::{ContentBlock, Message, ToolResultContent};
 
 /// 列表 / 检索返回的会话数上限。
-pub const MAX_SESSIONS: usize = 10;
+const MAX_SESSIONS: usize = 10;
 /// 检索时单个会话命中片段的字符上限。
-pub const MAX_SNIPPET_CHARS: usize = 300;
+const MAX_SNIPPET_CHARS: usize = 300;
 /// 读取时单条消息的字符上限。
-pub const MAX_MESSAGE_CHARS: usize = 1_200;
+const MAX_MESSAGE_CHARS: usize = 1_200;
 /// 单次工具输出的总字符预算。
-pub const MAX_OUTPUT_CHARS: usize = 8_000;
+const MAX_OUTPUT_CHARS: usize = 8_000;
 
 pub struct SessionSearchTool {
     repo: Arc<dyn SessionRepo>,

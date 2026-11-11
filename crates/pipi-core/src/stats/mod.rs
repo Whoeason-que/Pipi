@@ -29,7 +29,7 @@ use pricing::Pricing;
 use usage::{AddUsage, token_total};
 
 /// 单次最多扫描的会话数（按最近活跃倒序）。
-pub const MAX_SESSIONS: usize = 300;
+const MAX_SESSIONS: usize = 300;
 const DAY_MS: u64 = 86_400_000;
 
 /// 一次 Agent 级统计请求的完整响应。

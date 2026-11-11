@@ -195,12 +195,7 @@ impl EventHub {
     pub fn test_desktop_notification(&self) {
         if let Some(sink) = self.desktop.read().ok().and_then(|sink| sink.clone()) {
             sink(RuntimeEvent::Notification(
-                crate::notifications::NotificationEnvelope::new(
-                    "Pipi",
-                    "",
-                    0,
-                    crate::notifications::NotificationKind::Completed,
-                ),
+                crate::notifications::NotificationEnvelope::test(),
             ));
         }
     }

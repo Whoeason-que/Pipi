@@ -72,6 +72,11 @@ impl NotificationEnvelope {
             .into(),
         }
     }
+
+    /// 桌面通知与 Web Push 的「发送测试通知」共用同一份信封。
+    pub(crate) fn test() -> Self {
+        Self::new("Pipi", "", 0, NotificationKind::Completed)
+    }
 }
 
 /// 只装配到用户 prompt 的运行入口。手动压缩不经过它；错误等最终结果确认后

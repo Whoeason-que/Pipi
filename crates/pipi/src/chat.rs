@@ -268,11 +268,8 @@ pub fn archive_agent(
 }
 
 #[tauri::command]
-pub fn restore_agent(
-    state: State<Arc<RuntimeState>>,
-    args: InvokeArgs<RestoreAgentArgs>,
-) -> Result<(), String> {
-    pipi_core::commands::restore_agent(&state, args.0)
+pub fn restore_agent(args: InvokeArgs<RestoreAgentArgs>) -> Result<(), String> {
+    pipi_core::commands::restore_agent(args.0)
 }
 
 #[tauri::command]

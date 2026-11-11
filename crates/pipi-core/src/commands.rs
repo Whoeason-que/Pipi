@@ -470,12 +470,7 @@ pub async fn test_push_notification(
         runtime
             .push_service()
             .deliver(
-                crate::notifications::NotificationEnvelope::new(
-                    "Pipi",
-                    "",
-                    0,
-                    crate::notifications::NotificationKind::Completed,
-                ),
+                crate::notifications::NotificationEnvelope::test(),
                 Some(args.endpoint),
             )
             .await
@@ -1184,8 +1179,7 @@ pub struct RestoreAgentArgs {
     pub name: String,
 }
 
-pub fn restore_agent(runtime: &RuntimeState, args: RestoreAgentArgs) -> Result<(), String> {
-    let _ = runtime;
+pub fn restore_agent(args: RestoreAgentArgs) -> Result<(), String> {
     agents::restore_agent(&args.name)
 }
 
@@ -1598,7 +1592,7 @@ pub async fn dispatch(
         "agent_stats" => to_value(agent_stats(parse(args)?)?),
         "fork_session" => to_value(fork_session(runtime, parse(args)?)?),
         "archive_agent" => to_value(archive_agent(runtime, parse(args)?)?),
-        "restore_agent" => to_value(restore_agent(runtime, parse(args)?)?),
+        "restore_agent" => to_value(restore_agent(parse(args)?)?),
         "delete_agent" => to_value(delete_agent(runtime, parse(args)?)?),
         "import_sessions" => to_value(import_sessions(runtime, parse(args)?).await?),
         "archive_session" => to_value(archive_session(runtime, parse(args)?)?),

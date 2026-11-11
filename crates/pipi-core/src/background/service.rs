@@ -267,7 +267,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
         }
         if let Some(job_id) = &query.job_id {
             if let Some(handle) = self.find_job(job_id)? {
-                if !handle.belongs_to(owner) {
+                if !handle.core().belongs_to(owner) {
                     return Err("Background task does not belong to current Agent session".into());
                 }
                 return Ok(vec![self.query_live_job(handle, &query).await?]);
@@ -286,15 +286,15 @@ impl BackgroundTaskService for BackgroundTaskManager {
             .lock()
             .map_err(|error| format!("Background task table is unavailable: {error}"))?
             .values()
-            .filter(|handle| handle.belongs_to(owner))
+            .filter(|handle| handle.core().belongs_to(owner))
             .cloned()
             .collect();
-        if query.wait_ms > 0 && handles.iter().all(|handle| !handle.is_active()) {
+        if query.wait_ms > 0 && handles.iter().all(|handle| !handle.core().is_active()) {
             tokio::time::sleep(Duration::from_millis(query.wait_ms.min(250))).await;
         }
         for handle in handles {
-            live_ids.insert(handle.job_id());
-            let snapshot = handle.snapshot(query.after_seq)?;
+            live_ids.insert(handle.core().job_id());
+            let snapshot = handle.core().snapshot(query.after_seq)?;
             if query.include_completed || snapshot.task.status.is_active() {
                 snapshots.push(snapshot);
             }
@@ -336,15 +336,15 @@ impl BackgroundTaskService for BackgroundTaskManager {
         let Some(handle) = self.find_job(job_id)? else {
             return self.query_persisted_job(owner, job_id, 0).await;
         };
-        if !handle.belongs_to(owner) {
+        if !handle.core().belongs_to(owner) {
             return Err("Background task does not belong to current Agent session".into());
         }
         let label = handle.core().label();
-        if !handle.is_active() {
+        if !handle.core().is_active() {
             if matches!(command, BackgroundTaskCommand::WriteStdin(_)) {
                 return Err(format!("{label} has ended, cannot write to stdin"));
             }
-            return handle.snapshot(0);
+            return handle.core().snapshot(0);
         }
 
         match &handle {
@@ -366,7 +366,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
                     .await
                     .map_err(|_| "Background task control timed out".to_string())?
                     .map_err(|_| "Background task control channel disconnected".to_string())??;
-                handle.snapshot(0)
+                handle.core().snapshot(0)
             }
             // child Agent 任务：只支持终止（abort），没有 stdin
             JobHandle::Agent(entry) => {
@@ -381,7 +381,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
                     CONTROL_TIMEOUT.as_millis() as u64,
                 )
                 .await;
-                handle.snapshot(0)
+                handle.core().snapshot(0)
             }
         }
     }
@@ -392,7 +392,7 @@ impl BackgroundTaskService for BackgroundTaskManager {
             .lock()
             .map(|jobs| {
                 jobs.values()
-                    .filter(|handle| handle.belongs_to(owner) && handle.is_active())
+                    .filter(|handle| handle.core().belongs_to(owner) && handle.core().is_active())
                     .count()
             })
             .unwrap_or(0)

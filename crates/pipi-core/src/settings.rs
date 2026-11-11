@@ -20,7 +20,7 @@ pub enum Theme {
 }
 
 impl Theme {
-    pub fn as_str(&self) -> &str {
+    fn as_str(&self) -> &str {
         match self {
             Self::Dark => "dark",
             Self::Light => "light",

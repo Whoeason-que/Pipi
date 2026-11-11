@@ -106,22 +106,6 @@ impl JobHandle {
             Self::Agent(entry) => &entry.core,
         }
     }
-
-    fn job_id(&self) -> String {
-        self.core().job_id()
-    }
-
-    fn belongs_to(&self, owner: &BackgroundTaskOwner) -> bool {
-        self.core().belongs_to(owner)
-    }
-
-    fn is_active(&self) -> bool {
-        self.core().is_active()
-    }
-
-    fn snapshot(&self, after_seq: u64) -> Result<BackgroundTaskSnapshot, String> {
-        self.core().snapshot(after_seq)
-    }
 }
 
 impl BackgroundTaskManager {
@@ -176,7 +160,7 @@ impl BackgroundTaskManager {
                 output = tail_text(result, max_output_bytes);
             }
         } else if let Ok(Some(handle)) = self.find_job(&info.job_id)
-            && let Ok(snapshot) = handle.snapshot(0)
+            && let Ok(snapshot) = handle.core().snapshot(0)
         {
             let text: String = snapshot
                 .output
@@ -210,7 +194,7 @@ impl BackgroundTaskManager {
             .cloned()
             .collect();
         for job in &jobs {
-            if job.is_active() {
+            if job.core().is_active() {
                 match job {
                     JobHandle::Agent(entry) => entry.abort.abort(),
                     JobHandle::Shell(entry) => {
@@ -285,7 +269,7 @@ impl BackgroundTaskManager {
     }
 
     fn insert_job(&self, handle: JobHandle) -> Result<(), String> {
-        let job_id = handle.job_id();
+        let job_id = handle.core().job_id();
         self.inner
             .jobs
             .lock()
@@ -313,7 +297,7 @@ impl BackgroundTaskManager {
             let core = handle.core();
             wait_for_state(&core.state, &core.notify, query.wait_ms).await;
         }
-        let snapshot = handle.snapshot(query.after_seq)?;
+        let snapshot = handle.core().snapshot(query.after_seq)?;
         // 模型已经通过查询看到终态：唤醒器不再重复推同一条结果。
         if query.observe && !snapshot.task.status.is_active() {
             handle.core().mark_observed();

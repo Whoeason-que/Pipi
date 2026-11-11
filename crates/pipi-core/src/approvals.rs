@@ -142,7 +142,8 @@ impl ApprovalBroker {
         }
     }
 
-    pub fn resolve(
+    #[cfg(test)]
+    fn resolve(
         &self,
         owner: &ApprovalOwner,
         approval_id: &str,
