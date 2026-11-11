@@ -216,7 +216,7 @@
   flex: 1;
 }
 
-.model-effort { position: relative; min-width: 0; max-width: min(100%, 420px); }
+.model-effort { min-width: 0; max-width: min(100%, 420px); }
 .model-effort-trigger {
   display: flex;
   align-items: center;
@@ -239,11 +239,9 @@
 .model-effort-name { flex: 0 0 auto; min-width: 0; max-width: 100%; }
 .model-effort-value, .model-effort-chevron { flex-shrink: 0; color: var(--muted); white-space: nowrap; }
 .model-effort-value { flex-shrink: 1; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-xs); }
+/* 定位与碰撞翻转由 Radix Popover 负责，这里只管外观。 */
 .model-effort-panel {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  right: 0;
-  z-index: 20;
+  z-index: 110;
   width: 300px;
   max-width: calc(100vw - 48px);
   padding: 12px 16px 10px;
