@@ -25,6 +25,12 @@ struct Inner {
     accepting: AtomicBool,
 }
 
+impl Default for TerminalManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TerminalManager {
     pub fn new() -> Self {
         Self {
