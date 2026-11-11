@@ -224,6 +224,18 @@ export default function Inspector({
     0,
   );
   const workspace = agent.workspace ?? `~/.pipi/agents/${agent.name}/workspace`;
+  const contextPercent = stats?.contextPercent ?? null;
+  const contextTrackPct = Math.min(100, Math.max(0, contextPercent ?? 0));
+  const contextTone =
+    contextPercent == null
+      ? ""
+      : contextPercent >= 90
+        ? "danger"
+        : contextPercent >= agent.compactThresholdPercent
+          ? "warn"
+          : "";
+  const sandboxTone = agent.permissions.sandbox === "danger-full-access" ? "error" : "ok";
+  const lastToolEntry = runningTool ?? lastTool;
 
   const Wrapper: "aside" | "div" = embedded ? "div" : "aside";
   return (
@@ -370,213 +382,235 @@ export default function Inspector({
           role="tabpanel"
           aria-labelledby="itab-state"
         >
-          <div className="ip">
-            <h4>{t("inspector.runtimeState")}</h4>
-            <div className="kv-row">
-              <span className="k">{runningTool ? t("inspector.currentTool") : t("inspector.lastTool")}</span>
-              <span className="v">
-                {runningTool || lastTool ? (
-                  <>
-                    <span className="mono" style={{ color: "var(--fg)" }}>
-                      {(runningTool ?? lastTool)!.toolName ?? "tool"}
-                    </span>{" "}
-                    <span className="dim">
-                      {runningTool
-                        ? t("common.running")
-                        : lastTool!.isError
-                          ? t("common.failed")
-                          : t("chat.statusDone")}
-                    </span>
-                  </>
-                ) : (
-                  <span className="dim">—</span>
-                )}
-              </span>
-            </div>
-            <div className="kv-row">
-              <span className="k">{t("inspector.messageCount")}</span>
-              <span className="v mono">{entries.length}</span>
-            </div>
-            <div className="kv-row">
-              <span className="k">{t("inspector.calls")}</span>
-              <span className="v mono">{stats?.calls ?? 0}</span>
-            </div>
-            <div className="kv-row">
-              <span className="k">{t("inspector.blockedSessions")}</span>
-              <span className="v mono dim">{blockedCount}</span>
-            </div>
-          </div>
-
-          <div className="ip">
-            <h4>{t("inspector.session")}</h4>
-            <div className="kv-row">
-              <span className="k">{t("inspector.model")}</span>
-              <span className="v mono">
-                {sessionModel?.id || t("inspector.notConfigured")}
-                {sessionModel && (
-                  <span className="dim">
-                    {" "}
-                    {isCustomModel ? t("inspector.custom") : t("inspector.default")}
-                  </span>
-                )}
-              </span>
-            </div>
-            <div className="kv-row">
-              <span className="k">{t("inspector.sessionId")}</span>
-              <span className="v mono">{sessionId ?? t("inspector.newSession")}</span>
-            </div>
-            <div className="kv-row">
-              <span className="k">{t("inspector.context")}</span>
-              <span className="v mono">
-                {stats?.contextPercent != null ? (
-                  <>
-                    {formatTokens(stats.contextUsed)} /{" "}
-                    {formatTokens(stats.contextMax)}{" "}
-                    <span className="dim">{stats.contextPercent}%</span>
-                  </>
-                ) : (
-                  <span className="dim">—</span>
-                )}
-                {allowCompact && (
-                  <>
-                    <button
-                      type="button"
-                      className="compact-now"
-                      onClick={onCompact}
-                      disabled={!canCompact}
-                      title={t("inspector.compactHint")}
-                    >
-                      {compacting ? t("inspector.compacting") : t("inspector.compactNow")}
-                    </button>
-                    {onAgentCompact && (
-                      <button
-                        type="button"
-                        className="compact-now agent-compact"
-                        onClick={onAgentCompact}
-                        disabled={!canAgentCompact}
-                        title={
-                          agentCompactTooLarge
-                            ? t("inspector.agentCompactTooLarge")
-                            : t("inspector.agentCompactHint")
-                        }
-                      >
-                        {compacting ? t("inspector.compacting") : t("inspector.agentCompact")}
-                      </button>
-                    )}
-                  </>
-                )}
-              </span>
-            </div>
-            <div className="kv-row">
-              <span className="k">{t("inspector.sessionStorage")}</span>
-              <span className="v mono dim">
-                {temporary
-                  ? t("inspector.memoryNoPersist")
-                  : sessionId
-                    ? `~/.pipi/agents/${agent.name}/sessions.git/`
-                    : "—"}
-              </span>
-            </div>
-          </div>
-
-          <div className="ip">
-            <h4>{t("inspector.constraints")}</h4>
-            <div className="kv-row">
-              <span className="k">{t("inspector.sandbox")}</span>
-              <span className="v">
-                <span className="tag ok">{agent.permissions.sandbox}</span>
-              </span>
-            </div>
-            <div className="kv-row">
-              <span className="k">{t("inspector.workingDirectory")}</span>
-              <span className="v mono">{workspace}</span>
-            </div>
-            <div className="kv-row">
-              <span className="k">{t("inspector.tools")}</span>
-              <span className="v mono dim">
-                {agent.permissions.tools.length
-                  ? agent.permissions.tools.join(" · ")
-                  : t("inspector.none")}
-              </span>
-            </div>
-          </div>
-
-          <div className="ip">
-            <h4>{t("inspector.stats")}</h4>
-            {stats?.cacheHitPct != null && (
-              <div className="metric cache-metric">
-                <span className="m-k">{t("inspector.cacheHit")}</span>
-                <span className="m-v">{stats.cacheHitPct.toFixed(0)}%</span>
-                <span className="track" title={t("inspector.cacheHint")}>
-                  <i
-                    className="cache"
-                    style={{ width: `${Math.min(100, Math.max(0, stats.cacheHitPct))}%` }}
-                  />
+          <div className="state-panel">
+            <section className="state-card">
+              <div className="state-card-head">
+                <h4>{t("inspector.context")}</h4>
+                <span className={`state-context-percent${contextTone ? ` ${contextTone}` : ""}`}>
+                  {contextPercent != null ? `${contextPercent}%` : "—"}
                 </span>
               </div>
-            )}
-            {stats && (stats.avgTps != null || stats.avgLatencyS != null) ? (
-              <div className="stat-pair">
-                {stats.avgTps != null && (
-                  <div className="stat-number">
-                    <span className="m-k">{t("inspector.outputSpeed")}</span>
-                    <span className="m-v">
-                      {stats.avgTps.toFixed(1)}
-                      <small>tok/s</small>
-                    </span>
-                  </div>
-                )}
-                {stats.avgLatencyS != null && (
-                  <div className="stat-number">
-                    <span className="m-k">{t("inspector.avgLatency")}</span>
-                    <span className="m-v">
-                      {stats.avgLatencyS.toFixed(2)}
-                      <small>s</small>
-                    </span>
-                  </div>
+              <div className="state-context-value">
+                <strong>{contextPercent != null ? formatTokens(stats?.contextUsed) : "—"}</strong>
+                {contextPercent != null && (
+                  <span>/ {formatTokens(stats?.contextMax)}</span>
                 )}
               </div>
-            ) : (
-              <div className="ip-note">{t("inspector.notEnoughCalls")}</div>
-            )}
-            <div className="metric">
-              <span className="m-k">{t("inspector.inputOutput")}</span>
-              <span className="m-v dim">
-                {formatTokens(stats?.input)} / {formatTokens(stats?.output)}
-              </span>
-            </div>
-          </div>
+              <div className="state-context-track" aria-hidden="true">
+                <i className={contextTone} style={{ width: `${contextTrackPct}%` }} />
+              </div>
+              {allowCompact && (
+                <div className="state-context-actions">
+                  <button
+                    type="button"
+                    className="compact-now"
+                    onClick={onCompact}
+                    disabled={!canCompact}
+                    title={t("inspector.compactHint")}
+                  >
+                    {compacting ? t("inspector.compacting") : t("inspector.compactNow")}
+                  </button>
+                  {onAgentCompact && (
+                    <button
+                      type="button"
+                      className="compact-now agent-compact"
+                      onClick={onAgentCompact}
+                      disabled={!canAgentCompact}
+                      title={
+                        agentCompactTooLarge
+                          ? t("inspector.agentCompactTooLarge")
+                          : t("inspector.agentCompactHint")
+                      }
+                    >
+                      {compacting ? t("inspector.compacting") : t("inspector.agentCompact")}
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
 
-          <div className="ip">
-            <h4>{t("inspector.toolCalls")}</h4>
-            {toolSummary.length > 0 ? (
-              <div className="tl">
-                {toolSummary.map((item) => (
-                  <div className="tl-row" key={item.name}>
-                    <span className="n" title={item.name}>
-                      {item.name}
-                    </span>
-                    <span className="b">
-                      <i
-                        style={{
-                          width: `${maxToolCount > 0 ? Math.max(6, (item.count / maxToolCount) * 100) : 0}%`,
-                        }}
-                      />
-                    </span>
-                    <span className={`d${item.errors > 0 ? " fail" : ""}`}>
-                      {item.errors > 0
-                        ? t("inspector.toolCountErrors", {
-                            count: item.count,
-                            errors: item.errors,
-                          })
-                        : t("inspector.toolCount", { count: item.count })}
-                    </span>
+            <section className="state-card">
+              <h4>{t("inspector.stats")}</h4>
+              {stats?.cacheHitPct != null && (
+                <div className="state-cache">
+                  <div className="state-cache-head">
+                    <span>{t("inspector.cacheHit")}</span>
+                    <strong>{stats.cacheHitPct.toFixed(0)}%</strong>
                   </div>
-                ))}
+                  <div className="state-cache-track" title={t("inspector.cacheHint")}>
+                    <i
+                      style={{ width: `${Math.min(100, Math.max(0, stats.cacheHitPct))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              {stats && (stats.avgTps != null || stats.avgLatencyS != null) ? (
+                <div className="state-stat-grid">
+                  {stats.avgTps != null && (
+                    <div className="state-stat">
+                      <span className="state-stat-label">{t("inspector.outputSpeed")}</span>
+                      <span className="state-stat-value">
+                        {stats.avgTps.toFixed(1)}
+                        <small>tok/s</small>
+                      </span>
+                    </div>
+                  )}
+                  {stats.avgLatencyS != null && (
+                    <div className="state-stat">
+                      <span className="state-stat-label">{t("inspector.avgLatency")}</span>
+                      <span className="state-stat-value">
+                        {stats.avgLatencyS.toFixed(2)}
+                        <small>s</small>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="ip-note state-stat-empty">{t("inspector.notEnoughCalls")}</div>
+              )}
+              <div className="state-io">
+                <span>{t("inspector.inputOutput")}</span>
+                <span>
+                  {formatTokens(stats?.input)} / {formatTokens(stats?.output)}
+                </span>
               </div>
-            ) : (
-              <div className="ip-note">{t("inspector.noToolCalls")}</div>
-            )}
+            </section>
+
+            <section className="state-card">
+              <h4>{t("inspector.runtimeState")}</h4>
+              <div className="state-metrics">
+                <div className="state-metric">
+                  <span className="state-metric-label">{t("inspector.messageCount")}</span>
+                  <span className="state-metric-value">{entries.length}</span>
+                </div>
+                <div className="state-metric">
+                  <span className="state-metric-label">{t("inspector.calls")}</span>
+                  <span className="state-metric-value">{stats?.calls ?? 0}</span>
+                </div>
+                <div className="state-metric">
+                  <span className="state-metric-label">{t("inspector.blockedSessions")}</span>
+                  <span className="state-metric-value">{blockedCount}</span>
+                </div>
+              </div>
+              <div className="state-tool-line">
+                <span className="state-tool-label">
+                  {runningTool ? t("inspector.currentTool") : t("inspector.lastTool")}
+                </span>
+                <span className="state-tool-value">
+                  {lastToolEntry ? (
+                    <>
+                      <span className="state-tool-name" title={lastToolEntry.toolName ?? "tool"}>
+                        {lastToolEntry.toolName ?? "tool"}
+                      </span>
+                      <span
+                        className={`state-tool-status ${
+                          runningTool ? "running" : lastToolEntry.isError ? "failed" : "done"
+                        }`}
+                      >
+                        {runningTool
+                          ? t("common.running")
+                          : lastToolEntry.isError
+                            ? t("common.failed")
+                            : t("chat.statusDone")}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="dim">—</span>
+                  )}
+                </span>
+              </div>
+            </section>
+
+            <section className="state-card">
+              <h4>{t("inspector.session")}</h4>
+              <div className="state-model-row">
+                <span className="state-field-label">{t("inspector.model")}</span>
+                <span className={`state-model-value${sessionModel ? "" : " dim"}`}>
+                  <span className="mono">{sessionModel?.id || t("inspector.notConfigured")}</span>
+                  {sessionModel && (
+                    <span className="state-badge">
+                      {isCustomModel ? t("inspector.custom") : t("inspector.default")}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="state-meta-grid">
+                <div className="state-field">
+                  <span className="state-field-label">{t("inspector.sessionId")}</span>
+                  <span className="state-field-value mono">
+                    {sessionId ?? t("inspector.newSession")}
+                  </span>
+                </div>
+                <div className="state-field">
+                  <span className="state-field-label">{t("inspector.sessionStorage")}</span>
+                  <span className="state-field-value mono dim">
+                    {temporary
+                      ? t("inspector.memoryNoPersist")
+                      : sessionId
+                        ? `~/.pipi/agents/${agent.name}/sessions.git/`
+                        : "—"}
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <section className="state-card">
+              <h4>{t("inspector.constraints")}</h4>
+              <div className="state-sandbox-row">
+                <span className="state-field-label">{t("inspector.sandbox")}</span>
+                <span className={`tag ${sandboxTone}`}>{agent.permissions.sandbox}</span>
+              </div>
+              <div className="state-field">
+                <span className="state-field-label">{t("inspector.workingDirectory")}</span>
+                <span className="state-field-value mono">{workspace}</span>
+              </div>
+              <div className="state-field state-field-tools">
+                <span className="state-field-label">{t("inspector.tools")}</span>
+                {agent.permissions.tools.length ? (
+                  <div className="state-tool-chips">
+                    {agent.permissions.tools.map((tool) => (
+                      <span className="state-tool-chip" key={tool}>{tool}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="state-field-value dim">{t("inspector.none")}</span>
+                )}
+              </div>
+            </section>
+
+            <section className="state-card">
+              <h4>{t("inspector.toolCalls")}</h4>
+              {toolSummary.length > 0 ? (
+                <div className="state-call-list">
+                  {toolSummary.map((item) => (
+                    <div className="state-call" key={item.name}>
+                      <div className="state-call-top">
+                        <span className="state-call-name" title={item.name}>
+                          {item.name}
+                        </span>
+                        <span className={`state-call-count${item.errors > 0 ? " fail" : ""}`}>
+                          {item.errors > 0
+                            ? t("inspector.toolCountErrors", {
+                                count: item.count,
+                                errors: item.errors,
+                              })
+                            : t("inspector.toolCount", { count: item.count })}
+                        </span>
+                      </div>
+                      <div className="state-call-bar" aria-hidden="true">
+                        <i
+                          style={{
+                            width: `${maxToolCount > 0 ? Math.max(6, (item.count / maxToolCount) * 100) : 0}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="ip-note">{t("inspector.noToolCalls")}</div>
+              )}
+            </section>
           </div>
         </div>
 
