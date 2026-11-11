@@ -7,36 +7,17 @@ use super::files::memory_index;
 use super::preparation::PreparedAgent;
 use super::types::{AgentDefinition, PromptScope};
 
-/// 跨层合并技能（agent 层在前，同名先发现者赢）。
-fn merge_skill_scopes(
-    agent_skills: Vec<crate::av::skills::SkillMeta>,
-    project_skills: Vec<crate::av::skills::SkillMeta>,
+/// 按技能名去重（先发现者赢），保持原有顺序。
+fn merge_unique_skills(
+    skills: Vec<crate::av::skills::SkillMeta>,
+    extra: Vec<crate::av::skills::SkillMeta>,
 ) -> Vec<crate::av::skills::SkillMeta> {
     let mut seen_names = std::collections::HashSet::new();
-    agent_skills
+    skills
         .into_iter()
-        .chain(project_skills)
+        .chain(extra)
         .filter(|skill| seen_names.insert(skill.name.clone()))
         .collect()
-}
-
-/// 把声明的 store 技能追加在约定目录之后（同名先发现者赢）。
-///
-/// 声明技能的解析（`use` + `agent.lock`，只读、不联网、缺失即 fail-closed）
-/// 已收敛到 `preparation::prepare_agent` 一处（工具上下文与提示词共用），
-/// 这里只保留提示词侧的合并与过滤。
-fn merge_store_skills(
-    mut skills: Vec<crate::av::skills::SkillMeta>,
-    store_skills: Vec<crate::av::skills::SkillMeta>,
-) -> Vec<crate::av::skills::SkillMeta> {
-    let mut seen_names: std::collections::HashSet<String> =
-        skills.iter().map(|skill| skill.name.clone()).collect();
-    for skill in store_skills {
-        if seen_names.insert(skill.name.clone()) {
-            skills.push(skill);
-        }
-    }
-    skills
 }
 
 /// 组装带 wire tool 描述的系统提示。
@@ -177,15 +158,17 @@ pub fn build_system_prompt_with_tools(
             .as_ref()
             .and_then(|resources| resources.skills.as_ref())
             .map(|skills| (skills.only.as_deref(), skills.exclude.as_deref()));
-        // 声明的 store 技能（`use`）追加在约定目录之后，同名先发现者赢
+        // 声明的 store 技能（`use`）追加在约定目录之后，同名先发现者赢。
+        // 解析（`use` + `agent.lock`，只读、不联网、缺失即 fail-closed）已收敛到
+        // `preparation::prepare_agent` 一处，这里只保留提示词侧的合并与过滤。
         let declared_store = if scope.uses_agent_side() {
             prepared.store_skills()
         } else {
             &[]
         };
         let filtered = crate::av::skills::filter_skills_by_name(
-            merge_store_skills(
-                merge_skill_scopes(agent_skills, project_skills),
+            merge_unique_skills(
+                merge_unique_skills(agent_skills, project_skills),
                 declared_store
                     .iter()
                     .map(|skill| skill.meta.clone())

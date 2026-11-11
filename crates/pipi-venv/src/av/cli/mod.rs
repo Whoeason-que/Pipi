@@ -201,12 +201,6 @@ pub fn choose_contract(explicit: Option<&str>) -> Result<PathBuf, String> {
         })
 }
 
-/// 短哈希（内容哈希的 12 位十六进制）。
-pub fn short_hash(content_hash: &str) -> &str {
-    let hex = content_hash.strip_prefix("sha256:").unwrap_or(content_hash);
-    &hex[..hex.len().min(12)]
-}
-
 /// 短修订（commit 前 12 位）。
 pub fn short_revision(revision: &str) -> &str {
     &revision[..revision.len().min(12)]

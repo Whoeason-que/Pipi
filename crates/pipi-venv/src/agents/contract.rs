@@ -77,31 +77,8 @@ pub fn agent_material(
     let mut loaded_instructions = Vec::new();
     for raw in instructions {
         let resolved = crate::av::resolve_path(&base, raw);
-        let canonical = fs::canonicalize(&resolved)
-            .map_err(|e| format!("上下文文件不可用 {}: {e}", resolved.display()))?;
-        if !canonical.is_file() {
-            return Err(format!("上下文文件不是常规文件：{}", canonical.display()));
-        }
-        if !canonical.starts_with(&agent_dir) {
-            return Err(format!(
-                "上下文文件 {} 逃逸 Agent 目录 {}（fail-closed）",
-                canonical.display(),
-                agent_dir.display()
-            ));
-        }
-        let content = fs::read_to_string(&canonical)
-            .map_err(|e| format!("无法读取 {}: {e}", canonical.display()))?;
-        let content = content
-            .strip_prefix('\u{feff}')
-            .unwrap_or(&content)
-            .to_string();
-        if content.trim().is_empty() {
-            return Err(format!("上下文文件为空：{}", canonical.display()));
-        }
-        loaded_instructions.push(AgentInstruction {
-            path: canonical,
-            content,
-        });
+        let (path, content) = read_contained_text(&resolved, &agent_dir, "Agent 目录")?;
+        loaded_instructions.push(AgentInstruction { path, content });
     }
 
     // —— memory：单个目录 ——
@@ -187,6 +164,41 @@ fn canonicalize_existing_ancestor(path: &Path) -> Option<PathBuf> {
     None
 }
 
+/// 读取一条受包含约束的文本文件：resolve → canonicalize → 常规文件 →
+/// 包含根 → 读取 → 去 BOM → 空内容拒绝。
+///
+/// `root_label` 只进逃逸文案（`Agent 目录` / `包含根`）；预算截断留给调用点。
+/// 返回真实路径（canonical）与正文。
+fn read_contained_text(
+    resolved: &Path,
+    containment_root: &Path,
+    root_label: &str,
+) -> Result<(PathBuf, String), String> {
+    let canonical = fs::canonicalize(resolved)
+        .map_err(|e| format!("上下文文件不可用 {}: {e}", resolved.display()))?;
+    if !canonical.is_file() {
+        return Err(format!("上下文文件不是常规文件：{}", canonical.display()));
+    }
+    if !canonical.starts_with(containment_root) {
+        return Err(format!(
+            "上下文文件 {} 逃逸 {} {}（fail-closed）",
+            canonical.display(),
+            root_label,
+            containment_root.display()
+        ));
+    }
+    let content = fs::read_to_string(&canonical)
+        .map_err(|e| format!("无法读取 {}: {e}", canonical.display()))?;
+    let content = content
+        .strip_prefix('\u{feff}')
+        .unwrap_or(&content)
+        .to_string();
+    if content.trim().is_empty() {
+        return Err(format!("上下文文件为空：{}", canonical.display()));
+    }
+    Ok((canonical, content))
+}
+
 /// Agent 的契约层集合（av `agent.toml`）：Agent 定义目录的 agent.toml
 /// （agent 层，可能缺席）+ 项目层发现（agent.toml → agent.local.toml）。
 /// env 合并、`[resources]` 三态共用同一份层集合（技能中心也用它取 `use` 声明）。
@@ -261,27 +273,7 @@ pub(super) fn load_declared_context_files(
             break;
         }
         let resolved = crate::av::resolve_path(base_dir, raw);
-        let canonical = fs::canonicalize(&resolved)
-            .map_err(|e| format!("上下文文件不可用 {}: {e}", resolved.display()))?;
-        if !canonical.is_file() {
-            return Err(format!("上下文文件不是常规文件：{}", canonical.display()));
-        }
-        if !canonical.starts_with(containment_root) {
-            return Err(format!(
-                "上下文文件 {} 逃逸包含根 {}（fail-closed）",
-                canonical.display(),
-                containment_root.display()
-            ));
-        }
-        let content = fs::read_to_string(&canonical)
-            .map_err(|e| format!("无法读取 {}: {e}", canonical.display()))?;
-        let content = content
-            .strip_prefix('\u{feff}')
-            .unwrap_or(&content)
-            .to_string();
-        if content.trim().is_empty() {
-            return Err(format!("上下文文件为空：{}", canonical.display()));
-        }
+        let (_, content) = read_contained_text(&resolved, containment_root, "包含根")?;
         let content = if project_budget.is_some() {
             let truncated =
                 pipi_protocol::text::truncate_at_char_boundary(&content, remaining).to_string();

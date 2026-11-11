@@ -36,14 +36,14 @@ impl AgentDefinition {
     }
 }
 
-/// 扫描一个目录下的所有合法 Agent（活跃区与归档区共用）。
-/// 缺 agent.json 或解析失败的目录直接跳过 —— 文件即真相，坏文件不拖垮列表。
-/// 以 `.` 开头的目录（归档区等）一律跳过。
-pub(super) fn scan_agents(dir: &Path) -> Vec<AgentDefinition> {
-    let mut agents = Vec::new();
-    let Ok(entries) = fs::read_dir(dir) else {
-        return agents;
-    };
+/// 遍历 `<dir>` 下的 Agent 目录，产出 `(目录名, agent.json 路径)`。
+///
+/// 跳过符号链接、非目录、以 `.` 开头的目录（归档区等），以及 `agent.json`
+/// 不是真实常规文件的目录（防符号链接逃逸）。读文件与解析留给调用方：
+/// 列表按 `AgentDefinition` typed 解析，迁移按 `serde_json::Value` 原地改数组。
+fn iter_agent_manifests(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    let mut manifests = Vec::new();
+    let entries = fs::read_dir(dir).map_err(|e| e.to_string())?;
     for entry in entries.flatten() {
         let file_type = match entry.file_type() {
             Ok(file_type) => file_type,
@@ -64,13 +64,23 @@ pub(super) fn scan_agents(dir: &Path) -> Vec<AgentDefinition> {
         }
         let manifest = entry.path().join("agent.json");
         match ensure_real_file(&manifest, "agent.json") {
-            Ok(true) => {}
-            Ok(false) => continue,
-            Err(error) => {
-                eprintln!("pipi: skipping unsafe {}: {error}", manifest.display());
-                continue;
-            }
+            Ok(true) => manifests.push((directory_name, manifest)),
+            Ok(false) => {}
+            Err(error) => eprintln!("pipi: skipping unsafe {}: {error}", manifest.display()),
         }
+    }
+    Ok(manifests)
+}
+
+/// 扫描一个目录下的所有合法 Agent（活跃区与归档区共用）。
+/// 缺 agent.json 或解析失败的目录直接跳过 —— 文件即真相，坏文件不拖垮列表。
+/// 以 `.` 开头的目录（归档区等）一律跳过。
+pub(super) fn scan_agents(dir: &Path) -> Vec<AgentDefinition> {
+    let Ok(manifests) = iter_agent_manifests(dir) else {
+        return Vec::new();
+    };
+    let mut agents = Vec::new();
+    for (directory_name, manifest) in manifests {
         let text = match fs::read_to_string(&manifest) {
             Ok(text) => text,
             Err(e) => {
@@ -157,23 +167,8 @@ pub fn migrate_tool_lists() -> Result<usize, String> {
         return Ok(0);
     }
     let mut migrated = 0;
-    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if file_type.is_symlink() || !file_type.is_dir() {
-            continue;
-        }
-        // `.archive` 等以点开头的目录一律跳过：迁移不是修历史副本的地方。
-        if entry.file_name().to_string_lossy().starts_with('.') {
-            continue;
-        }
-        let manifest = entry.path().join("agent.json");
-        // 坏文件/符号链接跳过（与 scan_agents 同一取向：迁移不能把列表拖垮）。
-        match ensure_real_file(&manifest, "agent.json") {
-            Ok(true) => {}
-            _ => continue,
-        }
+    for (_, manifest) in iter_agent_manifests(&dir)? {
+        // 坏文件跳过（与 scan_agents 同一取向：迁移不能把列表拖垮）。
         let Ok(text) = fs::read_to_string(&manifest) else {
             continue;
         };

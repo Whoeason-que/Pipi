@@ -149,6 +149,14 @@ pub fn content_dir_name(content_hash: &str) -> Result<&str, String> {
     Ok(&content_hash["sha256:".len().."sha256:".len() + CONTENT_DIR_NAME_LEN])
 }
 
+/// 内容哈希的短标识（12 位十六进制；日志与提示用）。
+///
+/// 输入可以是带 `sha256:` 前缀的完整哈希，也可以是裸 hex。
+pub(crate) fn short_hash(content_hash: &str) -> &str {
+    let hex = content_hash.strip_prefix("sha256:").unwrap_or(content_hash);
+    &hex[..hex.len().min(12)]
+}
+
 /// 锁文件（agent.lock 与 `~/.av/skills.lock` 索引共用）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -711,7 +719,9 @@ pub fn now_iso8601() -> String {
 }
 
 /// Howard Hinnant civil_from_days：1970-01-01 起的天数 → 公历年月日。
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
+///
+/// crate 内唯一实现（`prompt/environment.rs` 的日期块也用它）。
+pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = (z - era * 146_097) as u64;

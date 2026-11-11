@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::av::sources::{self, SourceSkill, SourceSpec};
-use crate::av::store::{self, SkillLockEntry, SourceType, VerifyOutcome};
+use crate::av::store::{self, SkillLockEntry, SourceType, VerifyOutcome, short_hash};
 
 /// 选择要安装哪些技能。
 #[derive(Debug, Clone)]
@@ -464,11 +464,6 @@ impl SyncPlan {
 
 fn short_revision(revision: &str) -> &str {
     &revision[..revision.len().min(12)]
-}
-
-fn short_hash(content_hash: &str) -> &str {
-    let hex = content_hash.strip_prefix("sha256:").unwrap_or(content_hash);
-    &hex[..hex.len().min(12)]
 }
 
 #[cfg(test)]

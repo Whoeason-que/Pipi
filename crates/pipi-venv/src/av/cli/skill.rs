@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 
 use crate::av::install::{self, InstallReport, Selection, SyncAction};
 use crate::av::sources::{self, SourceSpec};
-use crate::av::store::{self, SkillLock, SkillLockEntry, SourceType, VerifyOutcome};
+use crate::av::store::{self, SkillLock, SkillLockEntry, SourceType, VerifyOutcome, short_hash};
 
-use super::{choose_contract, confirm, lock_path_for, parse_args, short_hash, short_revision};
+use super::{choose_contract, confirm, lock_path_for, parse_args, short_revision};
 
 const USAGE: &str = "\
 av skill —— 全局技能 store（~/.av/skills）管理
