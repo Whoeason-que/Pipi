@@ -282,7 +282,7 @@ fn is_name_char(character: char) -> bool {
 /// - 去重、保持出现顺序。
 ///
 /// **不**判断名字是否真实存在（那是调用方查注册表的事），也不排除自己。
-pub fn parse_mentions(body: &str) -> Vec<String> {
+fn parse_mentions(body: &str) -> Vec<String> {
     let mut mentions: Vec<String> = Vec::new();
     let mut in_fence = false;
     for line in body.lines() {

@@ -502,7 +502,7 @@ pub const BACKGROUND_RESULT_OPEN_TAG: &str = "<background task result>";
 pub const BACKGROUND_RESULT_CLOSE_TAG: &str = "</background task result>";
 
 /// 通知正文：给模型看的可读文本（前端也从同一份文本里读 status）。
-pub fn background_result_text(result: &crate::BackgroundTaskResult) -> String {
+fn background_result_text(result: &crate::BackgroundTaskResult) -> String {
     use std::fmt::Write;
     let mut body = String::new();
     let _ = writeln!(body, "status: {}", result.status.as_str());
@@ -534,7 +534,7 @@ pub fn background_result_text(result: &crate::BackgroundTaskResult) -> String {
 }
 
 /// 带包裹标签的通知文本（落盘条目、排队消息与回放共用同一份形状）。
-pub fn background_result_tagged_text(result: &crate::BackgroundTaskResult) -> String {
+fn background_result_tagged_text(result: &crate::BackgroundTaskResult) -> String {
     format!(
         "{BACKGROUND_RESULT_OPEN_TAG}\n{}{BACKGROUND_RESULT_CLOSE_TAG}",
         background_result_text(result)
