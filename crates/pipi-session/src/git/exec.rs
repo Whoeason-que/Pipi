@@ -201,14 +201,18 @@ impl GitExec {
     /// 打开它 —— 删除路径的简化（删 ref + `gc --prune=now`，不做 reflog
     /// expire）依赖这条。
     fn ensure_initialized(&self) -> Result<(), String> {
+        // 守卫必须先于 HEAD 快路径：is_file() 会跟随符号链接，否则链接指向的
+        // 已有仓库会被当成已初始化，后续写入逃出数据树。
+        let initialized =
+            pipi_protocol::fs::ensure_real_directory(&self.repo_dir, "Session git repository")?;
         // 快路径：HEAD 在就是已初始化（免一次 spawn）
-        if self.repo_dir.join("HEAD").is_file() {
+        if initialized && self.repo_dir.join("HEAD").is_file() {
             return Ok(());
         }
         if let Some(parent) = self.repo_dir.parent() {
             pipi_protocol::fs::ensure_real_directory(parent, "Agent directory")?;
         }
-        if !pipi_protocol::fs::ensure_real_directory(&self.repo_dir, "Session git repository")? {
+        if !initialized {
             let output = Command::new("git")
                 .args(["init", "--bare", "--quiet", "--initial-branch=main"])
                 .arg(&self.repo_dir)
@@ -297,6 +301,28 @@ mod tests {
         std::os::unix::fs::symlink(&outside, &link).unwrap();
         let exec = GitExec::new(link);
         let error = exec.resolve_ref("refs/heads/main").unwrap_err();
+        assert!(
+            error.contains("cannot be a symbolic link") || error.contains("不能是符号链接"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(&parent).ok();
+        std::fs::remove_dir_all(&outside).ok();
+    }
+
+    /// 链接指向一个已初始化（有 HEAD）的仓库时也必须拒绝：HEAD 快路径不能
+    /// 绕过符号链接守卫。
+    #[test]
+    fn symlink_to_an_initialized_repository_is_rejected() {
+        let outside = pipi_test_support::temp_dir("pipi-git-initialized-outside");
+        let real = outside.join("real.git");
+        GitExec::new(real.clone()).ensure_ready().unwrap();
+
+        let parent = pipi_test_support::temp_dir("pipi-git-initialized-parent");
+        let link = parent.join("sessions.git");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let error = GitExec::new(link)
+            .resolve_ref("refs/heads/main")
+            .unwrap_err();
         assert!(
             error.contains("cannot be a symbolic link") || error.contains("不能是符号链接"),
             "{error}"
