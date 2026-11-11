@@ -8,7 +8,7 @@ import { assertHostIdle, prepare } from "../scripts/prepare-desktop-dev.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 
-test("desktop preparation refuses a running Pipi host", () => {
+test("desktop preparation refuses a running Pipi host", { skip: process.platform !== "linux" }, () => {
   const dir = mkdtempSync(join(tmpdir(), "pipi-dev-host-"));
   try {
     const lock = join(dir, "host.lock");
@@ -60,7 +60,7 @@ test("desktop Vite disables watching and HMR while normal dev keeps watching", (
   assert.equal(desktop.hmr, false);
 });
 
-test("desktop shortcut runs npm directly and is valid", () => {
+test("desktop shortcut runs npm directly and is valid", { skip: process.platform !== "linux" }, () => {
   const dir = mkdtempSync(join(tmpdir(), "pipi-dev-shortcut-"));
   try {
     const output = join(dir, "pipi.desktop");
