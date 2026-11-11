@@ -199,6 +199,8 @@ impl ApprovalBroker {
 
 /// Session-specific implementation of the engine's execution gate. The
 /// sandbox and tool whitelist are applied separately by the execution path.
+type AuditReview = Arc<dyn Fn(&ApprovalRequest, &ReviewResult) -> Result<(), String> + Send + Sync>;
+
 pub struct SessionToolGate {
     pub mode: pipi_protocol::permissions::PermissionMode,
     pub owner: ApprovalOwner,
@@ -206,8 +208,7 @@ pub struct SessionToolGate {
     pub publish: Arc<dyn Fn(&ApprovalRequest) + Send + Sync>,
     pub reviewer: Option<ModelReviewer>,
     pub review_instructions: String,
-    pub audit_review:
-        Arc<dyn Fn(&ApprovalRequest, &ReviewResult) -> Result<(), String> + Send + Sync>,
+    pub audit_review: AuditReview,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
