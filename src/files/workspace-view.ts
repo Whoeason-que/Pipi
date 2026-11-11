@@ -20,6 +20,7 @@ export class WorkspaceViewStore {
   private snapshot = empty();
   private listeners = new Set<() => void>();
   private scrolls: Record<string, number> = {};
+  private scrollWrite: ReturnType<typeof setTimeout> | null = null;
   private storage: Storage | undefined;
   constructor(agent: Pick<AgentDefinition, "name" | "workspace">, mode: WorkspaceMode, storage: Storage | undefined = safeSessionStorage()) {
     this.storage = storage;
@@ -38,6 +39,7 @@ export class WorkspaceViewStore {
   private update(patch: Partial<WorkspaceView>) {
     this.snapshot = { ...this.snapshot, ...patch };
     this.scrolls = Object.fromEntries(this.snapshot.tabs.map(path => [path, this.scroll(path)]));
+    this.flushScroll();
     this.persist();
     this.listeners.forEach(listener => listener());
   }
@@ -56,8 +58,20 @@ export class WorkspaceViewStore {
   setQuery(query: string) { this.update({ query }); }
   setHidden(showHidden: boolean) { this.update({ showHidden }); }
   scroll(path: string): number { return Number.isFinite(this.scrolls[path]) ? this.scrolls[path] : 0; }
-  /** 滚动不通知 React，避免长代码每次滚动都重新渲染。 */
-  rememberScroll(path: string, top: number) { this.scrolls[path] = top; this.persist(); }
+  /**
+   * 滚动不通知 React，避免长代码每次滚动都重新渲染。sessionStorage 写入是
+   * 同步的，拖滚动条时不能每个事件都序列化整个视图，攒 200ms 再落盘。
+   */
+  rememberScroll(path: string, top: number) {
+    this.scrolls[path] = top;
+    if (this.scrollWrite) return;
+    this.scrollWrite = setTimeout(() => { this.scrollWrite = null; this.persist(); }, 200);
+  }
+  private flushScroll() {
+    if (!this.scrollWrite) return;
+    clearTimeout(this.scrollWrite);
+    this.scrollWrite = null;
+  }
   private persist() {
     try { this.storage?.setItem(this.key, JSON.stringify({ ...this.snapshot, scrolls: this.scrolls })); } catch { /* 存储不可用时保留内存状态。 */ }
   }
