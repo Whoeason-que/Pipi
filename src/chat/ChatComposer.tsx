@@ -221,18 +221,10 @@ export default function ChatComposer({
           }}
         />
         <div className="composer-bar">
-          {!temporary && <PermissionModePicker mode={permissionMode} activeMode={activePermissionMode} agentSandbox={agentSandbox}
-            running={running} disabled={!ready || stopping || uncertain} onChange={onPermissionMode} onError={onError} />}
           <input ref={fileInput} type="file" multiple hidden onChange={event => { const picked = Array.from(event.target.files ?? []); if (picked.length) draft.setFiles([...draft.getSnapshot().files, ...picked]); event.target.value = ""; }} />
           <button type="button" className="composer-attach" disabled={!ready || sending} title={t("chat.attachFilesTitle")} aria-label={t("chat.attachFiles")} onClick={() => fileInput.current?.click()}>+</button>
-          {!temporary ? <ModelEffortPicker
-            model={model}
-            customModel={customModel}
-            disabled={!ready || running || stopping || sending || updatingReasoning || uncertain}
-            disabledReason={running ? t("chat.cannotChangeModelWhileRunning") : undefined}
-            onOpenModel={onOpenModel}
-            onEffortChange={changeReasoning}
-          /> : <span className="truncate caption test-model" title={modelName}>{modelName}</span>}
+          {!temporary && <PermissionModePicker mode={permissionMode} activeMode={activePermissionMode} agentSandbox={agentSandbox}
+            running={running} disabled={!ready || stopping || uncertain} onChange={onPermissionMode} onError={onError} />}
           <span className="spacer" />
           <span className="caption composer-state" role="status">
             {updatingReasoning
@@ -245,6 +237,14 @@ export default function ChatComposer({
                   ? t("chat.sendPending")
                   : null}
           </span>
+          {!temporary ? <ModelEffortPicker
+            model={model}
+            customModel={customModel}
+            disabled={!ready || running || stopping || sending || updatingReasoning || uncertain}
+            disabledReason={running ? t("chat.cannotChangeModelWhileRunning") : undefined}
+            onOpenModel={onOpenModel}
+            onEffortChange={changeReasoning}
+          /> : <span className="truncate caption test-model" title={modelName}>{modelName}</span>}
           <DelayPicker value={delayMinutes} onChange={setDelayMinutes} />
           <SendAction
             running={running}

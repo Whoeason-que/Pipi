@@ -403,7 +403,16 @@ export function IconLayers({ size }: { size?: number }) {
   );
 }
 
-/** 盾牌告警（沙箱拒绝） */
+/** 盾牌（权限 / 沙箱） */
+export function IconShield({ size }: { size?: number }) {
+  return (
+    <IconBase size={size}>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </IconBase>
+  );
+}
+
+/** 盾牌告警（沙箱拒绝 / 完全访问） */
 export function IconShieldAlert({ size }: { size?: number }) {
   return (
     <IconBase size={size}>
