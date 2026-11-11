@@ -5,16 +5,9 @@ use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
 use serde_json::{Value, json};
 use tokio::io::AsyncReadExt;
 
-const MAX_OUTPUT: u64 = 50 * 1024;
+use crate::process::GroupGuard;
 
-struct GroupGuard(Option<u32>);
-impl Drop for GroupGuard {
-    fn drop(&mut self) {
-        if let Some(pid) = self.0 {
-            let _ = crate::process::kill_process_group(pid);
-        }
-    }
-}
+const MAX_OUTPUT: u64 = 50 * 1024;
 
 pub struct SearchWorkspaceTool;
 
@@ -81,7 +74,7 @@ impl AgentTool for SearchWorkspaceTool {
             .spawn()
             .map_err(|e| format!("Cannot start workspace search: {e}"))?;
         let pid = child.id();
-        let mut group = GroupGuard(pid);
+        let mut group = GroupGuard::new(pid);
         let mut output = Vec::new();
         let mut stdout = child
             .stdout
@@ -115,8 +108,10 @@ impl AgentTool for SearchWorkspaceTool {
             let _ = child.start_kill();
             let _ = child.wait().await;
         }
+        // 成功与失败路径都已 wait() 回收子进程；此后守卫必须解除，避免 PID
+        // 复用后误杀无关进程组。
+        group.disarm();
         let status = status?;
-        group.0 = None;
         result?;
         if !truncated && !status.success() && status.code() != Some(1) {
             return Err(format!("Workspace search failed: {status}"));

@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::io::AsyncReadExt;
 
+use crate::process::GroupGuard;
 use crate::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, format_size, truncate_tail};
 use pipi_protocol::ToolResultContent;
 use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_path};
@@ -29,29 +30,6 @@ async fn terminate_child_tree(child: &mut tokio::process::Child) {
     }
     // 非 unix 平台没有进程组；未取到 pid 时也退回直接杀子进程
     let _ = child.start_kill();
-}
-
-/// 兜底：工具 future 在跑到收尾之前被 drop（任务取消、运行时关闭）时，
-/// 整组仍在跑的孙进程会失去约束，这里补一次组终止。正常路径必须 `disarm()`，
-/// 否则已回收的 PID 可能被系统复用，误杀无关进程组。
-struct GroupGuard(Option<u32>);
-
-impl GroupGuard {
-    fn new(pid: Option<u32>) -> Self {
-        Self(pid)
-    }
-
-    fn disarm(&mut self) {
-        self.0 = None;
-    }
-}
-
-impl Drop for GroupGuard {
-    fn drop(&mut self) {
-        if let Some(pid) = self.0 {
-            let _ = crate::process::kill_process_group(pid);
-        }
-    }
 }
 
 /// 没有显式 `timeout` 时的上限：避免 `sleep` / 交互式命令把一轮运行挂死。
