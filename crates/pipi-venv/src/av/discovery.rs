@@ -44,8 +44,6 @@ pub struct Layer {
 /// 发现结果：`layers` 自低到高优先级排列。
 #[derive(Debug, Clone)]
 pub struct Discovered {
-    /// 契约文件所在目录（canonicalize 后），相对路径的解析基准。
-    pub root: PathBuf,
     pub layers: Vec<Layer>,
 }
 
@@ -87,10 +85,7 @@ pub fn discover(cwd: &Path) -> Result<Discovered, String> {
     };
 
     let Some(dir) = layer_dir else {
-        return Ok(Discovered {
-            root: cwd.to_path_buf(),
-            layers: Vec::new(),
-        });
+        return Ok(Discovered { layers: Vec::new() });
     };
 
     let main_path = dir.join(AGENT_TOML_FILENAME);
@@ -107,9 +102,7 @@ pub fn discover(cwd: &Path) -> Result<Discovered, String> {
             LayerKind::ProjectLocal,
         )?);
     }
-    let root = std::fs::canonicalize(&dir)
-        .map_err(|e| format!("无法规范化契约目录 {}: {e}", dir.display()))?;
-    Ok(Discovered { root, layers })
+    Ok(Discovered { layers })
 }
 
 /// 显式加载单个契约文件（解析 + schema 校验；不含 symlink 包含检查）。
@@ -188,9 +181,6 @@ mod tests {
         let dir = pipi_test_support::temp_dir("av-discovery");
         let discovered = discover(&dir).unwrap();
         assert!(discovered.layers.is_empty());
-        // 无项目根时 root 回退为 cwd
-        let cwd = std::fs::canonicalize(&dir).unwrap();
-        assert_eq!(discovered.root, cwd);
     }
 
     #[test]

@@ -99,7 +99,9 @@ pub fn build_tool_context(
             memory_dir: Some(material.memory_dir.clone()),
             // notebook 是会话级工作文档：没有会话身份（临时测试、子 Agent）
             // 就没有 notebook，工具也不注册。
-            notebook_path: session_id.as_deref().and_then(|id| def.notebook_path(id)),
+            notebook_path: session_id
+                .as_deref()
+                .and_then(|id| crate::agents::paths::notebook_path(&def.name, id)),
             read_roots,
             permissions: std::sync::Arc::new(def.permissions.clone()),
             sandbox: def.permissions.sandbox,

@@ -9,7 +9,6 @@ pub mod environment;
 pub mod resources;
 pub mod system_prompt;
 
-pub use crate::av::SkillMeta;
 pub use environment::environment_context;
 pub use system_prompt::{
     BuildSystemPromptOptions, ContextFile, MemoryFileMeta, build_system_prompt,

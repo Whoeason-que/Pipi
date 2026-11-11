@@ -328,7 +328,6 @@ pub fn record_index_entries(entries: &[SkillLockEntry]) -> Result<(), String> {
 #[derive(Debug, Clone)]
 pub struct SkillContent {
     pub files: Vec<(String, PathBuf, u64)>,
-    pub total_bytes: u64,
 }
 
 impl SkillContent {
@@ -355,7 +354,7 @@ pub fn scan_skill_content(dir: &Path) -> Result<SkillContent, String> {
         return Err(format!("技能目录为空：{}", root.display()));
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(SkillContent { files, total_bytes })
+    Ok(SkillContent { files })
 }
 
 fn walk_content(
@@ -489,7 +488,7 @@ fn publish_skill_in(
     content_hash: &str,
 ) -> Result<PathBuf, String> {
     let dest = entry_dir_in(store_root, name, content_hash)?;
-    if ensure_real_dir(&dest, "store 技能目录")? {
+    if pipi_protocol::fs::ensure_real_directory(&dest, "store 技能目录")? {
         return Ok(dest);
     }
     let parent = dest
@@ -531,7 +530,7 @@ fn publish_skill_in(
         Err(error) => {
             let _ = fs::remove_dir_all(&staging);
             // 并发发布的竞态：目标已被别人放好且合法，视为成功
-            if ensure_real_dir(&dest, "store 技能目录")? {
+            if pipi_protocol::fs::ensure_real_directory(&dest, "store 技能目录")? {
                 Ok(dest)
             } else {
                 Err(format!("发布技能失败 {}: {error}", dest.display()))
@@ -543,7 +542,7 @@ fn publish_skill_in(
 /// 删除 store 中某个具体版本；返回是否删除过。
 pub fn remove_version(name: &str, content_hash: &str) -> Result<bool, String> {
     let dir = entry_dir(name, content_hash)?;
-    if !ensure_real_dir(&dir, "store 技能目录")? {
+    if !pipi_protocol::fs::ensure_real_directory(&dir, "store 技能目录")? {
         return Ok(false);
     }
     fs::remove_dir_all(&dir).map_err(|e| format!("无法删除 {}: {e}", dir.display()))?;
@@ -684,7 +683,7 @@ pub fn verify_entry(entry: &SkillLockEntry) -> Result<VerifyOutcome, String> {
 
 fn verify_entry_in(store_root: &Path, entry: &SkillLockEntry) -> Result<VerifyOutcome, String> {
     let dir = entry_dir_in(store_root, &entry.name, &entry.content_hash)?;
-    if !ensure_real_dir(&dir, "store 技能目录")? {
+    if !pipi_protocol::fs::ensure_real_directory(&dir, "store 技能目录")? {
         return Ok(VerifyOutcome::Missing);
     }
     let actual = hash_skill_dir(&dir)?;
@@ -737,11 +736,6 @@ fn monotonic_nonce() -> u128 {
 pub fn write_text_atomic(path: &Path, text: &str) -> Result<(), String> {
     pipi_protocol::fs::write_atomic(path, text)
         .map_err(|e| format!("无法写入 {}: {e}", path.display()))
-}
-
-/// 目录边界检查：存在且是真实目录（非符号链接）→ true；不存在 → false。
-fn ensure_real_dir(path: &Path, label: &str) -> Result<bool, String> {
-    pipi_protocol::fs::ensure_real_directory(path, label)
 }
 
 #[cfg(test)]

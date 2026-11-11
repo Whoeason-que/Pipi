@@ -674,7 +674,7 @@ mod tests {
         let report =
             install::install_source(&spec, &Selection::All, false, &mut noop_log()).unwrap();
         let entry = report.installed[0].entry.clone();
-        let content_dir = report.installed[0].dir.clone();
+        let content_dir = store::entry_dir(&entry.name, &entry.content_hash).unwrap();
         let project = write_project(&home, &["pdf"], std::slice::from_ref(&entry));
 
         // (a) 干净同步：全部就绪 = no-op，退出成功且 store / 锁一字未动

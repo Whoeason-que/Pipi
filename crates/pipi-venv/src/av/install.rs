@@ -12,7 +12,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::av::skills::SkillMeta;
 use crate::av::sources::{self, SourceSkill, SourceSpec};
 use crate::av::store::{self, SkillLockEntry, SourceType, VerifyOutcome};
 
@@ -31,9 +30,6 @@ pub enum Selection {
 #[derive(Debug, Clone)]
 pub struct InstalledSkill {
     pub entry: SkillLockEntry,
-    /// store 内容目录（dry-run 时为预期路径）。
-    pub dir: PathBuf,
-    pub meta: SkillMeta,
     /// store 里已有同内容版本（幂等跳过复制）。
     pub unchanged: bool,
 }
@@ -115,11 +111,11 @@ fn install_from_root(
         let content = store::scan_skill_content(&skill.dir)?;
         let content_hash = store::hash_skill_content(&content)?;
         let unchanged = index.get_version(&skill.name, &content_hash).is_some();
-        let dir = if dry_run {
-            store::entry_dir(&skill.name, &content_hash)?
+        if dry_run {
+            store::entry_dir(&skill.name, &content_hash)?;
         } else {
-            store::publish_skill(&content, &skill.name, &content_hash)?
-        };
+            store::publish_skill(&content, &skill.name, &content_hash)?;
+        }
         if !unchanged {
             log(format!(
                 "{} {}（{} 个文件）",
@@ -140,12 +136,7 @@ fn install_from_root(
             updated_at: None,
         };
         entries.push(entry.clone());
-        report.installed.push(InstalledSkill {
-            entry,
-            dir,
-            meta: skill.meta.clone(),
-            unchanged,
-        });
+        report.installed.push(InstalledSkill { entry, unchanged });
     }
     if !dry_run {
         store::record_index_entries(&entries)?;
@@ -508,7 +499,8 @@ mod tests {
                 .all(|entry| entry.installed_at.is_some())
         );
         for skill in &report.installed {
-            assert!(skill.dir.join("SKILL.md").is_file());
+            let dir = store::entry_dir(&skill.entry.name, &skill.entry.content_hash).unwrap();
+            assert!(dir.join("SKILL.md").is_file());
             assert_eq!(
                 entry_for(&index, &skill.entry.name).content_hash,
                 skill.entry.content_hash
@@ -672,7 +664,8 @@ mod tests {
         let entry = report.installed[0].entry.clone();
 
         assert_eq!(store::verify_entry(&entry).unwrap(), VerifyOutcome::Ok);
-        fs::write(report.installed[0].dir.join("SKILL.md"), "tampered").unwrap();
+        let dir = store::entry_dir(&entry.name, &entry.content_hash).unwrap();
+        fs::write(dir.join("SKILL.md"), "tampered").unwrap();
         assert!(matches!(
             store::verify_entry(&entry).unwrap(),
             VerifyOutcome::Mismatch { .. }

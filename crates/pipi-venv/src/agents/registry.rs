@@ -34,12 +34,6 @@ impl AgentDefinition {
     pub fn sessions_dir(&self) -> Option<PathBuf> {
         self.dir().map(|dir| dir.join("sessions"))
     }
-
-    /// 本会话的 notebook 文件。路径推导只有 `paths::notebook_path` 一处，
-    /// 工具上下文与宿主命令都走这里。
-    pub fn notebook_path(&self, session_id: &str) -> Option<PathBuf> {
-        super::paths::notebook_path(&self.name, session_id)
-    }
 }
 
 /// 扫描一个目录下的所有合法 Agent（活跃区与归档区共用）。
