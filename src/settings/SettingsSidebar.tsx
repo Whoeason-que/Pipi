@@ -1,3 +1,4 @@
+import { Tabs } from "radix-ui";
 import { formatRetryDelay } from "../chat-runtime";
 import { isTauriRuntime } from "../platform";
 import { useI18n } from "../i18n";
@@ -63,33 +64,30 @@ export default function SettingsSidebar({
   };
 
   return (
-    <nav
-      className="sidebar-list settings-nav"
-      role="tablist"
-      aria-label={t("settings.title")}
-      aria-orientation="vertical"
-    >
-      <span className="caption sb-sec settings-nav-title">{t("settings.title")}</span>
-      {sections.map((id) => (
-        <button
-          key={id}
-          type="button"
-          role="tab"
-          id={`settings-tab-${id}`}
-          aria-controls="settings-content"
-          aria-selected={section === id}
-          className={`sidebar-item settings-nav-item${section === id ? " active" : ""}`}
-          onClick={() => onSelect(id)}
-        >
-          <span className="settings-nav-icon">
-            <SettingsSectionIcon section={id} />
-          </span>
-          <span className="settings-nav-copy">
-            <span className="name">{getSettingsSectionInfo(id, t).label}</span>
-            <span className="meta">{sectionMeta(id)}</span>
-          </span>
-        </button>
-      ))}
-    </nav>
+    <Tabs.Root className="tablist-host" orientation="vertical" value={section}
+      onValueChange={(next) => onSelect(next as SettingsSection)}>
+      <Tabs.List asChild aria-label={t("settings.title")}>
+        <nav className="sidebar-list settings-nav">
+          <span className="caption sb-sec settings-nav-title">{t("settings.title")}</span>
+          {sections.map((id) => (
+            <Tabs.Trigger
+              key={id}
+              value={id}
+              id={`settings-tab-${id}`}
+              aria-controls="settings-content"
+              className={`sidebar-item settings-nav-item${section === id ? " active" : ""}`}
+            >
+              <span className="settings-nav-icon">
+                <SettingsSectionIcon section={id} />
+              </span>
+              <span className="settings-nav-copy">
+                <span className="name">{getSettingsSectionInfo(id, t).label}</span>
+                <span className="meta">{sectionMeta(id)}</span>
+              </span>
+            </Tabs.Trigger>
+          ))}
+        </nav>
+      </Tabs.List>
+    </Tabs.Root>
   );
 }

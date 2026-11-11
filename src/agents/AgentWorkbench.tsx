@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Tabs } from "radix-ui";
 import { resolveContextWindow, resolveMaxTokens } from "../catalog";
 import ChatView from "../chat/ChatView";
 import { formatRuntimeError } from "../chat-runtime";
@@ -374,32 +375,31 @@ export default function AgentWorkbench({
             </div>
           </div>
 
-          <div
-            className="agent-settings-tabs"
-            role="tablist"
-            aria-label={t("agents.settingsAria")}
-          >
-            {(
-              [
-                ["basic", t("agents.tabs.basic")],
-                ["permissions", t("agents.tabs.permissions")],
-                ["skills", t("nav.skills")],
-                ["files", t("agents.tabs.files")],
-                ["test", t("agents.tabs.test")],
-              ] as const
-            ).map(([tab, label]) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={settingsTab === tab}
-                className={settingsTab === tab ? "active" : ""}
-                onClick={() => setSettingsTab(tab)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <Tabs.Root className="tablist-host" value={settingsTab}
+            onValueChange={(next) => setSettingsTab(next as AgentSettingsTab)}>
+            <Tabs.List
+              className="agent-settings-tabs"
+              aria-label={t("agents.settingsAria")}
+            >
+              {(
+                [
+                  ["basic", t("agents.tabs.basic")],
+                  ["permissions", t("agents.tabs.permissions")],
+                  ["skills", t("nav.skills")],
+                  ["files", t("agents.tabs.files")],
+                  ["test", t("agents.tabs.test")],
+                ] as const
+              ).map(([tab, label]) => (
+                <Tabs.Trigger
+                  key={tab}
+                  value={tab}
+                  className={settingsTab === tab ? "active" : ""}
+                >
+                  {label}
+                </Tabs.Trigger>
+              ))}
+            </Tabs.List>
+          </Tabs.Root>
 
           <div className="agent-settings-body">
             {settingsTab === "basic" && (

@@ -1,5 +1,6 @@
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Tabs } from "radix-ui";
 import { formatTokens } from "../chat-runtime";
 
 import { IconClose, IconSearch } from "../icons";
@@ -188,17 +189,6 @@ export default function Inspector({
     return null;
   }, [entries, statePanelVisible]);
 
-  const handleTabKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-    event.preventDefault();
-    const index = tabs.findIndex((item) => item.id === tab);
-    const delta = event.key === "ArrowRight" ? 1 : -1;
-    const next =
-      tabs[(index + delta + tabs.length) % tabs.length];
-    setTab(next.id);
-    document.getElementById(`itab-${next.id}`)?.focus();
-  };
-
   const toolSummary = useMemo(() => {
     if (!statePanelVisible) return [];
     const map = new Map<
@@ -251,27 +241,22 @@ export default function Inspector({
     >
       {tabStyle === "icon" ? (
         <div className="inspector-head inspector-head-tabs">
-          <div
+          <Tabs.Root className="tablist-host" value={tab} onValueChange={(next) => setTab(next as InspectorTab)}>
+          <Tabs.List
             className="inspector-tabs"
-            role="tablist"
             aria-label={t("inspector.viewsLabel")}
-            onKeyDown={handleTabKeys}
           >
             {tabs.map((item) => {
               const label = getInspectorTabLabel(item.id, t);
               return (
-                <button
+                <Tabs.Trigger
                   key={item.id}
-                  type="button"
-                  role="tab"
+                  value={item.id}
                   id={`itab-${item.id}`}
-                  aria-selected={tab === item.id}
                   aria-controls={`ipanel-${item.id}`}
                   aria-label={label}
                   title={label}
-                  tabIndex={tab === item.id ? 0 : -1}
                   className={`inspector-tab${tab === item.id ? " active" : ""}`}
-                  onClick={() => setTab(item.id)}
                 >
                   <InspectorTabIcon
                     tab={item.id}
@@ -284,10 +269,11 @@ export default function Inspector({
                   {item.id === "notebook" &&
                     notebook.content &&
                     tab !== "notebook" && <span className="tab-dot" />}
-                </button>
+                </Tabs.Trigger>
               );
             })}
-          </div>
+          </Tabs.List>
+          </Tabs.Root>
           {onClose && (
             <button
               type="button"
@@ -301,28 +287,24 @@ export default function Inspector({
           )}
         </div>
       ) : (
-        <div
-          className="itabs"
-          role="tablist"
-          aria-label={t("inspector.viewsLabel")}
-          onKeyDown={handleTabKeys}
-        >
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              id={`itab-${item.id}`}
-              aria-selected={tab === item.id}
-              aria-controls={`ipanel-${item.id}`}
-              tabIndex={tab === item.id ? 0 : -1}
-              className={`itab${tab === item.id ? " active" : ""}`}
-              onClick={() => setTab(item.id)}
-            >
-              {getInspectorTabLabel(item.id, t)}
-            </button>
-          ))}
-        </div>
+        <Tabs.Root className="tablist-host" value={tab} onValueChange={(next) => setTab(next as InspectorTab)}>
+          <Tabs.List
+            className="itabs"
+            aria-label={t("inspector.viewsLabel")}
+          >
+            {tabs.map((item) => (
+              <Tabs.Trigger
+                key={item.id}
+                value={item.id}
+                id={`itab-${item.id}`}
+                aria-controls={`ipanel-${item.id}`}
+                className={`itab${tab === item.id ? " active" : ""}`}
+              >
+                {getInspectorTabLabel(item.id, t)}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+        </Tabs.Root>
       )}
 
       <div className="ipanels">

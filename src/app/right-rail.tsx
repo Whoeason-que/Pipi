@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Tabs } from "radix-ui";
 import { overlayOpen } from "../components/overlays";
 import { useI18n } from "../i18n";
 import { IconClose } from "../icons";
@@ -112,7 +113,6 @@ export function RightRail({
   const [internalTab, setInternalTab] = useState<string>();
   const selectedId = activeTab ?? internalTab ?? tabs[0]?.id;
   const selected = tabs.find((tab) => tab.id === selectedId) ?? tabs[0];
-  const body = tabs.length > 0 ? selected?.content : children;
   const changeTab = (id: string) => {
     setInternalTab(id);
     onTabChange?.(id);
@@ -144,18 +144,25 @@ export function RightRail({
           <IconClose />
         </button>
       </header>
-      {tabs.length > 1 && (
-        <div className="right-rail-tabs" role="tablist" aria-label={t("app.rightRailTabs", { label })}>
-          {tabs.map((tab) => (
-            <button key={tab.id} type="button" role="tab" aria-selected={tab.id === selected?.id}
-              className={`caption right-rail-tab${tab.id === selected?.id ? " active" : ""}`}
-              onClick={() => changeTab(tab.id)}>
-              {tab.icon}{tab.label}{tab.badge !== undefined && <span className="right-rail-badge">{tab.badge}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="right-rail-body">{body}</div>
+      <Tabs.Root className="tablist-host" value={selected?.id ?? ""} onValueChange={changeTab}>
+        {tabs.length > 1 && (
+          <Tabs.List className="right-rail-tabs" aria-label={t("app.rightRailTabs", { label })}>
+            {tabs.map((tab) => (
+              <Tabs.Trigger key={tab.id} value={tab.id}
+                className={`caption right-rail-tab${tab.id === selected?.id ? " active" : ""}`}>
+                {tab.icon}{tab.label}{tab.badge !== undefined && <span className="right-rail-badge">{tab.badge}</span>}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+        )}
+        {tabs.length > 0
+          ? tabs.map((tab) => (
+              <Tabs.Content key={tab.id} value={tab.id} className="right-rail-body" tabIndex={-1}>
+                {tab.content}
+              </Tabs.Content>
+            ))
+          : <div className="right-rail-body">{children}</div>}
+      </Tabs.Root>
     </aside>
     {controller.open && controller.narrow && (
       <button type="button" className="right-rail-backdrop" aria-label={t("app.closeRightRail")} onClick={controller.close} />

@@ -72,6 +72,13 @@ input[type="radio"] { accent-color: var(--accent); }
   border: 0;
 }
 
+/* Radix 的 Tabs.Root 只提供上下文、没有语义，用 display:contents 让它的
+   包装盒不参与布局，页签列表仍是原父容器（flex/grid）的直接子元素。 */
+
+.tablist-host {
+  display: contents;
+}
+
 /* 小号等宽提示文字（composer / 表单 / 消息脚注共用） */
 
 .hint {
