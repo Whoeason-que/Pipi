@@ -106,6 +106,45 @@ pub async fn run_agent_once(
     .await
 }
 
+/// 把子运行的里程碑（工具调用、轮次完成）转发到父工具更新流。
+///
+/// `turns` 只在真正转发时递增（`progress` 为 `None` 时保持原状）。
+pub(super) fn forward_progress(
+    progress: Option<&ChildProgressTx>,
+    turns: &AtomicUsize,
+    event: &AgentEvent,
+) {
+    let Some(progress) = progress else {
+        return;
+    };
+    match event {
+        AgentEvent::ToolExecutionStart { tool_name, .. } => {
+            let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
+                "Subagent is calling tool {tool_name}"
+            )));
+        }
+        AgentEvent::MessageEnd { message } if message.role() == "assistant" => {
+            let turn = turns.fetch_add(1, Ordering::AcqRel) + 1;
+            let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
+                "Subagent completed turn {turn}"
+            )));
+        }
+        _ => {}
+    }
+}
+
+/// 子运行在模型解析前失败时写进会话的模型显示名：provider 显示名 →
+/// 模型 id → `unconfigured`。
+pub(super) fn configured_model_label(definition: &AgentDefinition) -> String {
+    definition
+        .provider
+        .as_ref()
+        .map(|m| m.display_name().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| (!definition.model.is_empty()).then(|| definition.model.clone()))
+        .unwrap_or_else(|| "unconfigured".into())
+}
+
 /// 宿主在已有会话上运行一轮并等待结束。
 ///
 /// 复用 [`RuntimeState::send_prompt`] 的会话装载、模型解析、工具装配和排队语义，
@@ -169,22 +208,7 @@ impl RuntimeState {
                     if !matches_current {
                         return;
                     }
-                    if let Some(progress) = &progress {
-                        match &event {
-                            AgentEvent::ToolExecutionStart { tool_name, .. } => {
-                                let _ = progress.send(pipi_protocol::tools::ToolOutput::text(
-                                    format!("Subagent is calling tool {tool_name}"),
-                                ));
-                            }
-                            AgentEvent::MessageEnd { message } if message.role() == "assistant" => {
-                                let turn = turns.fetch_add(1, Ordering::AcqRel) + 1;
-                                let _ = progress.send(pipi_protocol::tools::ToolOutput::text(
-                                    format!("Subagent completed turn {turn}"),
-                                ));
-                            }
-                            _ => {}
-                        }
-                    }
+                    forward_progress(progress.as_ref(), &turns, &event);
                     if let AgentEvent::AgentEnd { messages } = event {
                         let _ = completion_tx.send(FollowEvent::End {
                             session_id,
@@ -422,13 +446,7 @@ pub(crate) async fn run_agent_once_with_sink(
     ) = match inputs {
         Ok(inputs) => inputs,
         Err(error) => {
-            let name = definition
-                .provider
-                .as_ref()
-                .map(|m| m.display_name().to_string())
-                .filter(|s| !s.is_empty())
-                .or_else(|| (!definition.model.is_empty()).then(|| definition.model.clone()))
-                .unwrap_or_else(|| "unconfigured".into());
+            let name = configured_model_label(&definition);
             let result = reservation.fail_start(prompt, &name, error)?;
             return Ok(result_from_messages(
                 &definition.name,
@@ -443,23 +461,7 @@ pub(crate) async fn run_agent_once_with_sink(
             let RuntimeEvent::AgentEvent(envelope) = event else {
                 return;
             };
-            let Some(progress) = &progress else {
-                return;
-            };
-            match envelope.event {
-                AgentEvent::ToolExecutionStart { tool_name, .. } => {
-                    let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
-                        "Subagent is calling tool {tool_name}"
-                    )));
-                }
-                AgentEvent::MessageEnd { message } if message.role() == "assistant" => {
-                    let turn = turns.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
-                        "Subagent completed turn {turn}"
-                    )));
-                }
-                _ => {}
-            }
+            forward_progress(progress.as_ref(), &turns, &envelope.event);
         })
     };
     let request = RunRequest {

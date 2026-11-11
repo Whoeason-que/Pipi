@@ -171,15 +171,19 @@ impl RuntimeState {
             .map(|(_, session)| session)
             .or_else(|| reuse_key.as_ref().and_then(|key| sessions.get_mut(key)))
             .ok_or("Failed to create session")?;
-        if let Some(answer) = &question_answer {
+        let question_event = if let Some(answer) = &question_answer {
             let event = pipi_protocol::interaction::QuestionEvent::Delivered {
                 question_id: answer.question_id.clone(),
                 answer: Some(answer.answer.clone()),
                 timestamp: 0,
             };
+            // 先在一份副本上校验，真实投影等运行提交后再应用。
             let mut next = session.questions.clone();
             pipi_protocol::interaction::apply_question_event(&mut next, &event)?;
-        }
+            Some(event)
+        } else {
+            None
+        };
         // 若复用已有会话且传入了明确的模型变更请求
         if reuse_key.is_some()
             && let Some(target) = &model
@@ -408,21 +412,8 @@ impl RuntimeState {
         }
 
         // 压缩预算集中一处（窗口 × Agent 的阈值百分比）：投影式与替换式共用
-        let budget = pipi_context::compaction::Budget::from_window(
-            model.context_window,
-            def.compact_threshold_percent(),
-        )
-        .with_target_percent(def.compact_target_percent());
-        let hooks = make_session_hooks(
-            event_sink,
-            def.name.clone(),
-            Some(make_rekey(
-                self.sessions.clone(),
-                self.background.clone(),
-                self.browser.clone(),
-                self.permission_modes.clone(),
-            )),
-        );
+        let budget = Self::compaction_budget(&def, model.context_window);
+        let hooks = make_session_hooks(event_sink, def.name.clone(), Some(self.session_rekey()));
         let reviewer = (selected_mode == Some(PermissionMode::AutoReview)).then(|| {
             let mut options =
                 run_stream_options(api_key.clone(), &model, &session_id, auto_protocol);
@@ -455,10 +446,7 @@ impl RuntimeState {
             retry: retry_policy,
             tool_execution: ToolExecutionMode::Parallel,
             budget: (model.context_window > 0).then_some(budget),
-            compaction: Some(CompactionPolicy {
-                fork_before_compact: compaction_settings.fork_before_compact,
-                archive_original: false,
-            }),
+            compaction: Some(Self::compaction_policy(&compaction_settings)),
             timeout: None,
         };
         let prepared = if let Some(answer) = &question_answer {
@@ -468,15 +456,12 @@ impl RuntimeState {
                 request,
                 hooks,
             )?;
-            let event = pipi_protocol::interaction::QuestionEvent::Delivered {
-                question_id: answer.question_id.clone(),
-                answer: Some(answer.answer.clone()),
-                timestamp: 0,
-            };
-            pipi_protocol::interaction::apply_question_event(&mut session.questions, &event)?;
-            session.questions_revision += 1;
-            let envelope = self.question_envelope(session)?;
-            self.events.emitter()(RuntimeEvent::SessionQuestions(envelope));
+            if let Some(event) = &question_event {
+                pipi_protocol::interaction::apply_question_event(&mut session.questions, event)?;
+                session.questions_revision += 1;
+                let envelope = self.question_envelope(session)?;
+                self.events.emitter()(RuntimeEvent::SessionQuestions(envelope));
+            }
             prepared
         } else if results.is_empty() {
             reservation.prepare(request, hooks)?
@@ -484,16 +469,7 @@ impl RuntimeState {
             // 后台通知：先落 background_result 条目，再启动同一轮。
             reservation.prepare_background_results(results, request, hooks)?
         };
-        let wake = session.queue.wake.clone();
-        session.queue.active_run = Some(run_id);
-        let runtime = self.clone();
-        self.spawn_run(async move {
-            let result = prepared.run().await;
-            if let Err(error) = &result {
-                eprintln!("pipi: session run failed: {error}");
-            }
-            runtime.finish_queued_run(&wake, run_id, result);
-        });
+        self.start_prepared_run(session, prepared, run_id, "session run failed");
 
         if let Some((key, session)) = created {
             sessions.insert(key, session);

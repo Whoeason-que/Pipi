@@ -15,6 +15,16 @@ pub struct ApprovalOwner {
     pub run_id: usize,
 }
 
+impl ApprovalOwner {
+    pub fn new(agent_name: &str, session_id: &str, run_id: usize) -> Self {
+        Self {
+            agent_name: agent_name.into(),
+            session_id: session_id.into(),
+            run_id,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalRequest {
@@ -333,44 +343,40 @@ impl pipi_protocol::tools::ToolGate for SessionToolGate {
                     arguments: args.clone(),
                     reason: "The session requires approval before this tool runs".into(),
                 };
-                if self.mode == pipi_protocol::permissions::PermissionMode::AutoReview
-                    && self.review_instructions.trim().is_empty()
-                {
-                    request.reason = "Automatic review has no instruction for this turn; your decision is required".into();
-                }
-                if self.mode == pipi_protocol::permissions::PermissionMode::AutoReview
-                    && !self.review_instructions.trim().is_empty()
-                    && let Some(reviewer) = &self.reviewer
-                {
-                    match reviewer
-                        .review(&request, &self.review_instructions, abort)
-                        .await
-                    {
-                        Ok(review) => {
-                            (self.audit_review)(&request, &review)?;
-                            match review.verdict {
-                                ReviewVerdict::Allow => return Ok(()),
-                                ReviewVerdict::Deny => {
-                                    return Err(format!(
-                                        "Automatic review denied this action: {}",
-                                        review.reason
-                                    ));
-                                }
-                                ReviewVerdict::AskUser => {
-                                    request.reason = format!(
-                                        "Automatic review requested your decision: {}",
-                                        review.reason
-                                    )
+                if self.mode == pipi_protocol::permissions::PermissionMode::AutoReview {
+                    if self.review_instructions.trim().is_empty() {
+                        request.reason = "Automatic review has no instruction for this turn; your decision is required".into();
+                    } else if let Some(reviewer) = &self.reviewer {
+                        match reviewer
+                            .review(&request, &self.review_instructions, abort)
+                            .await
+                        {
+                            Ok(review) => {
+                                (self.audit_review)(&request, &review)?;
+                                match review.verdict {
+                                    ReviewVerdict::Allow => return Ok(()),
+                                    ReviewVerdict::Deny => {
+                                        return Err(format!(
+                                            "Automatic review denied this action: {}",
+                                            review.reason
+                                        ));
+                                    }
+                                    ReviewVerdict::AskUser => {
+                                        request.reason = format!(
+                                            "Automatic review requested your decision: {}",
+                                            review.reason
+                                        )
+                                    }
                                 }
                             }
-                        }
-                        Err(error) => {
-                            if abort.is_aborted() {
-                                return Err("Review cancelled because the run stopped".into());
+                            Err(error) => {
+                                if abort.is_aborted() {
+                                    return Err("Review cancelled because the run stopped".into());
+                                }
+                                request.reason = format!(
+                                    "Automatic review failed; your decision is required: {error}"
+                                );
                             }
-                            request.reason = format!(
-                                "Automatic review failed; your decision is required: {error}"
-                            );
                         }
                     }
                 }

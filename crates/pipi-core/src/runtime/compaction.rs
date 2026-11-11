@@ -25,11 +25,7 @@ impl RuntimeState {
             api_key,
             auto_protocol,
         } = resolve_model(def, snapshot.selected_model.as_ref(), None)?;
-        let budget = pipi_context::compaction::Budget::from_window(
-            model.context_window,
-            def.compact_threshold_percent(),
-        )
-        .with_target_percent(def.compact_target_percent());
+        let budget = Self::compaction_budget(def, model.context_window);
         let settings = load_settings();
         let request = CompactionRequest {
             options: run_stream_options(api_key, &model, session_id, auto_protocol),
@@ -37,36 +33,15 @@ impl RuntimeState {
             provider: provider_for(),
             retry: settings.retry.policy(),
             budget,
-            policy: CompactionPolicy {
-                fork_before_compact: settings.compaction.fork_before_compact,
-                archive_original: false,
-            },
+            policy: Self::compaction_policy(&settings.compaction),
             mode,
         };
-        let hooks = make_session_hooks(
-            event_sink,
-            def.name.clone(),
-            Some(make_rekey(
-                self.sessions.clone(),
-                self.background.clone(),
-                self.browser.clone(),
-                self.permission_modes.clone(),
-            )),
-        );
+        let hooks = make_session_hooks(event_sink, def.name.clone(), Some(self.session_rekey()));
         let reservation = session.engine.reserve_run(AbortPolicy::Reset)?;
         session.active_permission_mode = None;
         let run_id = reservation.run_id();
         let prepared = reservation.prepare_compaction(request, hooks);
-        let wake = session.queue.wake.clone();
-        session.queue.active_run = Some(run_id);
-        let runtime = self.clone();
-        self.spawn_run(async move {
-            let result = prepared.run().await;
-            if let Err(error) = &result {
-                eprintln!("pipi: manual compaction failed: {error}");
-            }
-            runtime.finish_queued_run(&wake, run_id, result);
-        });
+        self.start_prepared_run(session, prepared, run_id, "manual compaction failed");
         Ok(())
     }
 }

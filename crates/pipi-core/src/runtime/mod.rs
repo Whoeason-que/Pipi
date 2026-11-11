@@ -4,7 +4,7 @@ use crate::events::{
     AgentEventEnvelope, EventEmitter, RuntimeEvent, SessionChangedEnvelope, SessionErrorEnvelope,
     SessionSwitchedEnvelope, StatsEventEnvelope,
 };
-use crate::settings::load_settings;
+use crate::settings::{CompactionSettings, load_settings};
 use crate::tools::agent::{
     AgentRunResult, AgentRunner, ChildProgressTx, CreateAgentTool, ReadAgentTool, RunAgentTool,
     result_from_messages,
@@ -15,9 +15,10 @@ use crate::tools::background::{
 };
 use pipi_agent::agent_loop::{AgentEvent, ToolExecutionMode};
 use pipi_agent::session::{
-    AbortPolicy, AgentSession, CompactionPolicy, CompactionRequest, RunRequest, RunTimeout,
-    SessionEvent, SessionEventKind, SessionHooks, SessionStorage,
+    AbortPolicy, AgentSession, CompactionPolicy, CompactionRequest, PreparedRun, RunRequest,
+    RunTimeout, SessionEvent, SessionEventKind, SessionHooks, SessionStorage,
 };
+use pipi_context::compaction::Budget;
 use pipi_protocol::session::{SessionLog, SessionRepo, SessionSummary, validate_session_id};
 use pipi_protocol::{AbortSignal, Message, Model, StreamOptions};
 use pipi_provider::provider_for;
@@ -38,6 +39,73 @@ struct HostSession {
     questions_revision: u64,
     question_changed: Arc<tokio::sync::Notify>,
     active_permission_mode: Option<pipi_protocol::permissions::PermissionMode>,
+}
+
+impl HostSession {
+    fn new(
+        agent: AgentDefinition,
+        engine: AgentSession,
+        temporary: bool,
+        queue: queue::PromptQueue,
+        questions: Vec<pipi_protocol::interaction::QuestionRecord>,
+    ) -> Self {
+        Self {
+            agent,
+            engine,
+            temporary,
+            queue,
+            questions,
+            questions_revision: 0,
+            question_changed: Arc::new(tokio::sync::Notify::new()),
+            active_permission_mode: None,
+        }
+    }
+}
+
+impl RuntimeState {
+    /// 普通运行与手动压缩共用的压缩预算（窗口 × Agent 阈值）。
+    fn compaction_budget(def: &AgentDefinition, context_window: u64) -> Budget {
+        Budget::from_window(context_window, def.compact_threshold_percent())
+            .with_target_percent(def.compact_target_percent())
+    }
+
+    /// 宿主恒不归档原会话；`archive_original` 的引擎能力保留给内核测试。
+    fn compaction_policy(settings: &CompactionSettings) -> CompactionPolicy {
+        CompactionPolicy {
+            fork_before_compact: settings.fork_before_compact,
+            archive_original: false,
+        }
+    }
+
+    /// 压缩分叉把会话条目从旧键搬到新键的回调。
+    fn session_rekey(&self) -> SessionRekey {
+        make_rekey(
+            self.sessions.clone(),
+            self.background.clone(),
+            self.browser.clone(),
+            self.permission_modes.clone(),
+        )
+    }
+
+    /// 把已准备的运行挂到队列上并交给宿主运行时；失败只记日志，不影响收尾。
+    fn start_prepared_run(
+        &self,
+        session: &mut HostSession,
+        prepared: PreparedRun,
+        run_id: usize,
+        failure_label: &'static str,
+    ) {
+        let wake = session.queue.wake.clone();
+        session.queue.active_run = Some(run_id);
+        let runtime = self.clone();
+        self.spawn_run(async move {
+            let result = prepared.run().await;
+            if let Err(error) = &result {
+                eprintln!("pipi: {failure_label}: {error}");
+            }
+            runtime.finish_queued_run(&wake, run_id, result);
+        });
+    }
 }
 
 /// 打开中的会话的键：**Agent 名 + 会话 id**。

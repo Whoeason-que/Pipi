@@ -39,16 +39,33 @@ impl RuntimeState {
             def.provider.clone(),
             AbortSignal::new(),
         )?;
-        Ok(HostSession {
-            agent: def.clone(),
+        Ok(HostSession::new(
+            def.clone(),
             engine,
-            temporary: false,
-            queue: super::questions::recovered_queue(&questions),
+            false,
+            super::questions::recovered_queue(&questions),
             questions,
-            questions_revision: 0,
-            question_changed: Arc::new(tokio::sync::Notify::new()),
-            active_permission_mode: None,
-        })
+        ))
+    }
+    /// 确保会话已在槽中：未打开时从载体载入并插入；载入失败时 map 保持不变。
+    pub(super) fn ensure_session_loaded(
+        &self,
+        sessions: &mut HashMap<SessionKey, HostSession>,
+        agent_name: &str,
+        session_id: &str,
+    ) -> Result<(), String> {
+        let key = SessionKey::new(agent_name, session_id);
+        if sessions.contains_key(&key) {
+            return Ok(());
+        }
+        let def = agents::load_agent(agent_name)?;
+        let repo = session_repo(&def)?;
+        if !repo.exists(session_id)? {
+            return Err("Session does not exist".into());
+        }
+        let session = Self::load_session_object(&def, repo, session_id)?;
+        sessions.insert(key, session);
+        Ok(())
     }
     pub(super) fn create_session_object(
         def: &AgentDefinition,
@@ -67,16 +84,7 @@ impl RuntimeState {
             AbortSignal::new(),
         )?;
         Ok((
-            HostSession {
-                agent: def.clone(),
-                engine,
-                temporary: false,
-                queue: Default::default(),
-                questions: Vec::new(),
-                questions_revision: 0,
-                question_changed: Arc::new(tokio::sync::Notify::new()),
-                active_permission_mode: None,
-            },
+            HostSession::new(def.clone(), engine, false, Default::default(), Vec::new()),
             id,
         ))
     }
@@ -91,16 +99,7 @@ impl RuntimeState {
         )
         .expect("空的临时账本初始化不执行落盘");
         (
-            HostSession {
-                agent: def.clone(),
-                engine,
-                temporary: true,
-                queue: Default::default(),
-                questions: Vec::new(),
-                questions_revision: 0,
-                question_changed: Arc::new(tokio::sync::Notify::new()),
-                active_permission_mode: None,
-            },
+            HostSession::new(def.clone(), engine, true, Default::default(), Vec::new()),
             id,
         )
     }
@@ -158,14 +157,7 @@ impl RuntimeState {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         self.ensure_not_shutting_down()?;
         let key = SessionKey::new(agent_name, session_id);
-        if !sessions.contains_key(&key) {
-            let repo = session_repo(&def)?;
-            if !repo.exists(session_id)? {
-                return Err("Session does not exist".into());
-            }
-            let session = Self::load_session_object(&def, repo, session_id)?;
-            sessions.insert(key.clone(), session);
-        }
+        self.ensure_session_loaded(&mut sessions, agent_name, session_id)?;
         let session = sessions
             .get(&key)
             .ok_or_else(|| "Session does not exist".to_string())?;
@@ -265,16 +257,7 @@ impl RuntimeState {
             def.provider.clone(),
             AbortSignal::new(),
         )?;
-        let session = HostSession {
-            agent: def,
-            engine,
-            temporary: false,
-            queue: Default::default(),
-            questions,
-            questions_revision: 0,
-            question_changed: Arc::new(tokio::sync::Notify::new()),
-            active_permission_mode: None,
-        };
+        let session = HostSession::new(def, engine, false, Default::default(), questions);
         let info = self.session_info_of(&session)?;
         sessions.insert(SessionKey::new(agent_name, &new_session_id), session);
         Ok(info)
@@ -317,12 +300,8 @@ impl RuntimeState {
             snapshot.session_id.clone(),
             snapshot.run_id,
         );
-        let permission_mode = self
-            .permission_modes
-            .get(&SessionKey::new(&session.agent.name, &snapshot.session_id))?;
-        let permission_revision = self
-            .permission_modes
-            .revision(&SessionKey::new(&session.agent.name, &snapshot.session_id))?;
+        let key = SessionKey::new(&session.agent.name, &snapshot.session_id);
+        let (permission_mode, permission_revision) = self.permission_modes.snapshot(&key)?;
         Ok(SessionInfo {
             agent_name: session.agent.name.clone(),
             session_id: snapshot.session_id,

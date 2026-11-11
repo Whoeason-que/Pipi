@@ -9,6 +9,7 @@
 //! 组合工具（create_agent / run_agent / read_agent）与后台托管工具一律不
 //! 继承 —— 与 `create_agent` 创建的子 Agent 同一口径，子运行不能递归委派。
 
+use super::child::{configured_model_label, forward_progress};
 use super::*;
 use crate::tools::agent::{EphemeralRunRequest, result_from_messages};
 use pipi_protocol::permissions::DEFAULT_TOOLS;
@@ -98,13 +99,7 @@ pub(super) async fn run_ephemeral_with_sink(
     ) = match inputs {
         Ok(inputs) => inputs,
         Err(error) => {
-            let name = definition
-                .provider
-                .as_ref()
-                .map(|m| m.display_name().to_string())
-                .filter(|s| !s.is_empty())
-                .or_else(|| (!definition.model.is_empty()).then(|| definition.model.clone()))
-                .unwrap_or_else(|| "unconfigured".into());
+            let name = configured_model_label(&definition);
             let result = reservation.fail_start(prompt, &name, error)?;
             return Ok(result_from_messages(
                 &definition.name,
@@ -119,23 +114,7 @@ pub(super) async fn run_ephemeral_with_sink(
             let RuntimeEvent::AgentEvent(envelope) = event else {
                 return;
             };
-            let Some(progress) = &progress else {
-                return;
-            };
-            match envelope.event {
-                AgentEvent::ToolExecutionStart { tool_name, .. } => {
-                    let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
-                        "Subagent is calling tool {tool_name}"
-                    )));
-                }
-                AgentEvent::MessageEnd { message } if message.role() == "assistant" => {
-                    let turn = turns.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = progress.send(pipi_protocol::tools::ToolOutput::text(format!(
-                        "Subagent completed turn {turn}"
-                    )));
-                }
-                _ => {}
-            }
+            forward_progress(progress.as_ref(), &turns, &envelope.event);
         })
     };
     let request = RunRequest {

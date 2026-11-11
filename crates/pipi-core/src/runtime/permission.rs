@@ -33,13 +33,15 @@ impl SessionModes {
         }
         Ok(())
     }
-    pub(super) fn revision(&self, key: &SessionKey) -> Result<u64, String> {
-        Ok(self
-            .0
-            .lock()
-            .map_err(|e| e.to_string())?
+    /// 一次加锁同时取回当前覆盖与修订号。
+    pub(crate) fn snapshot(
+        &self,
+        key: &SessionKey,
+    ) -> Result<(Option<PermissionMode>, u64), String> {
+        let modes = self.0.lock().map_err(|e| e.to_string())?;
+        Ok(modes
             .get(key)
-            .map_or(0, |entry| entry.revision))
+            .map_or((None, 0), |entry| (entry.mode, entry.revision)))
     }
     pub(super) fn forget(&self, key: &SessionKey) {
         if let Ok(mut modes) = self.0.lock() {
@@ -85,11 +87,7 @@ impl RuntimeState {
         reviewer: Option<crate::approvals::ModelReviewer>,
         review_instructions: String,
     ) -> Arc<dyn pipi_protocol::tools::ToolGate> {
-        let owner = ApprovalOwner {
-            agent_name: key.agent_name.clone(),
-            session_id: key.session_id.clone(),
-            run_id,
-        };
+        let owner = ApprovalOwner::new(&key.agent_name, &key.session_id, run_id);
         let emitter = self.events.emitter();
         let runtime = self.clone();
         let audit_owner = owner.clone();
@@ -100,7 +98,6 @@ impl RuntimeState {
             reviewer,
             review_instructions,
             audit_review: Arc::new(move |request, review| {
-                use sha2::{Digest, Sha256};
                 let sessions = runtime.sessions.lock().map_err(|e| e.to_string())?;
                 let session = sessions
                     .get(&SessionKey::new(
@@ -112,12 +109,7 @@ impl RuntimeState {
                 if !snapshot.running || snapshot.run_id != audit_owner.run_id {
                     return Err("Review belongs to an inactive run".into());
                 }
-                let digest = Sha256::digest(
-                    serde_json::to_vec(&request.arguments).map_err(|e| e.to_string())?,
-                )
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect();
+                let digest = arguments_sha256(&request.arguments)?;
                 session
                     .engine
                     .record_approval(&pipi_protocol::permissions::ApprovalAudit {
@@ -137,13 +129,13 @@ impl RuntimeState {
                     })
             }),
             publish: Arc::new(move |request| {
-                emitter(RuntimeEvent::SessionApproval(ApprovalEnvelope {
-                    agent_name: request.owner.agent_name.clone(),
-                    session_id: request.owner.session_id.clone(),
-                    run_id: request.owner.run_id,
-                    approval_id: request.approval_id.clone(),
-                    request: Some(request.clone()),
-                }));
+                emitter(RuntimeEvent::SessionApproval(
+                    ApprovalEnvelope::for_request(
+                        &request.owner,
+                        &request.approval_id,
+                        Some(request.clone()),
+                    ),
+                ));
             }),
         })
     }
@@ -165,19 +157,10 @@ impl RuntimeState {
         if !snapshot.running || snapshot.run_id != run_id {
             return Err("Approval belongs to an inactive run".into());
         }
-        let owner = ApprovalOwner {
-            agent_name: agent_name.into(),
-            session_id: session_id.into(),
-            run_id,
-        };
+        let owner = ApprovalOwner::new(agent_name, session_id, run_id);
         self.approvals
             .resolve_with(&owner, approval_id, decision, |request| {
-                use sha2::{Digest, Sha256};
-                let payload = serde_json::to_vec(&request.arguments).map_err(|e| e.to_string())?;
-                let digest = Sha256::digest(&payload)
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect();
+                let digest = arguments_sha256(&request.arguments)?;
                 session
                     .engine
                     .record_approval(&pipi_protocol::permissions::ApprovalAudit {
@@ -195,15 +178,18 @@ impl RuntimeState {
                         reason: request.reason.clone(),
                     })
             })?;
-        self.events.emitter()(RuntimeEvent::SessionApproval(ApprovalEnvelope {
-            agent_name: agent_name.into(),
-            session_id: session_id.into(),
-            run_id,
-            approval_id: approval_id.into(),
-            request: None,
-        }));
+        self.events.emitter()(RuntimeEvent::SessionApproval(
+            ApprovalEnvelope::for_request(&owner, approval_id, None),
+        ));
         Ok(())
     }
+}
+
+/// 审批审计里的参数摘要：序列化后 SHA-256，小写十六进制。
+fn arguments_sha256(arguments: &serde_json::Value) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let payload = serde_json::to_vec(arguments).map_err(|e| e.to_string())?;
+    Ok(pipi_protocol::text::hex(&Sha256::digest(&payload)))
 }
 
 #[cfg(test)]

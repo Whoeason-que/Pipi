@@ -138,6 +138,22 @@ pub struct ApprovalEnvelope {
     pub request: Option<crate::approvals::ApprovalRequest>,
 }
 
+impl ApprovalEnvelope {
+    pub(crate) fn for_request(
+        owner: &crate::approvals::ApprovalOwner,
+        approval_id: &str,
+        request: Option<crate::approvals::ApprovalRequest>,
+    ) -> Self {
+        Self {
+            agent_name: owner.agent_name.clone(),
+            session_id: owner.session_id.clone(),
+            run_id: owner.run_id,
+            approval_id: approval_id.into(),
+            request,
+        }
+    }
+}
+
 /// 宿主只需将这个协议映射为 Tauri event 或 WebSocket frame。
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "payload")]

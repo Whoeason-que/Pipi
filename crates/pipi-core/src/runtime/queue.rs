@@ -168,15 +168,7 @@ impl RuntimeState {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
         self.ensure_not_shutting_down()?;
         let key = SessionKey::new(agent_name, session_id);
-        if !sessions.contains_key(&key) {
-            let def = agents::load_agent(agent_name)?;
-            let repo = session_repo(&def)?;
-            if !repo.exists(session_id)? {
-                return Err("Session does not exist".into());
-            }
-            let session = Self::load_session_object(&def, repo, session_id)?;
-            sessions.insert(key.clone(), session);
-        }
+        self.ensure_session_loaded(&mut sessions, agent_name, session_id)?;
         let session = sessions.get_mut(&key).ok_or("Session is not open")?;
         for result in results {
             if self.background.was_observed(&result.job_id)
