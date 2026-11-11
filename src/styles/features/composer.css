@@ -280,7 +280,8 @@
 
 /* 待发箱与引导分开，消息真正起跑后才进入时间线。 */
 
-.delay-picker, .send-action { position: relative; flex-shrink: 0; }
+.delay-picker { flex-shrink: 0; }
+.send-action { position: relative; flex-shrink: 0; }
 .delay-trigger {
   display: inline-flex;
   align-items: center;
@@ -335,11 +336,9 @@
 .traffic-steer { background: #e0b04f; }
 .traffic-send { background: #4fb884; }
 .send-waiting { position: absolute; right: 0; bottom: calc(100% + 6px); color: var(--muted); background: var(--panel); padding: 3px 8px; border-radius: var(--r-full); font-size: var(--text-xs); white-space: nowrap; }
+/* 定位与碰撞翻转由 Radix Popover 负责，这里只管外观。 */
 .delay-panel {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 20;
+  z-index: 110;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: var(--panel);
