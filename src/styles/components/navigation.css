@@ -147,8 +147,10 @@
 }
 
 .workspace-pill {
-  flex: 1 1 40%;
+  flex: 1 1 58%;
   min-width: 0;
+  padding: 0 8px;
+  gap: 6px;
   cursor: pointer;
   text-align: left;
   font-size: var(--text-md);
@@ -187,8 +189,8 @@
 }
 
 .workspace-scope .search {
-  flex: 1 1 60%;
-  min-width: 0;
+  flex: 1 1 42%;
+  min-width: 72px;
 }
 
 .sidebar-quick kbd {

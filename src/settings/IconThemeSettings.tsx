@@ -3,6 +3,7 @@ import { errorMessage } from "../errors";
 import { selectIconTheme, type IconThemeList } from "../files/icon-theme";
 import { useI18n } from "../i18n";
 import { invoke } from "../platform";
+import { ChoiceSelect, type Choice } from "../Select";
 
 export default function IconThemeSettings() {
   const { t } = useI18n();
@@ -21,14 +22,27 @@ export default function IconThemeSettings() {
     catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   };
+  const choices: Choice[] = [
+    { value: "", label: t("settings.pipiDefault") },
+    ...(list?.selected && !list.themes.some(theme => theme.id === list.selected)
+      ? [{ value: list.selected, label: t("settings.unavailableTheme") }]
+      : []),
+    ...(list?.themes.map(theme => ({ value: theme.id, label: theme.label })) ?? []),
+  ];
   return <section className="surface settings-block">
     <label className="label" htmlFor="file-icon-theme">{t("settings.fileIconTheme")}</label>
     <div className="icon-theme-controls">
-      <select id="file-icon-theme" className="text-input" disabled={busy || !list} value={list?.selected ?? ""} onChange={event => void choose(event.target.value)}>
-        <option value="">{t("settings.pipiDefault")}</option>
-        {list?.selected && !list.themes.some(theme => theme.id === list.selected) && <option value={list.selected}>{t("settings.unavailableTheme")}</option>}
-        {list?.themes.map(theme => <option key={theme.id} value={theme.id}>{theme.label}</option>)}
-      </select>
+      <ChoiceSelect
+        id="file-icon-theme"
+        className="icon-theme-select"
+        value={list?.selected ?? ""}
+        choices={choices}
+        onChange={value => void choose(value)}
+        disabled={busy || !list}
+        searchable={false}
+        placeholder={t("settings.pipiDefault")}
+        ariaLabel={t("settings.fileIconTheme")}
+      />
       <button type="button" className="btn" disabled={busy} onClick={() => void refresh()}>{t("common.refresh")}</button>
     </div>
     <span className="hint settings-block-note">{t("settings.fileIconThemeHint")}</span>

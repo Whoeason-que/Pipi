@@ -172,9 +172,6 @@ export function SkillsView({
                   <p className="mono">{library.storePath}</p>
                   <p>{t("skills.storeDescription")}</p>
                 </div>
-                <button type="button" className="btn primary" onClick={() => setInstallOpen(true)} disabled={busy}>
-                  <IconDownload /> {t("skills.install")}
-                </button>
               </header>
 
               <div className="skills-stat-grid overview">
