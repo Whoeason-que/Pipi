@@ -152,23 +152,8 @@ impl AgentTool for NotebookTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pipi_protocol::AbortSignal;
-    use pipi_protocol::permissions::{PermissionsConfig, SandboxMode};
-    use std::sync::Arc;
-
-    fn context() -> ToolContext {
-        ToolContext {
-            workspace: std::env::temp_dir(),
-            memory_dir: None,
-            notebook_path: None,
-            read_roots: Vec::new(),
-            permissions: Arc::new(PermissionsConfig::default()),
-            sandbox: SandboxMode::WorkspaceWrite,
-            sandbox_policy_override: None,
-            resolved_env: Arc::new(std::collections::BTreeMap::new()),
-            abort: AbortSignal::new(),
-        }
-    }
+    use crate::test_support::{test_context, with_sandbox};
+    use pipi_protocol::permissions::SandboxMode;
 
     fn tool() -> (NotebookTool, std::path::PathBuf) {
         let dir = pipi_test_support::temp_dir("pipi-notebook");
@@ -177,7 +162,11 @@ mod tests {
     }
 
     async fn run(tool: &NotebookTool, args: Value) -> Result<ToolOutput, String> {
-        tool.execute(&context(), &args, &|_| {}).await
+        let ctx = with_sandbox(
+            test_context(std::env::temp_dir()),
+            SandboxMode::WorkspaceWrite,
+        );
+        tool.execute(&ctx, &args, &|_| {}).await
     }
 
     fn text(output: &ToolOutput) -> String {

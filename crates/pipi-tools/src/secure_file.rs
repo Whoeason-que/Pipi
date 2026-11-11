@@ -1,4 +1,24 @@
 //! Handle-relative workspace writes. No component is followed after validation.
+
+use std::path::PathBuf;
+
+use pipi_protocol::permissions::{SandboxMode, resolve_write_path};
+use pipi_protocol::tools::{ToolContext, resolve_path};
+
+/// write / edit 的写入目标：`(绝对路径, 是否必须走 `SecureFile`)`。
+///
+/// 三档语义与 `ToolContext::ensure_writable` 一致：`workspace-write` 走
+/// canonical containment；`read-only` 被拒绝；`danger-full-access` 直通。
+pub(crate) fn mutation_target(ctx: &ToolContext, path: &str) -> Result<(PathBuf, bool), String> {
+    if matches!(ctx.sandbox, SandboxMode::WorkspaceWrite) {
+        resolve_write_path(&ctx.workspace, path).map(|abs| (abs, true))
+    } else {
+        let abs = resolve_path(&ctx.workspace, path);
+        ctx.ensure_writable(&abs)?;
+        Ok((abs, false))
+    }
+}
+
 #[cfg(unix)]
 mod unix {
     use rustix::fs::{self, Mode, OFlags};

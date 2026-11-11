@@ -8,8 +8,9 @@ use serde_json::{Value, json};
 use unicode_normalization::UnicodeNormalization;
 
 use pipi_protocol::ToolResultContent;
-use pipi_protocol::permissions::resolve_write_path;
-use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_path};
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
+
+use crate::secure_file::mutation_target;
 
 pub struct EditTool;
 
@@ -48,18 +49,10 @@ fn normalize_for_fuzzy_match(text: &str) -> String {
 
 /// 按行切分并保留行尾（最后一行可能没有换行）。
 fn split_lines_with_endings(content: &str) -> Vec<&str> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    for (index, byte) in content.bytes().enumerate() {
-        if byte == b'\n' {
-            lines.push(&content[start..=index]);
-            start = index + 1;
-        }
-    }
-    if start < content.len() {
-        lines.push(&content[start..]);
-    }
-    lines
+    line_spans(content)
+        .into_iter()
+        .map(|(start, end)| &content[start..end])
+        .collect()
 }
 
 /// 每行的字节范围 `[start, end)`。
@@ -459,26 +452,13 @@ impl AgentTool for EditTool {
         let path = args["path"].as_str().ok_or("Missing path")?;
         let edits = parse_edits(args)?;
 
-        let abs = if matches!(
-            ctx.sandbox,
-            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
-        ) {
-            resolve_write_path(&ctx.workspace, path)?
-        } else {
-            let abs = resolve_path(&ctx.workspace, path);
-            ctx.ensure_writable(&abs)?;
-            abs
-        };
+        let (abs, confined) = mutation_target(ctx, path)?;
         // 同一文件的两个 edit/write 在同一批里是并行执行的：从这里到写入完成
         // 必须持有文件锁，否则后写的那次会静默覆盖先写的。
         let _file_lock = crate::file_queue::lock_cancellable(&abs, &ctx.abort).await?;
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());
         }
-        let confined = matches!(
-            ctx.sandbox,
-            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
-        );
         let secure = if confined {
             Some(
                 crate::secure_file::SecureFile::open(&ctx.workspace, &abs, false)
@@ -551,6 +531,7 @@ impl AgentTool for EditTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{test_context, with_sandbox};
 
     fn edit(old: &str, new: &str) -> Edit {
         Edit {
@@ -570,19 +551,10 @@ mod tests {
         tokio::fs::write(&outside, "old").await.unwrap();
         std::os::unix::fs::symlink(&outside, workspace.join("link.txt")).unwrap();
 
-        let ctx = ToolContext {
-            workspace,
-            memory_dir: None,
-            notebook_path: None,
-            read_roots: Vec::new(),
-            permissions: std::sync::Arc::new(
-                pipi_protocol::permissions::PermissionsConfig::default(),
-            ),
-            sandbox: pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
-            sandbox_policy_override: None,
-            resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
-            abort: pipi_protocol::AbortSignal::new(),
-        };
+        let ctx = with_sandbox(
+            test_context(workspace),
+            pipi_protocol::permissions::SandboxMode::WorkspaceWrite,
+        );
         let result = EditTool
             .execute(
                 &ctx,

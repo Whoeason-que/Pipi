@@ -15,6 +15,8 @@ pub mod process;
 mod read;
 pub mod search;
 mod secure_file;
+#[cfg(test)]
+mod test_support;
 pub mod truncate;
 mod write;
 

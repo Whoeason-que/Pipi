@@ -136,8 +136,8 @@ impl AgentTool for SearchWorkspaceTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pipi_protocol::{AbortSignal, ToolResultContent};
-    use std::sync::Arc;
+    use crate::test_support::{test_context, with_sandbox};
+    use pipi_protocol::ToolResultContent;
 
     #[tokio::test]
     async fn search_respects_ignores_finds_hidden_files_and_does_not_interpret_flags() {
@@ -153,17 +153,10 @@ mod tests {
         std::fs::write(workspace.join(".gitignore"), "ignored.txt\n").unwrap();
         std::fs::write(workspace.join(".hidden"), "match --help\n").unwrap();
         std::fs::write(workspace.join("ignored.txt"), "match --help\n").unwrap();
-        let ctx = ToolContext {
-            workspace: workspace.clone(),
-            memory_dir: None,
-            notebook_path: None,
-            read_roots: vec![],
-            permissions: Arc::new(Default::default()),
-            sandbox: pipi_protocol::permissions::SandboxMode::ReadOnly,
-            sandbox_policy_override: None,
-            resolved_env: Arc::new(Default::default()),
-            abort: AbortSignal::new(),
-        };
+        let ctx = with_sandbox(
+            test_context(workspace.clone()),
+            pipi_protocol::permissions::SandboxMode::ReadOnly,
+        );
         let result = SearchWorkspaceTool
             .execute(&ctx, &json!({"pattern":"--help"}), &|_| {})
             .await;

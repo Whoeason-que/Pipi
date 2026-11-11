@@ -302,6 +302,7 @@ async fn read_directory(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{test_context, with_read_roots};
 
     #[test]
     fn detects_image_magic_bytes() {
@@ -338,10 +339,6 @@ mod tests {
         std::path::PathBuf,
         std::path::PathBuf,
     ) {
-        use pipi_protocol::AbortSignal;
-        use pipi_protocol::permissions::PermissionsConfig;
-        use std::sync::Arc;
-
         let base = std::env::temp_dir().join(format!(
             "pipi-read-containment-{}",
             pipi_test_support::new_id()
@@ -360,17 +357,7 @@ mod tests {
             .unwrap();
         tokio::fs::write(&outside, "outside").await.unwrap();
 
-        let ctx = ToolContext {
-            workspace,
-            memory_dir: None,
-            notebook_path: None,
-            read_roots: vec![skill_root],
-            permissions: Arc::new(PermissionsConfig::default()),
-            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
-            sandbox_policy_override: None,
-            resolved_env: Arc::new(std::collections::BTreeMap::new()),
-            abort: AbortSignal::new(),
-        };
+        let ctx = with_read_roots(test_context(workspace), vec![skill_root]);
         (base, ctx, skill_file, outside)
     }
 

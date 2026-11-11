@@ -111,17 +111,7 @@ impl OutputBuffer {
         if self.spill.is_some() {
             return;
         }
-        let Ok(mut file) = tempfile::Builder::new()
-            .prefix("pipi-bash-")
-            .suffix(".txt")
-            .tempfile()
-        else {
-            return;
-        };
-        if file.write_all(&self.tail).is_err() || file.flush().is_err() {
-            return;
-        }
-        if let Ok((file, path)) = file.keep() {
+        if let Some((file, path)) = spill_file(&self.tail) {
             self.spill = Some(file);
             self.spill_path = Some(path);
         }
@@ -164,16 +154,22 @@ impl OutputBuffer {
     }
 }
 
-/// 展示级截断时把完整输出写进临时文件（内存尾部本身没有溢出）。
-fn write_spill(contents: &str) -> Option<PathBuf> {
+/// 创建临时文件并写入 `contents`；返回保留的句柄与路径。写或保留失败都返回
+/// `None`（spill 是尽力而为，失败不影响工具结果）。
+fn spill_file(contents: &[u8]) -> Option<(std::fs::File, PathBuf)> {
     let mut file = tempfile::Builder::new()
         .prefix("pipi-bash-")
         .suffix(".txt")
         .tempfile()
         .ok()?;
-    file.write_all(contents.as_bytes()).ok()?;
+    file.write_all(contents).ok()?;
     file.flush().ok()?;
-    file.keep().ok().map(|(_file, path)| path)
+    file.keep().ok()
+}
+
+/// 展示级截断时把完整输出写进临时文件（内存尾部本身没有溢出）。
+fn write_spill(contents: &str) -> Option<PathBuf> {
+    spill_file(contents.as_bytes()).map(|(_file, path)| path)
 }
 
 #[async_trait]
@@ -465,6 +461,7 @@ impl AgentTool for BashTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{test_context, with_abort, with_resolved_env};
 
     #[test]
     fn timeout_resolution_and_validation() {
@@ -532,19 +529,7 @@ mod tests {
         tokio::fs::create_dir_all(&workspace).await.unwrap();
         let resolved =
             std::collections::BTreeMap::from([("AV_MARKER".to_string(), "from-av".to_string())]);
-        let ctx = ToolContext {
-            workspace,
-            memory_dir: None,
-            notebook_path: None,
-            read_roots: Vec::new(),
-            permissions: std::sync::Arc::new(
-                pipi_protocol::permissions::PermissionsConfig::default(),
-            ),
-            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
-            sandbox_policy_override: None,
-            resolved_env: std::sync::Arc::new(resolved),
-            abort: pipi_protocol::AbortSignal::new(),
-        };
+        let ctx = with_resolved_env(test_context(workspace), resolved);
         let output = BashTool
             .execute(
                 &ctx,
@@ -559,26 +544,6 @@ mod tests {
             _ => panic!("expected text output"),
         };
         assert_eq!(text.trim(), "from-av:absent");
-    }
-
-    /// 建一个最小 ToolContext（bash 用）。
-    fn test_context(
-        workspace: std::path::PathBuf,
-        abort: pipi_protocol::AbortSignal,
-    ) -> ToolContext {
-        ToolContext {
-            workspace,
-            memory_dir: None,
-            notebook_path: None,
-            read_roots: Vec::new(),
-            permissions: std::sync::Arc::new(
-                pipi_protocol::permissions::PermissionsConfig::default(),
-            ),
-            sandbox: pipi_protocol::permissions::SandboxMode::DangerFullAccess,
-            sandbox_policy_override: None,
-            resolved_env: std::sync::Arc::new(std::collections::BTreeMap::new()),
-            abort,
-        }
     }
 
     fn test_workspace(tag: &str) -> std::path::PathBuf {
@@ -640,7 +605,7 @@ mod tests {
         let workspace = test_workspace("cwd");
         let nested = workspace.join("nested");
         tokio::fs::create_dir_all(&nested).await.unwrap();
-        let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
+        let ctx = test_context(workspace.clone());
 
         let output = BashTool
             .execute(
@@ -659,7 +624,7 @@ mod tests {
     #[tokio::test]
     async fn cwd_must_exist_and_be_a_directory() {
         let workspace = test_workspace("cwd-invalid");
-        let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
+        let ctx = test_context(workspace.clone());
 
         let missing = BashTool
             .execute(
@@ -689,7 +654,7 @@ mod tests {
     #[tokio::test]
     async fn signal_death_is_reported_as_an_error() {
         let workspace = test_workspace("signal");
-        let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
+        let ctx = test_context(workspace.clone());
 
         let result = BashTool
             .execute(
@@ -709,7 +674,7 @@ mod tests {
     #[tokio::test]
     async fn long_output_is_truncated_and_spilled() {
         let workspace = test_workspace("spill");
-        let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
+        let ctx = test_context(workspace.clone());
 
         let output = BashTool
             .execute(
@@ -745,7 +710,7 @@ mod tests {
     #[tokio::test]
     async fn timeout_terminates_the_whole_process_tree() {
         let workspace = test_workspace("timeout-tree");
-        let ctx = test_context(workspace.clone(), pipi_protocol::AbortSignal::new());
+        let ctx = test_context(workspace.clone());
         let result = BashTool
             .execute(
                 &ctx,
@@ -773,7 +738,7 @@ mod tests {
             let workspace = workspace.clone();
             let abort = abort.clone();
             async move {
-                let ctx = test_context(workspace, abort);
+                let ctx = with_abort(test_context(workspace), abort);
                 BashTool
                     .execute(
                         &ctx,

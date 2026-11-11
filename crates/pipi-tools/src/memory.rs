@@ -155,25 +155,8 @@ pub fn collect_markdown(dir: &Path, depth: usize, out: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pipi_protocol::AbortSignal;
+    use crate::test_support::{test_context, with_memory_dir};
     use pipi_protocol::ToolResultContent;
-    use pipi_protocol::permissions::{PermissionsConfig, SandboxMode};
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
-
-    fn context(memory_dir: std::path::PathBuf, workspace: std::path::PathBuf) -> ToolContext {
-        ToolContext {
-            workspace,
-            memory_dir: Some(memory_dir),
-            notebook_path: None,
-            read_roots: Vec::new(),
-            permissions: Arc::new(PermissionsConfig::default()),
-            sandbox: SandboxMode::DangerFullAccess,
-            sandbox_policy_override: None,
-            resolved_env: Arc::new(BTreeMap::new()),
-            abort: AbortSignal::new(),
-        }
-    }
 
     async fn call(tool: &MemoryTool, ctx: &ToolContext, args: Value) -> Result<ToolOutput, String> {
         tool.execute(ctx, &args, &|_| {}).await
@@ -186,7 +169,7 @@ mod tests {
         let tool = MemoryTool {
             memory_dir: memory.clone(),
         };
-        let ctx = context(memory.clone(), root.clone());
+        let ctx = with_memory_dir(test_context(root.clone()), memory.clone());
 
         call(
             &tool,
@@ -230,7 +213,7 @@ mod tests {
         let tool = MemoryTool {
             memory_dir: memory.clone(),
         };
-        let ctx = context(memory.clone(), root.clone());
+        let ctx = with_memory_dir(test_context(root.clone()), memory.clone());
 
         assert!(
             call(&tool, &ctx, json!({"action": "read", "path": "link.md"}))

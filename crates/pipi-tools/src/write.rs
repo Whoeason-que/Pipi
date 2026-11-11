@@ -5,8 +5,9 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use pipi_protocol::ToolResultContent;
-use pipi_protocol::permissions::resolve_write_path;
-use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput, resolve_path};
+use pipi_protocol::tools::{AgentTool, ToolContext, ToolOutput};
+
+use crate::secure_file::mutation_target;
 
 pub struct WriteTool;
 
@@ -43,16 +44,7 @@ impl AgentTool for WriteTool {
         let path = args["path"].as_str().ok_or("Missing path")?;
         let content = args["content"].as_str().ok_or("Missing content")?;
 
-        let abs = if matches!(
-            ctx.sandbox,
-            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
-        ) {
-            resolve_write_path(&ctx.workspace, path)?
-        } else {
-            let abs = resolve_path(&ctx.workspace, path);
-            ctx.ensure_writable(&abs)?;
-            abs
-        };
+        let (abs, confined) = mutation_target(ctx, path)?;
         // 同一文件的两个 edit/write 在同一批里是并行执行的：从这里到写入完成
         // 必须持有文件锁，否则后写的那次会静默覆盖先写的。
         let _file_lock = crate::file_queue::lock_cancellable(&abs, &ctx.abort).await?;
@@ -65,10 +57,6 @@ impl AgentTool for WriteTool {
         let root = ctx.workspace.clone();
         let contents = content.to_string();
         let abort = ctx.abort.clone();
-        let confined = matches!(
-            ctx.sandbox,
-            pipi_protocol::permissions::SandboxMode::WorkspaceWrite
-        );
         tokio::task::spawn_blocking(move || {
             if confined {
                 crate::secure_file::SecureFile::open(&root, &target, true)?.write(&contents, &abort)
@@ -96,23 +84,8 @@ impl AgentTool for WriteTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pipi_protocol::AbortSignal;
-    use pipi_protocol::permissions::{PermissionsConfig, SandboxMode};
-    use std::sync::Arc;
-
-    fn ctx(workspace: std::path::PathBuf, sandbox: SandboxMode) -> ToolContext {
-        ToolContext {
-            workspace,
-            memory_dir: None,
-            notebook_path: None,
-            read_roots: Vec::new(),
-            permissions: Arc::new(PermissionsConfig::default()),
-            sandbox,
-            sandbox_policy_override: None,
-            resolved_env: Arc::new(std::collections::BTreeMap::new()),
-            abort: AbortSignal::new(),
-        }
-    }
+    use crate::test_support::{test_context, with_sandbox};
+    use pipi_protocol::permissions::SandboxMode;
 
     #[tokio::test]
     async fn stopping_while_waiting_for_file_lock_does_not_write() {
@@ -120,7 +93,7 @@ mod tests {
         let path = workspace.join("file.txt");
         std::fs::write(&path, "original").unwrap();
         let guard = crate::file_queue::lock(&path).await;
-        let context = ctx(workspace.clone(), SandboxMode::WorkspaceWrite);
+        let context = with_sandbox(test_context(workspace.clone()), SandboxMode::WorkspaceWrite);
         let abort = context.abort.clone();
         let task = tokio::spawn(async move {
             WriteTool
@@ -147,7 +120,7 @@ mod tests {
     async fn workspace_write_blocks_outside_paths() {
         let ws = std::env::temp_dir().join(format!("pipi-ws-{}", pipi_test_support::new_id()));
         tokio::fs::create_dir_all(&ws).await.unwrap();
-        let ctx = ctx(ws.clone(), SandboxMode::WorkspaceWrite);
+        let ctx = with_sandbox(test_context(ws.clone()), SandboxMode::WorkspaceWrite);
 
         // 工作目录内：放行
         let out = WriteTool
@@ -189,7 +162,7 @@ mod tests {
         tokio::fs::create_dir_all(&outside).await.unwrap();
         std::os::unix::fs::symlink(&outside, workspace.join("link")).unwrap();
 
-        let ctx = ctx(workspace.clone(), SandboxMode::WorkspaceWrite);
+        let ctx = with_sandbox(test_context(workspace.clone()), SandboxMode::WorkspaceWrite);
         let result = WriteTool
             .execute(
                 &ctx,
@@ -217,7 +190,7 @@ mod tests {
         tokio::fs::create_dir_all(&outside).await.unwrap();
         std::os::unix::fs::symlink(&outside_target, workspace.join("link.txt")).unwrap();
 
-        let ctx = ctx(workspace, SandboxMode::WorkspaceWrite);
+        let ctx = with_sandbox(test_context(workspace), SandboxMode::WorkspaceWrite);
         let result = WriteTool
             .execute(
                 &ctx,
@@ -237,13 +210,13 @@ mod tests {
         let ws = std::env::temp_dir().join(format!("pipi-ws-{}", pipi_test_support::new_id()));
         tokio::fs::create_dir_all(&ws).await.unwrap();
 
-        let ro = ctx(ws.clone(), SandboxMode::ReadOnly);
+        let ro = with_sandbox(test_context(ws.clone()), SandboxMode::ReadOnly);
         let err = WriteTool
             .execute(&ro, &json!({"path": "a.txt", "content": "hi"}), &|_| {})
             .await;
         assert!(err.is_err());
 
-        let full = ctx(ws, SandboxMode::DangerFullAccess);
+        let full = with_sandbox(test_context(ws), SandboxMode::DangerFullAccess);
         let out = WriteTool
             .execute(&full, &json!({"path": "a.txt", "content": "hi"}), &|_| {})
             .await;
