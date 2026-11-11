@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useDialogFocus } from "../components/use-dialog-focus";
 import { errorMessage } from "../errors.ts";
 import {
   catalogSourceLabel,
@@ -71,6 +72,11 @@ export default function ModelSelectModal({
   const [modalError, setModalError] = useState<string | null>(null);
   // 目录拉不到不影响切换模型：ModelPicker 会退化成手填，错误静默忽略
   const { catalog } = useCatalog();
+  // 模态语义与焦点陷阱：此前这个弹窗没有 role/aria-modal，也没有键盘可达性。
+  // Escape 先让给展开中的下拉菜单，否则一次按键会连菜单带弹窗一起关。
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialog, () => { if (!saving) onClose(); }, isOpen,
+    () => !saving && !document.querySelector(".pipi-select__menu"));
 
   // 当前选中的供应商在目录里的条目（按「协议 + 端点」反查，口径与会话绑定一致）
   const activeProvider = providers.find((p) => p.id === selectedProviderId);
@@ -138,9 +144,15 @@ export default function ModelSelectModal({
         if (e.target === e.currentTarget && !saving) onClose();
       }}
     >
-      <div className="modal model-select-modal">
+      <div
+        ref={dialog}
+        className="modal model-select-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="model-select-title"
+      >
         <div className="modal-header">
-          <h2>{t("chat.selectSessionModel")}</h2>
+          <h2 id="model-select-title">{t("chat.selectSessionModel")}</h2>
           <button type="button" className="icon-btn close-btn" onClick={onClose} disabled={saving}>
             ✕
           </button>

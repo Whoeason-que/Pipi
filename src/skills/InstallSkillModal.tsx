@@ -1,8 +1,9 @@
 // 安装技能到全局 store（~/.av/skills）的弹层：来源 + 选装策略 + dry-run 预览。
 // 只装不启用 —— 启用由 Agent 工作台的「技能」页完成（写 [resources.skills].use）。
 
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { formatRuntimeError } from "../chat-runtime";
+import { useDialogFocus } from "../components/use-dialog-focus";
 import { useI18n } from "../i18n";
 import { IconClose } from "../icons";
 import { invoke } from "../platform";
@@ -35,13 +36,9 @@ export default function InstallSkillModal({
   const [working, setWorking] = useState(false);
   const [report, setReport] = useState<SkillInstallReport | null>(null);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  // 焦点陷阱、Escape 与关闭后的焦点回收；此前只声明了 aria-modal，Tab 会跑出弹窗。
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialog, onClose);
 
   const submit = async () => {
     const trimmed = source.trim();
@@ -80,6 +77,7 @@ export default function InstallSkillModal({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
+        ref={dialog}
         className="modal skill-install-modal"
         role="dialog"
         aria-modal="true"
