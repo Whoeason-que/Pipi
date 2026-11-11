@@ -213,6 +213,19 @@ pub fn collect_contract_layers(
         Some(workspace) => crate::av::discover(workspace)?.layers,
         None => Vec::new(),
     };
+    // workspace 位于 Agent 目录内时，向上发现会命中 Agent 自己的 agent.toml。
+    // 同一个文件只能以 Agent 层身份参与合并：项目层规则更严（不得声明
+    // [resources].memory），重复加载会误伤合法契约。
+    let project_layers = project_layers
+        .into_iter()
+        .filter(|layer| match agent_layer.as_ref() {
+            Some(agent) => {
+                layer.path != agent.path
+                    && !fs::canonicalize(&layer.path).is_ok_and(|path| path == agent.path)
+            }
+            None => true,
+        })
+        .collect();
     Ok((agent_layer, project_layers))
 }
 
@@ -424,6 +437,39 @@ mod tests {
         .unwrap();
         let error = material_now().unwrap_err();
         assert!(error.contains("逃逸"), "{error}");
+
+        pipi_test_support::set_env_var("HOME", previous_home);
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    /// workspace 位于 Agent 目录内时，向上发现会命中 Agent 自己的 agent.toml；
+    /// 它不能以项目层身份二次参与合并（项目层不得声明 [resources].memory）。
+    #[test]
+    fn agent_contract_is_not_loaded_twice_as_a_project_layer() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let home = pipi_test_support::temp_dir("pipi-agent-layer-dedupe");
+        let previous_home = std::env::var("HOME").unwrap();
+        pipi_test_support::set_env_var("HOME", &home);
+
+        let name = format!("dedupe-{}", pipi_protocol::new_id());
+        let def = create_agent(&name, "", None, None, None, None).unwrap();
+        let dir = agent_dir(&name).unwrap();
+        // 默认 workspace 是 <agent>/workspace；祖先放一个 .git 让发现走到 Agent 目录。
+        let workspace = dir.join("workspace");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(dir.join(".git")).unwrap();
+
+        let (agent_layer, project_layers) =
+            collect_contract_layers(&def, Some(&workspace)).unwrap();
+        let agent_path = agent_layer.expect("默认模板必须有 agent 层").path;
+        assert!(
+            project_layers.iter().all(|layer| layer.path != agent_path),
+            "Agent 自己的 agent.toml 被当成项目层重复加载：{project_layers:?}"
+        );
+        assert!(project_layers.is_empty(), "{project_layers:?}");
+
+        // 回归到最初的症状：准备阶段此前会因重复层的 memory 声明失败。
+        crate::agents::prepare_agent(&def).expect("默认 workspace 必须能完成准备");
 
         pipi_test_support::set_env_var("HOME", previous_home);
         let _ = fs::remove_dir_all(&home);
