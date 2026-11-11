@@ -32,8 +32,7 @@
 .file-error { margin: 10px 4px; font-size: var(--text-sm); line-height: 1.6; overflow-wrap: anywhere; color: var(--muted); }
 
 .file-error,
-.diff-stat.removed,
-.diff-row.del .diff-sign { color: var(--danger); }
+.diff-stat.removed { color: var(--danger); }
 
 .workspace-list-state,
 .file-state { display: flex; align-items: center; gap: var(--space-2); padding: 18px 14px; color: var(--faint); font-size: var(--text-sm); }

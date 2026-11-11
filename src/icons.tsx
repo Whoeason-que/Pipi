@@ -304,28 +304,6 @@ export function IconCheck() {
   );
 }
 
-/** 归档（移入箱子） */
-export function IconArchive() {
-  return (
-    <IconBase>
-      <path d="M4 5h16v4H4z" />
-      <path d="M5 9v10h14V9" />
-      <path d="M12 13v5M9.5 15.5 12 18l2.5-2.5" />
-    </IconBase>
-  );
-}
-
-/** 删除（垃圾桶） */
-export function IconTrash() {
-  return (
-    <IconBase>
-      <path d="M4 6h16" />
-      <path d="M9 6V4h6v2" />
-      <path d="M6 6l1 14h10l1-14" />
-      <path d="M10 10v6M14 10v6" />
-    </IconBase>
-  );
-}
 /** 技能（能力包火花） */
 export function IconSkill() {
   return (

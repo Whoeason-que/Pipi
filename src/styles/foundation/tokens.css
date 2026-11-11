@@ -56,12 +56,9 @@
   --avatar-rose-fg: #dfafd2;
   --track: rgba(160, 178, 210, 0.1);
   --bar: rgba(160, 178, 210, 0.4);
-  --glow-ok: rgba(127, 210, 184, 0.35);
-  --glow-warn: rgba(229, 192, 127, 0.35);
   --shadow: 0 24px 80px rgba(0, 3, 10, 0.48), 0 4px 16px rgba(0, 3, 10, 0.28);
   --card-shadow: 0 1px 2px rgba(0, 3, 10, 0.24), 0 8px 24px rgba(0, 3, 10, 0.14);
   --composer-shadow: 0 16px 48px rgba(0, 3, 10, 0.32), 0 2px 8px rgba(0, 3, 10, 0.2);
-  --bg-fade: rgba(16, 21, 30, 0);
   --inner-glow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   /* 结构尺度不随主题改变；所有页面共用同一字号、间距与控件高度。 */
   --text-xs: 11px;
@@ -153,12 +150,9 @@
   --avatar-rose-fg: #965080;
   --track: rgba(20, 22, 26, 0.1);
   --bar: rgba(20, 22, 26, 0.35);
-  --glow-ok: rgba(31, 122, 92, 0.3);
-  --glow-warn: rgba(138, 97, 24, 0.3);
   --shadow:
     0 24px 80px rgba(20, 22, 26, 0.12), 0 4px 14px rgba(20, 22, 26, 0.05);
   --card-shadow: 0 1px 2px rgba(20, 22, 26, 0.04), 0 8px 24px rgba(20, 22, 26, 0.04);
   --composer-shadow: 0 16px 40px rgba(20, 22, 26, 0.08), 0 2px 8px rgba(20, 22, 26, 0.04);
-  --bg-fade: rgba(251, 251, 252, 0);
   --inner-glow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }

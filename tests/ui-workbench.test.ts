@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DraftStore, submitDraft, type DraftStorage } from "../src/drafts.ts";
 import { filterQuickItems, quickItems } from "../src/app/navigation.ts";
-import { extractSnippet, findMessages, findSearchHits } from "../src/chat/find.ts";
+import { extractSnippet, findSearchHits } from "../src/chat/find.ts";
 import { groupChatBlocks } from "../src/chat-runtime.ts";
 import type { AgentDefinition } from "../src/types.ts";
 
@@ -118,17 +118,18 @@ test("quick actions find Agents, cross-Agent sessions and contextual navigation"
   assert.equal(quickItems(agents, {}, null).some(item => item.id === "new-session"), false);
 });
 
-test("conversation find searches body and code per message while excluding tools, thinking and system notices", () => {
+test("findSearchHits searches body and code per message while excluding tools, thinking and system notices", () => {
   const blocks = groupChatBlocks([
     { key: "u", role: "user", text: "修复 Rust" },
     { key: "a", role: "assistant", text: "```rust\nfn main() {}\n```", thinking: "秘密思考" },
     { key: "t", role: "toolResult", toolName: "read", toolCallId: "x", text: "秘密工具 main" },
     { key: "r", role: "assistant", text: "main 通知", kind: "retry" },
   ]);
-  assert.deepEqual(findMessages(blocks, "RUST"), ["u", "a"]);
-  assert.deepEqual(findMessages(blocks, "main"), ["a"]);
-  assert.deepEqual(findMessages(blocks, "秘密"), []);
-  assert.deepEqual(findMessages(blocks, "  "), []);
+  const keys = (query: string) => findSearchHits(blocks, query).map(hit => hit.key);
+  assert.deepEqual(keys("RUST"), ["u", "a"]);
+  assert.deepEqual(keys("main"), ["a"]);
+  assert.deepEqual(keys("秘密"), []);
+  assert.deepEqual(keys("  "), []);
 });
 
 test("findSearchHits returns structured hits with role, text and timestamp", () => {

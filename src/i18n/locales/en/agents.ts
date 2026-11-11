@@ -49,7 +49,6 @@ export const agents = {
   disconnected: "Disconnected",
   disabled: "Disabled",
   toolCount: "{count} tools",
-  noSandbox: "No sandbox",
   notConfigured: "Not configured",
   mcpHint: "Enabling a server authorizes all its declared tools. Its process receives the Agent's resolved environment, including secrets, and uses the displayed sandbox. Network access is off by default unless explicitly enabled or using Full access. Configure servers in agent.json.",
   runningHint: "Test is running; stop it first",

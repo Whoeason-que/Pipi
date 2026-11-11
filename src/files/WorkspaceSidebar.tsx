@@ -415,7 +415,7 @@ function GitRow({
           <span className="truncate scm-filename">{name}</span>
         </span>
       </button>
-      <LineCount file={file} />
+      <LineDiff additions={file.additions} deletions={file.deletions} />
       <span
         className={`scm-status-badge ${meta.tone}`}
         title={`${meta.label} (${meta.code.trim() || "?"})`}
@@ -436,10 +436,6 @@ function LineDiff({ additions, deletions }: { additions?: number; deletions?: nu
       {deletions > 0 && <span className="scm-line-del">−{deletions}</span>}
     </span>
   );
-}
-
-function LineCount({ file }: { file: WorkspaceChange }) {
-  return <LineDiff additions={file.additions} deletions={file.deletions} />;
 }
 
 /** 分组标题的增删行数：只累加有统计的文件；一个都没有时返回空。 */
@@ -619,7 +615,7 @@ function GitTree({
                 <span className="truncate scm-filename">{node.name}</span>
               </span>
             </button>
-            <LineCount file={file} />
+            <LineDiff additions={file.additions} deletions={file.deletions} />
             <span
               className={`scm-status-badge ${meta.tone}`}
               title={`${meta.label} (${meta.code.trim() || "?"})`}

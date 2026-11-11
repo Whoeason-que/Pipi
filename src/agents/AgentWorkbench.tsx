@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { resolveContextWindow, resolveMaxTokens } from "../catalog";
 import ChatView from "../chat/ChatView";
 import { formatRuntimeError } from "../chat-runtime";
@@ -201,20 +201,6 @@ export default function AgentWorkbench({
     if (testSession) sessions.forget(agent.name, testSession.sessionId);
     setTestSession(info);
   };
-  // agent 切换时重置编辑状态（否则上一个 Agent 的草稿会串台）
-  const agentNameRef = useRef(agent.name);
-  if (agentNameRef.current !== agent.name) {
-    agentNameRef.current = agent.name;
-    setDescription(agent.description);
-    setReasoningEffort(agent.provider?.reasoningEffort ?? null);
-    setSubagent(agent.subagent);
-    setWorkspace(agent.workspace ?? "");
-    setTools(agent.permissions.tools);
-    setCompactThreshold(agent.compactThresholdPercent);
-    setCompactTarget(agent.compactTargetPercent?.toString() ?? "");
-    setPromptScope(agent.systemPrompt);
-    setSandbox(agent.permissions.sandbox);
-  }
 
   const selectedProvider = providers.find(
     (provider) => provider.id === providerId,

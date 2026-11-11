@@ -380,12 +380,6 @@
   gap: 7px;
 }
 
-.archive-toggle-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .archived-agent {
   padding-left: 10px;
   color: var(--muted);

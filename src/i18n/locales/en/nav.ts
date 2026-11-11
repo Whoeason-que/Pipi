@@ -10,8 +10,6 @@ export const nav = {
   quickSearch: "Search & Quick Actions",
   newAgent: "New Agent",
   newSession: "New Session",
-  collapseSidebar: "Collapse sidebar",
-  expandSidebar: "Expand sidebar",
   primary: "Main navigation",
   toggleNavigation: "Toggle navigation",
   openSettings: "Open settings",

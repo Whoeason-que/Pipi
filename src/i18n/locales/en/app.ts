@@ -9,7 +9,6 @@ export const app = {
   archiveAgent: "Archive Agent",
   deleteAgent: "Delete Agent permanently",
   restoreAgent: "Restore Agent",
-  noSessions: "No sessions yet",
   repoBranchCount: "{count} branches",
   archived: "Archived",
   sessionMenu: "Actions for session {title}",
@@ -37,7 +36,6 @@ export const app = {
   workspaceFilterAll: "All workspaces",
   filesNav: "Files",
   gitNav: "Git · Changes",
-  terminalNav: "Terminal",
   forum: "Forum",
 
   // 快捷操作

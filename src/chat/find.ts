@@ -30,11 +30,6 @@ export function findSearchHits(blocks: ChatBlock[], query: string): SearchHit[] 
   });
 }
 
-/** 以消息为单位检索正文，返回匹配消息 key 列表。 */
-export function findMessages(blocks: ChatBlock[], query: string): string[] {
-  return findSearchHits(blocks, query).map(h => h.key);
-}
-
 /** 提取高亮摘要：截取关键字周围文字并保留原匹配字符。 */
 export function extractSnippet(text: string, query: string, maxLen = 140): SnippetResult {
   const needle = query.trim();

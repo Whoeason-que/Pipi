@@ -43,10 +43,6 @@ export const chat = {
   stop: "Stop",
   fork: "Fork Session",
   cannotFork: "Cannot fork right now",
-  aborted: "Generation was aborted by user",
-  retryNote: "Retry Request",
-  compactionSummary: "Context Compaction Summary",
-  thinking: "Deep Thinking",
   suggestionPrefix: "Suggestion: ",
   copyError: "Copy error message",
   expandDetails: "Expand details",
@@ -137,7 +133,6 @@ export const chat = {
   reasoningEffort: "Reasoning effort",
   effortDefault: "Default",
   steer: "Guide the current task · Alt+Enter",
-  guideShort: "Guide",
   messageActions: "Message actions",
   waiting: "Waiting…",
 

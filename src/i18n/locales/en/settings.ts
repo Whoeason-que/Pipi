@@ -7,8 +7,6 @@ export const settings = {
   appearance: "Appearance",
   appearanceDesc: "Theme and language settings for this local machine only.",
   theme: "Theme",
-  themeDark: "Dark",
-  themeLight: "Light",
   context: "Context",
   contextDesc: "Compaction strategy when session approaches window limits.",
   retry: "Retry",
@@ -70,8 +68,6 @@ export const settings = {
   compaction: "Context compaction",
   forkBeforeCompact: "Fork a new session before compacting",
   forkBeforeCompactDesc: "Keep the original session as a full record and continue in a new session.",
-  archiveOriginal: "Archive the original session after forking",
-  archiveOriginalDesc: "Collapse the original session to keep the session list tidy.",
   inPlaceNote: "Without forking, compaction replaces the compacted older turns in the current session with a summary.",
 
   maxAttempts: "Max attempts",
@@ -108,7 +104,6 @@ export const settings = {
   notSet: "Not set",
   forkNewSession: "Fork new session",
   inPlaceReplace: "In-place replace",
-  originalArchived: "original archived",
   retrySummary: "{attempts} attempts · {base}ms → {max}ms",
 
   forkBeforeCompactShort: "Fork before compact",

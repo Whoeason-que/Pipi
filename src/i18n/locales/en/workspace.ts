@@ -17,7 +17,6 @@ export const workspace = {
   noOtherActivity: "No other recent activity.",
   messages: "{count} messages",
   messagesOne: "{count} message",
-  localWorkspace: "Local workspace",
   yourAgents: "Your Agents",
   agentsHint: "Context that grows with your work",
   agentPlaceholder: "Ready for your next task",

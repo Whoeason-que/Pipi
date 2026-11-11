@@ -62,7 +62,6 @@ export const files = {
   contentVersion: "Content version {version}",
   diffBase: "Diff base",
   diffTools: "Diff tools",
-  textDiff: "Text diff",
   hunkCount: "{count} hunks",
   toggleWrap: "Toggle word wrap",
   wordWrap: "Word wrap",

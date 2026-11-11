@@ -7,7 +7,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -64,7 +63,6 @@ export function ForumProvider({
   const [composing, setComposing] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [statusFilter, setStatusFilter] = useState<ThreadFilterStatus>("all");
-  const hasLoadedRef = useRef(false);
 
   const loadThreads = useCallback(async (preferId?: string) => {
     setLoading(true);
@@ -100,7 +98,6 @@ export function ForumProvider({
   useEffect(() => {
     if (active) {
       void loadThreads();
-      hasLoadedRef.current = true;
     }
   }, [active, loadThreads]);
 
