@@ -141,20 +141,21 @@ mod unix {
                     }
                 }
             };
+            let mode = existing_mode.unwrap_or(0o666) & 0o7777;
             let temp_name = format!(".pipi-{}", pipi_protocol::new_id());
             let temp = OsStr::new(&temp_name);
             let fd = fs::openat(
                 &self.dir,
                 temp,
                 OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-                Mode::from_raw_mode(existing_mode.unwrap_or(0o666)),
+                Mode::from_raw_mode(mode as _),
             )
             .map_err(|e| e.to_string())?;
             let result = (|| {
                 let mut file = std::fs::File::from(fd);
                 file.write_all(content.as_bytes())
                     .map_err(|e| e.to_string())?;
-                if let Some(mode) = existing_mode {
+                if existing_mode.is_some() {
                     file.set_permissions(std::fs::Permissions::from_mode(mode))
                         .map_err(|e| e.to_string())?;
                 }
