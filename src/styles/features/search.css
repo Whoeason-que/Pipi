@@ -228,6 +228,20 @@
   gap: 8px;
 }
 
+/* 命中卡片的虚拟列表：外层撑出总高度，卡片按测量结果绝对定位。 */
+.search-hit-virtual {
+  position: relative;
+  flex: none;
+  width: 100%;
+}
+
+.search-hit-slot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
 .search-empty-state {
   justify-content: center;
   padding: 44px 16px;

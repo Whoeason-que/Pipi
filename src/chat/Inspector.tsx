@@ -1,5 +1,6 @@
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Tabs } from "radix-ui";
 import { formatTokens } from "../chat-runtime";
 
@@ -80,6 +81,7 @@ export default function Inspector({
   const { t } = useI18n();
   const localSearchInputRef = useRef<HTMLInputElement>(null);
   const searchInput = searchInputRef ?? localSearchInputRef;
+  const searchList = useRef<HTMLDivElement>(null);
   const {
     agent,
     sessionId,
@@ -110,6 +112,17 @@ export default function Inspector({
     !(embedded && (item.id === "notebook" || item.id === "history" || item.id === "browser" || item.id === "terminal")) &&
     !(item.id === "browser" && !isTauri()),
   );
+  // 命中列表在隐藏面板里也常驻挂载；虚拟化并只在 search 页计算，流式期间
+  // 不再为每条命中重跑 extractSnippet。
+  const searchVisible = tab === "search" && !hidden;
+  const searchVirtualizer = useVirtualizer({
+    count: searchVisible ? searchHits.length : 0,
+    getScrollElement: () => searchList.current,
+    estimateSize: () => 92,
+    getItemKey: (index) => searchHits[index]?.key ?? index,
+    overscan: 6,
+    gap: 8,
+  });
   const notebook = useNotebook(agent.name, embedded ? null : sessionId, entries);
   // 正在压缩：压缩条目在收尾前是 transient（见 chat-runtime 的 compaction_start）
   const compacting = entries.some(
@@ -671,6 +684,7 @@ export default function Inspector({
             </div>
           </div>
           <div
+            ref={searchList}
             className="inspector-search-list"
             onMouseLeave={() => onPreviewFind?.(null)}
           >
@@ -691,46 +705,57 @@ export default function Inspector({
                 </p>
               </div>
             ) : (
-              searchHits.map((hit) => {
-                const isPinned = pinnedFindKey === hit.key;
-                const isPreview = previewFindKey === hit.key;
-                const snippet = extractSnippet(hit.text, searchQuery);
-                return (
-                  <button
-                    key={hit.key}
-                    type="button"
-                    className={`search-hit-card${isPinned ? " pinned" : ""}${isPreview ? " preview" : ""}`}
-                    onPointerEnter={() => onPreviewFind?.(hit.key)}
-                    onClick={() => onPinFind?.(hit.key)}
-                    aria-selected={isPinned}
-                  >
-                    <div className="search-hit-top">
-                      <span className={`search-hit-badge ${hit.role}`}>
-                        {hit.role === "user" ? t("inspector.userRole") : t("inspector.assistantRole")}
-                      </span>
-                      {hit.timestamp ? (
-                        <span className="caption search-hit-time">
-                          {formatClock(hit.timestamp)}
-                        </span>
-                      ) : null}
-                      <span className="spacer" />
-                      {isPinned && (
-                        <span className="search-hit-status pinned">{t("inspector.pinned")}</span>
-                      )}
-                      {!isPinned && isPreview && (
-                        <span className="search-hit-status preview">
-                          {t("inspector.previewing")}
-                        </span>
-                      )}
+              <div className="search-hit-virtual" style={{ height: searchVirtualizer.getTotalSize() }}>
+                {searchVirtualizer.getVirtualItems().map((item) => {
+                  const hit = searchHits[item.index];
+                  if (!hit) return null;
+                  const isPinned = pinnedFindKey === hit.key;
+                  const isPreview = previewFindKey === hit.key;
+                  const snippet = extractSnippet(hit.text, searchQuery);
+                  return (
+                    <div
+                      key={item.key}
+                      ref={searchVirtualizer.measureElement}
+                      data-index={item.index}
+                      className="search-hit-slot"
+                      style={{ transform: `translateY(${item.start}px)` }}
+                    >
+                      <button
+                        type="button"
+                        className={`search-hit-card${isPinned ? " pinned" : ""}${isPreview ? " preview" : ""}`}
+                        onPointerEnter={() => onPreviewFind?.(hit.key)}
+                        onClick={() => onPinFind?.(hit.key)}
+                        aria-selected={isPinned}
+                      >
+                        <div className="search-hit-top">
+                          <span className={`search-hit-badge ${hit.role}`}>
+                            {hit.role === "user" ? t("inspector.userRole") : t("inspector.assistantRole")}
+                          </span>
+                          {hit.timestamp ? (
+                            <span className="caption search-hit-time">
+                              {formatClock(hit.timestamp)}
+                            </span>
+                          ) : null}
+                          <span className="spacer" />
+                          {isPinned && (
+                            <span className="search-hit-status pinned">{t("inspector.pinned")}</span>
+                          )}
+                          {!isPinned && isPreview && (
+                            <span className="search-hit-status preview">
+                              {t("inspector.previewing")}
+                            </span>
+                          )}
+                        </div>
+                        <div className="search-hit-text">
+                          {snippet.prefix}
+                          {snippet.match ? <mark>{snippet.match}</mark> : null}
+                          {snippet.suffix}
+                        </div>
+                      </button>
                     </div>
-                    <div className="search-hit-text">
-                      {snippet.prefix}
-                      {snippet.match ? <mark>{snippet.match}</mark> : null}
-                      {snippet.suffix}
-                    </div>
-                  </button>
-                );
-              })
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
