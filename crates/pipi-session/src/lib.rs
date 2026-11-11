@@ -3,7 +3,7 @@
 //! 会话的**格式与语义**（条目模型、回放规则）与**两个端口**
 //! （`SessionLog` / `SessionRepo`）在 `pipi_protocol::session`；这里只放实现：
 //!
-//! - [`GitSessionRepo`] / [`GitSink`]：git 分支，一轮一个 commit —— **唯一**的
+//! - [`GitSessionRepo`] / `GitSink`：git 分支，一轮一个 commit —— **唯一**的
 //!   持久载体（见 `docs/git-session-store.md`）；
 //! - [`MemoryLog`]：设置工作台临时测试会话的内存账本（不落盘）；
 //! - [`import_legacy_sessions`] / [`load_session`]：旧 `sessions/*.jsonl` 的显式
@@ -54,7 +54,7 @@ fn latest_assistant_model<'a>(
 
 /// 写侧账本状态：tip / seq / 环境记账 / 消息 id 映射。
 ///
-/// [`GitSink`]（git）与 [`MemoryLog`]（内存）共用这一套推进规则 —— 回放、压缩
+/// `GitSink`（git）与 [`MemoryLog`]（内存）共用这一套推进规则 —— 回放、压缩
 /// 的 id 换算与事件语义都依赖它。
 #[derive(Clone)]
 struct LedgerState {
@@ -152,7 +152,7 @@ mod git;
 mod legacy;
 mod memory;
 
-pub use git::{GitExec, GitSessionRepo, GitSink, entry_path};
+pub use git::{GitExec, GitSessionRepo, entry_path};
 pub use legacy::{import_legacy_sessions, load_session};
 pub use memory::MemoryLog;
 

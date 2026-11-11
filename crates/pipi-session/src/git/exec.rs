@@ -77,7 +77,7 @@ impl GitExec {
     }
 
     /// 确保仓库可用：幂等初始化（缺 git 或仓库目录被换成符号链接都当场报错）。
-    pub fn ensure_ready(&self) -> Result<(), String> {
+    pub(super) fn ensure_ready(&self) -> Result<(), String> {
         self.with_lock(|_| Ok(()))
     }
 
@@ -161,7 +161,7 @@ impl GitExec {
     }
 
     /// 一次 `fast-import` 写入若干 blob 与一个 commit（流以 `done` 收尾）。
-    pub fn fast_import(&self, stream: Vec<u8>) -> Result<(), String> {
+    pub(super) fn fast_import(&self, stream: Vec<u8>) -> Result<(), String> {
         self.run_with_stdin(&["fast-import", "--quiet", "--done"], stream)
             .map(|_| ())
     }
@@ -170,7 +170,7 @@ impl GitExec {
     ///
     /// 自己取仓库锁（调用点必须已经放掉锁）；失败忽略 —— gc 是维护动作，
     /// 不该让一轮对话失败。
-    pub fn gc_auto(&self) {
+    pub(super) fn gc_auto(&self) {
         if !self.gc_due() {
             return;
         }
@@ -185,7 +185,7 @@ impl GitExec {
     }
 
     /// 删除会话后立即回收独有对象（`gc --prune=now`，实测 1 ms）。
-    pub fn gc_prune_now(&self) -> Result<(), String> {
+    pub(super) fn gc_prune_now(&self) -> Result<(), String> {
         self.run(&["gc", "--prune=now", "--quiet"]).map(|_| ())
     }
 
