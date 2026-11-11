@@ -19,6 +19,7 @@ import SubagentPanel from "./SubagentPanel";
 import { useNotebook } from "./notebook";
 import { useI18n } from "../i18n";
 import BrowserPanel from "./BrowserPanel";
+import { TerminalPanel } from "../terminal/TerminalPanel";
 import { isTauri } from "@tauri-apps/api/core";
 // ============ 右侧检查器 ============
 
@@ -94,7 +95,10 @@ export default function Inspector({
   } = context;
   const [internalTab, setInternalTab] = useState<InspectorTab>("state");
   const requestedTab = activeTabProp ?? internalTab;
-  const tab = requestedTab === "browser" && (embedded || !isTauri()) ? "state" : requestedTab;
+  const tab = (requestedTab === "browser" && (embedded || !isTauri()))
+    || (requestedTab === "terminal" && embedded)
+    ? "state"
+    : requestedTab;
   const setTab = (next: InspectorTab) => {
     setInternalTab(next);
     onTabChange?.(next);
@@ -102,7 +106,7 @@ export default function Inspector({
   // 临时测试会话没有真实 notebook（id 属于进程内的测试账本），不占一个空 tab；
   // git 历史属于正式会话的运行视图，也不放进调试工作台。
   const tabs = INSPECTOR_TABS.filter((item) =>
-    !(embedded && (item.id === "notebook" || item.id === "history" || item.id === "browser")) &&
+    !(embedded && (item.id === "notebook" || item.id === "history" || item.id === "browser" || item.id === "terminal")) &&
     !(item.id === "browser" && !isTauri()),
   );
   const notebook = useNotebook(agent.name, embedded ? null : sessionId, entries);
@@ -306,6 +310,20 @@ export default function Inspector({
         <div className={`ipanel browser-ipanel${tab === "browser" ? " active" : ""}`}
           id="ipanel-browser" role="tabpanel" aria-labelledby="itab-browser">
           {!embedded && isTauri() && <BrowserPanel active={tab === "browser" && !hidden} agentName={agent.name} sessionId={sessionId} ensureSession={ensureSession} />}
+        </div>
+        <div
+          className={`ipanel terminal-ipanel${tab === "terminal" ? " active" : ""}`}
+          id="ipanel-terminal"
+          role="tabpanel"
+          aria-labelledby="itab-terminal"
+        >
+          {!embedded && (
+            <TerminalPanel
+              agentName={agent.name}
+              active={tab === "terminal" && !hidden}
+              variant="rail"
+            />
+          )}
         </div>
         <div
           className={`ipanel${tab === "notebook" ? " active" : ""}`}

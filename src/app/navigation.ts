@@ -2,7 +2,7 @@ import { getTranslation } from "../i18n/core.ts";
 import type { AgentDefinition, SessionSummaryView } from "../types.ts";
 
 export type AgentSection = "agents" | "subagents";
-export type NavSection = AgentSection | "search" | "skills" | "forum" | "files" | "git" | "stats";
+export type NavSection = AgentSection | "search" | "skills" | "forum" | "files" | "git" | "stats" | "terminal";
 
 export function agentSection(agent: Pick<AgentDefinition, "subagent"> | undefined): AgentSection {
   return agent?.subagent ? "subagents" : "agents";
@@ -17,13 +17,14 @@ export type AppView =
   | { kind: "create" | "skills" | "settings" | "forum" }
   | { kind: "agent" | "workbench"; agentName: string }
   | { kind: "files" | "git"; agentName: string | null }
+  | { kind: "terminal" }
   | { kind: "stats"; agentName: string | null }
   | { kind: "chat"; agentName: string; sessionId: string | null };
 
 export type QuickTarget =
   | { kind: "agent"; agentName: string }
   | { kind: "chat"; agentName: string; sessionId: string }
-  | { kind: "action"; action: "home" | "create" | "skills" | "settings" | "new-session" | "files" | "git" | "stats" };
+  | { kind: "action"; action: "home" | "create" | "skills" | "settings" | "new-session" | "files" | "git" | "stats" | "terminal" };
 export interface QuickItem { id: string; label: string; detail: string; target: QuickTarget }
 
 export type Translate = (path: string, params?: Record<string, string | number>) => string;
@@ -38,6 +39,7 @@ export function quickItems(agents: AgentDefinition[], sessions: Record<string, S
     { id: "create", label: t("nav.newAgent"), detail: t("app.quickCreateAgentDetail"), target: { kind: "action", action: "create" } },
     { id: "files", label: t("app.quickFiles"), detail: current || t("app.quickWorkspaceFallback"), target: { kind: "action", action: "files" } },
     { id: "git", label: t("app.quickGit"), detail: current || t("app.quickWorkspaceFallback"), target: { kind: "action", action: "git" } },
+    { id: "terminal", label: t("app.quickTerminal"), detail: t("app.quickTerminalDetail"), target: { kind: "action", action: "terminal" } },
     { id: "skills", label: t("app.quickSkills"), detail: t("app.quickSkillsDetail"), target: { kind: "action", action: "skills" } },
     { id: "settings", label: t("nav.openSettings"), detail: t("app.quickSettingsDetail"), target: { kind: "action", action: "settings" } },
   ];

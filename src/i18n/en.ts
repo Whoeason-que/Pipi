@@ -14,6 +14,7 @@ import { remoteAccess } from "./locales/en/remote-access.ts";
 import { settings } from "./locales/en/settings.ts";
 import { skills } from "./locales/en/skills.ts";
 import { stats } from "./locales/en/stats.ts";
+import { terminal } from "./locales/en/terminal.ts";
 import { themes } from "./locales/en/themes.ts";
 import { workspace } from "./locales/en/workspace.ts";
 
@@ -24,6 +25,7 @@ export const en = {
   workspace,
   chat,
   stats,
+  terminal,
   inspector,
   settings,
   notifications,

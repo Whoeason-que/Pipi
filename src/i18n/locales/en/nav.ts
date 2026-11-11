@@ -2,6 +2,7 @@ export const nav = {
   workspace: "Workspace",
   skills: "Skills",
   stats: "Stats",
+  terminal: "Terminal",
   settings: "Settings",
   agents: "Agents",
   subagents: "Subagents",

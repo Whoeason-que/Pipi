@@ -1,5 +1,6 @@
 export const inspector = {
   browser: "Browser",
+  terminal: "Terminal",
   browserAddress: "Web address",
   browserOpen: "Open",
   browserClose: "Close",

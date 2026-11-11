@@ -320,6 +320,13 @@ export default function ChatView({
         document.querySelector('[aria-modal="true"]')
       )
         return;
+      // Keys typed into the user terminal belong to the shell (vim, readline,
+      // Ctrl-F as forward-char, ...), not to the chat's find shortcut.
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".terminal-panel")
+      )
+        return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
         layout.closeNavigation();
@@ -344,6 +351,12 @@ export default function ChatView({
   useEffect(() => {
     if (!narrow || !inspectorOpen) return;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      // Escape is a normal key inside the terminal (vim, menus, ...).
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".terminal-panel")
+      )
+        return;
       if (event.key === "Escape") setInspectorOpen(false);
     };
     window.addEventListener("keydown", closeOnEscape);

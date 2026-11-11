@@ -1,0 +1,240 @@
+/* 用户终端：导航页与聊天右栏共用；xterm 内部结构样式由 @xterm/xterm 提供。 */
+
+.terminal-workbench {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.terminal-page-toolbar {
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 var(--space-5);
+}
+
+.terminal-page-title {
+  font-size: var(--text-md);
+}
+
+.terminal-workspace-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.terminal-workspace-picker .text-input {
+  min-width: 150px;
+  max-width: 300px;
+}
+
+.terminal-page-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3) var(--space-5) var(--space-5);
+}
+
+.terminal-ipanel.active {
+  height: 100%;
+}
+
+.terminal-panel {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.terminal-panel.variant-rail {
+  min-height: 200px;
+}
+
+.terminal-tabs {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.terminal-tab {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+
+.terminal-tab > button[role="tab"] {
+  display: inline-flex;
+  max-width: 170px;
+  height: var(--control-sm);
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.terminal-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.terminal-tab-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.terminal-tab-dot.running {
+  background: var(--ok);
+}
+
+.terminal-tab-close {
+  height: var(--control-sm);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: var(--text-md);
+  padding: 0 6px;
+}
+
+.terminal-tab-close:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.terminal-new {
+  height: var(--control-sm);
+  min-width: var(--control-sm);
+  flex-shrink: 0;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--text-md);
+}
+
+.terminal-new:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.terminal-new:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.terminal-toolbar {
+  display: flex;
+  min-height: 24px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.terminal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.terminal-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.terminal-status.running {
+  color: var(--ok);
+}
+
+.terminal-status.running::before {
+  background: var(--ok);
+}
+
+.terminal-path {
+  flex: 1;
+  min-width: 80px;
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-surface {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  padding: 4px;
+}
+
+.terminal-surface > .xterm {
+  height: 100%;
+}
+
+.terminal-empty {
+  flex: 1;
+  min-height: 160px;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+}
+
+.terminal-empty p {
+  max-width: 40ch;
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+@media (max-width: 880px) {
+  .terminal-page-toolbar {
+    padding: 0 8px;
+  }
+
+  .terminal-page-body {
+    padding: 8px;
+  }
+
+  .terminal-workspace-picker {
+    margin-left: 0;
+  }
+}

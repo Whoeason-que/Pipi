@@ -5,6 +5,7 @@ import type { ModelCatalog } from "./catalog";
 import { sessionKey } from "./session-key.ts";
 import { readStored } from "./storage.ts";
 import { DEMO_WORKSPACE, demoWorkspaceChanges, demoWorkspaceDiff, demoWorkspaceFile, demoWorkspaceListing } from "./dev-workspace";
+import { base64ToBytes, bytesToBase64 } from "./terminal/base64";
 
 const demoAgent: AgentDefinition = {
   name: "demo-assistant",
@@ -21,6 +22,50 @@ const demoAgent: AgentDefinition = {
   compactThresholdPercent: 75,
   systemPrompt: "both",
 };
+
+/** Browser-only terminal demo: a tiny echo shell with the real cursor protocol. */
+interface DemoTerminal {
+  id: string;
+  workspace: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  running: boolean;
+  exitCode: number | null;
+  createdAt: number;
+  chunks: Uint8Array[];
+  /** Unfinished command line; text arrives one keystroke at a time. */
+  input: string;
+}
+const demoTerminals = new Map<string, DemoTerminal>();
+let demoTicket = 0;
+const demoEncoder = new TextEncoder();
+const demoDecoder = new TextDecoder();
+
+function demoTerminalSnapshot(terminal: DemoTerminal) {
+  return {
+    terminalId: terminal.id,
+    workspace: terminal.workspace,
+    shell: terminal.shell,
+    cols: terminal.cols,
+    rows: terminal.rows,
+    running: terminal.running,
+    exitCode: terminal.exitCode,
+    createdAt: terminal.createdAt,
+  };
+}
+
+function demoTerminalRead(terminal: DemoTerminal, afterSeq: number) {
+  return {
+    chunks: terminal.chunks
+      .slice(afterSeq)
+      .map((data, index) => ({ seq: afterSeq + index, data: bytesToBase64(data) })),
+    nextSeq: terminal.chunks.length,
+    truncated: false,
+    running: terminal.running,
+    exitCode: terminal.exitCode,
+  };
+}
 
 const initialDemoMessages: Array<Record<string, unknown>> = [
   { role: "user", content: "帮我看看这个项目的结构", timestamp: Date.now() - 260000 },
@@ -1472,6 +1517,94 @@ export function installDevMock(): void {
             })),
           );
         }
+        case "list_terminals": {
+          const workspace = args.workspace == null ? null : String(args.workspace);
+          return Promise.resolve(
+            [...demoTerminals.values()]
+              .filter((terminal) => workspace === null || terminal.workspace === workspace)
+              .map(demoTerminalSnapshot),
+          );
+        }
+        case "open_terminal": {
+          const workspace = String(args.workspace ?? demoAgent.workspace ?? DEMO_WORKSPACE);
+          const terminal: DemoTerminal = {
+            id: `term-demo-${++demoTicket}`,
+            workspace,
+            shell: "/bin/bash",
+            cols: Number(args.cols ?? 120),
+            rows: Number(args.rows ?? 32),
+            running: true,
+            exitCode: null,
+            createdAt: Date.now(),
+            chunks: [
+              demoEncoder.encode(
+                "Pipi demo terminal. Type a command and press Enter.\r\ndemo$ ",
+              ),
+            ],
+            input: "",
+          };
+          demoTerminals.set(terminal.id, terminal);
+          return Promise.resolve(demoTerminalSnapshot(terminal));
+        }
+        case "read_terminal": {
+          const terminal = demoTerminals.get(String(args.terminalId ?? ""));
+          if (!terminal) {
+            return Promise.reject(new Error("Terminal does not exist in this workspace"));
+          }
+          const afterSeq = Number(args.afterSeq ?? 0);
+          const wait = Math.min(Number(args.waitMs ?? 0), 500);
+          if (afterSeq >= terminal.chunks.length && terminal.running && wait > 0) {
+            // Keep the real long-poll shape; without this the reader would
+            // spin at full speed on an unchanging fake buffer.
+            return new Promise((resolve) => {
+              setTimeout(() => resolve(demoTerminalRead(terminal, afterSeq)), wait);
+            });
+          }
+          return Promise.resolve(demoTerminalRead(terminal, afterSeq));
+        }
+        case "write_terminal": {
+          const terminal = demoTerminals.get(String(args.terminalId ?? ""));
+          if (!terminal) {
+            return Promise.reject(new Error("Terminal does not exist in this workspace"));
+          }
+          const bytes = base64ToBytes(String(args.data ?? ""));
+          terminal.chunks.push(bytes);
+          // xterm sends one keystroke per onData call; only a CR/LF completes
+          // the line, like the PTY line discipline does.
+          terminal.input += demoDecoder.decode(bytes);
+          for (;;) {
+            const match = terminal.input.match(/[\r\n]/);
+            if (!match) break;
+            const index = match.index ?? 0;
+            const command = terminal.input.slice(0, index).trim();
+            terminal.input = terminal.input.slice(index + 1);
+            if (command === "exit") {
+              terminal.running = false;
+              terminal.exitCode = 0;
+              terminal.chunks.push(demoEncoder.encode("\r\n"));
+            } else if (command === "clear") {
+              terminal.chunks.push(demoEncoder.encode("\x1b[2J\x1b[Hdemo$ "));
+            } else {
+              terminal.chunks.push(
+                demoEncoder.encode(
+                  `\r\ndemo: ${command || "(empty line)"}\r\ndemo$ `,
+                ),
+              );
+            }
+          }
+          return Promise.resolve(null);
+        }
+        case "resize_terminal": {
+          const terminal = demoTerminals.get(String(args.terminalId ?? ""));
+          if (terminal) {
+            terminal.cols = Number(args.cols ?? terminal.cols);
+            terminal.rows = Number(args.rows ?? terminal.rows);
+          }
+          return Promise.resolve(null);
+        }
+        case "close_terminal":
+          demoTerminals.delete(String(args.terminalId ?? ""));
+          return Promise.resolve(null);
         default:
           return Promise.resolve(null);
       }

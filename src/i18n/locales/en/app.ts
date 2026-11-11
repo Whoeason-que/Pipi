@@ -37,9 +37,12 @@ export const app = {
   workspaceFilterAll: "All workspaces",
   filesNav: "Files",
   gitNav: "Git · Changes",
+  terminalNav: "Terminal",
   forum: "Forum",
 
   // 快捷操作
+  quickTerminal: "Terminal",
+  quickTerminalDetail: "Open a shell in a workspace",
   quickActions: "Quick actions",
   quickSearchPlaceholder: "Search Agents, sessions or actions…",
   quickSearchLabel: "Search quick actions",

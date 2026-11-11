@@ -453,6 +453,11 @@ export function IconGit() {
   return <IconBase><circle cx="6" cy="5" r="3" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="19" r="3" /><path d="M6 8v8m12-7c0 5-12 1-12 7" /></IconBase>;
 }
 
+/** 用户终端（导航栏、终端面板）。 */
+export function IconTerminal() {
+  return <IconBase><path d="m4 7 4 4-4 4" /><path d="M12 15h8" /></IconBase>;
+}
+
 export function IconGitBranch({ size = 14 }: { size?: number } = {}) {
   return (
     <IconBase size={size}>

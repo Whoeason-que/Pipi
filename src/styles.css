@@ -28,4 +28,5 @@
 @import "./styles/features/forum.css";
 @import "./styles/features/files.css";
 @import "./styles/features/source-control.css";
+@import "./styles/features/terminal.css";
 @import "./styles/content/markdown.css";

@@ -11,6 +11,7 @@ import {
   IconSearch,
   IconSkill,
   IconSubagent,
+  IconTerminal,
 } from "../icons";
 import { LayoutContext } from "./layout-context";
 import type { AgentSection, NavSection } from "./navigation";
@@ -43,6 +44,7 @@ export default function AppNavigation({
             ["stats", t("nav.stats"), IconChart],
             ["files", t("app.filesNav"), IconFolder],
             ["git", t("app.gitNav"), IconGit],
+            ["terminal", t("nav.terminal"), IconTerminal],
             ["search", t("common.search"), IconSearch],
             ["skills", t("nav.skills"), IconSkill],
             ["forum", t("app.forum"), IconForum],

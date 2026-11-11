@@ -2,6 +2,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { I18nProvider, getDefaultLocale } from "./i18n";
+// xterm 的结构样式必须先于自有样式加载，终端配色/尺寸由 terminal.css 接管。
+import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 
 import { applyTheme, getInitialThemeId } from "./theme";

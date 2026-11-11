@@ -19,6 +19,7 @@ import ChatView from "./chat/ChatView";
 import { visibleSessions } from "./chat/session-tree";
 import { WorkspaceSidebar } from "./files/WorkspaceSidebar";
 import { WorkspaceView } from "./files/WorkspaceView";
+import { TerminalView } from "./terminal/TerminalView";
 import { ForumSidebar } from "./forum/ForumSidebar";
 import ForumView from "./forum/ForumView";
 import { ForumProvider } from "./forum/forum-state";
@@ -183,6 +184,7 @@ export default function App() {
       void navigation.releaseIdle(previous.agentName);
     }
     if (next.kind === "files" || next.kind === "git") setNavSection(next.kind);
+    else if (next.kind === "terminal") setNavSection("terminal");
     else if (next.kind === "skills") setNavSection("skills");
     else if (next.kind === "forum") setNavSection("forum");
     else if (next.kind === "home") setNavSection(next.section ?? "agents");
@@ -269,6 +271,8 @@ export default function App() {
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.isComposing || authStatus.checking || !authStatus.authenticated) return;
+      // The focused terminal owns its keys (Ctrl/Cmd-K clear, Escape in vim).
+      if (event.target instanceof Element && event.target.closest(".terminal-panel")) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k"
         && !document.querySelector('[aria-modal="true"]')) {
         event.preventDefault(); setPaletteOpen(open => !open);
@@ -321,7 +325,7 @@ export default function App() {
     if (target.kind === "agent") selectAgent(target.agentName);
     else if (target.kind === "chat") openSession(target.agentName, target.sessionId);
     else if (target.action === "new-session") { if (selected) void navigation.startNewSession(selected); }
-    else if (target.action === "files" || target.action === "git" || target.action === "stats") openSection(target.action);
+    else if (target.action === "files" || target.action === "git" || target.action === "stats" || target.action === "terminal") openSection(target.action);
     else navigate({ kind: target.action });
   };
   const visibleAgents = agentsInSection(filteredAgents, collection);
@@ -342,9 +346,11 @@ export default function App() {
     // 窄屏抽屉打开时，切换顶栏分区不收起抽屉：分区的列表就在抽屉里（技能、论坛、
     // 工作区、Agent 会话……），收起等于把刚切过去的内容一起藏起来。文件 ↔ Git 在桌面端
     // 也按标签处理（不改变侧栏开合），其它分区在桌面端仍按「进入分区」展开侧栏。
+    // 终端例外：它的工作区选择器在页面里，抽屉留着只会把终端整屏盖住（手机没有 Esc）。
     const tabSwitch = (section === "files" || section === "git")
       && (viewRef.current.kind === "files" || viewRef.current.kind === "git");
-    const keepSidebar = options?.keepSidebar || tabSwitch || (mobile && sidebarOpen);
+    const keepSidebar = options?.keepSidebar || tabSwitch
+      || (mobile && sidebarOpen && section !== "terminal");
     const navOptions = { keepSidebar };
     if (section === "agents" || section === "subagents") {
       const target = navigationMemory.restore(section, filteredAgents);
@@ -416,7 +422,7 @@ export default function App() {
         running={{ agents: agentsInSection(filteredAgents, "agents").some(agent => agentHasRunning(agent.name)),
           subagents: agentsInSection(filteredAgents, "subagents").some(agent => agentHasRunning(agent.name)) }}
         onOpenSection={openSection} />
-      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "stats" ? t("stats.title") : navSection === "files" || navSection === "git" ? t("app.sidebarFilesGit") : t("app.sidebarAgents")}>
+      <aside ref={sidebarRef} inert={mobile && !sidebarOpen} className="sidebar" id="primary-navigation" aria-label={view.kind === "settings" ? t("settings.title") : navSection === "stats" ? t("stats.title") : navSection === "files" || navSection === "git" ? t("app.sidebarFilesGit") : navSection === "terminal" ? t("nav.terminal") : t("app.sidebarAgents")}>
         {/* 设置保留独立快捷搜索；agents/subagents 顶部为 C 行（工作区 pill + ⌘K 图标钮）。 */}
         {view.kind === "settings" ? (
           <button type="button" className="sidebar-quick" onClick={() => setPaletteOpen(true)}><IconSearch /><span>{t("nav.quickSearch")}</span><kbd>⌘ K</kbd></button>
@@ -493,6 +499,8 @@ export default function App() {
             sessions={files.workspaceSessions} canReference={files.workspaceAgents.length > 0} defaultSession={files.workspaceSessions[0]?.id ?? null}
             onOpenFile={path => { files.openWorkspaceFile(files.currentWorkspaceTarget?.workspace ?? "", path); }} onReference={files.referenceToSession}
             onModeChange={mode => openSection(mode, { keepSidebar: true })} />
+          : view.kind === "terminal" ? <TerminalView workspaces={workspaces} activeWorkspace={activeWorkspace}
+            current={current ?? null} agents={filteredAgents} />
           : current && view.kind === "chat" && settings ? <ChatView key={`${current.name}-${chatKey}`} agent={current} providers={settings.providers}
             initialController={view.sessionId === null ? navigationMemory.controllerFor(current.name, null) : undefined} onControllerReady={bindChatController}
             onOpenFile={path => files.openWorkspaceFile(current.name, path)}
