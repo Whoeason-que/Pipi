@@ -13,7 +13,7 @@ use crate::buffer::DEFAULT_MAX_BUFFER_BYTES;
 use crate::session::{Terminal, terminate_batch, terminate_batch_async};
 use crate::types::{TerminalRead, TerminalSnapshot, TerminalSpec};
 
-pub const MAX_TERMINALS_PER_WORKSPACE: usize = 8;
+pub(crate) const MAX_TERMINALS_PER_WORKSPACE: usize = 8;
 
 #[derive(Clone)]
 pub struct TerminalManager {
@@ -23,12 +23,6 @@ pub struct TerminalManager {
 struct Inner {
     workspaces: Mutex<HashMap<std::path::PathBuf, Vec<Arc<Terminal>>>>,
     accepting: AtomicBool,
-}
-
-impl Default for TerminalManager {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl TerminalManager {

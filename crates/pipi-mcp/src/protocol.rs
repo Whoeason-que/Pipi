@@ -42,15 +42,8 @@ pub struct CallToolResult {
 #[derive(Debug, Clone)]
 pub enum ContentPart {
     Text(String),
-    Image {
-        data: String,
-        mime_type: String,
-    },
-    ResourceText {
-        uri: String,
-        text: String,
-        mime_type: Option<String>,
-    },
+    Image { data: String, mime_type: String },
+    ResourceText { uri: String, text: String },
     Other(Value),
 }
 
@@ -133,10 +126,6 @@ fn parse_content(value: &Value) -> ContentPart {
                         .unwrap_or_default()
                         .to_string(),
                     text: text.to_string(),
-                    mime_type: resource
-                        .get("mimeType")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
                 },
                 // 二进制 resource（base64 blob）先原样交给宿主，不在这里猜怎么展示。
                 None => ContentPart::Other(value.clone()),

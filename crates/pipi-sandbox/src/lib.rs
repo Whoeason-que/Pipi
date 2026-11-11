@@ -51,11 +51,8 @@ fn binary_on_supported_platform() -> Option<PathBuf> {
         return path.is_file().then_some(path);
     }
 
-    let name = if cfg!(windows) {
-        "pipi-sandbox.exe"
-    } else {
-        "pipi-sandbox"
-    };
+    // 本函数只在 linux/macos 编译（Windows 没有后端实现），所以不存在 `.exe` 变体。
+    let name = "pipi-sandbox";
 
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()

@@ -286,10 +286,6 @@ impl McpClient {
         Ok(protocol::parse_call_result(&result))
     }
 
-    pub async fn ping(&self) -> Result<(), McpError> {
-        self.request("ping", json!({})).await.map(|_| ())
-    }
-
     pub fn server_info(&self) -> ServerInfo {
         lock_info(&self.inner).clone()
     }

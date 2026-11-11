@@ -7,7 +7,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::process::GroupGuard;
 
-const MAX_OUTPUT: u64 = 50 * 1024;
+const MAX_OUTPUT: u64 = crate::truncate::DEFAULT_MAX_BYTES as u64;
 
 pub struct SearchWorkspaceTool;
 
@@ -17,8 +17,10 @@ impl AgentTool for SearchWorkspaceTool {
         "search_workspace"
     }
     fn description(&self) -> String {
-        "Search workspace text with ripgrep, respecting ignore files. Results are capped at 50 KiB."
-            .into()
+        format!(
+            "Search workspace text with ripgrep, respecting ignore files. Results are capped at {} KiB.",
+            MAX_OUTPUT / 1024
+        )
     }
     fn parameters(&self) -> Value {
         json!({"type":"object", "additionalProperties":false, "properties":{"pattern":{"type":"string","description":"Regex pattern to search for."}}, "required":["pattern"]})
@@ -119,7 +121,10 @@ impl AgentTool for SearchWorkspaceTool {
         output.truncate(MAX_OUTPUT as usize);
         let mut text = String::from_utf8_lossy(&output).into_owned();
         if truncated {
-            text.push_str("\n[Results truncated at 50 KiB]");
+            text.push_str(&format!(
+                "\n[Results truncated at {} KiB]",
+                MAX_OUTPUT / 1024
+            ));
         }
         if text.is_empty() {
             text.push_str("No matches found.");

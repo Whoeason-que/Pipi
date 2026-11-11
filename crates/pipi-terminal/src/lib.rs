@@ -15,5 +15,5 @@ mod manager;
 mod session;
 mod types;
 
-pub use manager::{MAX_TERMINALS_PER_WORKSPACE, TerminalManager};
+pub use manager::TerminalManager;
 pub use types::{TerminalChunk, TerminalRead, TerminalSnapshot, TerminalSpec};
