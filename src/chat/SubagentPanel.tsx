@@ -158,7 +158,7 @@ function SubagentPreview({ run, agent, runtime, running }: {
     () => runtime.get(agent, run.id),
     [runtime, agent, run.id],
   );
-  useEffect(() => { void controller.reconnect(); }, [controller]);
+  useEffect(() => { void controller.hydrate(); }, [controller]);
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const entries = snapshot.chat.entries.filter(isPreviewEntry).slice(-10);
   const liveRunning = running || snapshot.chat.running;

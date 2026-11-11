@@ -39,3 +39,12 @@ export function writeStored(key: string, value: string): void {
     // 隐私模式/配额耗尽：不影响本次使用
   }
 }
+
+/** 删一个 localStorage 键；存储不可用时静默忽略。 */
+export function deleteStored(key: string): void {
+  try {
+    safeLocalStorage()?.removeItem(key);
+  } catch {
+    // 隐私模式/禁用存储：视为已经不存在
+  }
+}

@@ -1,7 +1,7 @@
 import type { Listen } from "./ipc.ts";
 import { DraftStore } from "./drafts.ts";
 import { SessionController, type SessionFrame, type SessionTransport } from "./session-controller.ts";
-import { sessionKey as composeSessionKey } from "./session-key.ts";
+import { sessionKey as composeSessionKey, sessionKeyPrefix } from "./session-key.ts";
 import type { AgentDefinition, SessionChangedPayload } from "./types.ts";
 import { forgetAgentBrowsers, forgetBrowserSession, rekeyBrowserSession } from "./chat/browser-sessions.ts";
 
@@ -42,7 +42,7 @@ export class SessionRuntime {
   forgetAgent(agent: string): void {
     forgetAgentBrowsers(agent);
     this.composerDrafts.forgetAgent(agent);
-    const prefix = `${agent}\u0000`;
+    const prefix = sessionKeyPrefix(agent);
     for (const map of [this.sessions, this.replay]) {
       for (const sessionKey of map.keys()) if (sessionKey.startsWith(prefix)) map.delete(sessionKey);
     }
@@ -83,7 +83,7 @@ export class SessionRuntime {
     this.replay.clear();
     const controllers = [...new Set([...this.sessions.values(), ...this.drafts])]
       .filter(controller => controller.getSnapshot().sessionId !== null && (controller.observed || controller.getSnapshot().chat.running));
-    await Promise.allSettled(controllers.map(controller => controller.reconnect()));
+    await Promise.allSettled(controllers.map(controller => controller.hydrate()));
   }
 
   subscribe(listener: (frame: RuntimeFrame) => void): () => void {

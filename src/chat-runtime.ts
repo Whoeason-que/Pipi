@@ -452,6 +452,29 @@ function mergeToolMessageEntry(entry: ChatEntry, message: MessageView): ChatEntr
   };
 }
 
+/** 把 toolResult 消息并入已有的 `tool-<id>` 条目；没有对应条目时返回 null。 */
+function mergeToolResultEntry(state: ChatState, message: MessageView): ChatState | null {
+  if (message.role !== "toolResult" || !message.toolCallId) return null;
+  const toolKey = `tool-${message.toolCallId}`;
+  if (!state.entries.some((entry) => entry.key === toolKey)) return null;
+  return {
+    ...state,
+    entries: state.entries.map((entry) => (
+      entry.key === toolKey ? mergeToolMessageEntry(entry, message) : entry
+    )),
+  };
+}
+
+/** 工具事件按 key 替换已有条目，缺失时追加。 */
+function upsertEntry(state: ChatState, entry: ChatEntry): ChatState {
+  const exists = state.entries.some((existing) => existing.key === entry.key);
+  return {
+    ...state,
+    entries: exists
+      ? state.entries.map((existing) => (existing.key === entry.key ? { ...existing, ...entry } : existing))
+      : [...state.entries, entry],
+  };
+}
 
 function mergeHydratedEntries(state: ChatState, messages: MessageView[]): ChatEntry[] {
   const calls = new Map<string, { name: string; args: unknown }>();
@@ -692,18 +715,8 @@ function applyCompletedMessage(state: ChatState, message: MessageView, key: stri
     };
   }
 
-  if (message.role === "toolResult" && message.toolCallId) {
-    const toolKey = `tool-${message.toolCallId}`;
-    const toolEntry = state.entries.find((entry) => entry.key === toolKey);
-    if (toolEntry) {
-      return {
-        ...state,
-        entries: state.entries.map((entry) => (
-          entry.key === toolKey ? mergeToolMessageEntry(entry, message) : entry
-        )),
-      };
-    }
-  }
+  const merged = mergeToolResultEntry(state, message);
+  if (merged) return merged;
 
   if (state.entries.some((entry) => sameMessage(entry, message))) return state;
   return {
@@ -783,18 +796,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         case "message_start": {
           const message = event.message;
           if (message.role !== "assistant") {
-            if (message.role === "toolResult" && message.toolCallId) {
-              const toolKey = `tool-${message.toolCallId}`;
-              const toolEntry = state.entries.find((entry) => entry.key === toolKey);
-              if (toolEntry) {
-                return {
-                  ...state,
-                  entries: state.entries.map((entry) => (
-                    entry.key === toolKey ? mergeToolMessageEntry(entry, message) : entry
-                  )),
-                };
-              }
-            }
+            const merged = mergeToolResultEntry(state, message);
+            if (merged) return merged;
             if (state.entries.some((entry) => sameMessage(entry, message))) return state;
             return {
               ...state,
@@ -862,10 +865,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             transient: true,
           };
           return {
-            ...state,
-            entries: existing
-              ? state.entries.map((entry) => (entry.key === key ? { ...entry, ...nextEntry } : entry))
-              : [...state.entries, nextEntry],
+            ...upsertEntry(state, nextEntry),
             running: true,
           };
         }
@@ -885,12 +885,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             toolRunning: true,
             transient: true,
           };
-          return {
-            ...state,
-            entries: existing
-              ? state.entries.map((entry) => (entry.key === key ? { ...entry, ...nextEntry } : entry))
-              : [...state.entries, nextEntry],
-          };
+          return upsertEntry(state, nextEntry);
         }
         case "tool_execution_end": {
           const key = `tool-${event.toolCallId}`;
@@ -910,12 +905,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             toolRunning: false,
             transient: true,
           };
-          return {
-            ...state,
-            entries: existing
-              ? state.entries.map((entry) => (entry.key === key ? { ...entry, ...nextEntry } : entry))
-              : [...state.entries, nextEntry],
-          };
+          return upsertEntry(state, nextEntry);
         }
 
         case "retry_start": {

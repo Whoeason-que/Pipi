@@ -3,6 +3,7 @@ import { listen as tauriListen, type Event, type UnlistenFn } from "@tauri-apps/
 import type { CommandArgs, CommandName, CommandResult, EventMap } from "./ipc";
 
 import { CommandTransportError, decodeCommandResponse } from "./transport-error.ts";
+import { deleteStored, readStored, writeStored } from "./storage.ts";
 
 type PlatformEvent<T> = Pick<Event<T>, "payload">;
 type PlatformListener = (event: PlatformEvent<unknown>) => void;
@@ -68,29 +69,20 @@ export function getStoredToken(): string | null {
     const query = new URLSearchParams(window.location.search);
     const queryToken = query.get("token");
     if (queryToken) {
-      localStorage.setItem(TOKEN_STORAGE_KEY, queryToken);
+      writeStored(TOKEN_STORAGE_KEY, queryToken);
       const url = new URL(window.location.href);
       url.searchParams.delete("token");
       window.history.replaceState({}, "", url.toString());
       return queryToken;
     }
   } catch {}
-  try {
-    return localStorage.getItem(TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  return readStored(TOKEN_STORAGE_KEY, "") || null;
 }
 
 export function setStoredToken(token: string | null): void {
   if (typeof window === "undefined") return;
-  try {
-    if (token) {
-      localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-    }
-  } catch {}
+  if (token) writeStored(TOKEN_STORAGE_KEY, token);
+  else deleteStored(TOKEN_STORAGE_KEY);
 }
 
 function webApiBase(): string {

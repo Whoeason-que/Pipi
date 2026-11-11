@@ -94,7 +94,6 @@ export function useFilesBridge(args: {
   }, [workspaceAgents, current?.name, sessionsByAgent, sessionRuntime, navigation, activeWorkspace, selectWorkspaceFilter, t]);
 
   return {
-    previewWorkspacePaths,
     setPreviewWorkspacePaths,
     currentWorkspaceTarget,
     workspaceAgents,

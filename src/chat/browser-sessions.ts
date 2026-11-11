@@ -1,4 +1,5 @@
 import type { Webview } from "@tauri-apps/api/webview";
+import { sessionKey, sessionKeyPrefix } from "../session-key.ts";
 
 /** Lives beyond a mounted inspector so background sessions retain their page. */
 export interface BrowserSession {
@@ -10,18 +11,18 @@ export interface BrowserSession {
 }
 
 const browsers = new Map<string, BrowserSession>();
-const key = (agent: string, session: string) => JSON.stringify([agent, session]);
 
 export function browserSession(agent: string, session: string): BrowserSession | undefined {
-  return browsers.get(key(agent, session));
+  return browsers.get(sessionKey(agent, session));
 }
 
 export function setBrowserSession(agent: string, session: string, browser: BrowserSession): void {
-  browsers.set(key(agent, session), browser);
+  browsers.set(sessionKey(agent, session), browser);
 }
 
 export function removeBrowserSession(agent: string, session: string, browser: BrowserSession): void {
-  if (browsers.get(key(agent, session)) === browser) browsers.delete(key(agent, session));
+  const mapKey = sessionKey(agent, session);
+  if (browsers.get(mapKey) === browser) browsers.delete(mapKey);
 }
 
 export function forgetBrowserSession(agent: string, session: string): void {
@@ -33,15 +34,15 @@ export function forgetBrowserSession(agent: string, session: string): void {
 }
 
 export function forgetAgentBrowsers(agent: string): void {
+  const prefix = sessionKeyPrefix(agent);
   for (const encoded of browsers.keys()) {
-    const [owner, session] = JSON.parse(encoded) as [string, string];
-    if (owner === agent) forgetBrowserSession(owner, session);
+    if (encoded.startsWith(prefix)) forgetBrowserSession(agent, encoded.slice(prefix.length));
   }
 }
 
 export function rekeyBrowserSession(agent: string, previous: string, next: string): void {
   if (previous === next) return;
-  const oldKey = key(agent, previous), newKey = key(agent, next);
+  const oldKey = sessionKey(agent, previous), newKey = sessionKey(agent, next);
   const browser = browsers.get(oldKey);
   if (!browser || browsers.has(newKey)) return;
   browsers.delete(oldKey);

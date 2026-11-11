@@ -778,7 +778,7 @@ test("queue revisions reject late responses, accept idle changes after agent_end
   controller.receive({ type: "prompt-queue", payload: { ...payload, queue: { ...payload.queue, revision: 3, messages: [] } } });
   controller.receive({ type: "prompt-queue", payload });
   assert.equal(controller.getSnapshot().queue.messages.length, 0);
-  await controller.reconnect();
+  await controller.hydrate();
   assert.equal(controller.getSnapshot().queue.revision, 0);
   assert.equal(controller.getSnapshot().queue.paused, false);
 });
