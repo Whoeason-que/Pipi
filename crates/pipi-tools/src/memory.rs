@@ -64,8 +64,15 @@ impl AgentTool for MemoryTool {
         let action = args["action"].as_str().ok_or("Missing action")?;
         match action {
             "list" => {
-                let mut names: Vec<String> = Vec::new();
-                collect_markdown(&self.memory_dir, 0, &mut names);
+                // 递归读目录是同步 fs：放到阻塞线程池，别占住运行时 worker。
+                let dir = self.memory_dir.clone();
+                let names = tokio::task::spawn_blocking(move || {
+                    let mut names: Vec<String> = Vec::new();
+                    collect_markdown(&dir, 0, &mut names);
+                    names
+                })
+                .await
+                .map_err(|e| format!("Failed to list memory files: {e}"))?;
                 let text = if names.is_empty() {
                     "(memory is empty)".to_string()
                 } else {

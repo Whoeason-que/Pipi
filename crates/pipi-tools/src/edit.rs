@@ -71,7 +71,14 @@ fn line_spans(content: &str) -> Vec<(usize, usize)> {
     spans
 }
 
-fn fuzzy_find(content: &str, old_text: &str) -> Option<(MatchSpan, bool)> {
+/// 在 `content` 上定位 `old_text`：先精确匹配，失败再退到归一化空间。
+/// `normalized_content` 必须是 `normalize_for_fuzzy_match(content)` 的缓存 ——
+/// `apply_edits` 只在整个文件上算一次，不随 edit 数量重复。
+fn fuzzy_find(
+    content: &str,
+    normalized_content: &str,
+    old_text: &str,
+) -> Option<(MatchSpan, bool)> {
     if let Some(index) = content.find(old_text) {
         return Some((
             MatchSpan {
@@ -81,7 +88,6 @@ fn fuzzy_find(content: &str, old_text: &str) -> Option<(MatchSpan, bool)> {
             false,
         ));
     }
-    let normalized_content = normalize_for_fuzzy_match(content);
     let normalized_old = normalize_for_fuzzy_match(old_text);
     if normalized_old.is_empty() {
         return None;
@@ -97,8 +103,9 @@ fn fuzzy_find(content: &str, old_text: &str) -> Option<(MatchSpan, bool)> {
     })
 }
 
-fn count_occurrences(content: &str, old_text: &str) -> usize {
-    let normalized_content = normalize_for_fuzzy_match(content);
+/// 归一化空间里的出现次数；`normalized_content` 必须已是
+/// `normalize_for_fuzzy_match` 的结果。
+fn count_occurrences(normalized_content: &str, old_text: &str) -> usize {
     let normalized_old = normalize_for_fuzzy_match(old_text);
     if normalized_old.is_empty() {
         return 0;
@@ -261,23 +268,30 @@ pub fn apply_edits(content: &str, edits: &[Edit], path: &str) -> Result<String, 
         }
     }
 
+    // 整份文件只归一化一次：N 个 edit 共用同一份归一化 base，每个 edit 只归一化
+    // 自己的 oldText（旧实现是每个 edit 都把整个文件重跑一遍 NFKC + 逐行 trim，
+    // 上限 16 MiB × N）。归一化是幂等的，对已归一化串再归一化等价。
+    let normalized_base = normalize_for_fuzzy_match(content);
     // 任一 edit 需要模糊匹配，就整体切到归一化空间匹配（与 pi 一致），这样
     // 一个 edit 的空白差异不会让同批的另一个 edit 落在不同的偏移空间里。
-    let used_fuzzy = normalized
-        .iter()
-        .any(|edit| matches!(fuzzy_find(content, &edit.old_text), Some((_, true))));
+    let used_fuzzy = normalized.iter().any(|edit| {
+        matches!(
+            fuzzy_find(content, &normalized_base, &edit.old_text),
+            Some((_, true))
+        )
+    });
     let base = if used_fuzzy {
-        normalize_for_fuzzy_match(content)
+        normalized_base.as_str()
     } else {
-        content.to_string()
+        content
     };
 
     let mut matched: Vec<(usize, usize, usize, &str)> = Vec::new();
     for (edit_index, edit) in normalized.iter().enumerate() {
-        let Some((span, _)) = fuzzy_find(&base, &edit.old_text) else {
+        let Some((span, _)) = fuzzy_find(base, &normalized_base, &edit.old_text) else {
             return Err(not_found_error(path, edit_index, total));
         };
-        let occurrences = count_occurrences(&base, &edit.old_text);
+        let occurrences = count_occurrences(&normalized_base, &edit.old_text);
         if occurrences > 1 {
             return Err(duplicate_error(path, edit_index, total, occurrences));
         }
@@ -298,9 +312,9 @@ pub fn apply_edits(content: &str, edits: &[Edit], path: &str) -> Result<String, 
         .map(|(index, len, _, new_text)| (*index, *len, *new_text))
         .collect();
     let new_content = if used_fuzzy {
-        apply_preserving_unchanged_lines(content, &base, &replacements)?
+        apply_preserving_unchanged_lines(content, base, &replacements)?
     } else {
-        apply_replacements(&base, &replacements, 0)
+        apply_replacements(base, &replacements, 0)
     };
     if new_content == content {
         return Err(no_change_error(path, total));
@@ -459,18 +473,23 @@ impl AgentTool for EditTool {
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());
         }
-        let secure = if confined {
-            Some(
-                crate::secure_file::SecureFile::open(&ctx.workspace, &abs, false)
-                    .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?,
-            )
-        } else {
-            None
-        };
         const MAX_EDIT_BYTES: usize = 16 * 1024 * 1024;
-        let raw = if let Some(file) = &secure {
-            file.read(MAX_EDIT_BYTES)
-                .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?
+        // 目录句柄的打开与最多 16 MiB 的同步读取一起放进阻塞线程池：
+        // `SecureFile` 只含 `OwnedFd` + `OsString`，可安全跨线程往返并继续用于写入。
+        let (secure, raw) = if confined {
+            let workspace = ctx.workspace.clone();
+            let target = abs.clone();
+            let display_path = path.to_string();
+            tokio::task::spawn_blocking(move || {
+                let file = crate::secure_file::SecureFile::open(&workspace, &target, false)
+                    .map_err(|e| format!("Could not edit file: {display_path}. Error: {e}"))?;
+                let raw = file
+                    .read(MAX_EDIT_BYTES)
+                    .map_err(|e| format!("Could not edit file: {display_path}. Error: {e}"))?;
+                Ok::<_, String>((Some(file), raw))
+            })
+            .await
+            .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))??
         } else {
             let meta = tokio::fs::metadata(&abs)
                 .await
@@ -480,9 +499,10 @@ impl AgentTool for EditTool {
                     "Could not edit file: {path}. Not a regular file or file too large."
                 ));
             }
-            tokio::fs::read_to_string(&abs)
+            let raw = tokio::fs::read_to_string(&abs)
                 .await
-                .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?
+                .map_err(|e| format!("Could not edit file: {path}. Error: {e}"))?;
+            (None, raw)
         };
         if ctx.abort.is_aborted() {
             return Err("Operation aborted".into());
